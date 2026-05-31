@@ -1,0 +1,979 @@
+Optimal Weighted Convolution for Classification and 1Denosing 2
+Simone Cammarasana
+
+, Giuseppe Patanè
+
+arXiv:2505.24558v1 [cs.CV] 30 May 2025
+
+Abstract
+We introduce a novel weighted convolution operator that enhances
+traditional convolutional neural networks (CNNs) by integrating a spatial
+density function into the convolution operator. This extension enables
+the network to differentially weight neighbouring pixels based on their
+relative position to the reference pixel, improving spatial characterisation
+and feature extraction. The proposed operator maintains the same number of trainable parameters and is fully compatible with existing CNN
+architectures. Although developed for 2D image data, the framework is
+generalisable to signals on regular grids of arbitrary dimensions, such as
+3D volumetric data or 1D time series. We propose an efficient implementation of the weighted convolution by pre-computing the density function
+and achieving execution times comparable to standard convolution layers.
+We evaluate our method on two deep learning tasks: image classification using the CIFAR-100 dataset [KH+ 09] and image denoising using
+the DIV2K dataset [AT17]. Experimental results with state-of-the-art
+classification (e.g., VGG [SZ15], ResNet [HZRS16]) and denoising (e.g.,
+DnCNN [ZZC+ 17], NAFNet [CCZS22]) methods show that the weighted
+convolution improves performance with respect to standard convolution
+across different quantitative metrics. For example, VGG achieves an accuracy of 66.94% with weighted convolution versus 56.89% with standard
+convolution on the classification problem, while DnCNN improves the
+PSNR value from 20.17 to 22.63 on the denoising problem. All models
+were trained on the CINECA Leonardo cluster to reduce the execution
+time and improve the tuning of the density function values. The PyTorch implementation of the weighted convolution is publicly available at:
+https://github.com/cammarasana123/weightedConvolution2.0. Keywords: Convolution, Density function, Denoising, Classification, Deep
+learning
+
+1
+
+Introduction
+
+Deep learning (DL) is a subset of artificial intelligence methodologies that
+focuses on the processing and analysis of signals defined on regular grids
+(e.g., 2D images). DL accounts for large datasets and hierarchical feature
+representations, including multiple linear and non-linear layers. These
+transformations map the input signal into higher-level abstractions, reducing the number of parameters required to represent the signal. DL
+is widespread in image-based applications, such as robotics [SAD23], autonomous navigation [KBF+ 21], computational chemistry [GHV17], and
+1 Simone Cammarasana CNR-IMATI, Via De Marini 6, Genova, Italy
+simone.cammarasana@ge.imati.cnr.it
+2 Giuseppe Patanè CNR-IMATI, Via De Marini 6, Genova, Italy
+
+1
+
+healthcare [CNP22]. The convolution operator is applied to 2D images
+to extract both geometrical and texture features and characterise spatial
+hierarchies and local patterns, leading to a class of DL models named
+convolutional neural networks (CNNs). In standard CNNs, convolution
+operations equally scale neighbouring pixels of a reference pixel, relying
+on optimised kernel weights to determine feature relevance. This assumption implies that all pixels in a local region contribute equally to the
+convolution, independent of their relative position (Sect. 2).
+We propose a novel weighted convolution operator that enhances the
+standard convolutional framework by incorporating a spatial density function, allowing the network to account for the relative position of each
+pixel and improving spatial characterisation and feature extraction. Although our method is focused on 2D image data, the weighted convolution
+framework is general to any signal defined on regular grids, such as 3D
+volumetric data (e.g., medical imaging), 1D time-series signals, or spatiotemporal sequences. As a significant advantage, the proposed weighted
+convolution does not increase the number of trainable parameters with
+respect to standard convolution, and is fully compatibility with existing
+convolutional neural network frameworks (see Sect. 3). We propose an efficient implementation of the weighted convolution with a pre-computation
+of the density function and the update of the kernel weights with the density function at every iteration, reducing the computational cost with an
+execution time comparable to the standard convolution layers.
+We analyse the application of our weighted convolution to state-of-theart deep learning problems and architectures. In particular, we discuss
+two different problems: (i) a classification problem with the CIFAR-100,
+a dataset of 60K images with 32 × 32 resolution and 100 classes; (ii) a denoising problem with the DIV2K, a dataset of 1,000 high-resolution RGB
+images. For the problem (i), we compare five different state-of-the art
+classification methods: the deep residual learning for image recognition
+(ResNet), very deep convolutional networks for large-scale image recognition (VGG), network in network (NIN), gated multi layer perceptron
+(gMLP), and gated attention coding for spiking neural networks (GACSNN), discussing the classification results through quantitative metrics:
+accuracy, F1-score, and confusion matrix. A sixth method, i.e., EfficientNet, has been tested without achieving convergence with both standard
+and weighted convolution. For the problem (ii), we compare three different state-of-the-art denoising methods: the residual learning of deep CNN
+(DnCNN), nonlinear activation free network (NAFNET), and cascaded
+gaze network (CGNet), discussing the denoising results through quantitative metrics: peak signal-to-noise ratio (PSNR), structural similarity
+(SSIM), feature-based similarity (FSIM), normalised mean squared error
+(MSE), and universal image quality (UIQ). For both problems (i) and
+(ii), we compare the standard convolution with our weighted convolution
+within the learning architectures. In particular, we manage the density
+function values as hyperparameters of the networks, keeping the same
+number of training parameters (Sect. 4).
+Our weighted convolution improves the results of standard convolution
+for all the tested methods. In the classification problem, the VGG has an
+accuracy of 66.94% with the weighted convolution, compared to an accu-
+
+2
+
+racy of 56.89% with the standard convolution. In the denoising problem,
+DnCNN has a PSNR value of 22.63 with the weighted convolution, compared to a PSNR value of 20.17 with the standard convolution. For the
+denoising problem, we also compare the results with different kernel sizes,
+showing that a 5 × 5 kernel and a density function with a small contribution of the external elements have better results than a 3 × 3 kernel. For
+the classification problem, we apply only 3×3 kernel size, due to the small
+image resolution. We have performed our tests on the CINECA Leonardo
+cluster. The parallelisation and high-performance of the hardware allow
+us to tune the density function to improve the accuracy of the weighted
+convolution and the results of the classification and denoising.
+We underline that we have implemented the public versions of all the
+learning methods for both classification and denoising. For a fair comparison, we have defined the same hyper-parametrisation in terms of weights
+initialisation, optimisation criteria, and data augmentation. For this reason, the accuracy results slightly differ with respect to the results mentioned in the respective papers. Finally, we discuss conclusions and future
+work (Sect. 5) as the extension to 3D kernels and applicative contexts (e.g.,
+biomedical data). The PyTorch class for the weighted convolution is available at https://github.com/cammarasana123/weightedConvolution2.0.
+
+2
+
+Related work
+
+Convolutional neural network The weighted convolutional neural network ensemble [FA14] combines output probabilities from multiple
+CNNs, assigning greater influence to models with higher accuracy. The
+constrained convolution layer [AAA22] restricts the number of trainable
+weights within each kernel by pruning less significant connections during
+training. DropOut [WZZ+ 13] reduces overfitting through a regularisation technique where each unit in a fully connected layer is randomly
+deactivated with a probability (1 − p). Additional regularisation strategies [SP22, HW19, ZYY+ 18] further improve generalisation. Hyperparameter optimisation is relevant for sensor-based human activity recognition [RA22], prediction of Parkinson’s disease [KAR20], and emotion
+recognition in intelligent tutoring systems [ZCRRBECL20]. Self-attention
+mechanisms [VSP+ 17] dynamically focus on different parts of the input,
+improving the characterisation of global dependencies.
+In [JLA22], convolutional kernels incorporate an additional weighted
+parameter for each kernel element, thus increasing the trainable variables
+of the model. In dynamic convolution [CDL+ 20], multiple kernels are
+dynamically weighted according to the input and adapt the convolution
+operation. Omni-dimensional dynamic convolution [LZY22] accounts for
+a multi-dimensional attention mechanism to learn complementary attentions for convolutional kernels along the dimensions of the kernel tensor
+Generalised convolution [GS19] replaces the traditional inner product with
+positive definite kernel functions (e.g., Gaussian, Laplacian). In convolutional kernel networks [MKHS14], local kernel approximations are applied
+to spatial regions of the input data to learn adaptive kernel functions. This
+approach has been extended to graph-based data [CJM20], where kernels
+
+3
+
+represent graph structure through local sub-patterns.
+
+Deep learning methods for classification The very deep convolutional networks for large-scale image recognition (VGG) [SZ15] architecture introduces a deep convolutional neural network with small convolutional filters, increasing depth with simple and uniform layers. The
+deep residual learning for image recognition (ResNet) [HZRS16] applies
+residual learning through skip connections to reduce the vanishing gradient problem. The Mobilenetv2 [SHZ+ 18] introduces an inverted residual
+structure where the shortcut connections are among the bottleneck layers
+and the intermediate expansion layer applies lightweight depthwise convolutions to filter features as a source of non-linearity Network in network
+(NiN) [LCY13] replaces traditional convolutional layers with small neural
+networks to capture complex features within local receptive fields. The
+gated multi-layer perceptron (gMLP) [LDSL21] applies gated MLP layers
+with spatial modulating units to characterise dependencies without attention mechanisms. The gated attention coding for spiking neural networks
+(GAC-SNN) introduces a novel group attention clustering to represent
+spatial correlations and shared features across neuron groups, accounting
+for unsupervised clustering to increase sparsity and robustness [QZC+ 24].
+EfficientNet [TL19] uniformly scales network dimensions using a fixed set
+of scaling coefficients.
+
+Deep learning methods for denoising The residual learning of
+deep CNN (DnCNN) [ZZC+ 17] introduces a residual learning strategy
+combined with batch normalisation to remove Gaussian noise across various noise levels. The fast and flexible denoising convolutional neural
+network (FFDNet) [ZZZ18] addresses a noise level map as input, accounting for spatially variant noise and improving flexibility during inference. The restoration transformer [ZAK+ 22] proposes a multi-stage
+transformer with a gated self-attention mechanism adapted for low-level
+vision through a hierarchical encoder-decoder structure and feature aggregation. The nonlinear activation free network NAFNet [CCZS22] introduces a lightweight attention-free network architecture using simple gated
+convolutions and normalisation-free layers. The cascaded gaze network
+(CGNet) [GJS+ 24] is an encoder-decoder architecture that removes selfattention mechanisms, applies a cascading structure, and progressively
+aggregates local features to capture global context. Singular value decomposition is applied through the learning of the optimal threshold values [CP25]. In the Noise2Noise algorithm [LMH+ 18], the network learns
+to denoise images accounting for the noisy data without any knowledge
+of the ground-truth. The Noise2Void algorithm [KBJ19] further expands
+this idea without requiring a couple of noisy images for the training. This
+approach is relevant in biomedical fields, where ground-truth images are
+typically not available. The Noise2Self method [BR19] proposes a selfsupervised algorithm without requiring any prior assumption on the input
+image and estimation of the noise.
+
+4
+
+3 Our weighted convolution & parameters’ tuning
+After recalling the standard convolution (Sect. 3.1), we introduce the
+weighted convolution and the efficient computation of the density function
+values (Sect. 3.2).
+
+3.1
+
+Standard convolution operator
+
+Given a compact domain Ω ∈ Rn and two functions f, g ∈ L1 (Ω), the
+convolution is defined as
+Z
+f (τ )g(t − τ )dτ .
+(1)
+(f ∗ g)(t) :=
+Ω
+
+In CNNs, Ω is a discrete 2D domain and the functions f, g are the input
+signal (e.g., the 2D image) and the filter (e.g., the convolution kernel),
+respectively. Given the input signal I ∈ RR×C defined on a 2D regular
+grid and the tensor of kernels W ∈ RKa ×Kb ×F composed of F kernels w
+f
+of size Ka ×Kb as (W )ijf := wij
+, we discretise the convolution in Eq. (1)
+of I with the kernels W as
+
+P a PKb f
+(I ∗ W )fij := K
+b=1 wab · Ii+a−Ka +1,j+b−Kb +1 ,
+a=1
+(2)
+i = 1 . . . R, j = 1 . . . C, f = 1 . . . F.
+Introducing the neighbourhood N (Iij ) as the Ka × Kb sub-matrix of I
+centred in (i, j), the discrete convolution is rewritten in matrix form as
+(I ∗ W )fij := ⟨wf , N (Iij )⟩F , where the Frobenius inner product ⟨·, ·⟩F of
+P
+Pn
+two matrices A, B ∈ Rm×n is defined as ⟨A, B⟩F := m
+i=1
+j=1 A(i, j)B(i, j).
+N
+N
+Given an input I = {Ii }i=1 and target T = {Ti }i=1 data set of N
+images, we define a learning model M as the minimisation of a loss function L with respect to the kernels W (i.e., the weights) between the output
+data set and the output of the network T̂
+M:
+
+min L(T , T̂ (W )),
+W
+
+(3)
+
+where T̂ is the output of the combination of convolution layers in Eq. (2)
+and non-linear operators applied to the input I.
+
+3.2
+
+Weighted convolution operator
+
+∞
+Given the density function
+R φ ∈ L (Ω), we introduce the weighted convolution as (f ∗ gφ )(t) := Ω f (τ )(φ(t − τ )g(t − τ ))dτ . The weighted convolution reduces to the standard convolution when φ := 1. Discretising the density function φ on a 2D regular grid as Φ ∈ RKa ×Kb , we
+define the tensor of kernels with density function as WΦ ∈ RKa ×Kb ×F ,
+f
+where (WΦ )ijf := Φij wij
+, and the discrete weighted convolution as
+
+
+
+
+
+(I ∗ WΦ )fij :=
+
+K
+Pa K
+Pb
+
+f
+(Φab wab
+)Ii+a−Ka +1,j+b−Kb +1 ,
+
+a=1 b=1
+
+i = 1 . . . R, j = 1 . . . C, f = 1 . . . F.
+
+5
+
+(4)
+
+Table 1: Comparison between standard and weighted convolution.
+
+In matrix form, (I ∗ WΦ )fij := ⟨Φ ◦ wf , N (Iij )⟩F , where the Hadamard
+product ◦ is the component-wise product of two matrices, i.e., ⟨A, B⟩F =:
+C, C(i, j) := A(i, j)B(i, j), A, B, C ∈ Rm×n . The density function Φ is
+shared across both the image and the kernels. We underline that the
+discrete weighted convolution with a uniform density function Φ = 1 is
+equivalent to the discrete convolution without a density function. Table 1
+compares standard and weighted convolution. Given the learning model
+in Eq. (3) and replacing the standard convolution I ∗ W in Eq. (2) with
+the convolution with the density function I ∗ WΦ in Eq. (4), we define
+the learning model
+MΦ :
+
+min L(T , T̂ (WΦ )).
+W
+
+(5)
+
+Efficient computation of the density function Given a squared
+kernel Ka = Kb = K, K odd, m = (K + 1)/2, we define the discrete
+density function as the Ka × Kb matrix Φ = αβ ⊤ (i.e., Φij = αi βj ),
+with α ∈ RKa , β ∈ RKb , where α and β represent the scaling factors
+along the two dimensions of the regular grid. We assume the following
+properties for the density function:
+• Symmetry along both the dimensions, i.e., α = β, α(i) = α(K −
+i + 1), i = 1 . . . K;
+• Value of the central node as αm = M .
+The density function Φ ∈ RK×K is defined through (K − 1)/2 coefficients,
+is symmetric, positive semidefinite, and with rank 1. Henceforth, we reduce the computation of the density function to the coefficients of α,
+as Φ = αα⊤ . With our definition of the density function properties,
+a 3 × 3 kernel size requires only one parameter for the density function,
+as α ∈ R3 , β = α, α2 = M , and α1 = α3 . Generally, it requires (K −1)/2
+parameters.
+The efficient implementation of the weighted convolution (Table 2)
+pre-computes the density function Φ as an initialisation step, and updates the tensor of kernels with density function WΦ at every iteration.
+The proposed implementation maintains the same number of trainable
+parameters of standard convolution and is fully compatible with existing
+
+6
+
+Table 2: Weighted convolution class
+
+CNN architectures. Given an input image of size C ×N ×N (with C channels and N × N resolution) and F filters of size K × K, the computational
+cost of the standard convolution is O(N 2 × C × F × K 2 ). The computational cost of the weighted convolution is O(N 2 × C × F × K 2 + K 2 × F ),
+where the computation of the kernels with density function adds K 2 × F
+operations.
+
+4
+
+Experimental results
+
+The training of both the classification and denoising models is performed
+on the CINECA Leonardo cluster, at the 7th position in the ”top500”
+list [url]. The cluster uses 3456 nodes and it is based on BullSequana
+XH2135 supercomputer nodes, each composed of four accelerators, Nvidia
+custom Ampere GPU 64GB HBM2 and a single CPU Intel Xeon 8358 with
+32 cores (2.60GHz). The module provides 110,592 cores and a Rpeak (i.e.,
+theoretical peak performance) of 304.47 PFlop/s. The parallelisation and
+high-performance of the training allow us to tune the density function to
+improve the accuracy of the weighted convolution and the results of the
+classification (Sect. 4.1) and denoising (Sect. 4.2).
+
+7
+
+Confusion matrix: Standard (left) and weighed (right) convolution
+ResNet 56
+VGG
+
+NiN
+
+gMLP
+
+GAC-SNN
+
+Legend
+
+Figure 1: Confusion matrix: standard, weighted convolution. ResNet 56, VGG,
+NiN, gMLP, and GAC-SNN.
+
+4.1
+
+Classification
+
+Dataset & quantitative metrics The CIFAR-100 dataset [KH+ 09]
+is a recognised benchmark in computer vision, commonly used for evaluating image classification algorithms. It is composed of 60K colour images
+at a resolution of 32×32 pixels, evenly distributed across 100 classes, with
+600 images per class, and split into 50K training images and 10K test images. The CIFAR-100 covers a wide range of categories, e.g., animals,
+cars, and fruits. The large number of classes and low resolution of the
+images make CIFAR-100 a challenging benchmark.
+Given TP as true positive, FP as false positive, TN as true negative,
+and FN as false negative prediction, we define the accuracy := (T P +
+T N )/(T P +T N +F P +F N ), the F 1−score := T P/(T P +0.5(F P +F N )).
+Given a classification problem with n classes, the confusion matrix is
+the n×n C matrix where Cij is the number of instances of class i predicted
+as class j. The diagonal elements represent the true positives.
+
+Methods and hyper-parameters We compare five methods: VGG,
+ResNet-56, gMLP, NiN, and GAC-SNN. For a fair comparison, we de-
+
+8
+
+Table 3: CIFAR-100 classification problem: quantitative metrics. Best
+results in bold. We report the α1 value.
+Method
+ResNet 56
+VGG
+NiN
+gMLP
+GAC-SNN
+
+α
+1.0
+1.15
+1.0
+0.75
+1.0
+0.9
+1.0
+0.95
+1.0
+0.8
+
+Accuracy
+39.59%
+43.97%
+56.89%
+66.94%
+51.96%
+52.35%
+32.21%
+32.66%
+54.32%
+62.24%
+
+F 1-score
+0.384
+0.434
+0.566
+0.670
+0.518
+0.522
+0.307
+0.341
+0.540
+0.624
+
+Table 4: CIFAR-100 classification problem: training execution time
+[seconds] per epoch.
+Method
+ResNet 56
+VGG
+NiN
+gMLP
+GAC-SNN
+
+Standard convolution
+202
+378
+109
+54
+118
+
+Weighted convolution
+215
+414
+115
+56
+130
+
+fine the same hyper-parametrisation for the five methods: we apply the
+stochastic gradient descent [iA93] optimiser with a learning rate of 0.1, a
+momentum of 0.9, and a decay of 0.5 × 10−4 , a cosine annealing of the
+learning rate, a maximum number of epochs of 200 with an early stopping
+criterion by monitoring the validation loss, a cross entropy loss function
+with label smoothing of 0.1, a data augmentation with random horizontal flip, a batch size of 128. The kernel weights are initialised with the
+Kaiming initialisation [HZRS15], using the same initialisation for both
+the standard and the weighted convolution. Due to the small resolution
+of the images, we apply only 1 × 1 and 3 × 3 convolution kernels. In the
+first case, the density function is not relevant. In the second case, we define the hyperparameter α1 in the range (0.5, 1.5). Finally, we recall that
+the training with the EfficientNet method did not converge with both
+standard and weighted convolution. The selected hyperparameterisation
+might have affected the convergence of the training.
+
+Experimental results Table 3 shows the accuracy and F1-score of
+the five methods, comparing standard convolution and weighted convolution. For all the methods, the weighted convolution improves the results
+in terms of both the quantitative metrics. For example, VGG has an
+accuracy of 66.94% with the weighted convolution, compared to 56.89%
+
+9
+
+Ground-truth
+
+DnCNN
+
+Noisy
+
+NAFNet
+
+CGNet
+
+Figure 2: Denoising results with standard (second row) and weighted (third
+row) convolution with 3 × 3 kernel.
+
+with standard convolution. We underline that some methods have a major improvement, due to the larger relevance of the convolution operator
+inside the learning architecture. Furthermore, the density function can
+assume values closer to 1 (e.g., in the gMLP method). In this case, the
+accuracy of standard and weighted convolutions is similar. However, we
+underline that the density function is always different from the uniform
+one. This result supports the application of the weighted convolution to
+improve the accuracy of the classification. Fig. 1 shows the confusion
+matrix of the five methods, comparing standard convolution (left) with
+weighted convolution (right) results.
+Table 4 reports the training time per epoch of each model for both
+standard and weighted convolution. We underline that the weighted convolution has an average of 5% more execution time. In this case, the low
+resolution of the input images increases the impact of the density function
+on the convolution operation time.
+
+4.2
+
+Denoising
+
+Dataset & quantitative metrics The DIV2K dataset [AT17] is a
+benchmark widely used for image super-resolution and restoration tasks.
+It is composed of 2K RGB images with resolutions close to 2, 048 × 1, 080
+and a variety of natural scenes and objects. The dataset is split into
+
+10
+
+DnCNN
+
+NAFNet
+
+CGNet
+
+Figure 3: Denoising results with standard (second row) and weighted (third
+row) convolution with 5 × 5 kernel.
+
+800 images for training, 100 for validation, and 1,100 for testing. DIV2K
+is a standard benchmark for image denoising and super resolution algorithms, allowing the user to evaluate the quality of textures, geometries,
+and artefacts removal.
+We quantify the results of the denoising by comparing the predicted
+and the ground-truth images through several metrics for local, texture,
+noise-based, and structural similarity: normalised mean squared error
+(NRMSE), peak-signal-to-noise-ratio (PSNR), structural similarity (SSIM),
+universal image quality [WB02] (UIQ), feature-based similarity [ZZMZ11]
+(FSIM). SSIM and FSIM vary from 0 (worst case) to 1 (best case), PSNR
+varies from 0 (worst case) to +∞ (best case), NRMSE varies from +∞
+(worst case) to 0 (best case), UIQ varies from −1 (worst case) to +1 (best
+case).
+
+Experimental results We compare three methods on the test dataset:
+DnCNN, NAFNet, and CGNet. For a fair comparison, we define the same
+hyper-parametrisation for the three methods: we apply the Adam [Kin14]
+optimiser with β1 = 0.9, β2 = 0.999, mean squared error loss function,
+100 epochs with an early stopping criterion by monitoring the validation
+loss, learning rate of 0.1 with cosine annealing. The kernel weights are
+
+11
+
+Table 5: DIV2K denoising: quantitative metrics. Best results in bold.
+We report the α1 value for the 3 × 3 kernel and the α1 , α2 values for
+the 5 × 5 kernel.
+Kernel
+
+Method
+DnCNN
+
+3×3
+
+NAFNet
+CGNet
+DnCNN
+
+5×5
+
+NAFNet
+CGNet
+
+α
+1.0
+0.8
+1.0
+0.7
+1.0
+0.8
+(1.0, 1.0)
+(0.1, 0.9)
+(1.0, 1.0)
+(0.5, 0.9)
+(1.0, 1.0)
+(0.6, 0.9)
+
+NRMSE
+0.112
+0.081
+0.064
+0.055
+0.048
+0.045
+0.266
+0.074
+0.068
+0.047
+0.051
+0.044
+
+PSNR
+20.17
+22.63
+24.82
+25.83
+26.57
+28.01
+12.15
+23.35
+24.13
+27.19
+26.01
+28.07
+
+SSIM
+0.735
+0.826
+0.865
+0.881
+0.896
+0.901
+0.402
+0.830
+0.842
+0.918
+0.801
+0.902
+
+FSIM
+0.921
+0.942
+0.963
+0.969
+0.970
+0.969
+0.768
+0.943
+0.957
+0.974
+0.969
+0.969
+
+initialised with the Kaiming initialisation [HZRS15], using the same initialisation for both the standard and the weighted convolution. We apply
+a Gaussian noise with µ = 0, σ = 0.01, and we use the same input and
+noisy images for all the methods. We apply both 3 × 3 and 5 × 5 convolution kernels. In the first case, we define the hyperparameter α1 in the
+range (0.5, 1.5). In the second case, we define the hyper-parameter α1 in
+the range (0.05, 1) and α2 in the range (0.5, 1.5).
+Table 5 shows the quantitative metrics for the three methods with
+both standard and weighted convolution and with 3 × 3 and 5 × 5 kernels.
+The weighted convolution improves the standard convolution under every
+metric and for all the methods. For example, DnCNN has an SSIM value
+with the weighted convolution of 0.826, versus an SSIM value of 0.735
+with the standard convolution, with a 3 × 3 kernel. CGNet has a PSNR
+value with the weighted convolution of 28.07, versus a PSNR value of 26.01
+with the standard convolution, with a 5 × 5 kernel. We also underline that
+the weighted convolution with 5 × 5 kernel size and weighted convolution
+has better results than both standard and weighted convolution with 3 ×
+3 kernel size. For example, NAFNet with 5 × 5 kernel size and α =
+(0.5, 0.9, 1.0, 0.9, 0.5) has a PSNR value of 27.19, compared to the 3 × 3
+kernel where the PSNR value is 25.83 and 24.82 with the weighted (α =
+(0.7, 1.0, 0.7)) and standard (α = (1.0, 1.0, 1.0)) convolution, respectively.
+Figs. 2, 3 show the denosing results for the three methods, with standard and weighted convolution, 3 × 3 and 5 × 5 kernel size. In Fig. 2, the
+DnCNN method, weighted convolution reduces the artefacts (e.g. the red
+dots on the car) with respect to the standard convolution. In Fig. 3, the
+weighted convolution slightly improves the smoothing level, e.g., in the
+background of the image. Table 6 reports the training time per epoch of
+each model with both standard and weighted convolution. In this case,
+the large resolution of the input images reduces the impact of the density
+
+12
+
+UIQ
+0.925
+0.937
+0.938
+0.940
+0.933
+0.932
+0.813
+0.938
+0.934
+0.941
+0.932
+0.934
+
+Table 6: DIV2K denoising problem: training execution time [seconds]
+per epoch.
+Kernel size
+3×3
+
+5×5
+
+Method
+DnCNN
+NAFNET
+CGNet
+DnCNN
+NAFNET
+CGNet
+
+Standard convolution
+2.43
+2.08
+3.04
+9.48
+8.92
+11.02
+
+Weighted convolution
+2.50
+2.10
+3.07
+9.76
+9.11
+11.13
+
+function on the convolution operation time.
+
+5
+
+Conclusions and future work
+
+We have developed an efficient implementation of the weighted convolution through the computation of kernel weights with a density function. We have tested our implementation with classification and denoising
+problems, comparing state-of-the-art deep learning methods on standard
+benchmarks. Our weighted convolution has better results than standard
+convolution for all the methods under different quantitative metrics. We
+have performed the experimental tests on the CINECA Leonardo cluster, whose high performance allowed us to tune the values of the density
+function to improve the accuracy of the denoising and classification. As
+future work, we plan to extend the weighted convolution to 3D kernels and
+apply the weighted convolution to applicative contexts, e.g., 2D and 3D
+biomedical data, for denoising, super-resolution, and classification tasks.
+Acknowledgements SC and GP are part of RAISE Innovation Ecosystem, funded by the European Union - NextGenerationEU and by the Ministry of University and Research (MUR), National Recovery and Resilience
+Plan (NRRP), Mission 4, Component 2, Investment 1.5, project “RAISE Robotics and AI for Socio-economic Empowerment” (ECS00000035) and
+the PRIN 2022 Project 2022WK7NHC. Tests on the CINECA Cluster are
+supported by the ISCRA-C project US-SAMP, HP10CXLQ1S.
+
+References
+[AAA22]
+
+Elaf Ali Abbood and Tawfiq A Al-Assadi. A new convolution neural layer based on weights constraints. In
+2022 International Conference on Data Science and Intelligent Computing (ICDSIC), pages 7–13. IEEE, 2022.
+
+[AT17]
+
+Eirikur Agustsson and Radu Timofte. Ntire 2017 challenge on single image super-resolution: Dataset and
+study. In The IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR) Workshops, July 2017.
+
+13
+
+[BR19]
+
+Joshua Batson and Loic Royer. Noise2self: Blind denoising by self-supervision. arXiv:1901.11365, 2019.
+
+[CCZS22]
+
+Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, and Jian
+Sun. Simple baselines for image restoration. In European
+Conference on Computer Vision, pages 17–33. Springer,
+2022.
+
+[CDL+ 20]
+
+Yinpeng Chen, Xiyang Dai, Mengchen Liu, Dongdong
+Chen, Lu Yuan, and Zicheng Liu. Dynamic convolution: Attention over convolution kernels. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 11030–11039, 2020.
+
+[CJM20]
+
+Dexiong Chen, Laurent Jacob, and Julien Mairal. Convolutional kernel networks for graph-structured data. In
+International Conference on Machine Learning, pages
+1576–1586. PMLR, 2020.
+
+[CNP22]
+
+Simone Cammarasana, Paolo Nicolardi, and Giuseppe
+Patanè. Real-time denoising of ultrasound images based
+on deep learning. Medical & Biological Engineering &
+Computing, 60(8):2229–2244, 2022.
+
+[CP25]
+
+Simone Cammarasana and Giuseppe Patané. Analysis
+and comparison of high-performance computing solvers
+for minimisation problems in signal processing. Mathematics and Computers in Simulation, 229:525–538,
+2025.
+
+[FA14]
+
+Xavier Frazao and Luı́s A Alexandre. Weighted convolutional neural network ensemble. In Progress in Pattern
+Recognition, Image Analysis, Computer Vision, and Applications: 19th Iberoamerican Congress, CIARP 2014,
+Puerto Vallarta, Mexico, November 2-5, 2014. Proceedings 19, pages 674–681. Springer, 2014.
+
+[GHV17]
+
+Garrett B Goh, Nathan O Hodas, and Abhinav Vishnu.
+Deep learning for computational chemistry. Journal of
+Computational Chemistry, 38(16):1291–1307, 2017.
+
+[GJS+ 24]
+
+Amirhosein Ghasemabadi, Muhammad Kamran Janjua, Mohammad Salameh, Chunhua Zhou, Fengyu Sun,
+and Di Niu. Cascadedgaze: Efficiency in global context extraction for image restoration. arXiv preprint
+arXiv:2401.15235, 2024.
+
+[GS19]
+
+Kamaledin Ghiasi-Shirazi. Generalizing the convolution
+operator in convolutional neural networks. Neural Processing Letters, 50(3):2627–2646, 2019.
+
+[HW19]
+
+Saihui Hou and Zilei Wang. Weighted channel dropout
+for regularization of deep convolutional neural network.
+In Proceedings of the AAAI Conference on Artificial Intelligence, volume 33, pages 8425–8432, 2019.
+
+14
+
+[HZRS15]
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian
+Sun. Delving deep into rectifiers: Surpassing humanlevel performance on imagenet classification. In Proceedings of the IEEE international conference on computer
+vision, pages 1026–1034, 2015.
+
+[HZRS16]
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian
+Sun. Deep residual learning for image recognition. In
+Proceedings of the IEEE conference on computer vision
+and pattern recognition, pages 770–778, 2016.
+
+[iA93]
+
+Shun ichi Amari. Backpropagation and stochastic gradient descent method. Neurocomputing, 5(4):185–196,
+1993.
+
+[JLA22]
+
+Guangyu Jia, Hak-Keung Lam, and Kaspar Althoefer.
+Variable weight algorithm for convolutional neural networks and its applications to classification of seizure
+phases and types. Pattern Recognition, 121:108226,
+2022.
+
+[KAR20]
+
+Sukhpal Kaur, Himanshu Aggarwal, and Rinkle Rani.
+Hyper-parameter optimization of deep learning model
+for prediction of parkinson’s disease. Machine Vision
+and Applications, 31:1–15, 2020.
+
+[KBF+ 21]
+
+Srivatsan Krishnan, Behzad Boroujerdian, William Fu,
+Aleksandra Faust, and Vijay Janapa Reddi. Air learning: a deep reinforcement learning gym for autonomous
+aerial robot visual navigation.
+Machine Learning,
+110(9):2501–2540, 2021.
+
+[KBJ19]
+
+Alexander Krull, Tim-Oliver Buchholz, and Florian Jug.
+Noise2void-learning denoising from single noisy images.
+In Proc. of the IEEE Conf. on Computer Vision and
+Pattern Recognition, pages 2129–2137, 2019.
+
+[KH+ 09]
+
+Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images. 2009.
+
+[Kin14]
+
+Diederik P Kingma. Adam: A method for stochastic
+optimization. arXiv preprint arXiv:1412.6980, 2014.
+
+[LCY13]
+
+Min Lin, Qiang Chen, and Shuicheng Yan. Network in
+network. arXiv preprint arXiv:1312.4400, 2013.
+
+[LDSL21]
+
+Hanxiao Liu, Zihang Dai, David So, and Quoc V Le.
+Pay attention to mlps. Advances in neural information
+processing systems, 34:9204–9215, 2021.
+
+[LMH+ 18]
+
+Jaakko Lehtinen, Jacob Munkberg, Jon Hasselgren,
+Samuli Laine, Tero Karras, Miika Aittala, and Timo
+Aila. Noise2noise: Learning image restoration without
+clean data. arXiv:1803.04189, 2018.
+
+[LZY22]
+
+Chao Li, Aojun Zhou, and Anbang Yao.
+Omnidimensional dynamic convolution. In International Conference on Learning Representations, 2022.
+
+15
+
+[MKHS14]
+
+Julien Mairal, Piotr Koniusz, Zaid Harchaoui, and
+Cordelia Schmid. Convolutional kernel networks. Advances in Neural Information Processing Systems, 27,
+2014.
+
+[QZC+ 24]
+
+Xuerui Qiu, Rui-Jie Zhu, Yuhong Chou, Zhaorui Wang,
+Liang-jian Deng, and Guoqi Li. Gated attention coding
+for training high-performance and efficient spiking neural networks. In Proceedings of the AAAI Conference on
+Artificial Intelligence, volume 38, pages 601–610, 2024.
+
+[RA22]
+
+Saeid Raziani and Mehran Azimbagirad. Deep CNN hyperparameter optimization algorithms for sensor-based
+human activity recognition. Neuroscience Informatics,
+2(3):100078, 2022.
+
+[SAD23]
+
+Mohsen Soori, Behrooz Arezoo, and Roza Dastres. Artificial intelligence, machine learning and deep learning in
+advanced robotics, a review. Cognitive Robotics, 3:54–
+70, 2023.
+
+[SHZ+ 18]
+
+Mark Sandler, Andrew Howard, Menglong Zhu, Andrey
+Zhmoginov, and Liang-Chieh Chen. Mobilenetv2: Inverted residuals and linear bottlenecks. In Proceedings
+of the IEEE conference on computer vision and pattern
+recognition, pages 4510–4520, 2018.
+
+[SP22]
+
+Claudio Filipi Gonçalves Dos Santos and João Paulo
+Papa. Avoiding overfitting: A survey on regularization
+methods for convolutional neural networks. ACM Computing Surveys (Csur), 54(10s):1–25, 2022.
+
+[SZ15]
+
+K Simonyan and A Zisserman. Very deep convolutional
+networks for large-scale image recognition. pages 1–14.
+Computational and Biological Learning Society, 2015.
+
+[TL19]
+
+Mingxing Tan and Quoc Le. Efficientnet: Rethinking
+model scaling for convolutional neural networks. In
+International Conference on Machine Learning, pages
+6105–6114. PMLR, 2019.
+
+[url]
+
+Cineca Leonardo. https://top500.org/lists/top500/
+2024/06/. Accessed: 2024-06-01.
+
+[VSP+ 17]
+
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser,
+and Illia Polosukhin. Attention is all you need. Advances
+in Neural Information Processing Systems, 30, 2017.
+
+[WB02]
+
+Zhou Wang and Alan C Bovik. A universal image quality
+index. Signal Processing Letters, 9(3):81–84, 2002.
+
+[WZZ+ 13]
+
+Li Wan, Matthew Zeiler, Sixin Zhang, Yann Le Cun, and
+Rob Fergus. Regularization of neural networks using
+dropconnect. In International conference on machine
+learning, pages 1058–1066. PMLR, 2013.
+
+16
+
+[ZAK+ 22]
+
+Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan
+Yang.
+Restormer: Efficient transformer for highresolution image restoration. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern
+recognition, pages 5728–5739, 2022.
+
+[ZCRRBECL20] Ramon Zatarain Cabada, Hector Rodriguez Rangel,
+Maria Lucia Barron Estrada, and Hector Manuel Cardenas Lopez. Hyperparameter optimization in cnn
+for learning-centered emotion recognition for intelligent
+tutoring systems. Soft Computing, 24(10):7593–7602,
+2020.
+[ZYY+ 18]
+
+Qinghe Zheng, Mingqiang Yang, Jiajie Yang, Qingrui
+Zhang, and Xinxin Zhang. Improvement of generalization ability of deep CNN via implicit regularization in
+two-stage training process. IEEE Access, 6:15844–15869,
+2018.
+
+[ZZC+ 17]
+
+Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng,
+and Lei Zhang. Beyond a gaussian denoiser: Residual
+learning of deep CNN for image denoising. Transactions
+on Image Processing, 26(7):3142–3155, 2017.
+
+[ZZMZ11]
+
+Lin Zhang, Lei Zhang, Xuanqin Mou, and David
+Zhang. Fsim: A feature similarity index for image
+quality assessment. Transactions on Image Processing,
+20(8):2378–2386, 2011.
+
+[ZZZ18]
+
+Kai Zhang, Wangmeng Zuo, and Lei Zhang. Ffdnet: Toward a fast and flexible solution for CNN-based
+image denoising. Transactions on Image Processing,
+27(9):4608–4622, 2018.
+
+17
+
+

@@ -1,0 +1,2762 @@
+arXiv:2411.15269v2 [eess.IV] 11 Mar 2025
+
+MambaIRv2: Attentive State Space Restoration
+Hang Guo1,∗ Yong Guo2,∗ Yaohua Zha1 Yulun Zhang3 Wenbo Li4
+Tao Dai5,† Shu-Tao Xia1,6 Yawei Li7
+1
+Tsinghua University 2 Max Planck Institute for Informatics
+3
+Shanghai Jiao Tong University 4 The Chinese University of Hong Kong
+5
+Shenzhen University 6 Peng Cheng Laboratory 7 ETH Zürich
+query pixel
+
+Abstract
+
+1
+
+The Mamba-based image restoration backbones have recently demonstrated significant potential in balancing
+global reception and computational efficiency. However,
+the inherent causal modeling limitation of Mamba, where
+each token depends solely on its predecessors in the
+scanned sequence, restricts the full utilization of pixels
+across the image and thus presents new challenges in image restoration. In this work, we propose MambaIRv2,
+which equips Mamba with the non-causal modeling ability
+similar to ViTs to reach the attentive state space restoration model. Specifically, the proposed attentive state-space
+equation allows to attend beyond the scanned sequence
+and facilitate image unfolding with just one single scan.
+Moreover, we further introduce a semantic-guided neighboring mechanism to encourage interaction between distant
+but similar pixels. Extensive experiments show our MambaIRv2 outperforms SRFormer by even 0.35dB PSNR for
+lightweight SR even with 9.3% less parameters and suppresses HAT on classic SR by up to 0.29dB. Code is available at https://github.com/csguoh/MambaIR.
+
+scanned pixels
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+12
+
+13
+
+14
+
+15
+
+16
+
+unscanned pixels
+
+1
+
+2
+
+3
+
+scan order
+
+5
+
+6
+
+9
+
+14
+
+8
+
+16
+
+4
+
+15
+
+3
+
+10
+
+7
+
+12
+
+1
+
+11
+
+2
+
+13
+
+(a) Existing Causal State-space Modeling (b) Our Attentive State-space Modeling
+constrained perception for unscanned pixels
+cost and redundant multi-directional scans
+weak interaction for long-range pixels
+
+perception across the whole image
+only one single scan needed
+strong interaction between distant pixels
+
+Figure 1. (a) The existing method [24] suffers from the adverse
+effects of the causal nature of Mamba (the multi-directional scans
+are not shown for presentation clarity). (b) The proposed MambaIRv2 can achieve attentive state-space modeling that embeds
+ViT-like non-causal properties into Mamba.
+
+Despite its potential, existing Mamba-based methods
+face significant challenges, particularly due to their reliance on causal state-space modeling. Specifically, existing methods [24] unfold the 2D image with a predefined
+scanning rule to generate the 1D token sequence. However,
+in Mamba, each pixel is modeled based solely on its preceding pixels in the scanned sequence, i.e., the causal property, which results in several detrimental effects for noncausal image restoration tasks. First, as shown in Fig. 1(a),
+the query pixel can only capture information from its preceding ones and cannot perceive subsequent pixels, which
+results in under-utilization of helpful pixels across the image. Second, the inherent causal property leads to the necessity of multi-directional scans, which is widely adopted
+by existing approaches [24, 48, 52] for mitigating information loss. Yet, this multi-scanning inevitably increases the
+computational complexity, particularly for high-resolution
+inputs. Furthermore, an empirical investigation in Sec. 3 reveals that there is also substantial information redundancy
+among these multi-directional scans. Third, our findings
+in Sec. 3 demonstrate that Mamba [22] is prone to longrange decay in token interaction, meaning distant tokens in
+the sequence have diminished interactions. Consequently,
+even previously scanned pixels that are distant yet relevant
+cannot be effectively utilized by the query pixel.
+
+1. Introduction
+Image restoration aims to recover high-quality images from
+low-quality observations, tackling various sub-problems
+such as image super-resolution, image denoising, and JPEG
+compression reduction, and others. With the advent of deep
+learning, state-of-the-art performance has been consistently
+achieved. Early works primarily utilized convolutional neural networks (CNNs) as the backbone [14, 16, 37, 59, 68].
+Later, vision transformers (ViTs) [18] gained popularity for
+their superior performance [7, 9, 12, 35, 36]. More recently, the selective state-space model (Mamba) [22] has
+been explored, showing considerable potential as an alternative backbone for image restoration tasks [24, 48].
+* Equal contribution
+† Corresponding author
+
+1
+
+2. Related Work
+
+In this work, we propose MambaIRv2, aiming to address
+the adverse effect of causal state-space modeling. Since
+the ViTs [18, 50] naturally support non-causal processing, our key idea is to integrate ViT-like non-causal modeling into the Mamba-based methods. To this end, we begin by delving deep into the connection between attention
+and state space for valuable insights. Our in-depth analysis in Sec. 4.1 reveals that the output matrix of the statespace equation resembles the query in the attention mechanism. This similarity inspires us to utilize the output matrix to “query” relevant pixels in the unscanned sequence.
+Benefiting from attending beyond the scanned sequences,
+this strategy also naturally eliminates the need for multidirectional scanning. Moreover, to encourage the interaction between distant but relevant pixels, we propose to restructure the image to place similar pixels spatially closer
+within the 1D sequence. In this way, it allows for semantic rather than spatial sequence modeling, thus mitigating
+the impact of long-range decay. Since the proposed method
+allows the Mamba to behave similarly to the attention, we
+thus refer to it as “attentive state-space restoration”.
+
+Recent years have witnessed great advancements in the domain of image restoration [2, 26, 30]. Early attempts usually adopt the convolutional neural networks (CNNs), such
+as SRCNN [16] for image super-resolution, DnCNN [59]
+for image denoising, and ARCNN [17] for JPEG compression artifacts reduction. To further enhance the performance
+of CNN-based methods, various techniques have been introduced. For instance, EDSR [32] employ the residual connection strategy to allow the training of very deep neural
+networks, RDN [68] uses the dense connection to improve
+model representation ability. RCAN [67] introduces the
+channel attention for selecting salient channels, followed by
+SAN [14] which uses the second-order attention for performance improvement. Despite the great progress of CNNbased methods, the convolution operator inherently restricts
+the receptive field to the local kernel, preventing interaction
+between distant pixels.
+As Transformer [50] has proven its effectiveness in multiple computer vision tasks, applying Transformer for image restoration thus appears to be promising. However,
+the direct application of vanilla self-attention, which exhibits quadratic computational complexity with the input
+size, is costly and impractical. To improve the efficiency
+of attention, a variety of techniques have been developed.
+For example, IPT [7] divides one image into several small
+patches and processes each patch independently with selfattention. After that, SwinIR [36] further introduces the
+shifted window self-attention [39] to improve the performance. ART [58] and OminiSR [51] utilize sparse attention
+to expand the receptive field by enlarging the attention windows. GRL [35] adopts the anchor attention to learn the
+local, regional, and global image hierarchies. Recently, the
+ATD [64] uses the adaptive token dictionary to store inputagnostic knowledge, thus allowing the attention to attend
+information out of the local window.
+To balance the efficient computation and global receptive fields, the Mamba [22] has recently been explored in
+image restoration with promising results. MambaIR [24]
+is among the first to introduce Mamba for image restoration and addresses two specific challenges, i.e., local pixel
+forgetting and channel redundancy. Since then, the Mamba
+model has been explored in various image restoration tasks.
+FreqMamba [71] uses the state space model in the Fourier
+domain for image deraining to perceive global degradation.
+MambaLLIE [52] improves the state space equation to allow the locality enhancement for low-light image enhancement tasks. Moreover, Mamba has also achieved promising
+results in image dehazing [72], debluring [21], and other
+tasks [4, 38, 45, 46, 53, 54, 65]. However, existing methods
+still struggle with the causal modeling nature of Mamba.
+Given image restoration as a non-causal task, this mismatch
+can lead to limited performance as well as inefficiency.
+
+Overall, we make three key contributions: I. We propose the Attentive State-space Equation (ASE), which
+leverages the prompt learning [29] within the original state
+space equation of Mamba to query semantically similar pixels beyond the scanned sequences. In detail, the prompts
+are designed to represent sets of pixels that are similar
+across the entire image, and we then incorporate the representative prompts into the output matrix of the statespace equation through residual addition to derive our ASE.
+As the core component, the proposed ASE not only alleviates the causal nature of Mamba for improved performance but also enables single-pass scanning for boosted
+efficiency. II. We further develop the Semantic Guided
+Neighboring (SGN) to encourage strong interaction between distant yet similar pixels. Specifically, we first assign the corresponding semantic label to each pixel. Then
+we restructure the image based on these labels to generate the semantic-neighboring 1D sequence, where semantically similar pixels are also spatially close to each other.
+Thanks to the mitigation of the long-range decay of Mamba,
+SGN facilitates effective interaction between pixels that
+are distant in the original image. III. Integrating the two
+core modules and other auxiliary parts, we present MambaIRv2, an attentive state-space restoration method that
+equips Mamba’s state-space modeling with ViT-like noncausal capabilities. Extensive experiments demonstrate that
+MambaIRv2 significantly improves both effectiveness and
+efficiency. In particular, MmabaIRv2 outperforms stateof-the-art Transformer-based baseline SRFormer [73] by
+0.35dB on Urban100 dataset for 2× lightweight SR with
+9.3% less parameters, and HAT [9] by 0.29dB for 2× classical SR on the Manga109 dataset.
+2
+
+(a) Similarity between multi-directions
+
+(b) KDE plot of the control matrix
+60
+
+density
+
+cos-sim
+
+0.70
+0.65
+0.60
+
+tion. To get started, we visit the mathematical connection
+between state space and attention in Sec. 4.1 for insights of
+subsequent design. Then, we detail the specific techniques
+of our attentive state space module in Sec. 4.2. In Sec. 4.3,
+we give the overall architecture of the proposed methods.
+
+70
+
+high correlation
+
+0.75
+
+Statistically
+less than 1
+
+40
+50
+30
+20
+
+0.55
+
+10
+0.50
+Set5
+
+Set14
+
+B100 Urban100 Manga109
+
+0
+
+0.78 0.79 0.78 0.81 0.82 0.83 0.84
+
+4.1. Bridging Attention and State-Space
+
+Figure 2. (a) We compute the cosine similarity of scanned features
+across all 4 directions and all layers in MambaIR [24]. (b) The
+kernel density estimation of the distribution of the control matrix
+in MambaIR [24].
+
+As pointed out by [25], the state space has a strong relationship to attention, which may potentially offer insights
+to incorporate non-causal modeling ability into Mamba. In
+this section, we first reformulate attention and state space
+into the common form for comparison, followed by a detailed connection analysis.
+Reformulation of Attention. Since the Mamba belongs
+to causal models with linear complexity, we adopt the corresponding causal linear attention [31] as its counterpart.
+Specifically, given the query, key and value matrix Q, K,
+V, the output of linear attention is computed as follows:
+P
+
+i
+⊤
+i
+⊤
+Q
+K
+V
+X
+i
+j
+Qi Kj
+j
+j=1
+P
+ . (2)
+Vj =
+yi =
+Pi
+⊤
+i
+⊤
+Qi
+t=1 Qi Kt
+j=1
+t=1 Kt
+
+3. Motivation
+Mamba-based Image Restoration. The existing statespace restoration methods are mainly developed from the
+Mamba [22] architecture. Formally, the Mamba adopts the
+discrete state space equation to model the interaction among
+tokens:
+hi = Ahi−1 + Bxi ,
+(1)
+yi = Chi + Dxi ,
+where the A = exp(∆A) is the control matrix, the B =
+(∆A)−1 (exp(∆A) − I)∆B ≈ ∆B is the input matrix,
+and the C is the output matrix. Eq. (1) indicates that the i-th
+token completely depends on its previous i − 1 tokens, i.e.,
+the state-space modeling possesses causal properties. Although this causal nature is helpful for autoregressive tasks
+like NLP, it poses challenges for image restoration.
+Challenges from Causal Modeling. Existing Mambabased methods usually adopt a specific scanning strategy
+to unfold the 2D image into a 1D sequence for sequential
+modeling with Mamba. However, the i-the pixel can only
+see constrained i − 1 pixels of the entire image, failing to
+globally utilize similar pixels. To this end, current methods typically employ multi-directional scans to allow for a
+broader receptive field, which is inevitably accompanied by
+an increase in computational complexity. Furthermore, as
+shown in Fig. 2(a), the similarity of different scanned sequences on all testing datasets reaches even above 0.7, indicating a high correlation with large redundancy. Moreover,
+the Mamba [22] itself also possesses long-range decay defects due to its causal nature. Specifically, the interaction
+between pixels can be quantitatively denoted by the power
+k
+of control matrix A , where k is the pairwise distance (the
+proof is given in the Suppl.). In Fig. 2(b), we show that the
+learned A is statistically less than 1. As a result, the interk
+action A will become weak when two pixels are far apart,
+i.e., a large k, indicating current methods fail to utilize distant but useful scanned pixels.
+
+Pi
+Pi
+⊤
+Denote the Si = j=1 K⊤
+j Vj , Zi =
+t=1 Kt , then the
+formulation of the linear attention can be rewritten as:
+yi = Qi Si /Qi Zi ,
+
+(3)
+
+⊤
+where Si = Si−1 + K⊤
+i Vi , and Zi = Zi−1 + Ki . To allow subsequent connection analysis, we further reformulate
+Eq. (3) to the common form as follows:
+
+Si = ISi−1 + K⊤
+i Vi ,
+yi = Qi Si /Qi Zi + Oxi ,
+
+(4)
+
+where the I and O denotes identity and zero matrix, respectively. xi is the input token at the i-th step.
+Reformulation of State Space. Starting with state-space
+equation in Eq. (1), note that Bxi ≈ ∆Bxi = B(∆xi ),
+Eq. (1) can then be reformulated to the common form as:
+hi = Ahi−1 + B(∆xi ),
+yi = Chi /I + Dxi .
+
+(5)
+
+Connection Analysis. By comparing Eq. (4) and Eq. (5),
+it can be seen there is a close mathematical similarity between attention and state space, i.e., hi ∼ Si , B ∼ K⊤ ,
+and C ∼ Q. It should be noted that the Qi Zi in Eq. (4) is
+to ensure the attention score is normalized with summation
+1 and can be approximately ignored if we relax the normalization constraints. Therefore, the above observation motivates us to delve deep into the output matrix C in Eq. (1),
+which plays a role similar to the query in the attention mechanism. The core idea is to integrate the information of the
+unscanned sequence into C, thus allowing C to attentively
+“query” unseen pixels to facilitate the restoration of xi .
+
+4. Attentive State Space Restoration
+In the following, we aim to address the causal nature of
+Mamba through the proposed attentive state space restora3
+
+Attentive State Space Group
+
+Reconstruct
+
+Conv 3×3
+
+MLP
+
+Norm
+
+ASSM
+
+Norm
+
+MLP
+
+Norm
+
+Window
+MHSA
+
+Norm
+
+Conv 3×3
+
+Attentive State Space Block
+
+LQ Image
+scale
+
+scale
+
+HQ Image
+(b) Attentive State-space Equation
+
+(a) Attentive State Space Module
+
+(c) Semantic Guided Neighboring
+
+Selection Matrix
+matmul
+
+add to C
+
+1
+
+2 3
+
+4 5 6
+7 8 9
+
+Layer-shared
+Dynamic Prompt P
+Prompt Pool
+
+SGN-unfold
+
+1
+5
+7
+8
+2
+6
+9
+3
+4
+
+ASE
+
+L
+
+Gumbel
+
+LogSoftmax
+
+Projection
+
+Linear
+
+ASE
+
+SGN-fold
+
+SGN-unfold
+
+Positional
+Embedding
+
+T
+
+1 0 0
+0 1 0
+0 0 1
+1 0 0
+
+1
+5
+7
+8
+SGN-fold
+2
+6
+9
+3
+4
+
+1 2 3
+4 5 6
+7 8 9
+
+Layer-specific
+
+Figure 3. The overall architecture of our proposed MambaIRv2, as well as the (a) Attentive State Space Module (ASSM), (b) Attentive
+State-space Equition (ASE), and (c) Semantic Guided Neighboring (SGN).
+
+4.2. Attentive State Space Module
+
+specific, and r is the inner rank with r ≪ min{T, d}. The
+main idea behind the semantic decoupling is that we want
+different blocks to share similar feature space, i.e., N is
+shared, while the combination coefficients of the shared features can be varying for different blocks i.e., M is specific.
+After that, we develop routing strategies to select from
+P to obtain L instance-specific prompts P ∈ RL×d , which
+will be added into C to include information of unscanned
+pixels. In detail, given the flattened input feature x′ ∈
+RL×C , we employ a linear layer to project the channel dimension of x′ from C to T , followed by the LogSoftmax to
+predict the log probability, which indicates the probability
+of each prompt in P being sampled by x′i , i = 1, 2, · · · L.
+After that, we introduce the gumbel-softmax [28] trick on
+the log probability to allow differentiable prompt selection
+to obtain the one-hot routing matrix R ∈ RL×T . Then, the
+instance-specific prompt P ∈ RL×d is generated through
+the matrix multiplication as P = RP. Finally, we incorporate P into C through residual addition to formulate our
+attentive state-space equation:
+
+In this section, we introduce the attentive state-space module (ASSM), which acts as the core block of our MambaIRv2 to enable non-causal modeling with Mamba. As
+shown in Fig. 3(a), given the input feature x ∈ RH×W ×C ,
+where H and W are the height and width, respectively, and
+C is the channel dimension, we first apply the positional encoding [13] on x to preserve the original structure information. After that, we propose the Semantic Guided Neighboring (SGN) to unfold the 2D image into 1D sequences
+for subsequent Attentive State-space Equation (ASE) modeling. Finally, another SGN is employed as the inverse operator of the previous one to fold the sequence back to the
+image followed by a linear projection to obtain the block
+output. More details are given below.
+Attentive State-space Equation. As analyzed in Sec. 4.1,
+we aim to modify the output matrix C ∈ RL×d , where
+L = HW is the flattened image sequence length and d is
+the number of hidden states in Mamba, to globally query
+related pixels across the image. To this end, we propose the
+Attentive State-space Equation (ASE) which develops from
+the original state-space equation of Mamba but possesses a
+non-causal nature. As shown in Fig. 3(b), the proposed ASE
+incorporates prompts, which learn to represent a certain set
+of pixels with similar semantics, into C to supplement the
+missing information of the unseen pixels. Specifically, we
+first construct the prompt pool P ∈ RT ×d , where T is the
+number of prompts in P. For parameterization of P, we
+employ the semantic decoupling for better interpretability:
+P = MN,
+
+M ∈ RT ×r ,
+
+N ∈ Rr×d ,
+
+hi = Ahi−1 + Bxi ,
+yi = (C + P)hi + Dxi .
+
+(7)
+
+The learned prompts allow for the attention-like capability to query pixels across the whole image, and we also
+present a visualization on the attentive map in Fig. 5. By
+injecting the prompts that represent the set of similar pixels, the proposed ASE can effectively alleviate constrained
+perception for unscanned pixels. As another advantage, it
+allows scanning with only one single direction, eliminating the high computational cost and redundancy of multidirectional scans in existing methods.
+
+(6)
+
+where N is shared across different blocks, M is block4
+
+Table 1. Ablation on the effectiveness of different components.
+
+Semantic Guided Neighboring. As pointed out in Sec. 3,
+the causal modeling property of Mamba leads to the detrimental effects of long-range decay. In existing Mambabased image restoration methods, pixels that are distant in
+the original image are usually still far apart in the unfolded
+sequence, causing the weak utilization of the query pixel for
+the already scanned pixels which are spatially distant but
+similar. To this end, we propose the Sematic Guided Neighboring (SGN) as shown in Fig. 3(c). Our key insight is that
+different from the autoregressive language modeling, the
+image restoration is a non-causal task and all pixels are observable at once, therefore we can re-define the token neighborhood to enable semantically similar tokens to be spatially closer in the unfolded sequence. Following this idea,
+we first determine the semantic label of each pixel. Note
+that the routing matrix R in the ASE, which has learned the
+prompt category of each pixel, we thus employ this off-theshelf semantics to restructure the image. Specifically, we
+propose the SGN-unfold which groups pixels with the i-th
+prompt category together to form the i-th semantic group
+and then combines different groups according to the category value i to generate the semantic-neighbored sequence.
+After that, we feed this sequence into the proposed ASE
+for state-space modeling. At last, we employ the SGNfold which performs as the inverse transformation of SGNunfold to reshape the semantic-space sequence back to the
+spatial-space feature map to obtain the output.
+
+MHSA
+
+ASE
+
+✔
+✔
+✔
+
+✔
+✔
+
+SGN
+
+✔
+
+Urban100
+PSNR
+SSIM
+
+Manga109
+PSNR
+SSIM
+
+32.89
+32.94
+32.97
+
+39.11
+39.20
+39.24
+
+0.9343
+0.9351
+0.9355
+
+0.9772
+0.9780
+0.9784
+
+Table 2. Ablation experiments on different injection positions of
+the learnable prompts in the ASE.
+positions
+
+Set14
+PSNR
+SSIM
+
+Urban100
+PSNR
+SSIM
+
+B
+∆
+y
+C
+
+33.97
+33.92
+33.97
+33.99
+
+32.96
+32.93
+32.94
+32.97
+
+0.9215
+0.9211
+0.9210
+0.9216
+
+0.9356
+0.9350
+0.9351
+0.9355
+
+Manga109
+PSNR
+SSIM
+39.23
+39.19
+39.21
+39.24
+
+0.9781
+0.9779
+0.9782
+0.9784
+
+5. Experiments
+Following previous image restoration works [24, 36], we
+conduct experiments on three representative image restoration tasks, i.e., image super-resolution including classic SR
+and lightweight SR, JPEG compression artifact reduction
+(JPEG CAR), and Gaussian color image denoising.
+
+5.1. Experimental Settings
+In accordance with previous works, we perform data augmentation by applying horizontal flips and random rotations
+of 90◦ , 180◦ , and 270◦ . Additionally, we crop the original
+images into 64 × 64 patches for image SR and 128 × 128
+patches for image denoising during training. For image SR,
+we use the pre-trained weights from the 2× model to initialize those of 3× and 4× and halve the learning rate and
+total training iterations to reduce training time [37]. To ensure a fair comparison, we adjust the training batch size to
+32 for image SR and 8 for image denoising and JPEG CAR.
+We employ the Adam [33] as the optimizer for training our
+MambaIRv2 with β1 = 0.9, β2 = 0.999. Similar to previous training protocol [36], we use the L1 loss for image
+SR, and Charbonnier loss [6] for denoising and JPEG CAR.
+The initial learning rate is set at 2 × 10−4 and is halved
+when the training iteration reaches specific milestones. For
+classic image SR, we provide three variants with different
+parameters including the small, base, and large versions
+(MambaIRv2-S, MambaIRv2-B, MambaIRv2-L). Due to
+the page limit, more details are provided in the Suppl.
+
+4.3. Overall Network Architecture
+The proposed ASSM can efficiently capture the global dependencies using the Mamba model. We then further consider modeling local interactions, which have been shown
+crucial for Mamba-based approaches [24, 52]. Since the
+scanning only once in the ASSM provides more parameter
+budgets, we thus opt for the powerful window multi-head
+self-attention (MHSA) [39] to enhance local interactions
+within the window, which together with the ASSM compose
+the basic elements of our MambaIRv2. As shown in Fig. 3,
+given a low-quality image as the input, we first utilize the
+3×3 convolution layer to extract shallow features. Then the
+shallow features are fed into several Attentive State Space
+Groups (ASSGs), where each groups contain multiple Attentive State Space Blocks (ASSBs). For each ASSB, we
+consider progressive local-to-global modeling to form the
+image hierarchy [35]. We use Norm and Token Mixer, followed by Norm and FFN to form the template, and employ window MHSA and ASSM as the instantiations for
+the Token Mixer of the local and global parts, respectively.
+In addition, two residual connections with learnable scales
+are introduced [11, 24]. After the ASSGs, we utilize the
+task-specific reconstruction modules, e.g., pixelshuffle for
+super-resolution, and convolution for denoising, to obtain
+the high-quality image output.
+
+5.2. Ablation Study
+We conduct ablations with MambaIRv2-light 2× SR model
+trained for 250K iterations on the DIV2K dataset.
+Effectiveness of Different Components. As the core
+module of MambaIRv2, the Attentive State Space Module
+(ASSM), which contains the Attentive State-space Equation (ASE) and the Semantic Guided Neighboring (SGN),
+plays an important role in Mamba-based global modeling.
+In this ablation, we design three settings to verify the role of
+the different components. In the first setup, we directly re5
+
+Table 3. Quantitative comparison on lightweight image super-resolution with state-of-the-art methods. The best and the second best
+results are in red and blue.
+PSNR
+
+Set5
+SSIM
+
+222.8G
+169.5G
+244.2G
+334.2G
+203.1G
+236.3G
+286.3G
+
+37.76
+38.13
+38.14
+38.13
+38.17
+38.23
+38.26
+
+1,592K
+765K
+918K
+913K
+629K
+861K
+781K
+
+118.8G
+76.3G
+111.2G
+148.5G
+90.1G
+105.4G
+126.7G
+
+1,592K
+777K
+930K
+924K
+640K
+873K
+790K
+
+90.9G
+43.6G
+63.6G
+84.6G
+54.1G
+62.8G
+75.6G
+
+Method
+
+scale
+
+#param
+
+MACs
+
+CARN [1]
+LatticeNet [41]
+SwinIR-light [36]
+MambaIR-light [24]
+ELAN [66]
+SRFormer-light [73]
+MambaIRv2-light
+
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+
+1,592K
+756K
+910K
+905K
+621K
+853K
+774K
+
+CARN [1]
+LatticeNet [41]
+SwinIR-light [36]
+MambaIR-light
+ELAN [66]
+SRformer-light [73]
+MambaIRv2-light
+
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+
+CARN [1]
+LatticeNet [41]
+SwinIR-light [36]
+MambaIR-light [24]
+ELAN [66]
+SRformer-light [73]
+MambaIRv2-light
+
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+
+Urban100: img_067
+
+Manga109: YumeiroCooking
+
+Set14
+PSNR
+SSIM
+
+BSDS100
+PSNR
+SSIM
+
+Urban100
+PSNR
+SSIM
+
+Manga109
+PSNR
+SSIM
+
+0.9590
+0.9610
+0.9611
+0.9610
+0.9611
+0.9613
+0.9615
+
+33.52
+33.78
+33.86
+33.95
+33.94
+33.94
+34.09
+
+0.9166
+0.9193
+0.9206
+0.9208
+0.9207
+0.9209
+0.9221
+
+32.09
+32.25
+32.31
+32.31
+32.30
+32.36
+32.36
+
+0.8978
+0.9005
+0.9012
+0.9013
+0.9012
+0.9019
+0.9019
+
+31.92
+32.43
+32.76
+32.85
+32.76
+32.91
+33.26
+
+0.9256
+0.9302
+0.9340
+0.9349
+0.9340
+0.9353
+0.9378
+
+38.36
+39.12
+39.20
+39.11
+39.28
+39.35
+
+0.9765
+0.9783
+0.9782
+0.9782
+0.9785
+0.9785
+
+34.29
+34.53
+34.62
+34.63
+34.61
+34.67
+34.71
+
+0.9255
+0.9281
+0.9289
+0.9288
+0.9288
+0.9296
+0.9298
+
+30.29
+30.39
+30.54
+30.54
+30.55
+30.57
+30.68
+
+0.8407
+0.8424
+0.8463
+0.8459
+0.8463
+0.8469
+0.8483
+
+29.06
+29.15
+29.20
+29.23
+29.21
+29.26
+29.26
+
+0.8034
+0.8059
+0.8082
+0.8084
+0.8081
+0.8099
+0.8098
+
+28.06
+28.33
+28.66
+28.70
+28.69
+28.81
+29.01
+
+0.8493
+0.8538
+0.8624
+0.8631
+0.8624
+0.8655
+0.8689
+
+33.50
+33.98
+34.12
+34.00
+34.19
+34.41
+
+0.9440
+0.9478
+0.9479
+0.9478
+0.9489
+0.9497
+
+32.13
+32.30
+32.44
+32.42
+32.43
+32.51
+32.51
+
+0.8937
+0.8962
+0.8976
+0.8977
+0.8975
+0.8988
+0.8992
+
+28.60
+28.68
+28.77
+28.74
+28.78
+28.82
+28.84
+
+0.7806
+0.7830
+0.7858
+0.7847
+0.7858
+0.7872
+0.7878
+
+27.58
+27.62
+27.69
+27.68
+27.69
+27.73
+27.75
+
+0.7349
+0.7367
+0.7406
+0.7400
+0.7406
+0.7422
+0.7426
+
+26.07
+26.25
+26.47
+26.52
+26.54
+26.67
+26.82
+
+0.7837
+0.7873
+0.7980
+0.7983
+0.7982
+0.8032
+0.8079
+
+30.47
+30.92
+30.94
+30.92
+31.17
+31.24
+
+0.9084
+0.9151
+0.9135
+0.9150
+0.9165
+0.9182
+
+HR
+
+Bicubic
+
+SwinIR
+
+MambaIR
+
+CAT-A
+
+DAT
+
+HAT
+
+Ours
+
+HR
+
+Bicubic
+
+SwinIR
+
+MambaIR
+
+CAT-A
+
+DAT
+
+HAT
+
+Ours
+
+Urban100: img_076
+
+Manga109: MomoyamaHaikagura
+
+HR
+
+Bicubic
+
+SwinIR
+
+MambaIR
+
+CAT-A
+
+DAT
+
+HAT
+
+Ours
+
+HR
+
+Bicubic
+
+SwinIR
+
+MambaIR
+
+CAT-A
+
+DAT
+
+HAT
+
+Ours
+
+Figure 4. Qualitative comparison of our MambaIRv2 with different methods on 4× classic image SR.
+
+move the ASSM, leading to a pure Attention variant. In the
+second setup, we add the proposed ASSM but remove the
+SGN. The third setup corresponds to our proposed method.
+As shown in Tab. 1, only using window attention limits
+the receptive field to the local window, limiting the performance. Further, the addition of the ASE, which allows
+for the query of similar pixels across images, improves the
+performance by 0.05 dB/0.09 dB in Urban100/Manga109.
+Finally, after introducing SGN which can effectively overcome the long-range decay of Mamba, the final model
+achieves the best performance of 32.97/39.24 dB PSNR on
+Urban100/Manga109. The experiments validate the effectiveness of different components in the proposed method.
+
+analogized to the Key in attention, inserting the prompts
+into B also yields decent results, but slightly inferior to
+adding to C. We attribute this to the fact that C is closer
+to the output end in the state-space equation Eq. (1), leading to a greater impact on the final result. Further, inserting
+prompts to the discrete time-step ∆ and the output y both
+fail to give satisfactory performance, which justifies our focus on the matrix C in the proposed ASE. Due to the page
+limit, we provide more ablation experiments in the Suppl..
+
+5.3. Comparison on Image Super-Resolution
+Lightweight Image Super-Resolution. Following previous works [41, 73], we also report the number of parameters
+(#param) and MACs (upscaling a low-resolution image to
+1280 × 720 resolution) as the efficiency metric. The results
+in Tab. 3 show that our MambaIRv2 outperforms the stateof-the-art method SRFormer [73] using even significantly
+fewer parameters. For instance, our MambaIRv2-light outperforms SRFormer-light by 0.35dB on 2× Urban100 with
+
+Ablation on Attentive State-space Equation. In Sec. 4.1,
+we pointed out that the matrix C in the state-space equation
+in fact behaves similarly to the Query in the attention, following which we propose the ASE to insert global prompts
+into C by residual addition. In Tab. 2, we explore other
+inserting positions of the prompts in ASE. Since B can be
+6
+
+Table 4. Quantitative comparison on classic image super-resolution with state-of-the-art methods.
+PSNR
+
+SSIM
+
+Set14
+PSNR
+SSIM
+
+BSDS100
+PSNR
+SSIM
+
+Urban100
+PSNR
+SSIM
+
+Manga109
+PSNR
+SSIM
+
+42.6M
+15.4M
+15.7M
+115M
+11.8M
+11.5M
+20.4M
+16.5M
+14.8M
+20.6M
+9.6M
+22.9M
+34.2M
+
+38.11
+38.27
+38.31
+38.37
+38.42
+38.45
+38.57
+38.51
+38.58
+38.63
+38.53
+38.65
+38.65
+
+0.9602
+0.9614
+0.9620
+0.9623
+0.9624
+0.9627
+0.9626
+0.9629
+0.9630
+0.9627
+0.9631
+0.9632
+
+33.92
+34.12
+34.07
+34.43
+34.46
+34.57
+34.67
+34.78
+34.81
+34.86
+34.62
+34.89
+34.93
+
+0.9195
+0.9216
+0.9213
+0.9250
+0.9258
+0.9261
+0.9265
+0.9297
+0.9274
+0.9256
+0.9275
+0.9276
+
+32.32
+32.41
+32.42
+32.48
+32.53
+32.52
+32.58
+32.59
+32.61
+32.62
+32.59
+32.62
+32.62
+
+0.9013
+0.9027
+0.9028
+0.9041
+0.9041
+0.9048
+0.9047
+0.9051
+0.9053
+0.9048
+0.9053
+0.9053
+
+32.93
+33.34
+33.10
+33.76
+33.81
+33.80
+34.15
+34.26
+34.37
+34.45
+34.24
+34.49
+34.60
+
+0.9351
+0.9384
+0.9370
+0.9427
+0.9425
+0.9446
+0.9440
+0.9458
+0.9466
+0.9454
+0.9468
+0.9475
+
+39.10
+39.44
+39.32
+39.92
+39.93
+40.28
+40.10
+40.33
+40.26
+40.27
+40.42
+40.55
+
+0.9773
+0.9786
+0.9792
+0.9797
+0.9800
+0.9806
+0.9805
+0.9807
+0.9809
+0.9808
+0.9810
+0.9807
+
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+3×
+
+42.6M
+15.4M
+15.7M
+115M
+11.8M
+11.5M
+20.4M
+16.5M
+14.8M
+20.6M
+9.8M
+23.1M
+34.2M
+
+34.65
+34.74
+34.75
+34.81
+34.97
+34.97
+35.08
+35.06
+35.16
+35.07
+35.09
+35.18
+35.16
+
+0.9280
+0.9299
+0.9300
+0.9318
+0.9316
+0.9323
+0.9326
+0.9331
+0.9329
+0.9326
+0.9334
+0.9334
+
+30.52
+30.65
+30.59
+30.85
+30.93
+30.89
+30.99
+31.04
+31.11
+31.08
+31.07
+31.12
+31.18
+
+0.8462
+0.8482
+0.8476
+0.8534
+0.8527
+0.8536
+0.8538
+0.8550
+0.8555
+0.8547
+0.8557
+0.8564
+
+29.25
+29.32
+29.33
+29.38
+29.46
+29.44
+29.51
+29.52
+29.55
+29.54
+29.51
+29.55
+29.57
+
+0.8093
+0.8111
+0.8112
+0.8145
+0.8142
+0.8157
+0.8160
+0.8169
+0.8167
+0.8157
+0.8169
+0.8175
+
+28.80
+29.09
+28.93
+29.49
+29.75
+29.72
+29.93
+30.12
+30.18
+30.23
+30.08
+30.28
+30.34
+
+0.8653
+0.8702
+0.8671
+0.8826
+0.8814
+0.8841
+0.8862
+0.8886
+0.8896
+0.8871
+0.8905
+0.8912
+
+34.17
+34.44
+34.30
+35.12
+35.13
+35.43
+35.80
+35.59
+35.53
+35.44
+35.61
+35.72
+
+0.9476
+0.9499
+0.9494
+0.9537
+0.9534
+0.9546
+0.9546
+0.9554
+0.9552
+0.9549
+0.9556
+0.9561
+
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+4×
+
+43.0M
+15.6M
+15.7M
+116M
+11.9M
+11.6M
+20.4M
+16.6M
+14.8M
+20.8M
+9.8M
+23.1M
+34.2M
+
+32.46
+32.63
+32.64
+32.64
+32.92
+32.82
+33.03
+33.08
+33.08
+33.04
+32.99
+33.14
+33.19
+
+0.8968
+0.9002
+0.9003
+0.9044
+0.9031
+0.9046
+0.9052
+0.9055
+0.9056
+0.9037
+0.9057
+0.9062
+
+28.80
+28.87
+28.92
+29.01
+29.09
+29.09
+29.20
+29.18
+29.23
+29.23
+29.23
+29.23
+29.29
+
+0.7876
+0.7889
+0.7888
+0.7950
+0.7939
+0.7961
+0.7960
+0.7973
+0.7973
+0.7965
+0.7975
+0.7982
+
+27.71
+27.77
+27.78
+27.82
+27.92
+27.91
+27.98
+27.99
+28.00
+28.00
+27.97
+28.00
+28.01
+
+0.7420
+0.7436
+0.7436
+0.7489
+0.7483
+0.7503
+0.7510
+0.7515
+0.7517
+0.7502
+0.7511
+0.7521
+
+26.64
+26.82
+26.79
+27.26
+27.45
+27.46
+27.68
+27.89
+27.87
+27.97
+27.73
+27.89
+28.07
+
+0.8033
+0.8087
+0.8068
+0.8254
+0.8246
+0.8287
+0.8339
+0.8343
+0.8368
+0.8307
+0.8344
+0.8383
+
+31.02
+31.22
+31.18
+32.03
+32.05
+32.32
+32.39
+32.51
+32.48
+32.33
+32.57
+32.66
+
+0.9148
+0.9173
+0.9169
+0.9260
+0.9254
+0.9272
+0.9285
+0.9291
+0.9292
+0.9276
+0.9295
+0.9304
+
+Method
+
+scale
+
+#param
+
+EDSR [37]
+RCAN [67]
+SAN [14]
+IPT [7]
+SwinIR [36]
+EDT [34]
+MambaIR [24]
+CAT-A [10]
+DAT [12]
+HAT [9]
+MambaIRv2-S
+MambaIRv2-B
+MambaIRv2-L
+
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+2×
+
+EDSR [37]
+RCAN [67]
+SAN [14]
+IPT [7]
+SwinIR [36]
+EDT [34]
+MambaIR [24]
+CAT-A [10]
+DAT [12]
+HAT [9]
+MambaIRv2-S
+MambaIRv2-B
+MambaIRv2-L
+EDSR [37]
+RCAN [67]
+SAN [14]
+IPT [7]
+SwinIR [36]
+EDT [34]
+MambaIR [24]
+CAT-A [10]
+DAT [12]
+HAT [9]
+MambaIRv2-S
+MambaIRv2-B
+MambaIRv2-L
+
+Set5
+
+Table 5. Complexity comparison with state-of-the-art methods on
+the 2× classic SR with output size 256 × 256.
+Models
+
+#param
+
+MACs
+
+Urban100
+PSNR SSIM
+
+Manga109
+PSNR SSIM
+
+CAT-A [10]
+DAT [12]
+HAT [9]
+MambaIRv2-S
+MambaIRv2-B
+MambaIRv2-L
+
+16.6M
+14.8M
+20.8M
+9.6M
+22.9M
+34.2M
+
+350.7G
+265.7G
+514.9G
+192.9G
+445.8G
+664.5G
+
+34.26
+34.37
+34.45
+34.24
+34.49
+34.60
+
+40.10
+40.33
+40.26
+40.27
+40.42
+40.55
+
+0.9440
+0.9458
+0.9466
+0.9454
+0.9468
+0.9475
+
+with 9.6M #param, outperforms the previous 20.4M MambaIR [24] by 0.09dB PSNR on the 2× Urban100 dataset,
+further demonstrating our MambaIRv2 serves as an elegant
+balance of performance and efficiency. Finally, our method
+also shows promising scaling-up capabilities. When we
+scale up the #param to 34.2M to obtain the MambaIRv2L model, this larger model achieved steady performance
+gains compared to its base counterpart, e.g., 0.18dB PSNR
+gains on 4× Urban100. The visual comparisons are shown
+in Fig. 4, and our method can facilitate the reconstruction
+of sharp edges and natural textures.
+Model Complexity Comparison. As shown in Tab. 5, our
+MambaIRv2-S model, which uses only 55.0% of the MACs
+compared to CAT-A [10], outperforms CAT-A by 0.17dB
+PSNR on Manga109. Additionally, our MambaIRv2-B
+model, which roughly matches the #param of HAT [9],
+achieves a 13.4% reduction in MACs, while delivering
+0.04/0.16dB PSNR improvements on Urban100/Manga109.
+The above results demonstrate that our MambaIRv2 strikes
+a sweet spot between performance and efficiency.
+
+0.9805
+0.9807
+0.9809
+0.9808
+0.9810
+0.9807
+
+79K fewer #param. This experiment validates the efficiency
+and effectiveness of the proposed method.
+Classic Image Super-Resolution. Tab. 4 gives the comparison results of our MambaIRv2 with different model sizes
+to existing state-of-the-art classic SR methods. Thanks to
+the attentive state space modeling, our proposed method
+achieves the best performance across most five benchmark datasets and up-sample scales. For example, our
+MambaIRv2-B exceeds HAT [9] by 0.16dB on the 2×
+Manga109 dataset. Interestingly, even the MambaIRv2-S
+7
+
+Table 6. Quantitative comparison on JPEG compression artifact reduction under different quality factors q.
+Dataset
+Classic5
+
+LIVE1
+
+q
+10
+30
+40
+10
+30
+40
+
+RNAN [69]
+PSNR
+SSIM
+29.96
+0.8178
+33.38
+0.8924
+34.27
+0.9061
+29.63
+0.8239
+33.45
+0.9149
+34.47
+0.9299
+
+RDN [70]
+PSNR
+SSIM
+30.00
+0.8188
+33.43
+0.8930
+34.27
+0.9061
+29.67
+0.8247
+33.51
+0.9153
+34.51
+0.9302
+
+DRUNet [62]
+PSNR
+SSIM
+30.16
+0.8234
+33.59
+0.8949
+34.41
+0.9075
+29.79
+0.8278
+33.59
+0.9166
+34.58
+0.9312
+
+Table 7. Quantitative comparison of PSNR on gaussian color image denoising σ = 15 with state-of-the-art methods.
+
+IRCNN [60]
+FFDNet [61]
+DnCNN [59]
+DRUNet [62]
+SwinIR [36]
+Restormer [55]
+Xformer [57]
+MambaIR [24]
+MambaIRv2
+
+33.86
+33.87
+33.90
+34.30
+34.42
+34.40
+34.43
+34.48
+34.48
+
+34.69
+34.63
+34.60
+35.31
+35.34
+35.35
+35.39
+35.42
+35.43
+
+34.58
+34.66
+33.45
+35.40
+35.61
+35.61
+35.68
+35.70
+35.73
+
+Query Point
+
+CBSD68 Kodak24 McMaster Urban100
+33.78
+33.83
+32.98
+34.81
+35.13
+35.13
+35.29
+35.37
+35.42
+
+#param MACs
+
+MambaIR-1 [24] 987K
+MambaIR-2 [24] 1.11M
+MambaIR-4 [24] 1.36M
+MambaIRv2
+774K
+
+291G
+383G
+568G
+286G
+
+Ours
+PSNR
+30.37
+33.81
+34.64
+29.91
+33.73
+34.73
+
+SSIM
+0.8269
+0.8970
+0.9093
+0.8301
+0.9179
+0.9323
+
+0.8
+0.6
+
+query pixel
+
+query pixel
+
+query pixel
+
+query pixel
+query pixel
+
+0.4
+0.2
+0.0
+-0.2
+
+-0.4
+-0.6
+
+-0.8
+
+Figure 5. The visualization of the attentive state space. We compute the cosine similarity between the prompt corresponding to the
+query pixel and the matrix C. We filter out low-similarity points
+for presentation clarity. More examples are provided in the Suppl..
+
+5.6. Discussion
+Benefits from Reduced Scan Directions. Compared to the
+previous MambaIR [24], which performs 4 scans in pixel
+space, a significant advantage of our MambaIRv2 is that it
+requires only a single scan in the semantic space. As shown
+in Tab. 8, our MambaIRv2 is not only efficient but also
+boosts performance. For example, MambaIRv2 reduces
+even 43% of the number of parameters and 50% computational burden compared to the standard MambaIR, while
+still suppresses by 0.34dB PSNR on 2× Urban100.
+Visualization of Attentive State Space. In the proposed attentive state space equation, the prompts play an important
+role in representing similar pixels across the whole image
+to facilitate the query pixel seeing out of the scanned sequence. As shown in Fig. 5, it can be seen that the query
+pixel is empowered to attend to its corresponding semantic
+part in the image through the prompt, thus enabling global
+information aggregation similar to attention mechanism.
+
+Table 8. Comparison to MambaIR with different scanning modes
+on 2× lightweight SR. The “MambaIR-n” indicates the MambaIR [24] variant with n scanning directions.
+settings
+
+MambaIR [24]
+PSNR
+SSIM
+30.27
+0.8256
+33.74
+0.8965
+34.53
+0.9084
+29.88
+0.8301
+33.72
+0.9179
+34.70
+0.9320
+
+query pixel
+
+Filtered Similarity Map
+
+Method
+
+SwinIR [36]
+PSNR
+SSIM
+30.27
+0.8249
+33.73
+0.8961
+34.52
+0.9082
+29.86
+0.8287
+33.69
+0.9174
+34.67
+0.9317
+
+Urban100 Manga109
+PSNR SSIM PSNR SSIM
+32.82 0.9348 39.19 0.9776
+32.86 0.9450 39.26 0.9778
+32.92 0.9356 39.31 0.9779
+33.26 0.9378 39.39 0.9786
+
+5.4. Comparison on JPEG CAR
+Tab. 6 gives the results on JPEG compression reduction.
+It can be seen that the proposed MambaIRv2 achieves the
+best performance on all testing datasets across all quality
+factors. For example, our MambaIRv2 suppresses MambaIR [24] by 0.11dB PSNR with q = 40 on the Classic5
+dataset, demonstrating the effectiveness of our MambaIRv2
+on other restoration tasks.
+
+6. Conclusion
+
+5.5. Comparison on Image Denoising
+
+In this work, we introduce MambaIRv2 to enhance statespace restoration models by addressing the causal modeling nature of Mamba. We propose the attentive state-space
+equation that incorporates prompt learning for enlarged token perception as well as scanning only once. Additionally, we introduce semantic guided neighboring which positions similar pixels closer to handle the long-range decay. These innovations enable MambaIRv2 to integrate
+ViT-like non-causal abilities into Mamba-based models to
+implement the attentive state space restoration. Extensive
+experiments confirm our MambaIRv2 as an efficient, highperforming backbone for image restoration.
+
+We further include the gaussian color image denoising task
+for further validation. Notably, to maintain architectural
+consistency across different restoration tasks, we retain the
+straight-through structure and avoid using the UNet architecture, which has been shown to be particularly advantageous for denoising tasks [8]. The results presented
+in Tab. 7 demonstrate that MambaIRv2 outperforms all
+other models across the datasets. In particular, it surpasses
+U-shaped Restormer [55] by even 0.29dB PSNR on the Urban100 dataset. This experiment validates our MambaIRv2
+serves as a generalized image restoration backbone.
+8
+
+References
+
+[16] Chao Dong, Chen Change Loy, Kaiming He, and Xiaoou
+Tang. Learning a deep convolutional network for image
+super-resolution. In ECCV, pages 184–199. Springer, 2014.
+1, 2
+[17] Chao Dong, Yubin Deng, Chen Change Loy, and Xiaoou
+Tang. Compression artifacts reduction by a deep convolutional network. In ICCV, pages 576–584, 2015. 2
+[18] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint
+arXiv:2010.11929, 2020. 1, 2
+[19] Alessandro Foi, Vladimir Katkovnik, and Karen Egiazarian.
+Pointwise shape-adaptive DCT for high-quality denoising
+and deblocking of grayscale and color images. IEEE TIP,
+16(5):1395–1411, 2007. 13
+[20] Rich Franzen. Kodak lossless true color image suite. 2021.
+13
+[21] Hu Gao, Bowen Ma, Ying Zhang, Jingfan Yang, Jing Yang,
+and Depeng Dang. Learning enriched features via selective
+state spaces model for efficient image deblurring. In ACM
+MM, pages 710–718, 2024. 2
+[22] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+modeling with selective state spaces.
+arXiv preprint
+arXiv:2312.00752, 2023. 1, 2, 3, 13
+[23] Jinjin Gu and Chao Dong. Interpreting super-resolution networks with local attribution maps. In CVPR, pages 9199–
+9208, 2021. 12, 15
+[24] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong
+Ren, and Shu-Tao Xia. MambaIR: A simple baseline for
+image restoration with state-space model. In ECCV, pages
+222–241. Springer, 2025. 1, 2, 3, 5, 6, 7, 8, 12, 13, 15
+[25] Dongchen Han, Ziyi Wang, Zhuofan Xia, Yizeng Han, Yifan Pu, Chunjiang Ge, Jun Song, Shiji Song, Bo Zheng, and
+Gao Huang. Demystify Mamba in vision: A linear attention
+perspective. arXiv preprint arXiv:2405.16605, 2024. 3
+[26] Chunming He, Yuqi Shen, Chengyu Fang, Fengyang Xiao,
+Longxiang Tang, Yulun Zhang, Wangmeng Zuo, Zhenhua
+Guo, and Xiu Li. Diffusion models in low-level vision: A
+survey. IEEE TPAMI, 2025. 2
+[27] Jia-Bin Huang, Abhishek Singh, and Narendra Ahuja. Single
+image super-resolution from transformed self-exemplars. In
+CVPR, pages 5197–5206, 2015. 13
+[28] Eric Jang, Shixiang Gu, and Ben Poole. Categorical
+reparameterization with gumbel-softmax. arXiv preprint
+arXiv:1611.01144, 2016. 4
+[29] Menglin Jia, Luming Tang, Bor-Chun Chen, Claire Cardie,
+Serge Belongie, Bharath Hariharan, and Ser-Nam Lim. Visual prompt tuning. In ECCV, pages 709–727. Springer,
+2022. 2
+[30] Junjun Jiang, Zengyuan Zuo, Gang Wu, Kui Jiang, and
+Xianming Liu. A survey on all-in-one image restoration:
+Taxonomy, evaluation and future trends. arXiv preprint
+arXiv:2410.15067, 2024. 2
+[31] Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and
+François Fleuret. Transformers are RNNs: Fast autoregres-
+
+[1] Namhyuk Ahn, Byungkon Kang, and Kyung-Ah Sohn. Fast,
+accurate, and lightweight super-resolution with cascading
+residual network. In ECCV, pages 252–268, 2018. 6
+[2] Anas M Ali, Bilel Benjdira, Anis Koubaa, Walid El-Shafai,
+Zahid Khan, and Wadii Boulila. Vision transformers in image restoration: A survey. Sensors, 23(5):2385, 2023. 2
+[3] Pablo Arbelaez, Michael Maire, Charless Fowlkes, and Jitendra Malik. Contour detection and hierarchical image segmentation. IEEE TPAMI, 33(5):898–916, 2010. 13
+[4] Jiesong Bai, Yuhao Yin, Qiyuan He, Yuanxian Li,
+and Xiaofeng Zhang.
+RetinexMamba: Retinex-based
+Mamba for low-light image enhancement. arXiv preprint
+arXiv:2405.03349, 2024. 2
+[5] Marco Bevilacqua, Aline Roumy, Christine Guillemot, and
+Marie Line Alberi-Morel. Low-complexity single-image
+super-resolution based on nonnegative neighbor embedding.
+2012. 13
+[6] Pierre Charbonnier, Laure Blanc-Feraud, Gilles Aubert, and
+Michel Barlaud. Two deterministic half-quadratic regularization algorithms for computed imaging. In ICIP, pages
+168–172. IEEE, 1994. 5
+[7] Hanting Chen, Yunhe Wang, Tianyu Guo, Chang Xu, Yiping Deng, Zhenhua Liu, Siwei Ma, Chunjing Xu, Chao Xu,
+and Wen Gao. Pre-trained image processing transformer. In
+CVPR, pages 12299–12310, 2021. 1, 2, 7
+[8] Xiangyu Chen, Zheyuan Li, Yuandong Pu, Yihao Liu,
+Jiantao Zhou, Yu Qiao, and Chao Dong. A comparative study
+of image restoration networks for general backbone network
+design. arXiv preprint arXiv:2310.11881, 2023. 8, 13
+[9] Xiangyu Chen, Xintao Wang, Jiantao Zhou, Yu Qiao,
+and Chao Dong. Activating more pixels in image superresolution transformer. In CVPR, pages 22367–22377, 2023.
+1, 2, 7, 12, 15
+[10] Zheng Chen, Yulun Zhang, Jinjin Gu, Linghe Kong, Xin
+Yuan, et al. Cross aggregation transformer for image restoration. NeurIPS, 35:25478–25490, 2022. 7
+[11] Zheng Chen, Yulun Zhang, Jinjin Gu, Linghe Kong, and
+Xiaokang Yang. Recursive generalization transformer for
+image super-resolution. arXiv preprint arXiv:2303.06373,
+2023. 5
+[12] Zheng Chen, Yulun Zhang, Jinjin Gu, Linghe Kong, Xiaokang Yang, and Fisher Yu. Dual aggregation transformer
+for image super-resolution. In ICCV, pages 12312–12321,
+2023. 1, 7
+[13] Xiangxiang Chu, Zhi Tian, Bo Zhang, Xinlong Wang, and
+Chunhua Shen. Conditional positional encodings for vision
+transformers. arXiv preprint arXiv:2102.10882, 2021. 4
+[14] Tao Dai, Jianrui Cai, Yongbing Zhang, Shu-Tao Xia, and
+Lei Zhang. Second-order attention network for single image super-resolution. In CVPR, pages 11065–11074, 2019.
+1, 2, 7
+[15] Xiaohan Ding, Xiangyu Zhang, Jungong Han, and Guiguang
+Ding. Scaling up your kernels to 31x31: Revisiting large
+kernel design in cnns. In CVPR, pages 11963–11975, 2022.
+15
+
+9
+
+[46] Shiyu Qin, Jinpeng Wang, Yimin Zhou, Bin Chen, Tianci
+Luo, Baoyi An, Tao Dai, Shutao Xia, and Yaowei Wang.
+MambaVC: Learned visual compression with selective state
+spaces. arXiv preprint arXiv:2405.15413, 2024. 2
+[47] H Sheikh. LIVE image quality assessment database release
+2. http://live. ece. utexas. edu/research/quality, 2005. 13
+[48] Yuan Shi, Bin Xia, Xiaoyu Jin, Xing Wang, Tianyu Zhao,
+Xin Xia, Xuefeng Xiao, and Wenming Yang. VmambaIR: Visual state space model for image restoration. arXiv
+preprint arXiv:2403.11423, 2024. 1
+[49] Radu Timofte, Eirikur Agustsson, Luc Van Gool, MingHsuan Yang, and Lei Zhang. NTIRE 2017 challenge on single image super-resolution: Methods and results. In CVPRW,
+pages 114–125, 2017. 13
+[50] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. NeurIPS, 30, 2017. 2
+[51] Hang Wang, Xuanhong Chen, Bingbing Ni, Yutian Liu, and
+Jinfan Liu. Omni aggregation networks for lightweight image super-resolution. In CVPR, pages 22378–22387, 2023.
+2
+[52] Jiangwei Weng, Zhiqiang Yan, Ying Tai, Jianjun Qian, Jian
+Yang, and Jun Li. MambaLLIE: Implicit retinex-aware low
+light enhancement with global-then-local state space. arXiv
+preprint arXiv:2405.16105, 2024. 1, 2, 5
+[53] Hongtao Wu, Yijun Yang, Huihui Xu, Weiming Wang, Jinni
+Zhou, and Lei Zhu. RainMamba: Enhanced locality learning
+with state space models for video deraining. In ACM MM,
+pages 7881–7890, 2024. 2
+[54] Xinyu Xie, Yawen Cui, Chio-In Ieong, Tao Tan, Xiaozhi
+Zhang, Xubin Zheng, and Zitong Yu. FusionMamba: Dynamic feature enhancement for multimodal image fusion
+with Mamba. arXiv preprint arXiv:2404.09498, 2024. 2
+[55] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+Restormer: Efficient transformer for high-resolution image
+restoration. In CVPR, pages 5728–5739, 2022. 8
+[56] Roman Zeyde, Michael Elad, and Matan Protter. On single
+image scale-up using sparse-representations. In Curves and
+Surfaces: 7th International Conference, Avignon, France,
+June 24-30, 2010, Revised Selected Papers 7, pages 711–
+730. Springer, 2012. 13
+[57] Jiale Zhang, Yulun Zhang, Jinjin Gu, Jiahua Dong,
+Linghe Kong, and Xiaokang Yang. Xformer: Hybrid xshaped transformer for image denoising. arXiv preprint
+arXiv:2303.06440, 2023. 8
+[58] Jiale Zhang, Yulun Zhang, Jinjin Gu, Yongbing Zhang,
+Linghe Kong, and Xin Yuan. Accurate image restoration
+with attention retractable transformer. In ICLR, 2023. 2
+[59] Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and
+Lei Zhang. Beyond a gaussian denoiser: Residual learning of
+deep cnn for image denoising. IEEE TIP, 26(7):3142–3155,
+2017. 1, 2, 8
+[60] Kai Zhang, Wangmeng Zuo, Shuhang Gu, and Lei Zhang.
+Learning deep CNN denoiser prior for image restoration. In
+CVPR, pages 3929–3938, 2017. 8
+
+sive transformers with linear attention. pages 5156–5165.
+PMLR, 2020. 3
+[32] Jiwon Kim, Jung Kwon Lee, and Kyoung Mu Lee. Accurate
+image super-resolution using very deep convolutional networks. In CVPR, pages 1646–1654, 2016. 2
+[33] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. arXiv preprint arXiv:1412.6980,
+2014. 5
+[34] Wenbo Li, Xin Lu, Shengju Qian, Jiangbo Lu, Xiangyu
+Zhang, and Jiaya Jia.
+On efficient transformer-based
+image pre-training for low-level vision. arXiv preprint
+arXiv:2112.10175, 2021. 7
+[35] Yawei Li, Yuchen Fan, Xiaoyu Xiang, Denis Demandolx,
+Rakesh Ranjan, Radu Timofte, and Luc Van Gool. Efficient and explicit modelling of image hierarchies for image
+restoration. In CVPR, pages 18278–18289, 2023. 1, 2, 5
+[36] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc
+Van Gool, and Radu Timofte. SwinIR: Image restoration
+using swin transformer. In ICCVW, pages 1833–1844, 2021.
+1, 2, 5, 6, 7, 8, 13, 15
+[37] Bee Lim, Sanghyun Son, Heewon Kim, Seungjun Nah, and
+Kyoung Mu Lee. Enhanced deep residual networks for single
+image super-resolution. In CVPRW, pages 136–144, 2017. 1,
+5, 7, 13, 15
+[38] Wei-Tung Lin, Yong-Xiang Lin, Jyun-Wei Chen, and KaiLung Hua. PixMamba: Leveraging state space models in a
+dual-level architecture for underwater image enhancement.
+arXiv preprint arXiv:2406.08444, 2024. 2
+[39] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin Transformer:
+Hierarchical vision transformer using shifted windows. In
+ICCV, pages 10012–10022, 2021. 2, 5, 12
+[40] Wenjie Luo, Yujia Li, Raquel Urtasun, and Richard Zemel.
+Understanding the effective receptive field in deep convolutional neural networks. NeurIPS, 29, 2016. 12, 15
+[41] Xiaotong Luo, Yuan Xie, Yulun Zhang, Yanyun Qu, Cuihua Li, and Yun Fu. Latticenet: Towards lightweight image
+super-resolution with lattice block. In ECCV, pages 272–
+289. Springer, 2020. 6
+[42] Kede Ma, Zhengfang Duanmu, Qingbo Wu, Zhou Wang,
+Hongwei Yong, Hongliang Li, and Lei Zhang. Waterloo exploration database: New challenges for image quality assessment models. IEEE TIP, 26(2):1004–1016, 2016. 13
+[43] David Martin, Charless Fowlkes, Doron Tal, and Jitendra
+Malik. A database of human segmented natural images and
+its application to evaluating segmentation algorithms and
+measuring ecological statistics. In ICCV, pages 416–423.
+IEEE, 2001. 13
+[44] Yusuke Matsui, Kota Ito, Yuji Aramaki, Azuma Fujimoto,
+Toru Ogawa, Toshihiko Yamasaki, and Kiyoharu Aizawa.
+Sketch-based manga retrieval using Manga109 dataset. Multimedia Tools and Applications, 76:21811–21838, 2017. 13
+[45] Junbo Qiao, Jincheng Liao, Wei Li, Yulun Zhang, Yong Guo,
+Yi Wen, Zhangxizi Qiu, Jiao Xie, Jie Hu, and Shaohui Lin.
+Hi-Mamba: Hierarchical Mamba for efficient image superresolution. arXiv preprint arXiv:2410.10140, 2024. 2
+
+10
+
+[61] Kai Zhang, Wangmeng Zuo, and Lei Zhang. FFDNet: Toward a fast and flexible solution for CNN-based image denoising. IEEE TIP, 27(9):4608–4622, 2018. 8
+[62] Kai Zhang, Yawei Li, Wangmeng Zuo, Lei Zhang, Luc
+Van Gool, and Radu Timofte. Plug-and-play image restoration with deep denoiser prior. IEEE TPAMI, 44(10):6360–
+6376, 2021. 8
+[63] Lei Zhang, Xiaolin Wu, Antoni Buades, and Xin Li. Color
+demosaicking by local directional interpolation and nonlocal
+adaptive thresholding. Journal of Electronic imaging, 20(2):
+023016–023016, 2011. 13
+[64] Leheng Zhang, Yawei Li, Xingyu Zhou, Xiaorui Zhao, and
+Shuhang Gu. Transcending the limit of local window: Advanced super-resolution transformer with adaptive token dictionary. In CVPR, pages 2856–2865, 2024. 2, 13
+[65] Mingjin Zhang, Longyi Li, Wenxuan Shi, Jie Guo, Yunsong
+Li, and Xinbo Gao. VmambaSCI: Dynamic deep unfolding
+network with mamba for compressive spectral imaging. In
+ACM MM, pages 6549–6558, 2024. 2
+[66] Xindong Zhang, Hui Zeng, Shi Guo, and Lei Zhang.
+Efficient long-range attention network for image superresolution. In ECCV, pages 649–667. Springer, 2022. 6
+[67] Yulun Zhang, Kunpeng Li, Kai Li, Lichen Wang, Bineng
+Zhong, and Yun Fu. Image super-resolution using very deep
+residual channel attention networks. In ECCV, pages 286–
+301, 2018. 2, 7, 15
+[68] Yulun Zhang, Yapeng Tian, Yu Kong, Bineng Zhong, and
+Yun Fu. Residual dense network for image super-resolution.
+In CVPR, pages 2472–2481, 2018. 1, 2
+[69] Yulun Zhang, Kunpeng Li, Kai Li, Bineng Zhong, and Yun
+Fu. Residual non-local attention networks for image restoration. arXiv preprint arXiv:1903.10082, 2019. 8
+[70] Yulun Zhang, Yapeng Tian, Yu Kong, Bineng Zhong, and
+Yun Fu. Residual dense network for image restoration. IEEE
+TPAMI, 43(7):2480–2495, 2020. 8
+[71] Zou Zhen, Yu Hu, and Zhao Feng. FreqMamba: Viewing
+Mamba from a frequency perspective for image deraining.
+arXiv preprint arXiv:2404.09476, 2024. 2
+[72] Zhuoran Zheng and Chen Wu. U-shaped vision Mamba for
+single image dehazing. arXiv preprint arXiv:2402.04139,
+2024. 2
+[73] Yupeng Zhou, Zhen Li, Chun-Le Guo, Song Bai, MingMing Cheng, and Qibin Hou. SRFormer: Permuted selfattention for single image super-resolution. arXiv preprint
+arXiv:2303.09735, 2023. 2, 6
+
+11
+
+MambaIRv2: Attentive State Space Restoration
+Supplementary Material
+Table A.1. The computational cost MACs with images of different
+resolutions. We compare our MambaIRv2-B and HAT [9]. We
+adopt the 4× classical SR task and set the output size from 64×
+to 1024 × 1024.
+
+A. Efficiency Comparison on Large Inputs
+Benefiting from the Mamba architecture, our proposed
+MambaIRv2 can achieve global pixel utilization. However,
+as an inevitable side effect, the global receptive field is usually accompanied by an increased computational cost since
+the model needs to process more tokens at once. Therefore, it is necessary to validate the efficiency on large resolution images. Here, we point out that, benefiting from
+our single-directional scan, our MambaIRv2 can in fact
+achieve a similar computational cost as the advanced SwinTransformer [39] based method HAT [9]. In Tab. A.1, we
+give the MACs of our MambaIRv2 and HAT under varying input resolutions. As one can see, our MambaIRv2B, which has a roughly similar number of parameters
+as HAT [9], is more efficient than HAT from resolution
+64 × 64 to 1024 × 1024. For example, on the 256 × 256
+resolution, which is a common inference patch size, our
+method achieves a 30% savings in computational cost metric MACs. At the high-resolution setting of 1024 × 1024,
+our method achieves fewer MACs than HAT. It is worth
+noting that in addition to this impressive efficiency, our
+MambaIRv2 still outperforms HAT by a noticeable margin,
+which has been extensively verified in the main paper.
+
+models
+
+64 × 64 128 × 128 256 × 256 512 × 512 1024 × 1024
+
+HAT [9]
+26.05G
+MambaIRv2 7.12G
+
+58.62G
+28.49G
+
+162.85G
+113.97G
+
+527.63G
+455.89G
+
+1882.28G
+1823.04G
+
+Table A.2. Ablation experiments on the hyper-parameters of the
+number of prompts T in the prompt pool, and the inner rank r in
+the semantic decoupling.
+r×T
+
+Set14
+PSNR SSIM
+
+Urban100
+PSNR SSIM
+
+Manga109
+PSNR SSIM
+
+16 × 64
+16 × 128
+32 × 128
+32 × 64
+
+33.90
+33.91
+33.97
+33.95
+
+32.96
+32.96
+32.97
+32.97
+
+39.19
+39.22
+39.20
+39.24
+
+0.9205
+0.9205
+0.9210
+0.9213
+
+0.9359
+0.9354
+0.9360
+0.9355
+
+0.9781
+0.9783
+0.9783
+0.9784
+
+also spatially close in the unfolded 1D sequence. In this section, we visualize the learned restructured image in Fig. A.1
+for better understanding. It can be seen that the previous
+distant pixels with similar semantics in the original feature
+map become spatially close after the restructuring of the
+SGN. By placing semantically similar pixels closer, the proposed SGN alleviates Mamba’s long-range decay problem
+resulting from the causal modeling nature and thus facilitates better exploit those distant but similar pixels.
+
+B. More Ablation Results
+B.1. Ablation on Prompt Learning
+In the proposed ASE, we use learnable prompts to absorb
+information of similar pixels across the whole image, which
+will be later inserted into the state space modeling to help
+the query pixel to see the unscanned tokens. The proposed
+prompt learning contains two key hyperparameters, namely
+the size of the prompt pool T , and the internal rank r in the
+semantic decoupling. In this section, we perform hyperparameter ablation to investigate the impact of different T and
+r on the performance. As shown in Tab. A.2, when the r is
+small, increasing the number of prompts T can steadily improve performance. For example, when r = 16, increasing
+T from 64 to 128 can result in a 0.03dB improvement on
+Manga109. However, when r is large, increasing the size of
+the prompt pool sometimes instead results in a slight performance drop. A similar observation also appears in the innerrank r. In practice, we choose a moderate T × r = 32 × 64
+considering the performance and efficiency trade-off.
+
+C. Comparison on Receptive Field
+As pointed out in previous work [24], a significant advantage of the Mamba architecture is the practical global receptive field, which helps the model activate more pixels
+to improve restoration performance. Here, we give visualization comparison results of LAM [23] and ERF [40] with
+other strong baselines. First, the Fig. A.2 gives the results
+of the LAM attribution map. One can see that our MambaIRv2 can activate more pixels than other state-of-the-art
+methods HAT [9] by presenting a wider LAM attribution
+and a higher DI, thus resulting in higher-quality restoration
+results. Second, the Fig. A.3 further gives the effective receptive filed visual comparison with other methods. Our
+MambaIRv2 exhibits darker colors across the entire image,
+indicating the global perception of the proposed method.
+It is noteworthy that the ERF visualization in Fig. A.3
+can also demonstrate the effectiveness of the proposed noncausal modeling strategy in our MambaIRv2. In detail, the
+ERF visualization of MambaIR [24] exhibits a clear criss-
+
+B.2. Visualization of Semantic Neighboring
+In the proposed Semantic Guided Neighboring (SGN), we
+restructure the image so that semantically similar pixels are
+12
+
+Original Image
+
+Feature Map
+Before SGN
+
+Feature Map
+After SGN
+
+Feature Map
+Before SGN
+
+Original Image
+
+Feature Map
+After SGN
+
+Table A.3. Comparison with ATD [64] on 2× classic SR.
+
+Pixel_2
+
+Pixel_1
+
+Pixel_2
+Pixel_2 Pixel_1
+
+Pixel_1
+
+Pixel_1 Pixel_2
+
+Figure A.1. Visualization of the effectiveness of the proposed
+SGN. Before SGN, the semantically similar pixels belonging to
+the same object in the original feature map are far apart. After
+SGN, these pixels are spatially close to each other, thus facilitating strong interactions in the unfolded 1D sequence.
+
+methods
+
+Set5
+
+Set14
+
+B100
+
+Urban100
+
+Manga109
+
+ATD [64]
+MambaIRv2
+
+38.61
+38.65
+
+34.95
+34.89
+
+32.65
+32.62
+
+34.70
+34.49
+
+40.37
+40.42
+
+cross-attention to incorporate prompts into the feature map.
+Third, the way in which the prompts are generated is different. Specifically, ATD uses the attention map to implicitly
+obtain the category of each pixel. However, attention maps
+are even not available in Mamba, and thus we propose to
+design separate routing modules to explicitly learn the category of each pixel. In Tab. A.3, we give the quantitative
+comparison of our MambaIRv2 against ATD, and it can be
+seen that our proposed method can achieve comparable performance to ATD. It should be noted that ATD [64] is a
+highly optimized Transformer-based method since Transformer has been introduced to image restoration for many
+years. Given the Mamba-based methods are still in their infancy since the introduction of MambaIR [24]. It is promising for the Mamba-based method to achieve further performance improvements over its transformer counterparts.
+
+crossing, which is a clear sign of the causal modeling property as the center pixel can only utilizes its previous pixels in the scanned 1D sequence. In contrast, our proposed
+MambaIRv2, which aims at eliminating causal modeling in
+Mamba for image restoration, does not exhibit such unfavorable crisscrossing, demonstrating the validity of our proposed non-causal modeling.
+
+D. More Implementation Details
+We employ the DF2K [37, 49] dataset to train models on
+classic SR and use DIV2K only to train lightweight SR
+models. Moreover, we use Set5 [5], Set14 [56], B100 [43],
+Urban100 [27], and Manga109 [44] to evaluate the effectiveness of different SR methods. For Gaussian color image denoising and JPEG CAR, we utilize DIV2K [49],
+Flickr2K [37], BSD500 [3], and WED [42] as our training datasets. Our testing datasets for guassian color image denoising includes BSD68 [43], Kodak24 [20], McMaster [63], and Urban100 [27]. And we use Classic5 [19]
+and LIVE1 [47] datasets to evaluate the performance of the
+JPEG CAR task. The performance is evaluated using PSNR
+and SSIM on the Y channel from the YCbCr color space.
+
+F. Limitation and Future Works
+Our MamabIRv2 can effectively alleviate the inherent
+causal nature of Mamba architecture [22] benefiting from
+the proposed attentive state space modeling. Nonetheless,
+our work can be further improved in the future in the following aspects. First, the Mamba architecture emerges as
+the third backbone option for image restoration, in addition
+to CNNs and ViTs, which provide more solutions for designing image restoration networks. Therefore, an in-depth
+interpretability analysis about what exactly Mamba or ViT
+has learned during the restoration of an image is important
+for further understanding and network design. Second, although this work follows existing works [36] to cover multiple image restoration tasks, some other tasks such as image deblurring, dehazing and deraining can also be explored
+in the future. The implementation of the U-shaped MambaIRv2 backbone for these tasks to achieve further performance improvement is also interesting and promising [8].
+Finally, despite the promising results shown, we would like
+to point out that the Mamba-based image restoration network is still in its early stages. With the increasing research
+interest in Mamba, it will be promising to study the statespace models for low-level vision.
+
+E. Comparison to ATD
+The Adaptive Token Dictionary (ATD) [64] which can generate input-specific tokens/prompts to help the query pixel
+see out of the window, appears close to our proposed MambaIRv2, with both including additional prompts for obtaining more information. Here, we summarize the main
+differences between them in the following aspects. First,
+the goals of introducing prompts in these two methods are
+clearly different. The ATD uses prompts to overcome the
+limited receptive field in the window attention, while our
+MambaIRv2 aims to mitigate the causal modeling of the
+Mamba. Second, the utilization of prompts for seeing beyond the scanned sequence in our MambaIRv2 is wellmotivated. Specifically, we mathematically analyze the difference between state space and attention in the main paper, based on which we propose to add prompts to the C
+matrix in the state equation to attentively query relevant
+pixels across the image. In contrast, ATD adopts intuitive
+
+G. Proof for Long-range Decay
+As pointed out in the main paper, the causal property of
+Mamba leads to weak interactions between the query token and other remote tokens, i.e., the long-range decay.
+13
+
+Here, given the condition of the causal modeling equation
+in Mamba, we attempt to derive the long-range decay as
+follows.
+Formally, recall that the causal modeling of the statespace equation is given by:
+hi = Ahi−1 + Bxi ,
+yi = Chi + Dxi .
+
+(A.1)
+
+Then, we can continuously iterate Eq. (A.1) wit i =
+0, 1, · · · k. For example, setting i = 0 turns Eq. (A.1) into
+the following:
+h0 = Bx0
+y0 = Ch0 + Dx0 = CBx0 + Dx0
+
+(A.2)
+
+After that, we can further set i = 1 to obtain the following
+equation:
+h1 = Ah0 + Bx1 = ABx0 + Bx1
+y1 = Ch1 + Dx1 = C(ABx0 + Bx1 ) + Dx1
+
+(A.3)
+
+= CABx0 + CBx1 + Dx1
+Set i = 2 gives the following:
+h2 = Ah1 + Bx2 = A(ABx0 + Bx1 ) + Bx2
+2
+
+= A Bx0 + ABx1 + Bx2
+y2 = Ch2 + Dx2
+
+(A.4)
+
+2
+
+= C(A Bx0 + ABx1 + Bx2 ) + Dx2
+2
+
+= CA Bx0 + CABx1 + CBx2 + Dx2
+By iterating continuously, we can generalize the output yk
+in the k-th time step being represented by x0 · · · xk as the
+following formula:
+k
+
+yk = CA Bx0 +CA
+
+k−1
+
+Bx1 +· · ·+CBxk +Dxk (A.5)
+
+Eq. (A.5) actually quantitative the interaction between
+the k-th query token xk and all its previous k tokens
+x0 , x1 , · · · , xk−1 in the causally scanned sequences to produce the k-th output yk of state-space model. It can be
+clearly seen in Eq. (A.1) that the contribution of x0 to the
+k
+generation of yk is weighted by CA B, which is propork
+tional to A . Since in the main paper we have empirically
+observed that the mean value of A is statistically less than
+1, as a result, when k is large, i.e., when the two pixels are
+distant, the contribution of x0 to xk is small, i.e., exhibiting
+long-range decay. If x0 is very helpful to xk , this decay can
+catastrophically impair the restoration of the xk .
+
+14
+
+SAN
+
+SwinIR
+
+MambaIR
+
+HAT
+
+Ours
+
+16.59
+
+16.93
+
+14.14
+
+20.16
+
+21.80
+
+22.88
+
+27.11
+
+24.94
+
+7.82
+
+21.31
+
+18.42
+
+28.79
+
+DI
+
+Contribution Map
+
+LAM Attribution
+
+DI
+
+Contribution Map
+
+LAM Attribution
+
+RCAN
+
+Figure A.2. The LAM visualization [23] comparison with different methods The diffusion index reflects the range of involved pixels. A
+higher DI represents a wider range of utilized pixels.
+
+EDSR
+
+RCAN
+
+HAT
+
+SwinIR
+
+MambaIR
+
+Ours
+
+Figure A.3. The Effective Receptive Field (ERF) visualization [15, 40] for EDSR [37], RCAN [67], SwinIR [36], HAT [9], MambaIR [24],
+and the proposed MambaIRv2. A larger ERF is indicated by a more extensively distributed dark area. The proposed MambaIRv2 achieves
+a significant global effective receptive field.
+
+query pixel
+
+query pixel
+
+query pixel
+
+query pixel
+
+query pixel
+
+query pixel
+
+Filtered Similarity Map
+
+Query Point
+
+query pixel
+
+Figure A.4. More visualization results on the attentive state space modeling.
+
+15
+
+query pixel
+
+

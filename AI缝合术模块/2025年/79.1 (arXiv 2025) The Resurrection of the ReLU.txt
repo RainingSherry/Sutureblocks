@@ -1,0 +1,2573 @@
+The Resurrection of the ReLU
+Coşku Can Horuz1∗ Geoffrey Kasenbacher1,2∗ Saya Higuchi1 Sebastian Kairat1
+Jendrik Stoltz1 Moritz Pesl1 Bernhard A. Moser3,4 Christoph Linse5
+Thomas Martinetz5 Sebastian Otte1
+1
+
+arXiv:2505.22074v1 [cs.LG] 28 May 2025
+
+Institute of Robotics and Cognitive Systems, University of Lübeck
+2
+Mercedes-Benz AG
+3
+Software Competence Center Hagenberg (SCCH)
+4
+Institute of Signal Processing, Johannes Kepler University of Linz (JKU)
+5
+Institute of Neuro- and Bioinformatics, University of Lübeck
+{cosku.horuz, sa.higuchi, sebastian.kairat,
+c.linse, thomas.martinetz, sebastian.otte}@uni-luebeck.de
+{jendrik.stoltz, moritz.pesl}@student.uni-luebeck.de
+geoffrey.kasenbacher@mercedes-benz.com
+bernhard.moser@scch.at
+
+Abstract
+Modeling sophisticated activation functions within deep learning architectures
+has evolved into a distinct research direction. Functions such as GELU, SELU,
+and SiLU offer smooth gradients and improved convergence properties, making
+them popular choices in state-of-the-art models. Despite this trend, the classical
+ReLU remains appealing due to its simplicity, inherent sparsity, and other advantageous topological characteristics. However, ReLU units are prone to becoming
+irreversibly inactive—a phenomenon known as the dying ReLU problem—which
+limits their overall effectiveness. In this work, we introduce surrogate gradient
+learning for ReLU (SUGAR) as a novel, plug-and-play regularizer for deep architectures. SUGAR preserves the standard ReLU function during the forward pass
+but replaces its derivative in the backward pass with a smooth surrogate that avoids
+zeroing out gradients. We demonstrate that SUGAR, when paired with a wellchosen surrogate function, substantially enhances generalization performance over
+convolutional network architectures such as VGG-16 and ResNet-18, providing
+sparser activations while effectively resurrecting dead ReLUs. Moreover, we show
+that even in modern architectures like Conv2NeXt and Swin Transformer—which
+typically employ GELU—substituting these with SUGAR yields competitive and
+even slightly superior performance. These findings challenge the prevailing notion
+that advanced activation functions are necessary for optimal performance. Instead,
+they suggest that the conventional ReLU, particularly with appropriate gradient
+handling, can serve as a strong, versatile revived classic across a broad range of
+deep learning vision models.
+
+1
+
+Introduction
+
+The choice of activation functions in deep neural networks has a substantial effect on the convergence
+and performance of a model. Prior to the suggestion to apply Rectified Linear Unit (ReLU) as
+activation function in [7], concerted effort was made to tackle the saturation and vanishing gradient
+problem of sigmoidal activations. ReLU has been shown to accelerate convergence and often also
+∗
+
+Equal contribution, corresponding authors.
+
+Preprint. Under review.
+
+to enhance generalization. As a landmark moment in deep learning history, ReLU has been used in
+AlexNet [19], which significantly outperformed its competitors on the ImageNet [3] benchmark. This
+work explicitly studied the superiority of ReLU over hyperbolic tangent (tanh) in a deep convolution
+network. Since then, ReLU has been used in numerous tasks including image classification and
+segmentation, reinforcement learning, natural language processing, and speech recognition [10, 32,
+13, 36, 14, 39].
+Mathematically, recent research has established a deep connection between tropical geometry and
+feedforward neural networks with ReLU activations [42], unraveling an underlying algebraic structure
+of ReLU, namely, tropical semiring that replaces addition with it’s maximum and multiplication
+with addition. As a result, the decision boundaries formed by ReLU networks correspond to tropical
+hypersurfaces, which are the fundamental objects in tropical geometry. Such neural networks are
+equivalent to tropical rational functions [42], which is defined as a ratio of two tropical polynomials,
+themselves formed by maxima of affine functions. Closely related to this is the intuitive geometric
+understanding of consecutive layers of ReLU networks as space folding transformations that allow a
+compact representation of similarities in the input space [20, 28, 29].
+In ReLU networks, the negative pre-activations are silenced with true zeros, which allow sparse
+representations. This might lead to better generalization on unseen data, but forcing too much sparsity
+may damage the prediction as it effectively reduces the model capacity [7]. This phenomenon, known
+as “the dying ReLU problem”, has been a big caveat of ReLU networks. The dying ReLU problem
+led to a plethora of linear unit functions including, but not limited to LeakyReLU [26], PReLU
+[9], GELU [11], SELU [17], SiLU/Swish [4, 31], ELU [2]. All these functions introduce non-zero
+activations for negative pre-activation values, offering different trade-offs between ReLU’s modeling
+benefits and the advantages of smooth, continuous gradients.
+In this paper, we address the limitations of ReLU without sacrificing its advantages by introducing
+a novel approach: the application of a Surrogate Gradient for ReLU (SUGAR). SUGAR allows
+models to retain standard ReLU activations, while ensuring stable gradient flow even for negative
+pre-activations. Further contributions of this work are as follows:
+• We propose two new surrogate gradient functions, B-SiLU and NeLU, which integrate
+seamlessly into a variety of models. These functions consistently improve generalization
+performance.
+• We conduct comprehensive experiments with VGG-16 [35] and ResNet-18 [8], demonstrating that SUGAR significantly enhances generalization in both architectures.
+• We evaluate SUGAR on modern architectures such as Swin Transformer [23] and
+Conv2NeXt [5], showcasing its adaptability and effectiveness.
+• An in-depth analysis of VGG-16 layer activations reveals a distinct shift in activation
+distributions when SUGAR is applied, providing visual evidence for its role in mitigating
+the dying ReLU problem, while at the same time more sparse representations are fostered.
+• We further explore the loss landscape with and without SUGAR, offering deeper insight into
+its optimization benefits.
+The proposed SUGAR method offers several desirable properties. It is simple to implement and
+consistently utilizes ReLU in the forward pass. When combined with the proposed B-SiLU surrogate
+function, VGG-16 achieves improvements of 10 and 16 percentage points in test accuracy on
+CIFAR-10 and CIFAR-100 [18], respectively, while ResNet-18 shows corresponding gains of 9 and 7
+percentage points compared to the best-performing models without SUGAR.
+
+2
+
+Background
+
+2.1
+
+Surrogate gradient learning
+
+In conventional artificial neural networks, learning relies on gradient-based optimization methods
+such as backpropagation, which require continuous, differentiable activation functions. However,
+spiking neural networks (SNNs) are discrete and non-differentiable, making direct application of
+backpropagation infeasible.
+2
+
+Surrogate gradient learning emerged as a solution to train SNNs by replacing the gradient of the
+non-differentiable spiking function with a smooth and differentiable approximation [30]. These
+surrogate functions allow gradients to flow through the network during training, enabling the use of
+powerful optimization techniques in neuromorphic and event-based computing settings. This idea
+gained traction in the late-2010s and has since become a cornerstone for training biologically inspired
+spiking models in a computationally efficient manner [1, 12, 38, 41].
+Recently, a related approach called ProxyGrad [22] improved activation maximization (AM) in
+convolutional networks by manipulating gradients during optimization. The study showed that
+using LeakyReLU in the backward pass, while keeping ReLU in the forward pass, enabled AM to
+escape poor local optima and reach higher activation values. As a result, the method produced more
+informative and interpretable feature visualizations.
+2.2
+
+Forward gradient injection (FGI)
+
+Forward Gradient Injection (FGI) is the backbone algorithm in SUGAR. It was introduced in [34]
+as a surrogate gradient strategy in SNNs. It exploits the stop gradient operator (i.e. .detach())
+to manipulate the gradients such that a model with non-differentiable spikes becomes trainable via
+gradient signals. FGI enables a gradient injection during forward pass with the following equation
+(indirect surrogate gradient function):
+y = g(x) − sg(g(x)) + sg(f (x))
+
+(1)
+
+where sg(·) is the stop gradient operator, f (·) is the forward computation with its gradient bypassed
+and g(·) is another function where the gradient is instead injected over the variable of interest x while
+not contributing to the forward result due subtraction with itself. Choosing g(·) as an activation
+function with non-zero gradients for negative inputs, ReLU networks can be trained without suffering
+from the dying ReLU problem. However, Equation 1 requires the gradient computation of g(·) in the
+backward pass. Following multiplication trick allows g̃(·) to be exactly the derivative of f (·) in the
+backward pass (direct surrogate gradient function):
+m = x · sg(g̃(x))
+y = m − sg(m) + sg(f (x))
+
+(2)
+(3)
+
+FGI enables the injection of surrogate gradient functions directly in the forward pass, independent of
+the original function f (·). The results in [34] suggest that FGI can improve both model optimizability
+and exportability over classical deployments of surrogate gradients (i.e. as overriding the backward
+function).
+
+3
+
+Surrogate gradient for ReLU (SUGAR)
+
+Our proposed method applies FGI in ReLU networks with smooth surrogate functions. We extend
+the potential applications of surrogate gradients beyond SNNs, and aim to introduce this framework
+as a technique to overcome disadvantages of ordinary ReLUs.
+Indirect FGI within the context of SUGAR can be expressed as:
+y = f (x) − sg(f (x)) + sg(ReLU(x))
+
+(4)
+
+This formulation enables gradient injection and ensures gradient propagation even for negative
+activations. Specifically, using the multiplication trick from [34], the direct injection of the surrogate
+gradient function is accomplished via:
+m = x · sg(f˜(x))
+y = m − sg(m) + sg(ReLU(x))
+
+(5)
+(6)
+
+Here, f˜(x) explicitly defines the surrogate gradient behavior for ReLU.
+The choice of the surrogate function is flexible and can include activation functions commonly
+employed in state-of-the-art applications, such as ELU, GELU, SiLU, SELU, and Leaky ReLU (see
+Figure 8). These functions typically possess desirable properties motivated by mechanisms like
+self-gating or self-normalization. Importantly, these surrogate candidates share the characteristic of
+3
+
+having non-zero gradients for negative inputs (x < 0), unlike ReLU. Although surrogate functions
+enable gradient flow for negative activations, the forward pass and subsequent loss computation
+strictly depend on activations for x > 0. Consequently, the effect of surrogate gradient learning in
+this setting can be interpreted as filtering out pre-activations below the cut-off threshold, reducing the
+network’s propensity to overfit due to topological simplification and sparsity [27, 29], but without
+harming the gradient flow.
+In preliminary studies, we realized the need for adapting the current activation functions to utilize the
+specific purpose of SUGAR. As it will be discussed in depth later, SUGAR’s effect varies in different
+regularization settings. Therefore, in the following, we propose two new surrogate functions that
+align well with these settings.
+3.1
+
+B-SiLU
+
+We introduce a novel activation function named Bounded Sigmoid Linear Unit (B-SiLU), which
+combines self-gating characteristics with a tunable lower bound parameter. Mathematically, this
+function can be expressed as:
+α
+B-SiLU(x) = (x + α) · σ(x) − , with α = 1.67
+(7)
+2
+where σ(x) denotes the sigmoid activation. The derivative of the B-SiLU activation function is given
+by:
+d
+B-SiLU(x) = σ(x) + (x + α)σ(x)(1 − σ(x))
+(8)
+dx
+Both B-SiLU and its derivative are visualized in Figure 8. The B-SiLU activation function emerged
+from exploratory experiments with SUGAR, drawing particular inspiration from the swish-like
+sigmoidal function introduced in [33] and the related thresholding operator examined in [15, 40]. It
+is motivated by the goal of combining advantageous properties from the self-gating behavior of SiLU
+and the smoothness of GELU.
+3.2
+
+NeLU
+
+We further introduce Negative slope Linear Unit (NeLU), as a smooth derivative substitute for ReLU.
+It is inspired by the constant derivative of ReLU for x > 0 and a smooth negative slope from GELU
+for x < 0. For large negative inputs, the resulting gradient converges back to zero.
+
+if x > 0
+1,
+d
+2x
+NeLU(x) =
+α
+dx
+2 , else
+(1 + x2 )
+
+(9)
+
+α controls the magnitude of the negative gradient for small values of x < 0, which ensures stability.
+The resulting gradient is shown in Figure 1. By applying the multiplication trick in Equation 5 and
+Equation 6, it is possible to directly set the gradient of the activation as in Equation 9.
+ReLU
+
+SUGAR (B-SiLU)
+
+SUGAR (NeLU, α=0.2)
+
+3
+2
+1
+0
+−1
+−2
+
+0
+
+2
+
+−2
+
+0
+
+2
+
+−2
+
+0
+
+2
+
+Figure 1: Comparison of activation functions and their derivatives. From left to right: ReLU
+(dashed) and its derivative (black), ReLU activation function with B-SiLU derivative (blue) and ReLU
+activation function with NeLU derivative (red).
+
+4
+
+4
+
+Experiments
+
+4.1
+
+Surrogate function comparison on CIFAR-10/100
+
+We conducted extensive experiments to evaluate and compare various activation functions, both with
+and without SUGAR, on the CIFAR-10 and CIFAR-100 datasets using ResNet-18 and VGG-16
+architectures. In every run where SUGAR is applied, the forward function is always the standard
+ReLU; for a given surrogate activation f (e.g. ELU), we compare the performance of the network
+using f in the forward pass and it’s true gradient in the backward pass (non-SUGAR scenario) against
+the identical architecture using ReLU for the forward pass but f ’s gradient for the backward pass
+(e.g. SUGAR with ELU). Each configuration was trained five times with different random seeds to
+ensure robustness of the results. To isolate the generalization effects of the activation functions and
+the application of SUGAR we did not apply any data augmentation (see Appendix B for the full
+experimental setup). The set of surrogate functions evaluated included LeakyReLU, SELU, ELU,
+GELU, SiLU (Swish), Mish, and our proposed B-SiLU and NeLU. See Appendix C for the complete
+experimental results.
+non-SUGAR
+
+SUGAR
+
+Validation loss
+
+4.0
+3.5
+3.0
+2.5
+2.0
+
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+0
+
+20
+
+Epoch
+ELU (52.4±0.4%)
+GELU (44.3±0.5%)
+Leaky ReLU (43.4±0.3%)
+Mish (48.4±0.3%)
+
+40
+
+60
+
+80
+
+100
+
+Epoch
+NeLU (α=0.01) (43.2±0.4%)
+NeLU (α=0.05) (42.4±0.4%)
+NeLU (α=0.1) (41.9±0.2%)
+B-SiLU (56.5±0.5%)
+
+ReLU (43.4±0.6%)
+SELU (52.1±0.6%)
+Swish (44.1±0.3%)
+
+Figure 2: The plots show the validation loss of ResNet-18 on CIFAR-100 with and without SUGAR.
+In the legend, the corresponding test accuracies (of the respective functions as surrogates) are given
+for completeness. See Section E.1 for all the convergence plots from the experiments.
+Overall, SUGAR with ELU, SELU, and especially B-SiLU delivered the largest gains over the ReLU
+baseline, whereas LeakyReLU and NeLU consistently underperformed (Figure 2). On CIFAR-10
+with a ResNet-18 backbone, B-SiLU rose from 76.76 % to 86.42 % with SUGAR. VGG-16 showed a
+similar performance: B-SiLU improved the testing accuracy by almost 10 points (78.50 % → 88.35
+%).
+On CIFAR-100, the superiority of SUGAR B-SiLU was even more pronounced: ResNet-18’s accuracy
+jumped from 48.99 % to 56.51 %, and VGG-16’s from 48.73 % to 64.47 % (Figure 3). Again, Leaky
+ReLU and NeLU showed negligible or negative gains (e.g. 43.67 % → 43.41 % on ResNet-18),
+indicating that simple linear leakage fails to harness the benefits of SUGAR under this setup. In
+summary, B-SiLU outperforms all other surrogates across architectures and datasets, ELU and SELU
+provide reliable improvements, and SUGAR does not benefit meaningfully from Leaky ReLU and
+NeLU in this setting.
+4.2
+
+Stability improvements for deep ReLU networks
+
+To evaluate SUGAR’s effectiveness in addressing the dying ReLU problem, we revisited a controlled
+setting introduced in [25], where a deep and narrow ReLU network with symmetric weight initialization fails to learn due to widespread neuron inactivity. We replicated and extended the original
+experiments by incorporating SUGAR with B-SiLU surrogate gradients, which greatly improved
+5
+
+44.4%
+
+39.6%
+
+30
+
+42.2%
+
+40.4%
+
+42.9%
+
+41.6%
+
+43.2%
+
+42.9%
+
+43.5%
+
+43.5%
+
+42.1%
+
+44.1%
+
+43.7%
+
+47.7%
+
+45.0%
+
+48.8%
+
+EL
+
+40
+
+Baseline
+SUGAR
+
+58.1%
+
+48.3%
+
+LU
+
+50
+
+48.7%
+
+Test accuracy (%)
+
+60
+
+61.2%
+
+64.5%
+
+VGG-16 – CIFAR-100 Accuracy
+
+20
+10
+
+(α
+
+ish
+Sw
+
+=0
+
+.1
+
+)
+
+)
+05
+U
+eL
+N
+
+U
+eL
+N
+
+U
+N
+
+eL
+
+Le
+
+(α
+
+=0
+.
+(α
+
+=0
+.
+
+01
+
+)
+
+LU
+Re
+
+U
+EL
+G
+
+LU
+Re
+ak
+
+y
+
+U
+
+ish
+M
+
+SE
+
+B-
+
+Si
+
+LU
+
+0
+
+Figure 3: Test accuracy of VGG-16 on CIFAR-100, comparing non-SUGAR (red) and SUGAR (blue)
+for each activation function. The black bar represents the baseline, where the model is simply trained
+with ReLU (forward and backward). See Section E.3 for all the accuracy plots from the experiments.
+
+layer activation probabilities and learning outcomes across multiple simple regression tasks. Our
+results demonstrate that SUGAR enables gradient flow even through inactive neurons, reducing
+collapse rates and enhancing model expressivity. For an in-depth analysis please refer to Appendix A.
+4.3
+
+Conv2NeXt and Swin Transformer
+
+We further investigate SUGAR’s potential in state-of-the-art models. In this regard, we have chosen
+one convolution and one attention based model. Conv2NeXt [5] was chosen as a convolutional
+model because it is the same architecture as ConvNeXt [24] but adapted for smaller datasets. Swin
+Transformer [23] is, on the other hand, a vision transformer model. It is developed for large datasets
+(i.e. ImageNet1k) and the smallest model has 28M parameters. As we have trained the model
+on Tiny-ImageNet200 [3], it is considerably over-parameterized for the dataset. The models were
+adopted in their original form from [23] and [5]. The only modification applied was changing the
+activation function with the corresponding SUGAR implementation.
+When applied to Conv2NeXt, SUGAR consistently outperforms the base models that use GELU in
+both forward and backward pass, as shown in Table 1. Although our reproduction of the Conv2Next
+results from [5] stays lower than the reported 83.84% accuracy with GELU, SUGAR with NeLU
+exceeds this value. In the case of the Swin Transformer, despite a slight drop in performance for
+B-SiLU, NeLU with α = 0.01 yields a higher accuracy than both base models.
+
+Table 1: Top-1 accuracy (%) of Conv2NeXt and Swin Transformer models, trained on CIFAR-100
+and Tiny-ImageNet200 respectively. Base models do not apply SUGAR. For both models, the original
+works apply GELU for the activation. Our proposed equations use ReLU in forward pass. NeLU is
+reported for different α values. Best models are highlighted.
+Models
+
+ReLU(base)
+
+GELU(base)
+
+B-SiLU
+
+NeLU(0.01) NeLU(0.05)
+
+NeLU(0.1)
+
+Conv2NeXt
+Swin Transformer
+
+83.85±0.2
+61.25±0.1
+
+83.74±0.2
+61.39±0.5
+
+83.87±0.2
+57.15±0.2
+
+83.84±0.1
+61.48±0.3
+
+83.95±0.2
+61.21±0.2
+
+6
+
+83.84±0.3
+61.24±0.3
+
+5
+
+Discussion
+
+In the subsequent analysis, we examine the SUGAR effect by investigating the layer activations
+for each sample. The results show a clear shift in the activation distribution. Afterwards, the loss
+landscape of ResNet-18 is analyzed with and without SUGAR. Finally, we explore the potential of
+treating SUGAR as a form of regularization.
+5.1
+
+SUGAR revives dead neurons
+
+To shed light on how surrogate gradients affect internal representations, we analyzed the activation
+profiles of a VGG-16 backbone after 40 training epochs on CIFAR-100 (see Figure 4). For each
+data sample, we recorded how many times a neuron produced an output over the course of an
+entire training epoch such that the resulting distribution reflects how frequently neurons effectively
+participate in the forward pass. The frequency at point 0 on the x-axis corresponds to the neurons that
+are inactive over all samples (i.e. dead neurons).
+
+0.14
+0.16
+0.12
+
+0.12
+0.10
+
+0.06
+0.04
+0.02
+
+Norm. frequency
+
+0.10
+0.08
+
+0.08
+0.06
+0.04
+0.02
+
+0.00
+
+0.00
+
+14
+
+14
+
+12
+
+12
+
+10
+
+10
+
+2
+
+30000
+40000
+
+Activa
+tion co
+
+4
+
+10000
+20000
+
+2
+
+30000
+
+0
+
+Activa
+
+40000
+
+tion co
+
+unt
+
+(a) ReLU
+
+ex
+nd
+
+nd
+
+6
+
+0
+
+La
+ye
+ri
+
+20000
+
+La
+ye
+ri
+
+6
+4
+
+10000
+
+8
+
+ex
+
+8
+0
+
+Norm. frequency
+
+0.14
+
+0
+
+unt
+
+(b) SUGAR (B-SiLU)
+
+Figure 4: Activation profiles of VGG-16 trained on CIFAR-100 after 40 epochs. The x-axis shows
+the activation count per data sample, the y-axis indicates the layer index (with the final layer being
+fully connected), and the z-axis shows the normalized frequency, allowing for comparison across
+layers and activation functions.
+A first striking difference between the vanilla ReLU baseline and the network trained with SUGAR (BSiLU) appears in layers 12 and 13. The ReLU model shows a flat distribution in the activation-count
+histogram: a sizable group of neurons never fire (dead neurons) while others remain permanently
+active. In the SUGAR model, the same layers follow an approximately normal distribution centered
+on moderate activation counts, indicating that bounded surrogate gradients keep gradient flow alive
+and prevent neurons from becoming functionally inert.
+A second difference concerns the shallow part of the network. The first four convolutional layers
+of the SUGAR model exhibit slightly flatter, right-skewed distributions whose mode is lower than
+in the baseline. Hence on average, fewer filters are active for a given image, suggesting that the
+surrogate-optimized activation encourages selectivity and reduces redundant feature maps, potentially
+improving generalization.
+Taken together, these observations indicate that bounded surrogate gradients simultaneously mitigate the dead-neuron problem and promote sparsity where it is most beneficial. The resulting
+balance—wide early sparsity combined with well-behaved deep activations—may contribute to
+the improved generalization reported in Section 4. The reduced average activation rate also hints
+at tangible gains for deployment on resource-constrained hardware, where memory traffic and
+multiply-accumulate counts scale with the number of active neurons.
+7
+
+The present analysis is limited to layer-wise aggregate statistics. Future work should track the
+temporal dynamics of activations during training and evaluate whether the same trends generalize
+to other architectures and datasets. We observed the same activation-profile patterns on CIFAR-10
+across all tested models. The corresponding plots can be found in Section E.2.
+5.2
+
+Loss surface analysis
+
+To understand how surrogate gradients reshape the optimization geometry, we visualized the loss
+landscape in the neighborhood of the trained weights after 10 epochs of training a ResNet-18 on
+CIFAR-100 (see Figure 5). Following the standard two-direction procedure in [21], we sampled two
+random directions, rescaled layer-wise to match the ℓ2 -norm of the corresponding weight tensors
+(batch-norm parameters frozen). We evaluated the loss on a 100 × k grid spanning [−0.25, 0.25]2
+and plotted the resulting contours for the vanilla ReLU model and for the same model trained with
+SUGAR (B-SiLU).
+
+SUGAR (B-SiLU)
+
+0.2
+
+0.2
+
+0.1
+
+0.1
+
+β
+
+β
+
+ReLU
+
+0.0
+
+0.0
+
+−0.1
+
+−0.1
+
+−0.2
+
+−0.2
+
+−0.2
+
+−0.1
+
+0.0
+
+0.1
+
+0.2
+
+−0.2
+
+α
+
+−0.1
+
+0.0
+
+0.1
+
+0.2
+
+α
+
+Figure 5: Loss landscapes visualized around the trained solution using different gradient flows.
+SUGAR (B-SiLU) smooths the optimization surface while retaining the ReLU forward pass, leading
+to a more stable geometry.
+The landscape of the vanilla network exhibits a relatively flat basin at the center but rises steeply
+toward the edges. At extreme weight perturbations—the corners of the grid—the loss exceeds 25,
+creating sharp cliffs that can impede optimization. In contrast, the SUGAR landscape is markedly
+more convex and the loss remains low even at large perturbations. The smoother surface implies
+better-conditioned gradients and helps explain the faster convergence we observe during training in
+Figure 2 and Section E.1.
+5.3
+
+SUGAR as a regularization technique
+
+The empirical results in Section 5.1 present evidence for a distribution shift in the particular layers.
+These distributions display sparse activities induced by the ReLU activation function. There is a
+substantial body of work exploring the relationship between sparsity and generalization [37, 6]. We
+aim to examine SUGAR from the perspective of regularization. The most widespread and simple
+regularization is weight decay, which modulates the gradient of the pure cost function towards small
+weights. SUGAR also regularizes by modulating the gradient of the pure ReLU-based cost function;
+however, by employing surrogate activation functions, it does so in a more sophisticated and adaptive
+manner, depending on the activation patterns.
+We consider the investigated models in this work. The results in Section 4.1 and Section 5.1 use
+models that are not heavily regularized. In this setting, choosing a surrogate function that deviates
+considerably from ReLU derivative induces harsher regularization and improves the predictive perfor8
+
+mance. However, in a highly regularized setting such as in Section 4.3, additional regularization has
+to be applied carefully and nuanced to avoid underfitting. In such a scenario, it is advisable to choose
+a function (e.g. NeLU) that deviates only slightly from the ReLU’s derivative providing gradient
+flow for pre-activation below the cut-off threshold while modeling the backward characteristics
+of ReLU as closely as possible. This behavior is reflected in our results: while B-SiLU leads to
+substantial improvements in generalization for VGG-16 and ResNet-18 (see Section 4.1), NeLU
+proves to be more effective in enhancing generalization in the already regularized Conv2NeXt and
+Swin Transformer models (see Section 4.3).
+
+6
+
+Conclusion
+
+This work provides compelling evidence that surrogate gradient learning, originally applied in the
+spiking neural network domain, can significantly benefit the classical ReLUs in non-spiking deep
+neural networks. By preserving ReLU in the forward pass while substituting its derivative with a
+smooth surrogate function during backpropagation, SUGAR enables robust training dynamics and
+improved generalization, especially in convolutional architectures like VGG-16 and ResNet-18.
+Our findings suggest that SUGAR, combined with carefully designed surrogate functions such
+as B-SiLU and NeLU, offers an elegant solution to the long-standing dying ReLU problem. BSiLU, in particular, introduces bounded smooth gradients that not only prevent neuron inactivity but
+also encourage beneficial sparsity patterns. NeLU, on the other hand, offers a more conservative
+regularization effect through its smooth negative slope, preserving ReLU’s structural simplicity and
+beneficial properties while improving gradient flow for suppressed activations.
+Although the exact influence of NeLU’s negative slope on training dynamics remains an open question,
+our experiments indicate that it contributes to gradient propagation in strongly regularized models like
+Conv2NeXt and Swin Transformer. This suggests a nuanced interaction between surrogate gradient
+shape and model regularization strength, pointing to promising avenues for future exploration.
+In conclusion, this work repositions classical ReLU not as a relic, but as a resilient component in the
+deep learning toolbox. With appropriate gradient handling, ReLU-based networks can match or even
+outperform modern architectures that rely on more complex activations.
+
+6.1
+
+Limitations and future work
+
+SUGAR’s performance varies notably across different model families. It shows clear benefits in deep,
+less-regularized networks like VGG-16 and ResNet-18 but is less effective, or even detrimental, in
+highly regularized architectures such as Conv2NeXt and Swin Transformer, if the surrogate gradient
+strongly deviates from the ReLU derivative.
+The surrogate functions introduced were crafted through empirical intuition and trial-based tuning
+rather than grounded in formal design principles. Moreover, our results suggest improvements
+in training dynamics and generalization, but the study does not yet offer formal guarantees on
+convergence, stability, or generalization bounds. Without a rigorous analytical framework, it is
+difficult to predict SUGAR’s behavior across different training regimes.
+Our evaluation focuses primarily on image classification tasks using datasets like CIFAR-10, CIFAR100, and Tiny-ImageNet, in addition to few toy problems. It is uncertain how SUGAR would perform
+in other domains such as natural language processing, reinforcement learning, or time series modeling,
+where activation dynamics and gradient propagation can differ substantially.
+Beyond addressing the current limitations and open questions, future research may assess automatic
+surrogate function search tailored for specific architectures and datasets. It may also be interesting to
+consider dynamic surrogates that adapt based on training signals and activation distributions, or in a
+scheduled manner.
+Moreover, given that SUGAR improves sparsity and reduces the activation profiles within the network
+while applying just simple ReLU, it may prove beneficial for structured pruning, quantization-aware
+training, or energy-efficient inference in the context of low-footprint models.
+9
+
+References
+[1] Guillaume Bellec, Darjan Salaj, Anand Subramoney, Robert Legenstein, and Wolfgang Maass. Long
+short-term memory and learning-to-learn in networks of spiking neurons. Advances in neural information
+processing systems, 31, 2018.
+[2] Djork-Arné Clevert, Thomas Unterthiner, and Sepp Hochreiter. Fast and accurate deep network learning
+by exponential linear units (elus). In International Conference on Learning Representations (ICLR), 2016.
+[3] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical
+image database. In 2009 IEEE conference on computer vision and pattern recognition, pages 248–255.
+Ieee, 2009.
+[4] Stefan Elfwing, Eiji Uchibe, and Kenji Doya. Sigmoid-weighted linear units for neural network function
+approximation in reinforcement learning. Neural Networks, 107:3–11, 2018. Special issue on deep
+reinforcement learning.
+[5] Jianwei Feng, Hengliang Tan, Wangwang Li, and Ming Xie. Conv2next: Reconsidering conv next network
+design for image recognition. In 2022 International Conference on Computers and Artificial Intelligence
+Technologies (CAIT), pages 53–60, 2022.
+[6] Trevor Gale, Erich Elsen, and Sara Hooker. The state of sparsity in deep neural networks. arXiv preprint
+arXiv:1902.09574, 2019.
+[7] Xavier Glorot, Antoine Bordes, and Yoshua Bengio. Deep sparse rectifier neural networks. In Geoffrey
+Gordon, David Dunson, and Miroslav Dudík, editors, Proceedings of the Fourteenth International Conference on Artificial Intelligence and Statistics, volume 15 of Proceedings of Machine Learning Research,
+pages 315–323, Fort Lauderdale, FL, USA, 11–13 Apr 2011. PMLR.
+[8] Kaiming He, X. Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. 2016
+IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 770–778, 2015.
+[9] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing
+human-level performance on imagenet classification. In 2015 IEEE International Conference on Computer
+Vision (ICCV), pages 1026–1034, 2015.
+[10] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition.
+In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 770–778, 2016.
+[11] Dan Hendrycks and Kevin Gimpel. Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415,
+2016.
+[12] Saya Higuchi, Sebastian Kairat, Sander Bohté, and Sebastian Otte. Balanced resonate-and-fire neurons. In
+Proceedings of the 41st International Conference on Machine Learning, volume 235 of Proceedings of
+Machine Learning Research, pages 18305–18323. PMLR, 21–27 Jul 2024.
+[13] Andrew Jesson, Chris Lu, Gunshi Gupta, Nicolas Beltran-Velez, Angelos Filos, Jakob N. Foerster, and
+Yarin Gal. Relu to the rescue: improve your on-policy actor-critic with positive advantages. In Proceedings
+of the 41st International Conference on Machine Learning, ICML’24. JMLR.org, 2024.
+[14] Nandan Kumar Jha and Brandon Reagen. Relu’s revival: On the entropic overload in normalization-free
+large language models. 2nd Workshop on Attributing Model Behavior at Scale (NeurIPS), 2024.
+[15] Geoffrey Kasenbacher, Felix Ehret, Gerrit Ecke, and Sebastian Otte. Warp-lca: Efficient convolutional
+sparse coding with locally competitive algorithm. Neurocomputing, page 130291, 2025.
+[16] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980, 2014.
+[17] Günter Klambauer, Thomas Unterthiner, Andreas Mayr, and Sepp Hochreiter. Self-normalizing neural
+networks. In Advances in neural information processing systems (NIPS), volume 30, 2017.
+[18] Alex Krizhevsky. Learning multiple layers of features from tiny images. Master’s thesis, Department of
+Computer Science, University of Toronto, 2009.
+[19] Alex Krizhevsky, Ilya Sutskever, and Geoffrey E Hinton. Imagenet classification with deep convolutional
+neural networks. In F. Pereira, C.J. Burges, L. Bottou, and K.Q. Weinberger, editors, Advances in Neural
+Information Processing Systems, volume 25. Curran Associates, Inc., 2012.
+
+10
+
+[20] Michal Lewandowski, Hamid Eghbalzadeh, Bernhard Heinzl, Raphael Pisoni, and Bernhard A. Moser. On
+space folds of reLU neural networks. Transactions on Machine Learning Research, 2025.
+[21] Hao Li, Zheng Xu, Gavin Taylor, Christoph Studer, and Tom Goldstein. Visualizing the loss landscape of
+neural nets. Advances in neural information processing systems, 31, 2018.
+[22] Christoph Linse, Erhardt Barth, and Thomas Martinetz. Leaky relus that differ in forward and backward
+pass facilitate activation maximization in deep neural networks. In 2024 International Joint Conference on
+Neural Networks (IJCNN), pages 1–8, 2024.
+[23] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin
+transformer: Hierarchical vision transformer using shifted windows. 2021 IEEE/CVF International
+Conference on Computer Vision (ICCV), pages 9992–10002, 2021.
+[24] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A
+convnet for the 2020s. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 11966–11976, 2022.
+[25] Lu Lu, Yeonjong Shin, Yanhui Su, and George Em Karniadakis. Dying relu and initialization: Theory and
+numerical examples. Communications in Computational Physics, 28(5):1671–1706, January 2020.
+[26] Andrew L Maas, Awni Y Hannun, and Andrew Y Ng. Rectifier nonlinearities improve neural network
+acoustic models. In Proc. ICML workshop track, volume 30, 2013.
+[27] Dushyant Mehta, Kwang In Kim, and Christian Theobalt. On implicit filter level sparsity in convolutional
+neural networks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 520–528, 2019.
+[28] Guido Montúfar, Razvan Pascanu, Kyunghyun Cho, and Yoshua Bengio. On the number of linear regions
+of deep neural networks. In Proceedings of the 28th International Conference on Neural Information
+Processing Systems - Volume 2, NIPS’14, page 2924–2932, Cambridge, MA, USA, 2014. MIT Press.
+[29] Gregory Naitzat, Andrey Zhitnikov, and Lek-Heng Lim. Topology of deep neural networks. J. Mach.
+Learn. Res., 21(1), January 2020.
+[30] Emre O. Neftci, Hesham Mostafa, and Friedemann Zenke. Surrogate gradient learning in spiking neural
+networks: Bringing the power of gradient-based optimization to spiking neural networks. IEEE Signal
+Processing Magazine, 36:51–63, 2019.
+[31] Prajit Ramachandran, Barret Zoph, and Quoc V Le. Searching for activation functions. In 6th International
+Conference on Learning Representations, ICLR 2018, Workshop Track Proceedings, 2018.
+[32] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical
+image segmentation, 2015.
+[33] Christopher J Rozell, Don H Johnson, Richard G Baraniuk, and Bruno A Olshausen. Sparse coding via
+thresholding and local competition in neural circuits. Neural computation, 20(10):2526–2563, 2008.
+[34] Otte Sebastian. Flexible and efficient surrogate gradient modeling with forward gradient injection. In The
+First Austrian Symposium on AI, Robotics, and Vision 2024 (AIROV24), pages 451–459, 2024.
+[35] Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale image recognition. arXiv preprint arXiv:1409.1556, 2014.
+[36] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems,
+30, 2017.
+[37] Wei Wen, Chunpeng Wu, Yandan Wang, Yiran Chen, and Hai Li. Learning structured sparsity in deep
+neural networks. Advances in neural information processing systems, 29, 2016.
+[38] Bojian Yin, Federico Corradi, and Sander M Bohté. Accurate and efficient time-domain classification with
+adaptive spiking recurrent neural networks. Nature Machine Intelligence, 3(10):905–913, 2021.
+[39] M.D. Zeiler, M. Ranzato, R. Monga, M. Mao, K. Yang, Q.V. Le, P. Nguyen, A. Senior, V. Vanhoucke,
+J. Dean, and G.E. Hinton. On rectified linear units for speech processing. In 2013 IEEE International
+Conference on Acoustics, Speech and Signal Processing, pages 3517–3521, 2013.
+[40] Jinshan Zeng, Shaobo Lin, Yao Wang, and Zongben Xu. l_{1/2} regularization: Convergence of iterative
+half thresholding algorithm. IEEE Transactions on Signal Processing, 62(9):2317–2329, 2014.
+
+11
+
+[41] Friedemann Zenke and Tim P Vogels. The remarkable robustness of surrogate gradient learning for
+instilling complex function in spiking neural networks. Neural computation, 33(4):899–925, 2021.
+[42] Liwen Zhang, Gregory Naitzat, and Lek-Heng Lim. Tropical geometry of deep neural networks. In
+Jennifer G. Dy and Andreas Krause, editors, Proceedings of the 35th International Conference on Machine
+Learning, ICML 2018, Stockholmsmässan, Stockholm, Sweden, July 10-15, 2018, volume 80 of Proceedings
+of Machine Learning Research, pages 5819–5827. PMLR, 2018.
+
+12
+
+A
+
+A toy example for solving the dying ReLU problem with SUGAR
+
+In [25], a deliberate setting for dying ReLUs was created. Under the given configuration, a 10-layered
+ReLU network produced constant output due to the dying ReLU problem. The proposed solution
+is Randomized Asymmetric Initialization (RAI) of the weights such that there are fewer negative
+activations. In this section, we replicate and augment these experiments with SUGAR and show that
+SUGAR is able to dramatically reduce the probability of dead activations.
+The network in question consists of 10 feedforward hidden layers with a width of 2, which only
+employs ReLU activations. As shown in [25], when a neural network is sufficiently deep relative to
+its width and initialized with symmetric weights, the initial activation probabilities tend to be near
+zero. In that case, in more than 90% of trials, the network fails to learn meaningful representations
+due to widespread irrevocable neuron inactivity.
+To conduct the evaluation, four distinct toy datasets in the range of [−1.5, 1.5]√were
+√ adapted from
+[25] as regression tasks. For each function, we drew 3000 samples from U[− 3, 3]din , used as
+input for the network. din denotes the input dimension which is 2 for Equation 13 and 1 for the rest.
+For each task, 100 independent runs were carried out. The corresponding equations are as follows:
+f1 (x) = |x|
+f2 (x) = x · sin(5x)
+f3 (x) = 1{x>0} (x) + 0.2 sin(5x)
+
+
+|x1 + x2 |
+f4 (x1 , x2 ) =
+|x1 − x2 |
+
+(10)
+(11)
+(12)
+(13)
+
+The loss was calculated as the mean squared error over 250 epochs. Adam [16] was used as an
+optimizer with a learning rate of 0.005 and being decreased by 0.1 in epochs 100, 150, 200, 225. The
+minibatch size is 64 for every target function. As surrogate gradient in this experiment, the derivation
+of B-SiLU is used.
+Figure 6 illustrates clearly that the ReLU network fails to solve the regression task on Equation 10 as
+has already been shown in [25]. Once SUGAR with B-SiLU is applied, the network produces much
+more activation and is able to solve the regression task.
+ReLU
+
+SUGAR (B-SiLU)
+
+1.75
+1.50
+1.25
+1.00
+0.75
+0.50
+0.25
+0.00
+−1.5
+
+−1.0
+
+−0.5
+
+0.0
+
+0.5
+
+1.0
+
+1.5
+
+−1.5
+
+Ground Truth
+
+−1.0
+
+−0.5
+
+0.0
+
+0.5
+
+1.0
+
+1.5
+
+Prediction
+
+Figure 6: Exemplary comparison of predictions. Left plot shows the prediction of the plain ReLU
+network whereas SUGAR with B-SiLU is applied on the right.
+In addition, we tracked the mean layer activation probabilities, as shown in Figure 7, in order to
+monitor activity within each layer and estimate the number of neurons actively contributing during
+the forward pass. As a result, we obtained a dynamic view of the network’s internal activity, allowing
+us to assess whether the network utilized its capacity effectively and how sparsity evolved during
+13
+
+learning. A model with low activation in early layers might struggle to propagate information, while
+excessively high activation in later layers may indicate redundancy. Nonetheless, for the sake of
+clarity, we only visualize the average activities across all layers.
+Target: f1(x)
+
+Target: f2(x)
+0.65
+
+0.7
+
+P>0
+
+P>0
+
+0.60
+0.6
+0.5
+
+0.55
+0.50
+0.45
+
+0.4
+
+0.40
+0
+
+30
+
+60
+
+90 120 150 180 210 240
+Epoch
+
+0
+
+30
+
+60
+
+Target: f3(x)
+
+Target: f4(x)
+
+0.55
+
+0.7
+
+0.50
+
+P>0
+
+P>0
+
+90 120 150 180 210 240
+Epoch
+
+0.6
+
+0.45
+0.5
+0.40
+0
+
+30
+
+60
+
+90 120 150 180 210 240
+Epoch
+
+0
+
+ReLU
+
+30
+
+60
+
+90 120 150 180 210 240
+Epoch
+
+SUGAR (B-SiLU)
+
+Figure 7: Layer activation probabilities averaged over all runs and layers for each method and task.
+The plots indicate that SUGAR with B-SiLU increase the activations over all layers during training
+while the use of standard ReLU only leads to a loss or stagnation of layer activity.
+In [25], the number of layers for Equation 13 is increased to 20 from 10 due to the complexity of the
+equation. In SUGAR experiments, the layer number is kept at 10 and the model still generated more
+activation across layers compared to the results given in [25], as shown in Table 2. Using asymmetric
+positive initialization method, as suggested in [25], reduces the possibility of the neurons becoming
+inactive. However, once a neuron is inactive, there is no possibility for the model to reactivate the
+neuron due to the fact that the proposed method only concerns the initialization. For SUGAR, it is
+still possible as a results of the enabled gradient flow through that particular neuron.
+
+14
+
+Table 2: Empirical probabilities in % from 100 independent simulations of the network to collapse
+and learn nothing (A), to learn features to some degree (B) and to successfully approximate the target
+function (C) as indicated in [25]. Results annotated with * are taken form [25] which conducted 1.000
+independent simulations. For the last three target functions, [25] categorized the results only into (A)
+and not collapsed (D) which is also adapted here. Best models are highlighted. The respective loss
+ranges are decomposed in Table 3.
+Target function fi
+
+Method
+
+(A)
+
+(B)
+
+(C)
+
+(D)
+
+f1 (x)
+
+Symmetric (He init)*
+RAI*
+B-SiLU
+
+93.6
+40.3
+15.0
+
+4.2
+22.4
+8.0
+
+2.2
+37.3
+77.0
+
+-
+
+f2 (x)
+
+Symmetric (He init)*
+RAI*
+B-SiLU
+
+91.9
+29.2
+9.0
+
+-
+
+-
+
+8.1
+70.8
+91.0
+
+f3 (x)
+
+Symmetric (He init)*
+RAI*
+B-SiLU
+
+93.8
+32.6
+2.0
+
+-
+
+-
+
+6.2
+67.4
+98.0
+
+f4 (x1 , x2 )
+
+Symmetric (He init)*
+RAI*
+B-SiLU
+
+76.8
+9.6
+8.0
+
+-
+
+-
+
+23.2
+90.4
+92.0
+
+Table 3: Each run was assigned to a category by dividing the resulting loss histogram into the
+respective number of sections. This table provides the loss ranges which were assigned to each
+category. Note that no loss was observed outside the reported ranges.
+Target function fi
+
+Category
+
+Loss range
+
+f1 (x)
+
+(A)
+(B)
+(C)
+(D)
+
+15.5818 ≤ L ≤ 15.7392
+10.5453 ≤ L ≤ 11.0175
+0.0003 ≤ L ≤ 0.6299
+-
+
+f2 (x)
+
+(A)
+(B)
+(C)
+(D)
+
+36.2548 ≤ L ≤ 36.6155
+0.5452 ≤ L ≤ 27.2373
+
+f3 (x)
+
+(A)
+(B)
+(C)
+(D)
+
+19.2409 ≤ L ≤ 19.4284
+0.6767 ≤ L ≤ 1.4268
+
+f4 (x)
+
+(A)
+(B)
+(C)
+(D)
+
+81.0379 ≤ L ≤ 81.5630
+29.0563 ≤ L ≤ 64.7609
+
+15
+
+B
+
+Experimental setup for VGG-16 and ResNet-18
+
+All activation-function experiments on CIFAR-10 and CIFAR-100 were run with identical settings:
+• Batch size: 128
+• Validation split: 10% of the training set
+• Data augmentation: None
+• Number of workers: 4
+• Optimizer: SGD with learning rate 0.001
+• LR schedule: single milestone at epoch 100
+• Epochs: 50 for CIFAR-10, 100 for CIFAR-100
+• Repetitions: 5 independent runs per configuration with seeds [1, 10, 20, 25, 42]
+• Hardware: NVIDIA RTX A6000 GPUs (CUDA 12.6, Driver 560.35.03)
+
+C
+
+Complete results for VGG-16 and ResNet-18 on CIFAR-10/100
+
+In this section the full results of VGG-16 and ResNet-18 are provided. Strikingly, when ReLU and
+B-SiLU join forces, they excel at generalization.
+Table 4: Test accuracy statistics for ResNet-18 and VGG-16 on CIFAR-10. Best model and the
+second best model are highlighted.
+Model
+
+Activation
+
+non-SUGAR (%)
+
+SUGAR (%)
+
+ResNet-18
+
+ELU
+GELU
+LeakyReLU
+Mish
+B-SiLU
+ReLU
+SELU
+NeLU(α = 0.01)
+NeLU(α = 0.05)
+NeLU(α = 0.1)
+Swish
+
+77.91 ± 0.49
+71.57 ± 0.52
+73.08 ± 0.33
+74.24 ± 0.22
+76.76 ± 0.52
+73.22 ± 0.42
+75.90 ± 0.63
+73.01 ± 0.32
+71.01 ± 0.55
+69.42 ± 0.34
+73.91 ± 0.49
+
+83.47 ± 0.62
+73.89 ± 0.39
+73.84 ± 0.16
+79.19 ± 0.25
+86.42 ± 0.33
+—–
+81.95 ± 0.21
+73.08 ± 0.42
+72.12 ± 0.41
+71.09 ± 0.59
+73.85 ± 0.22
+
+VGG-16
+
+ELU
+GELU
+LeakyReLU
+Mish
+B-SiLU
+ReLU
+SELU
+NeLU(α = 0.01)
+NeLU(α = 0.05)
+NeLU(α = 0.1)
+Swish
+
+78.87 ± 0.43
+75.03 ± 0.45
+75.74 ± 0.71
+76.43 ± 0.30
+78.50 ± 0.25
+75.85 ± 0.51
+78.28 ± 0.34
+75.54 ± 0.30
+74.61 ± 0.19
+73.19 ± 0.53
+75.92 ± 0.48
+
+85.58 ± 0.16
+75.86 ± 0.25
+76.04 ± 0.26
+78.98 ± 0.33
+88.35 ± 0.26
+—–
+86.87 ± 0.28
+75.88 ± 0.23
+75.50 ± 0.33
+74.75 ± 0.17
+72.81 ± 0.48
+
+16
+
+Table 5: Test accuracy statistics for ResNet-18 and VGG-16 on CIFAR-100. Best model and the
+second best model are made salient with the corresponding colors.
+Model
+
+Activation
+
+non-SUGAR (%)
+
+SUGAR (%)
+
+ResNet-18
+
+ELU
+GELU
+LeakyReLU
+Mish
+B-SiLU
+ReLU
+SELU
+NeLU(α = 0.01)
+NeLU(α = 0.05)
+NeLU(α = 0.1)
+Swish
+
+49.91 ± 0.56
+41.55 ± 0.43
+43.67 ± 0.44
+44.61 ± 0.32
+48.99 ± 0.78
+43.38 ± 0.57
+48.73 ± 0.80
+42.82 ± 0.82
+41.52 ± 0.67
+40.42 ± 0.39
+43.71 ± 0.43
+
+52.38 ± 0.37
+44.30 ± 0.51
+43.41 ± 0.28
+48.37 ± 0.30
+56.51 ± 0.46
+—–
+52.08 ± 0.58
+43.21 ± 0.38
+42.40 ± 0.42
+41.94 ± 0.17
+44.05 ± 0.26
+
+VGG-16
+
+ELU
+GELU
+LeakyReLU
+Mish
+B-SiLU
+ReLU
+SELU
+NeLU(α = 0.01)
+NeLU(α = 0.05)
+NeLU(α = 0.1)
+Swish
+
+48.76 ± 0.40
+42.12 ± 0.11
+43.68 ± 0.42
+44.96 ± 0.37
+48.73 ± 0.21
+43.48 ± 0.36
+48.34 ± 0.11
+42.89 ± 0.21
+41.58 ± 0.29
+40.35 ± 0.88
+44.39 ± 0.44
+
+58.09 ± 0.40
+43.51 ± 0.55
+44.11 ± 0.30
+47.74 ± 0.12
+64.47 ± 0.32
+—–
+61.20 ± 0.50
+43.18 ± 0.28
+42.85 ± 0.20
+42.19 ± 0.47
+39.59 ± 0.31
+
+D
+
+Activation functions and their derivatives
+Activation Functions
+
+Derivatives
+
+6
+1.5
+4
+1.0
+2
+0.5
+0
+0.0
+−2
+−4
+ELU
+
+−2
+
+0
+GELU
+
+2
+SiLU
+
+4
+
+−4
+SELU
+
+−2
+
+Leaky ReLU
+
+0
+
+2
+B-SiLU
+
+4
+ReLU
+
+Figure 8: Comparison of activation functions and their derivatives used in modern neural networks.
+The left plot shows the functional forms of ELU, GELU, SiLU, SELU, Leaky ReLU (with slope 0.2),
+B-SiLU, and ReLU. The right plot shows their respective derivatives. ReLU and B-SiLU are overlaid
+for visual prominence. Notably, non-linear smooth activations exhibit continuous derivatives, while
+ReLU and its variants introduce discontinuities or sharp transitions. Axis labels denote input x and
+activation output f (x) or its derivative f ′ (x).
+17
+
+E
+
+Additional plots from VGG-16 and ResNet-18 experiments
+
+This appendix presents additional plots to provide deeper insight into the convergence behavior,
+activation profile, and test accuracy observed in the experiments with VGG-16 and ResNet-18.
+E.1
+
+Validation curve plots
+non-SUGAR
+
+SUGAR
+
+1.2
+1.0
+0.8
+0.6
+
+Validation loss
+
+1.4
+
+CIFAR-10 – VGG-16
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+1.4
+1.2
+1.0
+0.8
+0.6
+
+Validation loss
+
+1.6
+
+CIFAR-10 – ResNet-18
+
+0
+
+3.5
+3.0
+2.5
+2.0
+1.5
+
+Validation loss
+
+4.0
+
+CIFAR-100 – VGG-16
+
+3.5
+3.0
+2.5
+2.0
+
+Validation loss
+
+4.0
+
+CIFAR-100 – ResNet-18
+
+Epoch
+ELU (52.4±0.4%)
+GELU (44.3±0.5%)
+Leaky ReLU (43.4±0.3%)
+Mish (48.4±0.3%)
+
+Epoch
+NeLU (α=0.01) (43.2±0.4%)
+NeLU (α=0.05) (42.4±0.4%)
+NeLU (α=0.1) (41.9±0.2%)
+B-SiLU (56.5±0.5%)
+
+ReLU (43.4±0.6%)
+SELU (52.1±0.6%)
+Swish (44.1±0.3%)
+
+Figure 9: Mean validation-loss curves for CIFAR-10/100 on VGG-16 and ResNet-18 with confidence
+intervals. Each experiment pair (row) shares its own log-scaled y-axis; experiment titles are displayed
+vertically on the right-hand plot in each row.
+18
+
+E.2
+
+Activation plots
+
+0.10
+0.08
+0.08
+
+0.02
+
+0.04
+0.02
+
+0.00
+
+0.00
+
+14
+
+14
+
+12
+
+12
+
+10
+
+10
+
+40000
+
+tion co
+u
+
+2
+
+30000
+
+0
+
+Activa
+
+tion co
+
+nt
+
+(a) ReLU (CIFAR-10, VGG-16)
+
+40000
+
+in
+de
+ye
+r
+
+in
+de
+
+20000
+
+La
+
+2
+
+30000
+
+4
+
+10000
+
+La
+
+20000
+
+Activa
+
+6
+
+0
+
+ye
+r
+
+4
+
+10000
+
+x
+
+8
+
+x
+
+8
+6
+
+0
+
+Norm. frequency
+
+0.04
+
+Norm. frequency
+
+0.06
+0.06
+
+0
+
+unt
+
+(b) SUGAR B-SiLU (CIFAR-10, VGG-16)
+0.08
+0.12
+
+0.06
+0.05
+
+0.06
+0.04
+0.02
+
+Norm. frequency
+
+0.10
+0.08
+
+0.04
+0.03
+0.02
+0.01
+
+0.00
+
+0.00
+
+8
+
+8
+
+Activa
+
+tion co
+
+(c) ReLU (CIFAR-100, ResNet-18)
+
+x
+in
+de
+
+La
+
+60000
+
+0
+
+nt
+
+ye
+r
+
+2
+
+40000
+80000
+
+0
+
+unt
+
+(d) SUGAR B-SiLU (CIFAR-100, ResNet-18)
+0.16
+
+0.07
+
+0.14
+
+0.06
+
+0.12
+
+0.08
+0.06
+0.04
+0.02
+
+0.05
+0.04
+
+Norm. frequency
+
+0.10
+
+0.03
+0.02
+0.01
+
+0.00
+
+0.00
+
+8
+
+8
+
+80000
+
+tion co
+u
+
+Activa
+
+tion co
+
+nt
+
+(e) ReLU (CIFAR-10, ResNet-18)
+
+ex
+nd
+
+La
+
+60000
+
+0
+
+ri
+
+2
+
+40000
+
+ye
+
+ri
+
+20000
+
+La
+
+60000
+
+Activa
+
+4
+
+0
+
+ye
+
+2
+
+40000
+
+nd
+
+4
+20000
+
+6
+
+ex
+
+6
+0
+
+Norm. frequency
+
+80000
+
+tion co
+u
+
+20000
+
+La
+
+60000
+
+Activa
+
+4
+
+0
+
+ye
+r
+
+2
+
+40000
+
+in
+de
+
+4
+20000
+
+6
+
+x
+
+6
+0
+
+Norm. frequency
+
+0.07
+
+80000
+
+0
+
+unt
+
+(f) SUGAR B-SiLU (CIFAR-10, ResNet-18)
+
+Figure 10: Activation profiles of ReLU and SUGAR B-SiLU for VGG-16 and ResNet-18 trained
+on CIFAR-10 and CIFAR-100. The x-axis shows the activation count per data sample, the y-axis
+indicates the layer index (with the final layer being fully connected), and the z-axis shows the
+normalized frequency, allowing for comparison across layers and activation functions.
+19
+
+20
+
+)
+
+.1
+
+(α
+=0
+
+5)
+
+.0
+
+(α
+=0
+
+1)
+
+.0
+
+(α
+=0
+
+U
+
+eL
+
+N
+
+U
+
+eL
+
+N
+
+U
+
+LU
+
+Re
+
+LU
+
+Re
+
+71.1%
+
+69.4%
+
+72.1%
+
+71.0%
+
+73.1%
+
+73.0%
+
+73.2%
+
+73.8%
+
+73.1%
+
+73.9%
+
+73.9%
+
+73.9%
+
+71.6%
+
+79.2%
+
+ish
+
+Sw
+
+1)
+
+=0
+.
+
+)
+
+05
+
+=0
+.
+(α
+
+(α
+
+U
+LU
+
+Re
+
+EL
+
+)
+
+01
+
+=0
+.
+
+ish
+
+LU
+
+Re
+
+G
+
+(α
+
+U
+
+eL
+
+N
+
+U
+
+eL
+
+N
+
+U
+
+eL
+
+N
+
+y
+
+ak
+
+Le
+
+M
+
+U
+
+EL
+
+LU
+
+SE
+
+LU
+
+Si
+
+75.9%
+
+75.5%
+
+76.0%
+
+75.7%
+
+79.0%
+
+76.4%
+
+85.6%
+
+78.9%
+
+86.9%
+
+78.3%
+
+88.4%
+
+78.5%
+
+72.8%
+
+75.9%
+
+74.8%
+
+73.2%
+
+75.5%
+
+74.6%
+
+75.9%
+
+75.9%
+
+75.0%
+
+60
+
+eL
+
+N
+
+y
+
+ak
+
+Le
+
+ish
+
+Sw
+
+U
+
+EL
+
+81.9%
+
+75.9%
+
+83.5%
+
+77.9%
+
+74.2%
+
+60
+
+G
+
+ish
+
+M
+
+LU
+
+SE
+
+U
+
+80
+86.4%
+
+76.8%
+
+B-
+
+Test accuracy (%)
+80
+
+EL
+
+LU
+
+Si
+
+B-
+
+Test accuracy (%)
+
+E.3
+Bar chart accuracies
+
+VGG-16 – CIFAR-10 Accuracy
+Baseline
+SUGAR
+
+40
+
+20
+
+0
+
+Figure 11: Test accuracy of VGG-16 on CIFAR-10, comparing baseline to SUGAR.
+
+ResNet-18 – CIFAR-10 Accuracy
+
+Baseline
+SUGAR
+
+40
+
+20
+
+0
+
+Figure 12: Test accuracy of ResNet-18 on CIFAR-10, comparing baseline to SUGAR.
+
+21
+
+=0
+
+)
+
+)
+
+.1
+
+05
+
+=0
+.
+
+)
+
+LU
+
+LU
+
+01
+
+=0
+.
+
+Re
+
+Re
+
+(α
+
+(α
+
+(α
+
+U
+
+eL
+
+N
+
+U
+
+eL
+
+N
+
+U
+
+eL
+
+N
+
+y
+
+ak
+
+Le
+
+ish
+
+Sw
+
+U
+
+EL
+
+G
+
+ish
+
+M
+
+LU
+
+U
+
+41.9%
+
+40.4%
+
+42.4%
+
+41.5%
+
+43.2%
+
+42.8%
+
+43.4%
+
+43.4%
+
+43.7%
+
+44.1%
+
+43.7%
+
+44.3%
+
+41.5%
+
+48.4%
+
+44.6%
+
+52.1%
+
+48.7%
+
+52.4%
+
+49.9%
+
+56.5%
+
+49.0%
+
+40
+
+EL
+
+LU
+
+Si
+
+50
+
+SE
+
+B-
+
+Test accuracy (%)
+
+ResNet-18 – CIFAR-100 Accuracy
+Baseline
+SUGAR
+
+30
+
+20
+
+10
+
+0
+
+Figure 13: Test accuracy of ResNet-18 on CIFAR-100, comparing baseline to SUGAR.
+
+F
+
+Experimental setup for Swin Transformer
+
+The model is taken from the original work [23]. In this study, the tiny version of Swin Transformer
+(28M parameters) is used. Although our implementation is completely in line with [23], we provide
+detailed specifications regarding the training procedure here. Swin Transformer was trained on the
+Tiny ImageNet dataset with 200 classes.
+• Batch size: We used a batch size of 200 for training.
+• Validation split: 5% of the training set
+• Data augmentation: Several augmentation techniques are employed during training:
+– Color jitter with intensity 0.4
+– AutoAugment policy: rand-m9-mstd0.5-inc1
+– Random erasing with:
+* Probability: 0.25
+* Mode: pixel
+* Count: 1
+– Mixup with alpha 0.8
+– Cutmix with alpha 1.0
+– Mixup and Cutmix applied in batch mode with a switch probability of 0.5
+• Number of workers: 8
+• Optimizer: AdamW optimizer is used with the following parameters:
+– Betas: (0.9, 0.999)
+– Epsilon: 1e-8
+– Weight decay: 0.05
+• LR schedule: A cosine learning rate scheduler was used, with:
+– Base learning rate: 5e-4, scaled linearly with batch size and number of devices
+– Warmup learning rate: 5e-7
+– Minimum learning rate: 5e-6
+– Warmup epochs: 20
+– Gradient clipping with max norm: 5.0
+• Epochs: The model was trained for 300 epochs.
+• Repetitions: 5 independent runs per configuration with seeds [1, 10, 20, 25, 42]
+• Hardware: NVIDIA GeForce RTX 4090 25GB GPU (CUDA 12.4, Driver 550.144.03)
+
+22
+
+G
+
+Experimental setup for Conv2NeXt
+
+The model is taken from the original work [5]. Following the settings in [5], the base version of
+Conv2NeXt (7M parameters) is used. Although our implementation is completely in line with [5],
+we provide detailed specifications regarding the training procedure here. torch.compile is applied
+with SUGAR. Conv2NeXt was trained on the CIFAR-100 dataset.
+• Batch size: A per-GPU batch size of 200 was used, with gradient accumulation over 4 step,
+yielding an effective batch size of 800.
+• Validation/training set: 50000 / 10000 as in default CIFAR-100 setting in torchvision. In
+accordance with [5], no test set was used.
+• Data augmentation: Following augmentation strategies were deployed:
+– AutoAugment: rand-m9-mstd0.5-inc1
+– Color jitter: 0.4
+– Random erasing with:
+* Probability: 0.25
+* Mode: pixel
+* Count: 1
+– Mixup: alpha=0.8
+– Cutmix: alpha=1.0
+– Combined Mixup/Cutmix applied in batch mode with switch probability 0.5
+• Number of workers: 10
+• Optimizer: AdamW optimizer is used with the following parameters:
+– Learning rate: 4e-3
+– Weight decay: 0.05
+– Epsilon: 1e-8
+– Betas: default ((0.9, 0.999))
+• LR schedule: A cosine learning rate scheduler was used:
+– Initial learning rate: 4e-3
+– Minimum learning rate: 1e-6
+– Warmup period: 20 epochs
+– Weight decay followed a cosine schedule as well
+• Epochs: Training was performed over 300 epochs.
+• Repetitions: 5 independent runs per configuration with seeds [1, 10, 20, 25, 42]
+• Hardware: NVIDIA H100 80GB GPU (CUDA 12.4, Driver 550.127.08)
+
+23
+
+

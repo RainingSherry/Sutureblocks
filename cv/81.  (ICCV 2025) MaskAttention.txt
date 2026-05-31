@@ -1,0 +1,1362 @@
+MaskAttn-UNet: A Mask Attention-Driven Framework for Universal
+Low-Resolution Image Segmentation
+Anzhe Cheng1 , Chenzhong Yin1 , Yu Chang2 , Heng Ping1 , Shixuan Li1 , Shahin Nazarian1 , Paul Bogdan1
+1
+
+arXiv:2503.10686v1 [cs.CV] 11 Mar 2025
+
+2
+
+University of Southern California
+The University of British Columbia
+
+Abstract
+Low-resolution image segmentation is crucial in real-world
+applications such as robotics, augmented reality, and largescale scene understanding, where high-resolution data is
+often unavailable due to computational constraints. To address this challenge, we propose MaskAttn-UNet, a novel
+segmentation framework that enhances the traditional UNet architecture via a mask attention mechanism. Our
+model selectively emphasizes important regions while suppressing irrelevant backgrounds, thereby improving segmentation accuracy in cluttered and complex scenes. Unlike conventional U-Net variants, MaskAttn-UNet effectively balances local feature extraction with broader contextual awareness, making it particularly well-suited for
+low-resolution inputs. We evaluate our approach on three
+benchmark datasets with input images rescaled to 128×128
+and demonstrate competitive performance across semantic, instance, and panoptic segmentation tasks. Our results
+show that MaskAttn-UNet achieves accuracy comparable
+to state-of-the-art methods at significantly lower computational cost than transformer-based models, making it an efficient and scalable solution for low-resolution segmentation in resource-constrained scenarios.
+
+1. Introduction
+Accurate multi-class segmentation in complex scenes
+is crucial for applications such as autonomous driving,
+robotics, and augmented reality [3, 41, 67]. In autonomous
+vehicles, for example, precise pixel-wise labeling of vehicles and pedestrians is essential for safe navigation [9, 13],
+while in industrial robotics, detailed segmentation of tools
+and obstacles enables reliable manipulation and effective
+obstacle avoidance [31, 60]. However, many practical vision systems — from low-cost surveillance cameras to unmanned aerial vehicles (UAVs) and mobile robots — operate on low-resolution imagery due to sensor constraints
+
+and hardware limitations [1, 30, 63]. This reduction in image detail poses a significant challenge for segmentation algorithms [8, 23, 36, 41], which must still accurately distinguish multiple object classes. Consequently, there is a
+pressing need for segmentation methods that remain robust
+and precise under such constrained conditions.
+Encoder-decoder architectures like U-Net [52] have proven
+effective at extracting local features and fine details through
+their multi-scale architecture. Nevertheless, they often
+struggle to capture long-range dependencies when multiple objects or classes coexist in a single image [15, 68],
+leading to ambiguities in complex scenes [51, 58]. Conversely, transformer-based vision models incorporate global
+context through self-attention mechanisms, enabling them
+to model long-range relationships between pixels or regions [55, 66]. This global representation comes at the cost
+of substantial memory and computation overhead due to
+the quadratic complexity of self-attention, which can render such models impractical for embedded or real-time systems [14, 22]. Additionally, because vision transformers
+lack the inherent inductive biases of CNNs (especially the
+locality bias), fully attention-driven models may overlook
+the fine-grained details needed to distinguish small or overlapping objects [6, 50, 65]. These limitations highlight the
+need for a segmentation approach that balances local feature precision, global context capture, and computational
+efficiency.
+In this paper, we introduce MaskAttn-UNet, an innovative
+extension of the U-Net framework that integrates a novel
+mask attention module to address the above challenges. The
+MaskAttn-UNet architecture preserves U-Net’s strength in
+capturing fine local details via its skip connections, while
+the mask attention module selectively emphasizes salient
+regions in feature maps to inject broader contextual information. By focusing attention on relevant regions (instead
+of attending globally to all pixels), our approach can capture long-range dependencies more efficiently and mitigate
+the memory burden typically associated with transformers.
+We specifically design the network for low-resolution in-
+
+a)
+
+b)
+
+K
+Q
+
+V Q
+V
+
+K
+
+M
+M
+
+c)
+
+3x3 convolution
+mask attention
+downsample
+upsample
+skip and concat
+1x1 convolution
+
+Figure 1. Overview of the proposed MaskAttn-UNet. (a) Overall architecture with a U-Net encoder-decoder and skip connections. (b)
+Mask Attention Module applying a learnable mask to modulate self-attention. (c) Multi-scale encoder–decoder design with convolutional
+layers, mask attention at each scale and skip connections between encoder and decoder.
+
+puts (128 × 128 images), which significantly reduces computational demands while still allowing the model to learn
+rich representations. This design choice reflects real-world
+use cases with limited image resolutions and ensures that
+MaskAttn-UNet remains suitable for resource-constrained
+schemes.
+We evaluate MaskAttn-UNet on standard benchmarks
+across semantic, instance, and panoptic segmentation tasks.
+Despite operating on relatively low-resolution inputs, our
+proposed model achieves competitive performance in terms
+of mean Intersection-over-Union (mIoU), Panoptic Quality (PQ), and Average Precision (AP) compared to stateof-the-art methods. Notably, MaskAttn-UNet maintains a
+moderate memory footprint during inference, making it significantly more practical for deployment than many fully
+transformer-based models that offer similar accuracy. These
+results demonstrate that our hybrid approach effectively
+combines the benefits of convolutional inductive bias and
+targeted self-attention, yielding robust multi-class segmentation in diverse and complex scenes.
+Our contributions are summarized as follows:
+• We propose MaskAttn-UNet, a self-attention U-Net vari-
+
+ant that integrates a novel mask attention module to capture both local details and long-range dependencies effectively.
+• We design the architecture for low-resolution segmentation using 128 × 128 inputs, reducing computational demands while preserving robust performance.
+• We validate our approach on several datasets, demonstrating improvements in segmentation metrics with lower
+memory consumption relative to transformer-based methods.
+Together, these contributions highlight the value of combining convolutional inductive biases with targeted attention
+mechanisms to achieve accurate and efficient segmentation
+in real-world plots. In the following sections, we discuss
+related work that motivated our approach, including U-Net
+extensions, vision transformers, and mask-based segmentation methods.
+
+2. Related Work
+2.1. U-Net
+U-Net [52] introduced an encoder-decoder architecture that
+has become a cornerstone in image segmentation. Its de-
+
+sign consists of a contracting path that employs successive
+convolutions and pooling operations to extract features at
+multiple scales and an expansive path that uses upsampling
+layers to recover spatial resolution. Skip connections between corresponding layers in the encoder and decoder allow the network to merge deep semantic information with
+high-resolution spatial details. This structure has proven
+effective in applications such as biomedical segmentation,
+where precise localization is critical [5, 27, 52, 61].
+Despite its success, the fixed receptive fields inherent in
+standard convolutional layers restrict U-Net’s ability to capture long-range dependencies [24, 44, 64]. In scenes with
+multiple interacting objects or overlapping structures, this
+can lead to misclassification or merging of distinct regions [42, 53, 62]. Several extensions have been proposed
+to address these limitations. For instance, Attention UNet [43] introduces attention gates to refine the skip connections, allowing the model to selectively emphasize relevant
+features. Similarly, Residual U-Net [69] incorporates residual connections to facilitate the training of deeper networks.
+While these modifications improve gradient flow and local
+feature extraction, they do not fully resolve the challenge of
+aggregating global context across the entire image.
+
+2.2. Swin Transformers
+Transformer-based models have emerged as powerful alternatives for image segmentation due to their ability to model
+long-range dependencies through self-attention [33, 54, 66].
+Swin Transformers [37] represent a significant development in this area by adopting a hierarchical architecture.
+The model partitions the input image into non-overlapping
+patches and computes self-attention within local windows.
+A key innovation is the introduction of shifted windows between successive layers, which enables cross-window interactions and effectively extends the receptive field without
+incurring the high computational cost of full global attention. This hierarchical design facilitates multi-scale feature learning, making Swin capable of processing highresolution images while balancing local detail and global
+context.
+However, these benefits come at a substantial computational
+cost. The increased memory requirements and processing demands, especially in deeper configurations or with
+larger input sizes, can be prohibitive for real-time inference or deployment on resource-constrained hardware [29,
+40, 59]. Thus, the trade-off between segmentation performance and efficiency remains an active research challenge
+for transformer-based methods.
+
+2.3. Mask2Former
+Mask2Former [17] builds upon the framework established
+by MaskFormer [16] by reformulating segmentation as a
+set prediction problem. In MaskFormer, segmentation is
+achieved by assigning a unique mask to each object in-
+
+stance, thereby unifying the treatment of both “things” and
+“stuff.” Mask2Former refines this approach by introducing
+dynamic attention masks that adaptively focus on relevant
+image regions. This mechanism enables the model to effectively separate overlapping objects and generate highquality instance and panoptic segmentation outputs.
+The dynamic mask generation in Mask2Former facilitates
+the capture of global contextual information while maintaining the flexibility to delineate object boundaries. However, reliance on attention mechanisms alone may result in
+the loss of fine-grained local details, which are crucial for
+accurate boundary delineation, particularly in scenes with
+small objects or complex textures [4, 18, 70]. Despite these
+challenges, Mask2Former has demonstrated robust performance on standard segmentation benchmarks. Its design
+underscores the potential of mask-based attention in bridging the gap between local precision and global context, even
+though the computational complexity and training data requirements continue to be areas for further improvement.
+
+3. Methods
+In this section, we describe our proposed segmentation
+method in detail. Our approach processes an input image to
+produce a pixel-wise classification mask, where each pixel
+is assigned a semantic label. To extend the method’s capabilities, we also incorporate instance and panoptic segmentation branches that leverage shared feature representations
+and specialized loss functions. We first outline the overall
+architecture of the model and then explain the training objective and optimization procedure.
+
+3.1. Architecture Overview
+The MaskAttn-UNet network follows an encoder and a decoder, with mask attention modules integrated at multiple
+scales. The encoder extracts hierarchical features through
+successive convolutional blocks that progressively reduce
+the spatial resolution. At each scale, the features are refined
+by a mask attention module that generates a learnable binary mask to suppress uninformative regions and emphasize
+salient structures. Skip connections link corresponding encoder and decoder layers, which helps the decoder recover
+high-resolution details in the segmentation output. The decoder gradually upsamples and fuses features (augmented
+by the skip connections) to produce the final prediction.
+Fig. 1 provides an overview of the architecture. In Fig. 1(a),
+the overall U-Net style processing pipeline is depicted.
+Fig. 1(b) illustrates the internal structure of the mask attention module, which applies learnable attention masks to enhance feature representations. Fig. 1(c) shows the detailed
+multi-scale encoder–decoder design, including the arrangement of convolutional layers, skip connections, and mask
+attention blocks at each level of resolution.
+
+3.2. Mask Attention Module
+Each mask attention module is inspired by multi-head selfattention, with an additional learnable mask that modulates the attention weights. Given an input feature map X
+from either the encoder or decoder, we first reshape it to
+X ′ ∈ RB×H×W ×C , where B is the batch size, H × W are
+the spatial dimensions, and C is the number of channels.
+We then apply multi-head masked self-attention (using four
+heads in our implementation). The attention weights are
+computed using the scaled dot-product attention mechanism
+with an added mask matrix M :
+
+ QK T
++ M V (1)
+MaskAttn(Q, K, V, M ) = Softmax √
+dk
+where Q = X ′ W Q , K = X ′ W K , V = X ′ W V , and dk
+is the dimensionality of the query and key vectors. Here,
+M is a learnable (or dynamically computed) mask that suppresses contributions from uninformative regions in the attention matrix. Intuitively, M biases the attention to focus
+on relevant spatial locations.
+The output of the attention operation for a given head is
+then combined across all heads (as in multi-head attention)
+and added to the original input via a residual connection.
+Let A denote the result of the masked multi-head attention
+(after merging heads). We feed A through a two-layer feedforward network (FFN) with a GELU nonlinearity, and add
+the residual A at the end:
+Aout = GELU(AW1 + b1 )W2 + b2 + A
+
+(2)
+
+where W1 , W2 are weight matrices and b1 , b2 are biases of
+the FFN. This yields the final output Aout of the mask attention module. The combination of masked self-attention
+and the residual FFN enhances the feature representation
+by integrating global context, while preserving the original
+information passed through the skip connection.
+
+3.3. Segmentation Loss
+We optimize the network using a composite loss function that combines a semantic segmentation loss and an
+instance-level contrastive loss. Balancing these objectives
+allows the model to learn both pixel-level class distinctions
+and instance-specific separability.
+Semantic Segmentation Loss. For semantic segmentation,
+where each pixel belongs to one of C classes, we use the
+standard cross-entropy loss. Let yij be the ground-truth
+class label for pixel (i, j), and let pij (c) be the predicted
+probability that pixel (i, j) is of class c. The loss is:
+
+LCE = −
+
+C
+XX
+i,j c=1
+
+
+δ[yij = c] log pij (c) ,
+
+(3)
+
+where δ[·] is the Kronecker delta (which is 1 when its argument is true, and 0 otherwise). This per-pixel cross-entropy
+encourages correct class predictions for each pixel.
+Instance Contrastive Loss. For instance segmentation
+(and the instance component of panoptic segmentation), we
+employ a contrastive embedding loss that encourages pixels of the same object instance to have similar feature embeddings, while pushing apart embeddings of pixels from
+different instances. Let eij denote the embedding vector
+for pixel (i, j) produced by the network. For a given pixel
+(i, j), define Pij as the set of positive pixel indices (those
+belonging to the same ground-truth instance as (i, j)), and
+Nij as the set of negative pixel indices (those belonging to
+different instances). We first compute a normalizer Dij over
+all considered pairs for (i, j):
+X
+
+Dij =
+
+(m,n)∈Pij ∪Nij
+
+e · e 
+ij
+mn
+,
+exp
+τ
+
+(4)
+
+where τ is a temperature parameter controlling the sharpness of the contrastive distribution. For a positive pair (i, j)
+and (k, l) ∈ Pij (i.e., two pixels from the same instance),
+the per-pair contrastive loss is:
+exp
+lij,kl = − log
+
+
+
+eij ·ekl
+τ
+
+Dij
+
+
+.
+
+(5)
+
+which penalizes the model if embeddings eij and ekl are not
+significantly closer to each other (numerator) compared to
+all other pairs (denominator). The instance contrastive loss
+for pixel (i, j) is computed by averaging lij,kl over all its
+positive partners (k, l) ∈ Pij , and then averaging over all
+pixels:
+LIC =
+
+1 X 1
+N
+|Pij |
+(i,j)
+
+X
+
+lij,kl ,
+
+(6)
+
+(k,l)∈Pij
+
+where N is the total number of pixels considered (for efficiency, this can be a sampled subset of all pixel pairs).
+In practice, LIC encourages embeddings from the same instance to cluster together in feature space, while differentinstance embeddings remain separated.The final segmentation loss is a weighted sum of the two components:
+Lseg = LCE + λ LIC ,
+
+(7)
+
+where λ controls the balance between the semantic segmentation loss and the instance contrastive loss. In our experiments, we tune λ to ensure neither term dominates, enabling
+the model to learn both accurate pixel-wise classifications
+and well-separated instance embeddings. (Details on selecting λ are provided in Appendix B.1.)
+
+a) COCO
+
+b) ADE20K
+
+Image
+
+Ground Truth
+
+Unet
+
+Swin-B
+
+Mask2Former
+
+Ours
+
+Figure 2. Visualization of segmentation results on (a) COCO and (b) ADE20K. For each dataset, the left two columns show semantic
+segmentation, and the right two columns show instance segmentation. The top row in each block is the input image, followed by the ground
+truth, and then predictions from different methods.
+
+4. Experiments
+We evaluate MaskAttn-UNet on three commonly used segmentation benchmarks, reporting its semantic, instance,
+and panoptic segmentation results. Then, we compare our
+model with state-of-the-art methods on panoptic segmentation and examine its performance using different fractions of the training dataset. These experiments support
+our design choices for the mask attention modules and
+demonstrate MaskAttn-UNet’s ability to generalize across
+datasets.
+Datasets. We employ three widely used benchmarks for
+multi-task image segmentation. COCO [35] is a largescale dataset with 80 “thing” object categories and multiple “stuff” (background) categories, supporting semantic,
+instance, and panoptic segmentation tasks. ADE20K [71]
+includes 150 semantic categories (100 “things” and 50
+
+“stuff”) and is used for semantic, instance, and panoptic segmentation. Cityscapes [19] focuses on urban street
+scenes with 19 classes (8 “thing” and 11 “stuff”), commonly used for semantic and panoptic segmentation in autonomous driving scenarios. All images are resized to
+128×128 pixels to reduce computational overhead and simulate low-resolution conditions encountered in certain realworld applications.
+Evaluation Metrics. We use standard metrics for each task.
+For Semantic Segmentation, we report mean Intersectionover-Union (mIoU) [21], which measures the average perclass overlap between predicted and ground-truth regions.
+For Instance Segmentation, we use the Average Precision
+(AP) [35] at various intersection-over-union thresholds,
+which evaluates how well individual object instances are detected and segmented (higher AP indicates better precisionrecall tradeoff). For Panoptic Segmentation, we report the
+
+Panoptic Quality (PQ) metric [34], which encapsulates both
+recognition quality (RQ) and segmentation quality (SQ) for
+the combined set of “thing” and “stuff” classes. Along with
+mIoU and AP under 100% mIoU threshold. These metrics
+provide a comprehensive evaluation of segmentation performance on each dataset.
+
+4.1. Implementation Details
+Our implementation builds on a U-Net backbone with four
+downsampling encoder stages and four upsampling decoder
+stages, connected by skip connections to recover spatial detail. The encoder gradually increases the number of feature channels from 64 to 128 to 256 (with two blocks at
+256), leading into a bottleneck that compresses and refines
+the global context. The decoder then symmetrically upsamples, reducing the channel dimensions and merging feature
+maps from the corresponding encoder levels to reconstruct
+fine-grained spatial details in the output.
+At every encoder and decoder stage, we incorporate a
+MaskAttn module as described in Section 3.2. Each module contains a learnable binary mask that selectively suppresses non-relevant activations. This directs the network’s attention to important regions, such as object boundaries and salient structures, even in low-resolution feature
+maps. By integrating these modules throughout the network, MaskAttn-UNet retains the inductive bias of convolutions for locality while gaining the ability to capture longrange dependencies at each scale (More detailed analysis
+can be found in Appendix B.3).
+Metric
+
+COCO
+
+ADE20K
+
+Cityscapes
+
+mIoU↑ (%)
+
+43.7
+
+44.1
+
+67.4
+
+Table 1. Semantic segmentation on COCO (133 categories),
+ADE20K (150 categories), and Cityscapes (19 categories). Our
+model consistently achieved remarkable results on all kinds of
+data.
+
+4.2. Training Settings
+Loss Functions. We train all branches of the model (semantic, instance, panoptic) separately by choosing the losses defined in Section 3.3. For semantic segmentation, we apply
+the cross-entropy loss (Eq. 3), which provides a strong perpixel classification signal. For instance and panoptic segmentation, we include the instance contrastive loss (Eq. 6)
+to learn distinct object embeddings. In practice, we also
+add standard classification loss terms for each predicted instance (to predict its semantic category), ensuring that each
+instance embedding is associated with a specific class. By
+balancing the contributions of LCE and LIC (λ = 0.5 was
+chosen in Eq. 7), the model learns both class-level distinctions and fine-grained instance separation simultaneously.
+Training Setup. We train our models for 1000 epochs on
+each dataset. All images are uniformly resized to 128×128.
+
+For semantic segmentation experiments, we use 2×30GB
+NVIDIA V100 GPUs with a total batch size of 8. For the
+more memory-intensive instance and panoptic segmentation experiments, we use 2×40GB NVIDIA A100 GPUs
+with a batch size of 14. The model is optimized using the
+AdamW optimizer with an initial learning rate of 5 × 10−4
+and a weight decay of 10−3 . We employ data augmentation
+techniques, including random scale jittering and horizontal
+flipping, to provide input diversity without excessively complicating the training distribution. These training configurations are chosen to balance memory usage and throughput
+for each task, resulting in consistent convergence across the
+different segmentation objectives.
+Dataset
+
+AP@30
+
+AP@50
+
+AP@70
+
+AP@100
+
+COCO
+ADE20K
+Cityscapes
+
+35.0
+33.8
+38.9
+
+31.6
+33.2
+36.6
+
+31.3
+30.5
+36.2
+
+30.2
+30.5
+35.5
+
+Table 2. Instance segmentation results (AP@k). k stands for
+mIoU threshold. MaskAttn-Unet kept stable even with a small
+threshold. This indicates that the proposed model reliably isolates
+and delineates individual object instances.
+
+4.3. Main Results
+Semantic Segmentation. We evaluate our semantic segmentation model using the COCO panoptic val2017,
+ADE20K val, and Cityscapes val datasets, with all labels processed specifically for semantic segmentation. As
+shown in Tab. 1, MaskAttn-UNet achieves a mIoU of 43.7%
+on COCO, 44.1% on ADE20K, and 67.4% on Cityscapes.
+These results demonstrate that the network efficiently fuses
+global contextual information with local spatial details despite the low resolution of the inputs. In the left two
+columns of Fig. 2(a) and Fig. 2(b), the segmentation maps
+reveal that object boundaries are well preserved and regions
+with complex textures are segmented with clarity. In particular, areas containing overlapping objects or fine structural
+details are handled effectively. This suggests that the mask
+attention mechanism successfully suppresses background
+noise and enhances the discriminative power of learned features.
+Dataset
+
+mIoU↑ (%)
+
+AP↑ (%)
+
+PQ↑ (%)
+
+COCO
+ADE20K
+Cityscapes
+
+45.3
+45.9
+70.1
+
+31.5
+30.7
+35.5
+
+35.7
+33.6
+58.3
+
+Table 3. Panoptic segmentation performance on COCO,
+ADE20K, and Cityscapes. MaskAttn-UNet demonstrates robust
+segmentation capabilities across diverse datasets.
+
+Furthermore, a closer inspection of the segmentation results
+shows that the network adapts well to varying scene com-
+
+Method
+
+FLOPs (G)
+
+COCO
+
+#Params (M)
+
+ADE20K
+
+Cityscapes
+
+mIoU↑
+
+PQ↑
+
+AP↑
+
+mIoU↑
+
+PQ↑
+
+AP↑
+
+mIoU↑
+
+PQ↑
+
+AP↑
+
+U-Net
+DETR-R50
+DETR-R101
+Mask2Former-R50
+Mask2Former-R101
+
+4
+86
+152
+226
+293
+
+32
+41
+60
+44
+63
+
+33.8
+34.7
+35.3
+38.1
+39.2
+
+20.1
+25.3
+27.4
+31.4
+31.7
+
+13.8
+16.7
+18.8
+27.3
+28.1
+
+37.3
+40.7
+41.1
+45.2
+45.7
+
+24.1
+26.5
+27.4
+33.4
+33.9
+
+16.5
+21.0
+21.9
+29.1
+30.5
+
+63.4
+66.6
+67.4
+69.3
+71.4
+
+51.2
+53.7
+54.2
+55.7
+57.2
+
+27.9
+30.6
+32.2
+34.3
+35.4
+
+MaskAttn-UNet(Ours)
+
+11
+
+46
+
+45.3
+
+35.7
+
+31.5
+
+45.9
+
+33.6
+
+30.7
+
+70.1
+
+58.3
+
+35.5
+
+Table 4. Comparison of MaskAttn-UNet with state-of-the-art models for panoptic segmentation MaskAttn-UNet achieves competitive
+segmentation performance with significantly lower computational complexity, as indicated by its reduced FLOPs and parameter count.
+This efficiency highlights its potential for applications requiring a balance between accuracy and resource constraints. The best results are
+highlighted in bold, and the second best are underlined.
+
+plexities. In particular, in images with diverse lighting and
+contrast conditions (First image in Fig. 2(b)), the network
+consistently maintains high accuracy, ensuring that both
+large homogeneous regions and small, intricate details are
+accurately labeled. The design of the mask attention modules appears to selectively amplify important features while
+reducing interference from less informative areas, thereby
+yielding more consistent predictions across different classes
+and challenging scenarios.
+Instance Segmentation. Instance segmentation performance was assessed on the COCO val2017, ADE20K
+val, and Cityscapes val datasets, with all labels refined to suit the task. Table 2 summarizes the performance of MaskAttn-UNet. On COCO, the model achieves
+an Average Precision (AP) of 35.0% at an IoU threshold
+of 30, decreasing to 30.2% at an IoU threshold of 100.
+ADE20K yields AP values of 33.8%, 33.2%, 30.5%, and
+30.5% for IoU thresholds of 30, 50, 70, and 100, respectively, while Cityscapes reports corresponding AP values of
+38.9%, 36.6%, 36.2%, and 35.5%. These results indicate
+that MaskAttn-UNet reliably isolates and delineates individual object instances, even in scenarios with overlapping
+or densely arranged objects.
+The effect of varying IoU thresholds provides insight into
+the network’s ability to handle different instance complexities. Lower IoU thresholds primarily capture the most
+prominent objects, resulting in higher AP values, whereas
+higher IoU thresholds extend detection to smaller or partially occluded instances, leading to a slight reduction in AP.
+Visualizations of the instance segmentation outputs, shown
+in the right two columns of Fig. 2(a) and Fig. 2(b), indicate
+that the mask attention modules help refine feature maps
+at multiple scales, improving the separation of adjacent objects and the recognition of fine structural details. For example, the segmentation result for the third image in Fig. 2(b)
+shows that MaskAttn-UNet reduces misdetections in areas
+with overlapping objects and intricate boundaries. The network preserves object contours in cluttered regions, maintaining consistent separation of individual instances. These
+
+results demonstrate that the proposed architecture adapts
+well to various real-world conditions, reinforcing its effectiveness for practical instance segmentation applications.
+Panoptic Segmentation. Panoptic segmentation performance was evaluated on the COCO panoptic val2017,
+ADE20K val, and Cityscapes val datasets. Table 3
+presents the results, where MaskAttn-UNet achieves a mean
+Intersection-over-Union (mIoU) of 45.3% for ”stuff” regions, an Average Precision (AP) of 31.5% for ”thing” instances, and an overall Panoptic Quality (PQ) of 35.7%
+on COCO. On ADE20K, the model attains a mIoU of
+45.9%, an AP of 30.7%, and a PQ of 33.6%. Similarly, on Cityscapes, it records values of 70.1% for mIoU,
+35.5% for AP, and 58.3% for PQ. These outcomes indicate
+that MaskAttn-UNet delivers balanced segmentation performance across both foreground objects and background regions.
+The high mIoU values on Cityscapes suggest that the
+network effectively leverages the structured nature of urban scenes to achieve consistent background segmentation.
+Meanwhile, the stable AP and PQ values on COCO and
+ADE20K demonstrate its ability to handle more diverse
+and complex environments. The integration of robust background segmentation with precise instance delineation contributes to a high overall PQ, affirming the network’s capability to provide comprehensive scene understanding.
+Comparison with Baseline Models. To validate the robustness of our approach, we benchmarked our model
+against several state-of-the-art models with comparable or
+slightly greater complexity across three datasets: COCO,
+ADE20K, and Cityscapes (see Tab. 4). For instance, compared to U-Net, which operates at 4G FLOPs with 32M
+parameters, MaskAttn-UNet delivers improvements of over
+10% in mIoU, 15% in PQ, and nearly 20% in AP on
+COCO, while only increasing the parameter count by about
+15M . Although U-Net’s lower FLOPs are beneficial for
+simpler scenes, it struggles in environments with overlapping objects and complex textures. In contrast, MaskAttnUnet, with 11G FLOPs and 46M parameters, effectively
+
+captures fine spatial details and manages cluttered scenes
+more efficiently.
+We also evaluated DETR-based models, including DETRR50 (86G FLOPs, 41M parameters) and DETR-R101
+(152G FLOPs, 60M parameters). DETR-based models
+similarly require increased computing with only moderate
+performance gains, limiting their applicability in resourceconstrained or real-time settings.
+Moreover, Mask2Former-R50 demands a substantial 226G
+FLOPs, while Mask2Former-R101, employing a ResNet101 backbone, requires even more computational resources.
+Notably, Mask2Former-R101 achieves only
+marginal improvements over MaskAttn-UNet—it records
+a 0.3% higher PQ on ADE20K and a 1.3% higher mIoU
+on Cityscapes. However, these slight gains come at a
+steep cost: Mask2Former-R101 uses 17M more parameters
+than MaskAttn-UNet (roughly a 37% increase), highlighting that simply increasing compute does not necessarily
+translate to substantially better segmentation quality. Overall, MaskAttn-UNet achieves a strong balance between accuracy and efficiency, making it a practical choice for applications with constrained computational resources.
+Few Shots Training. In many real-world settings, collecting extensive annotated datasets is both expensive and timeconsuming. To assess the effect of training data size on
+segmentation performance, we evaluated MaskAttn-UNet
+on the COCO panoptic val2017 dataset, training the
+model with varying fractions (10%, 25%, 50%, 75%, and
+100%) of the full dataset. The results, depicted in Fig. 3,
+reveal the following trends:
+• 10% Training Data: The model achieves 36.7% mIoU,
+25.3% PQ, and 22.6% AP. While these metrics are suboptimal, they demonstrate the network’s capacity to extract
+meaningful features even under data-scarce conditions.
+• 25% Training Data: Performance improves to 37.3%
+mIoU, 27.6% PQ, and 25.1% AP, indicating that a modest increase in training data leads to significant gains in
+segmentation accuracy.
+• 50% Training Data: The model attains 40.1% mIoU,
+33.3% PQ, and 29.4% AP, suggesting that half of the
+full dataset suffices for learning robust feature representations.
+• 75% Training Data: Metrics further rise to 43.4%
+mIoU, 35.1% PQ, and 30.1% AP, confirming that additional data continues to benefit the model while maintaining efficient learning dynamics.
+• 100% Training Data: Utilizing the entire dataset, the
+model achieves 45.3% mIoU, 35.7% PQ, and 31.5% AP,
+highlighting its capacity to fully exploit available annotations for optimal segmentation results.
+These trends underline the strong data efficiency of
+MaskAttn-UNet, making it a practical choice for circumstances with limited annotated data. Notably, the model ex-
+
+hibits substantial performance improvements with increasing data availability, aligning with established neural scaling laws that describe how neural network performance
+scales with dataset size [2, 32]. Such data efficiency is particularly invaluable in medical image computing and other
+fields where acquiring large, annotated datasets is challenging [48, 56]. Therefore, MaskAttn-UNet’s ability to perform effectively with reduced training data positions it as a
+viable solution in data-constrained environments.
+
+Figure 3. Segmentation performance of MaskAttn-UNet on
+different fractions (10%, 25%, 50%, 75%, 100%) of the
+panoptic train2017 dataset. Results illustrate consistent
+improvement across metrics with increasing dataset size, highlighting the model’s strong data efficiency.
+
+5. Discussion
+We present MaskAttn-UNet, a significant advancement in
+segmentation models by integrating masked attention modules into the traditional U-Net architecture, which effectively enhances both local and global feature extraction.
+This hybrid approach leverages the strengths of convolutional networks in modeling local context and the capabilities of masked attention mechanisms for long-range dependencies. Our empirical evaluations on datasets such
+as COCO, ADE20K, and Cityscapes demonstrate that
+MaskAttn-UNet consistently outperforms standard U-Net
+models while utilizing significantly fewer computational resources compared to transformer-based architectures like
+Mask2former. These findings highlight the potential of
+selective attention mechanisms in low-resolution segmentation tasks, bridging the gap between convolutional efficiency and the global context awareness characteristic of
+transformer models.
+Despite these promising results, there are avenues for further improvement. Future work will focus on extending MaskAttn-UNet to domains such as medical imaging,
+where data scarcity and the need for precise boundary delineation present unique challenges. Additionally, integrating MaskAttn-UNet into diffusion-based models could enhance generative and data augmentation processes. Addressing the segmentation of small objects and intricate
+details remains an active area of research; incorporating
+
+specialized modules or tailored loss functions could further elevate performance. These future directions aim to
+refine MaskAttn-UNet’s capabilities and broaden its applicability across diverse real-world segmentation scenarios.
+
+References
+[1] Andreas Aakerberg, Kamal Nasrollahi, and Thomas B Moeslund. Real-world super-resolution of face-images from
+surveillance cameras. IET Image Processing, 16(2):442–
+452, 2022. 1
+[2] Ibrahim M Alabdulmohsin, Behnam Neyshabur, and Xiaohua Zhai. Revisiting neural scaling laws in language and
+vision. Advances in Neural Information Processing Systems,
+35:22300–22312, 2022. 8
+[3] Nouf Abdullah Almujally, Bisma Riaz Chughtai, Naif Al
+Mudawi, Abdulwahab Alazeb, Asaad Algarni, Hamdan A
+Alzahrani, and Jeongmin Park. Unet based on multi-object
+segmentation and convolution neural network for object
+recognition. Computers, Materials & Continua, 80(1), 2024.
+1
+[4] Rajesh Ankareddy and Radhakrishnan Delhibabu. Dense
+segmentation techniques using deep learning for urban scene
+parsing: A review. IEEE Access, 2025. 3
+[5] Reza Azad, Ehsan Khodapanah Aghdam, Amelie Rauland,
+Yiwei Jia, Atlas Haddadi Avval, Afshin Bozorgpour, Sanaz
+Karimijafarbigloo, Joseph Paul Cohen, Ehsan Adeli, and
+Dorit Merhof. Medical image segmentation review: The success of u-net. IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 2024. 3
+[6] Asish Bera, Zachary Wharton, Yonghuai Liu, Nik Bessis,
+and Ardhendu Behera. Attend and guide (ag-net): A
+keypoints-driven attention-based deep network for image
+recognition. IEEE Transactions on Image Processing, 30:
+3691–3704, 2021. 1
+[7] Jan Beran. Long-range dependence. Wiley Interdisciplinary
+Reviews: Computational Statistics, 2(1):26–35, 2010. 14
+[8] Bir Bhanu, Sungkee Lee, and John Ming. Adaptive image
+segmentation using a genetic algorithm. IEEE Transactions
+on systems, man, and cybernetics, 25(12):1543–1567, 1995.
+1
+[9] Bharat Bhatia and Praveen Modi. Road image segmentation
+for autonomous car. 2023. 1
+[10] George EP Box, Gwilym M Jenkins, Gregory C Reinsel, and
+Greta M Ljung. Time series analysis: forecasting and control. John Wiley & Sons, 2015. 15
+[11] Robert M Bryce and Kevin B Sprague. Revisiting detrended
+fluctuation analysis. Scientific reports, 2(1):315, 2012. 14
+[12] Anna Carbone, Giuliano Castelli, and H Eugene Stanley.
+Time-dependent hurst exponent in financial time series.
+Physica A: Statistical Mechanics and its Applications, 344
+(1-2):267–271, 2004. 14
+[13] Longbiao Chen, Xin He, Xiantao Zhao, Han Li, Yunyi
+Huang, Binbin Zhou, Wei Chen, Yongchuan Li, Chenglu
+Wen, and Cheng Wang. Gocomfort: Comfortable navigation for autonomous vehicles leveraging high-precision road
+
+damage crowdsensing. IEEE Transactions on Mobile Computing, 22(11):6477–6494, 2022. 1
+[14] Tianqi Chen, Bing Xu, Chiyuan Zhang, and Carlos Guestrin.
+Training deep nets with sublinear memory cost. arXiv
+preprint arXiv:1604.06174, 2016. 1
+[15] Yun Chen, Yiheng Xie, Weiyuan Yao, Yu Zhang, Xinhong
+Wang, Yanli Yang, and Lingli Tang. U-mga: A multi-module
+unet optimized with multi-scale global attention mechanisms
+for fine-grained segmentation of cultivated areas. Remote
+Sensing, 17(5):760, 2025. 1
+[16] Bowen Cheng, Alex Schwing, and Alexander Kirillov. Perpixel classification is not all you need for semantic segmentation. Advances in neural information processing systems,
+34:17864–17875, 2021. 3
+[17] Bowen Cheng, Ishan Misra, Alexander G Schwing, Alexander Kirillov, and Rohit Girdhar. Masked-attention mask
+transformer for universal image segmentation. In Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, pages 1290–1299, 2022. 3
+[18] Honghu Chu and Pang-jo Chun. Fine-grained crack segmentation for high-resolution images via a multiscale cascaded
+network. Computer-Aided Civil and Infrastructure Engineering, 39(4):575–594, 2024. 3
+[19] Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo
+Rehfeld, Markus Enzweiler, Rodrigo Benenson, Uwe
+Franke, Stefan Roth, and Bernt Schiele. The cityscapes
+dataset for semantic urban scene understanding. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pages 3213–3223, 2016. 5
+[20] James Durbin and Geoffrey S Watson. Testing for serial correlation in least squares regression: I. Biometrika, 37(3/4):
+409–428, 1950. 15
+[21] Mark Everingham, SM Ali Eslami, Luc Van Gool, Christopher KI Williams, John Winn, and Andrew Zisserman. The
+pascal visual object classes challenge: A retrospective. International journal of computer vision, 111:98–136, 2015.
+5
+[22] Michael J Feeley, William E Morgan, EP Pighin, Anna R
+Karlin, Henry M Levy, and Chandramohan A Thekkath. Implementing global memory management in a workstation
+cluster. In Proceedings of the fifteenth ACM symposium on
+Operating systems principles, pages 201–212, 1995. 1
+[23] Swarnendu Ghosh, Nibaran Das, Ishita Das, and Ujjwal
+Maulik. Understanding deep learning techniques for image
+segmentation. ACM computing surveys (CSUR), 52(4):1–35,
+2019. 1
+[24] Zhiling Guo, Jiayue Lu, Qi Chen, Zhengguang Liu,
+Chenchen Song, Hongjun Tan, Haoran Zhang, and Jinyue
+Yan. Transpv: Refining photovoltaic panel detection accuracy through a vision transformer-based deep learning
+model. Applied Energy, 355:122282, 2024. 3
+[25] C Heneghan and G McDarby. Establishing the relation between detrended fluctuation analysis and power spectral density analysis for stochastic processes. Physical review E, 62
+(5):6103, 2000. 14
+[26] Kun Hu, Plamen Ch Ivanov, Zhi Chen, Pedro Carpena, and
+H Eugene Stanley. Effect of trends on detrended fluctuation
+analysis. Physical Review E, 64(1):011114, 2001. 14
+
+[27] Luzhe Huang, Xiongye Xiao, Shixuan Li, Jiawen Sun, Yi
+Huang, Aydogan Ozcan, and Paul Bogdan. Multi-scale conditional generative modeling for microscopic image restoration, 2024. 3
+[28] Harold Edwin Hurst. Long-term storage capacity of reservoirs. Transactions of the American society of civil engineers, 116(1):770–799, 1951. 14
+[29] Tianyu Jia, Yuhao Ju, Russ Joseph, and Jie Gu. Ncpu: An
+embedded neural cpu architecture on resource-constrained
+low power devices for real-time end-to-end performance. In
+2020 53rd Annual IEEE/ACM International Symposium on
+Microarchitecture (MICRO), pages 1097–1109. IEEE, 2020.
+3
+[30] Pabitra Joshi, Karansher S Sandhu, Guriqbal Singh Dhillon,
+Jianli Chen, and Kailash Bohara. Detection and monitoring
+wheat diseases using unmanned aerial vehicles (uavs). Computers and Electronics in Agriculture, 224:109158, 2024. 1
+[31] Md Mohsin Kabir, Jamin Rahman Jim, and Zoltán Istenes.
+Terrain detection and segmentation for autonomous vehicle
+navigation: A state-of-the-art systematic review. Information
+Fusion, 113:102644, 2025. 1
+[32] Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B
+Brown, Benjamin Chess, Rewon Child, Scott Gray, Alec
+Radford, Jeffrey Wu, and Dario Amodei. Scaling laws for
+neural language models. arXiv preprint arXiv:2001.08361,
+2020. 8
+[33] Salman Khan, Muzammal Naseer, Munawar Hayat,
+Syed Waqas Zamir, Fahad Shahbaz Khan, and Mubarak
+Shah. Transformers in vision: A survey. ACM computing
+surveys (CSUR), 54(10s):1–41, 2022. 3
+[34] Alexander Kirillov, Kaiming He, Ross Girshick, Carsten
+Rother, and Piotr Dollár. Panoptic segmentation. In Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pages 9404–9413, 2019. 6
+[35] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays,
+Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence
+Zitnick. Microsoft coco: Common objects in context. In
+Computer vision–ECCV 2014: 13th European conference,
+zurich, Switzerland, September 6-12, 2014, proceedings,
+part v 13, pages 740–755. Springer, 2014. 5
+[36] Geert Litjens, Robert Toth, Wendy Van De Ven, Caroline
+Hoeks, Sjoerd Kerkstra, Bram Van Ginneken, Graham Vincent, Gwenael Guillard, Neil Birbeck, Jindang Zhang, et al.
+Evaluation of prostate segmentation algorithms for mri: the
+promise12 challenge. Medical image analysis, 18(2):359–
+373, 2014. 1
+[37] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF international conference on
+computer vision, pages 10012–10022, 2021. 3
+[38] Benoit B Mandelbrot and James R Wallis. Robustness of
+the rescaled range r/s in the measurement of noncyclic long
+run statistical dependence. Water resources research, 5(5):
+967–988, 1969. 14
+[39] Rainer Martin. Noise power spectral density estimation
+based on optimal smoothing and minimum statistics. IEEE
+
+Transactions on speech and audio processing, 9(5):504–512,
+2001. 14
+[40] Arnab Neelim Mazumder, Jian Meng, Hasib-Al Rashid, Utteja Kallakuri, Xin Zhang, Jae-Sun Seo, and Tinoosh Mohsenin. A survey on the optimization of neural network accelerators for micro-ai on-device inference. IEEE Journal on
+Emerging and Selected Topics in Circuits and Systems, 11
+(4):532–547, 2021. 3
+[41] Shervin Minaee, Yuri Boykov, Fatih Porikli, Antonio Plaza,
+Nasser Kehtarnavaz, and Demetri Terzopoulos. Image segmentation using deep learning: A survey. IEEE transactions
+on pattern analysis and machine intelligence, 44(7):3523–
+3542, 2021. 1
+[42] Liangliang Nan, Ke Xie, and Andrei Sharf. A search-classify
+approach for cluttered indoor scene understanding. ACM
+Transactions on Graphics (TOG), 31(6):1–10, 2012. 3
+[43] Ozan Oktay, Jo Schlemper, Loic Le Folgoc, Matthew Lee,
+Mattias Heinrich, Kazunari Misawa, Kensaku Mori, Steven
+McDonagh, Nils Y Hammerla, Bernhard Kainz, et al. Attention u-net: Learning where to look for the pancreas. arXiv
+preprint arXiv:1804.03999, 2018. 3
+[44] Shaoyan Pan, Yang Lei, Tonghe Wang, Jacob Wynne, ChihWei Chang, Justin Roper, Ashesh B Jani, Pretesh Patel, Jeffrey D Bradley, Tian Liu, et al. Male pelvic multi-organ segmentation using token-based transformer vnet. Physics in
+Medicine & Biology, 67(20):205012, 2022. 3
+[45] C-K Peng, Sergey V Buldyrev, Shlomo Havlin, Michael Simons, H Eugene Stanley, and Ary L Goldberger. Mosaic
+organization of dna nucleotides. Physical review e, 49(2):
+1685, 1994. 14
+[46] Talmo D Pereira, Nathaniel Tabris, Arie Matsliah, David M
+Turner, Junyu Li, Shruthi Ravindranath, Eleni S Papadoyannis, Edna Normand, David S Deutsch, Z Yan Wang, et al.
+Sleap: A deep learning system for multi-animal pose tracking. Nature methods, 19(4):486–495, 2022. 13
+[47] Olivier Petit, Nicolas Thome, Clement Rambour, Loic Themyr, Toby Collins, and Luc Soler. U-net transformer: Self
+and cross attention for medical image segmentation. In
+Machine Learning in Medical Imaging: 12th International
+Workshop, MLMI 2021, Held in Conjunction with MICCAI
+2021, Strasbourg, France, September 27, 2021, Proceedings
+12, pages 267–276. Springer, 2021. 13
+[48] Muhammad Imran Razzak, Saeeda Naz, and Ahmad Zaib.
+Deep learning for medical image processing: Overview,
+challenges and the future. Classification in BioApps: Automation of decision making, pages 323–350, 2017. 8
+[49] Michele Reibaldi, Nicola Cardascia, Antonio Longo, Claudio Furino, Teresio Avitabile, Salvatore Faro, Marisa Sanfilippo, Andrea Russo, Maurizio Giacinto Uva, Ferdinando
+Munno, et al. Standard-fluence versus low-fluence photodynamic therapy in chronic central serous chorioretinopathy: a
+nonrandomized clinical trial. American journal of ophthalmology, 149(2):307–315, 2010. 13
+[50] Aref Miri Rekavandi, Shima Rashidi, Farid Boussaid,
+Stephen Hoefs, Emre Akbas, et al. Transformers in small
+object detection: A benchmark and survey of state-of-theart. arXiv preprint arXiv:2309.04902, 2023. 1
+
+[51] Shamija Sherryl RMR and T Jaya. Multi-scale and spatial information extraction for kidney tumor segmentation: A contextual deformable attention and edge-enhanced u-net. Journal of Imaging Informatics in Medicine, 37(1):151, 2024. 1
+[52] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. Unet: Convolutional networks for biomedical image segmentation. In Medical image computing and computer-assisted
+intervention–MICCAI 2015: 18th international conference,
+Munich, Germany, October 5-9, 2015, proceedings, part III
+18, pages 234–241. Springer, 2015. 1, 2, 3
+[53] Benjamin Rosman and Subramanian Ramamoorthy. Learning spatial relationships between objects. The International
+Journal of Robotics Research, 30(11):1328–1342, 2011. 3
+[54] Fahad Shamshad, Salman Khan, Syed Waqas Zamir,
+Muhammad Haris Khan, Munawar Hayat, Fahad Shahbaz
+Khan, and Huazhu Fu. Transformers in medical imaging: A
+survey. Medical image analysis, 88:102802, 2023. 3
+[55] Dapai Shi, Jingyuan Zhao, Zhenghong Wang, Heng Zhao,
+Junbin Wang, Yubo Lian, and Andrew F Burke. Spatialtemporal self-attention transformer networks for battery state
+of charge estimation. Electronics, 12(12):2598, 2023. 1
+[56] Amber L Simpson, Michela Antonelli, Spyridon Bakas,
+Michel Bilello, Keyvan Farahani, Bram Van Ginneken, Annette Kopp-Schneider, Bennett A Landman, Geert Litjens,
+Bjoern Menze, et al. A large annotated medical image dataset
+for the development and evaluation of segmentation algorithms. arXiv preprint arXiv:1902.09063, 2019. 8
+[57] Robert R Sokal and Neal L Oden. Spatial autocorrelation in
+biology: 1. methodology. Biological journal of the Linnean
+Society, 10(2):199–228, 1978. 15
+[58] Lei Song, Min Xia, Yao Xu, Liguo Weng, Kai Hu, Haifeng
+Lin, and Ming Qian. Multi-granularity siamese transformerbased change detection in remote sensing imagery. Engineering Applications of Artificial Intelligence, 136:108960,
+2024. 1
+[59] Rafael Stahl, Alexander Hoffman, Daniel MuellerGritschneder, Andreas Gerstlauer, and Ulf Schlichtmann.
+Deeperthings: Fully distributed cnn inference on resourceconstrained edge devices. International Journal of Parallel
+Programming, 49:600–624, 2021. 3
+[60] Abhishek Thakur and Sudhansu Kumar Mishra. An in-depth
+evaluation of deep learning-enabled adaptive approaches for
+detecting obstacles using sensor-fused data in autonomous
+vehicles. Engineering Applications of Artificial Intelligence,
+133:108550, 2024. 1
+[61] Weihao Weng and Xin Zhu. Inet: convolutional networks
+for biomedical image segmentation. Ieee Access, 9:16591–
+16603, 2021. 3
+[62] Bo Wu and Ram Nevatia. Detection and segmentation of
+multiple, partially occluded objects by grouping, merging,
+assigning part detection responses. International journal of
+computer vision, 82:185–204, 2009. 3
+[63] Tian-Zhu Xiang, Gui-Song Xia, and Liangpei Zhang. Miniunmanned aerial vehicle-based remote sensing: Techniques,
+applications, and prospects. IEEE geoscience and remote
+sensing magazine, 7(3):29–63, 2019. 1
+
+[64] Xiongye Xiao, Shixuan Li, Luzhe Huang, Gengshuo Liu,
+Trung-Kien Nguyen, Yi Huang, Di Chang, Mykel J. Kochenderfer, and Paul Bogdan. Multi-scale generative modeling
+for fast sampling, 2024. 3
+[65] Yufei Xu, Qiming Zhang, Jing Zhang, and Dacheng Tao.
+Vitae: Vision transformer advanced by exploring intrinsic
+inductive bias. Advances in neural information processing
+systems, 34:28522–28535, 2021. 1
+[66] Jianwei Yang, Chunyuan Li, Pengchuan Zhang, Xiyang Dai,
+Bin Xiao, Lu Yuan, and Jianfeng Gao. Focal self-attention
+for local-global interactions in vision transformers. arXiv
+preprint arXiv:2107.00641, 2021. 1, 3
+[67] Shanliang Yao, Runwei Guan, Xiaoyu Huang, Zhuoxiao Li,
+Xiangyu Sha, Yong Yue, Eng Gee Lim, Hyungjoon Seo,
+Ka Lok Man, Xiaohui Zhu, et al. Radar-camera fusion for
+object detection and semantic segmentation in autonomous
+driving: A comprehensive review. IEEE Transactions on Intelligent Vehicles, 9(1):2094–2128, 2023. 1
+[68] Junjie Zhang, Qiming Zhang, Yongshun Gong, Jian Zhang,
+Liang Chen, and Dan Zeng. Weakly supervised semantic
+segmentation with consistency-constrained multi-class attention for remote sensing scenes. IEEE Transactions on Geoscience and Remote Sensing, 2024. 1
+[69] Zhengxin Zhang, Qingjie Liu, and Yunhong Wang. Road
+extraction by deep residual u-net. IEEE Geoscience and Remote Sensing Letters, 15(5):749–753, 2018. 3
+[70] Jie Zhao, Yun Jia, Lin Ma, and Lidan Yu. Adaptive dualstream sparse transformer network for salient object detection in optical remote sensing images. IEEE Journal of
+Selected Topics in Applied Earth Observations and Remote
+Sensing, 17:5173–5192, 2024. 3
+[71] Bolei Zhou, Hang Zhao, Xavier Puig, Sanja Fidler, Adela
+Barriuso, and Antonio Torralba. Scene parsing through
+ade20k dataset. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 633–641,
+2017. 5
+
+Appendix
+A. Code and Data Availability
+Our code to run the experiments can be found at https:
+/ / anonymous . 4open . science / r / MaskUnet 736B.
+
+B. More Experiments and Dicussion
+B.1. Effect of λ on the Loss Function
+As indicated in Eq. 7, the parameter λ governs the relative
+influence of the cross-entropy loss and the instance contrastive loss. We explored a range of values from 0.1 to 2.1,
+training MaskAttn-UNet for 20 epochs to observe how different λ settings affect the combined loss. Fig. 4 illustrates
+that the loss consistently decreases and reaches its lowest
+point at λ = 0.5. When λ is too small (e.g., below 0.3),
+the instance contrastive term is underemphasized, leading
+to weaker instance separation. Conversely, larger values of
+λ (above 1.0) can overshadow the cross-entropy component,
+resulting in suboptimal pixel-level classifications.
+These findings indicate that setting λ = 0.5 provides a
+well-balanced combination of the cross-entropy and instance contrastive losses for instance and panoptic segmentation. In this configuration, MaskAttn-UNet achieves reliable pixel-level predictions and effective instance discrimination, which are critical for accurately delineating overlapping objects and complex scene structures.
+
+Figure 4. Trend of the combined loss as a function of λ. The
+model only ran 20 epochs, not fully trained. The minimum loss is
+observed at λ = 0.5.
+
+Although the model was trained for only 20 epochs, the
+early-stage trends in the combined loss clearly show that
+this limited training is sufficient to assess the impact of λ.
+The minimum loss observed at λ = 0.5 suggests that this
+value reasonably balances the two loss components, providing a solid basis for selecting it as the optimal setting.
+
+Further training and a finer-grained parameter search are
+expected to fine-tune rather than dramatically alter this optimal balance.
+
+B.2. Ablation Studies
+MaskAttn Module. To assess the contribution of Mask
+Attention modules within our MaskAttn-UNet architecture,
+we conducted an ablation study by systematically removing
+these modules and evaluating the performance of the resulting baseline UNet. Both models were trained and tested on
+the COCO panoptic val2017 dataset, and their performance metrics are detailed in Table 5.
+Model
+MaskAttn-UNet
+UNet
+
+mIoU (%)
+45.3
+33.8
+
+PQ (%)
+35.7
+20.1
+
+AP (%)
+31.5
+13.8
+
+Table 5. Performance comparison between MaskAttn-UNet and
+baseline UNet on COCO panoptic val2017 dataset.
+
+The integration of Mask Attention modules led to substantial improvements across all evaluated metrics. Specifically,
+MaskAttn-UNet achieved a mean Intersection over Union
+(mIoU) of 45.3%, which is an 11.5% relative increase over
+the baseline UNet’s 33.8%. In terms of Panoptic Quality
+(PQ), MaskAttn-UNet reached 35.7%, marking a 15.6%
+relative improvement compared to the baseline’s 20.1%.
+Additionally, the Average Precision (AP) saw a significant
+enhancement, with MaskAttn-UNet obtaining 31.5%, corresponding to a 17.7% incline over the baseline’s 13.8%.
+The remarkable improvements in mIoU, PQ, and AP suggest that Mask Attention modules enable the network to better capture spatial dependencies and contextual information,
+which are crucial for accurate segmentation. The significant enhancement in PQ and AP metrics indicates that the
+MaskAttn-UNet is particularly effective in distinguishing
+and accurately segmenting individual objects within complex scenes, a task where the baseline UNet exhibits limitations.
+Partial MaskAttn Module. To evaluate the individual
+contributions of the attention mechanisms in our MaskAttnUNet, we conducted experiments with two model variants: one that incorporates Mask Attention modules solely
+in the encoder and another that applies them only in
+the decoder. Table 6 presents the results on the COCO
+panoptic val2017 dataset.
+Although the encoder-only variant yields slightly better performance compared to the decoder-only variant, both attention modules play complementary roles that are critical
+for the overall performance of MaskAttn-UNet. The encoder attention modules are particularly effective for lowresolution images, as they enhance the extraction of local details and fine features, which significantly improves
+
+Variant
+Encoder-Only
+Decoder-Only
+
+mIoU (%)
+38.1
+36.7
+
+PQ (%)
+24.3
+23.6
+
+AP (%)
+18.8
+17.0
+
+Table 6. Performance of MaskAttn-UNet variants with attention
+applied exclusively in the encoder or decoder.
+
+segmentation quality. On the other hand, decoder attention modules ensure that long-range dependencies are maintained during the reconstruction process, preserving global
+contextual information. Both variants surpassed traditional
+UNet by more than 5% in mIoU, 3% larger in PQ, and 5%
+incline in AP.
+The full MaskAttn-UNet, which integrates attention in both
+the encoder and decoder, outperforms the individual variants by effectively combining local detail enhancement with
+global feature preservation. This synergy confirms that both
+encoder and decoder attention mechanisms are essential for
+achieving superior segmentation performance, as evidenced
+by the full model’s results (mIoU = 45.3%, PQ = 35.7%, AP
+= 31.5%).
+Overall, our ablation study demonstrates that while encoder
+attention offers notable benefits on its own, the incorporation of both encoder and decoder attention modules is crucial for capturing the complete spectrum of spatial dependencies, leading to significant improvements in panoptic
+segmentation.
+
+Model
+Self-Attention UNet [47]
+MaskAttn-UNet (Ours)
+
+mIoU (%)
+41.2
+45.3
+
+PQ (%)
+30.9
+35.7
+
+AP (%)
+26.7
+31.5
+
+Table 7.
+Comparison of segmentation performance between Self-Attention UNet and MaskAttn-UNet on COCO
+panoptic val2017.
+
+Mask Layer. We also want to explore how the mask layer
+improves the attention module in image segmentation tasks.
+To explore this, we trained the self-attention Unet [47] on
+the same dataset, and the results are shown in Tab. 7. The
+self-attention Unet achieved a mIoU of 41.2%, a PQ of
+30.9%, and an AP of 26.7%. In contrast, our MaskAttnUNet, which integrates a dedicated mask layer into the attention module, obtained significantly improved metrics.
+The mask layer acts as a filter that suppresses irrelevant
+regions and reinforces salient spatial features, thereby addressing common limitations of self-attention in capturing
+fine-grained local details. This mechanism is particularly
+effective for low-resolution images, where precise local feature extraction is critical while still preserving long-range
+dependencies to maintain global context.
+
+Segmentation on Ultra-Low Image Resolutions
+In many real-world applications, images are captured at resolutions lower than 128 × 128. Consequently, we tested our
+model at ultra-low resolutions to determine the minimal resolution at which reliable segmentation can be achieved. In
+practice, many low-cost UAVs and cameras capture images
+at resolutions of 64 × 64, 64 × 48, and 32 × 32 [46, 49]. For
+baseline comparison, we selected Mask2Former-R50 and
+Mask2Former-R101 because they demonstrated comparable performance on 128 × 128 segmentation tasks. Table 8
+reports the semantic segmentation performance (mIoU) of
+these models at ultra-low resolutions. Notably, our model
+is able to segment prominent objects at a resolution of
+64 × 48, whereas the Mask2Former models achieve only
+around 10% mIoU at this resolution. At the extremely
+low resolution of 32 × 32, none of the models can produce reliable segmentation results, indicating that this resolution is below the effective threshold. Overall, these results
+suggest that our model maintains segmentation capabilities
+at lower resolutions where the baseline methods already
+struggle, thereby demonstrating its robustness in resourceconstrained environments.
+Input Resolution
+
+Method
+Mask2Former-R50
+Mask2Former-R101
+MaskAttn-UNet(Ours)
+
+64 × 64
+
+64 × 48
+
+32 × 32
+
+31.4
+33.5
+41.3
+
+8.7
+11.2
+17.1
+
+1.3
+1.9
+2.2
+
+Table 8. Semantic segmentation performance (mIoU) across
+different input resolutions. Our model reached resolution limits
+when resolution less than 64 × 48, whether other models struggled
+at 64 × 64 resolution.
+
+The visualization in Fig. 5 highlights the capability of
+MaskAttn-UNet to generate meaningful semantic segmentation results even at extremely low resolutions. At the
+64 × 64 resolution (Fig. 5(a)), object boundaries and primary structures remain clearly distinguishable, illustrating
+the model’s robustness in retaining crucial semantic information despite reduced input size. Remarkably, at the even
+lower resolution of 64 × 48 (Fig. 5(b)), MaskAttn-UNet
+still successfully identifies primary objects, demonstrating
+its potential to capture coarse semantic cues under highly
+constrained conditions.
+Although the segmentation at 32 × 32 (Fig. 5(c)) resolution shows considerable information loss, the model can
+nonetheless roughly discern dominant objects, confirming
+its ability to leverage limited pixel information. These qualitative results reinforce the numerical performance trends,
+supporting the suitability of MaskAttn-UNet for practical
+applications where computational resources or sensor capabilities are severely limited.
+
+a)
+
+b)
+
+c)
+
+Figure 5. Visualization of low-resolution segmentation results(a) Sample semantic segmentation on 64 × 64 resolution. (b) Semantic
+segmentation on 64 × 48 resolution.(c) Semantic segmentation on 32 × 32 resolution.
+
+B.3. Analysis of Long-Range Dependency Capture
+In order to quantitatively assess the long-range dependency
+capture of MaskAttn-UNet, we analyzed feature maps extracted from four key attention modules: att1 (early encoder), att3 (bottom encoder), att4 (bottom decoder), and
+att6 (top decoder). For each module, we computed the
+Hurst exponent, the scaling exponent from detrended fluctuation analysis (DFA), and the power spectral density (PSD)
+over a large subset of the COCO panoptic val2017
+dataset.
+Hurst Exponent. The Hurst exponent (H) quantifies the
+presence of long-term memory in time series data [28, 38].
+It evaluates whether a series tends to regress to the mean or
+shows persistent clustering [7, 12]. Formally, the value of
+H ranges from 0 to 1, with:
+• H = 0.5: representing a random walk with no long-range
+correlation.
+• H > 0.5: indicating persistent behavior, meaning that
+high values tend to follow high values, and low values
+tend to follow low values.
+• H < 0.5: indicating anti-persistent behavior, where val-
+
+ues alternate frequently.
+Detrended Fluctuation Analysis (DFA). DFA is a robust
+statistical method for identifying long-range correlations in
+non-stationary signals by analyzing fluctuations at multiple
+scales [11, 26, 45]. The main steps are:
+1. Compute the integrated series by subtracting the mean
+from the original signal and taking the cumulative sum.
+2. Segment this series into equal-length segments.
+3. Fit and subtract a polynomial trend (typically linear)
+from each segment.
+4. Calculate the root-mean-square fluctuation of each detrended segment.
+5. Analyze the scaling relationship between segment
+lengths and average fluctuations.
+A DFA exponent greater than 0.5 indicates persistent longrange correlations.
+Power Spectral Density (PSD). PSD measures how signal variance (power) distributes over frequency components, providing insight into the signal’s correlation structure [25, 39]. For signals exhibiting long-range dependencies, PSD typically decays according to a power-law rela-
+
+a)
+
+b)
+
+c)
+
+d)
+
+e)
+
+f)
+
+Figure 6. Long-Range Dependency Analysis in the Encoder. (a)
+Autocorrelation plot for the early encoder layer (att1) illustrating
+the decay of correlation with increasing lag. (b) DFA plot for att1,
+with the slope indicating the scaling behavior. (c) Power spectral density (PSD) plot for att1 showing the distribution of power
+across frequencies. (d) Summary visualization of the Hurst exponent across encoder layers. (e) Summary visualization of the DFA
+exponent across encoder layers. (f) Combined metric overview for
+encoder long-range dependencies.
+
+At the bottom of the encoder (att3), the Hurst exponent
+decreases modestly to 0.594 while the DFA exponent increases to 0.5379. This shift implies that the deepest encoder layer integrates more contextual information, leading
+to stronger long-range correlations, albeit still close to the
+0.5 threshold.
+In the decoder, the early stage (att4) shows similar behavior to the bottom encoder, with a Hurst exponent of 0.597
+and a DFA exponent of 0.501. These values indicate that
+the decoder, at this stage, continues to preserve mid-range
+dependencies without fully emphasizing global coherence.
+Most notably, the top decoder layer (att6) exhibits the highest values among all modules, with a Hurst exponent of
+0.694 and a DFA exponent of 0.657. These results suggest
+that the final decoder integrates a broader context across the
+entire image, thereby capturing stronger long-range dependencies. This is further illustrated in Figure 7, which shows
+the evolution of the feature correlation structure in the decoder stages.
+a)
+
+b)
+
+c)
+
+d)
+
+e)
+
+f)
+
+tionship:
+1
+,
+(8)
+fβ
+where S(f ) denotes power at frequency f , and β characterizes the correlation strength. Higher β values indicate
+stronger long-range correlations.
+Autocorrelation Function. The autocorrelation function
+quantifies the similarity of a signal with a delayed version
+of itself, describing how quickly correlations decay over increasing lag [10, 20, 57]. Signals exhibiting long-range dependency typically display slow, power-law decay in autocorrelation.
+Table 9 summarizes the average metrics obtained for each
+attention module:
+S(f ) ∝
+
+Attention Module
+att1 (Early Encoder)
+att3 (Bottom Encoder)
+att4 (Bottom Decoder)
+att6 (Top Decoder)
+
+Hurst Exponent
+
+DFA Exponent
+
+0.628
+0.594
+0.597
+0.694
+
+0.459
+0.538
+0.501
+0.657
+
+Table 9. Average Hurst and DFA Exponents for Different Attention Modules
+
+As shown in Table 9, the early encoder layer (att1) exhibits
+a Hurst exponent of 0.628, indicating a moderate level of
+persistence in the feature maps at the initial stage of encoding. However, the corresponding DFA exponent is slightly
+lower (0.459), suggesting that while there is some global
+structure, local fluctuations are still prominent.
+
+Figure 7. Long-Range Dependency Analysis in the Decoder. (a)
+Autocorrelation plot for the bottom decoder layer (att4) demonstrating the decay of correlation. (b) DFA plot for att4, with the
+slope reflecting the scaling exponent. (c) PSD plot for att4 showing frequency-domain characteristics. (d) Summary visualization
+of the Hurst exponent across decoder layers. (e) Summary visualization of the DFA exponent across decoder layers. (f) Combined
+metric overview for decoder long-range dependencies, highlighting the high persistence in the top decoder layer (att6).
+
+Figures 6 and 7 provide visual representations of the longrange dependency characteristics in the encoder and decoder, respectively. The encoder (Figure 6) illustrates that
+although early layers capture a significant amount of local
+detail, the global structure is enhanced deeper in the network. On the other hand, the decoder (Figure 7) reveals
+that the top-most layers effectively synthesize this local information to generate more globally coherent feature maps.
+Overall, the results demonstrate that MaskAttn-UNet progressively improves its long-range dependency capture abil-
+
+ity throughout the network, with the top decoder layer (att6)
+achieving the strongest persistence. This capability is critical for segmentation tasks, as it allows the model to integrate contextual cues from distant regions while preserving
+fine-grained details.
+
+

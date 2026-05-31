@@ -1,0 +1,2576 @@
+1
+
+DRPCA-Net: Make Robust PCA Great Again for
+Infrared Small Target Detection
+
+arXiv:2507.09541v1 [cs.CV] 13 Jul 2025
+
+Zihao Xiong, Fei Zhou, Fengyi Wu, Shuai Yuan, Maixia Fu, Zhenming Peng, Jian Yang, Yimian Dai
+
+Abstract—Infrared small target detection plays a vital role
+in remote sensing, industrial monitoring, and various civilian
+applications. Despite recent progress powered by deep learning,
+many end-to-end convolutional models tend to pursue performance
+by stacking increasingly complex architectures, often at the expense of interpretability, parameter efficiency, and generalization.
+These models typically overlook the intrinsic sparsity prior of
+infrared small targets–an essential cue that can be explicitly
+modeled for both performance and efficiency gains. To address
+this, we revisit the model-based paradigm of Robust Principal
+Component Analysis (RPCA) and propose Dynamic RPCA
+Network (DRPCA-Net), a novel deep unfolding network that
+integrates the sparsity-aware prior into a learnable architecture.
+Unlike conventional deep unfolding methods that rely on static,
+globally learned parameters, DRPCA-Net introduces a dynamic
+unfolding mechanism via a lightweight hypernetwork. This design
+enables the model to adaptively generate iteration-wise parameters
+conditioned on the input scene, thereby enhancing its robustness
+and generalization across diverse backgrounds. Furthermore,
+we design a Dynamic Residual Group (DRG) module to better
+capture contextual variations within the background, leading to
+more accurate low-rank estimation and improved separation of
+small targets. Extensive experiments on multiple public infrared
+datasets demonstrate that DRPCA-Net significantly outperforms
+existing state-of-the-art methods in detection accuracy. Code is
+available at https://github.com/GrokCV/DRPCA-Net.
+
+the need to accurately discern distant objects, which appear
+as minute, indistinct points within infrared imagery due to
+their substantial distance from the sensor [2]. Compounding
+this difficulty, such targets typically occupy only a handful of
+pixels, possess low signal-to-noise ratios, and lack identifiable
+texture or shape characteristics, thereby rendering IRSTD a
+formidable and enduring research problem [3].
+A. Prior Works on Infrared Small Target Detection
+
+Existing IRSTD methods can be broadly classified into
+model-driven and data-driven approaches. Model-driven methods are typically based on handcrafted priors, such as local
+contrast [4, 5], sparsity [6], and background low-rankness [7].
+These techniques often employ simple features, e.g., grayscale
+intensity, gradient, or entropy [8], and perform well in simpler
+scenes with consistent backgrounds. However, their reliance
+on fixed assumptions and manually tuned hyperparameters
+significantly limits their adaptability in complex environments.
+As the scene becomes more heterogeneous and the signal-tonoise ratio decreases, the effectiveness of such methods quickly
+deteriorates, revealing poor generalization across varying
+Index Terms—Infrared small target; deep unfolding; robust imaging conditions [9, 10].
+Recently, the advent of deep learning has fully revolutionized
+principal component analysis; image segmentation; hypernetworks
+the field of infrared small target detection, with data-driven
+methods achieving remarkable success by harnessing the robust
+I. I NTRODUCTION
+feature extraction and representation capabilities of neural
+WING to thermal imaging’s unique capacity for passive, networks. Notable examples include architectures that leverage
+illumination-free, and long-range detection, infrared small attention mechanisms [11], generative adversarial networks
+target detection (IRSTD) is a cornerstone technology for (GANs) [12], and multi-scale feature fusion [13], all of
+various remote sensing applications, including environmental which have demonstrated significant improvements in detection
+monitoring, disaster rescue, and industrial inspection [1]. accuracy. However, the pursuit of marginal accuracy gains has
+Nevertheless, the primary challenge in IRSTD stems from led these models toward increasingly complex designs coupled
+with high-resolution feature maps, resulting in substantial
+This work was supported by the National Natural Science Foundation of
+computational burdens. This becomes particularly problematic
+China (62303165, 62301261, 62361166670, U24A20330), the Open Project
+of Key Laboratory of Grain Information Processing and Control, Ministry in real-world IRSTD scenarios, where real-time processing
+of Education, Henan University of Technology, under Grant KFJJ2023014, on resource-constrained platforms (e.g., airborne or embedded
+(Corresponding author: Maixia Fu and Yimian Dai).
+systems) is often required.
+Zihao Xiong, Fei Zhou, and Maixia Fu are with Key Laboratory of
+Grain Information Processing and Control (Henan University of Technology),
+We argue that the fundamental limitation of current endMinistry of Education; Henan Key Laboratory of Grain Photoelectric Detection to-end approaches stems from treating IRSTD as a generic
+and Control, Henan University of Technology, Zhengzhou, China. (e-mail:
+object detection problem, necessitating increasingly complex
+zihhao.syong@gmail.com; hellozf1990@163.com; fumaixia@126.com).
+Fengyi Wu and Zhenming Peng are with the School of Information and
+architectures to compensate for the absence of domainCommunication Engineering and the Laboratory of Imaging Detection and In- specific priors. These methods overlook a critical characteristic
+telligent Perception, University of Electronic Science and Technology of China,
+of infrared small targets, namely their inherent sparsity within
+Chengdu, China. (e-mail: wufengyi98@163.com; zmpeng@uestc.edu.cn).
+Shuai Yuan is with the School of Optoelectronic Engineering, Xidian
+the spatial domain, which could significantly enhance detection
+University, Xi’an 710071, China. (email: yuansy@stu.xidian.edu.cn).
+performance while reducing model complexity if properly
+Jian Yang and Yimian Dai are with PCA Lab, VCIP, College of Computer
+Science, Nankai University. Y. Dai also holds a position at the NKIARI, leveraged. Recognizing this gap, recent research has begun
+Shenzhen Futian. (e-mail: csjyang@nankai.edu.cn; yimian.dai@gmail.com).
+exploring the integration of task-specific priors into deep
+
+O
+
+2
+
+RPCANet
+1stage
+
+𝛾: 0.50
+𝜀: 0.03
+
+DRPCA-Net (Ours)
+ORIGIN
+
+γ: 0.39
+𝜀: 0.49
+
+1stage
+
+𝛾: 0.20
+𝜀: 0.03
+
+𝛾: 0.50
+𝜀: 0.03
+3stage
+
+3stage
+False alarm
+
+6stage
+
+𝛾: 0.50
+𝜀: 0.04
+
+GT
+
+𝛾: 0.69
+𝜀: 0.44
+
+6stage
+
+Fig. 1. Visual comparison between conventional static unfolding (RPCANet) and our proposed dynamic unfolding (DRPCA-Net). The visualizations at
+different stages (1, 3, and 6) demonstrate that the dynamic parameter generation mechanism helps to suppress background interference effectively.
+
+learning frameworks. Dai et al. [1] pioneered this direction the core low-rank/sparse decomposition principles of RPCA?
+by embedding local saliency priors into a bottom-up attention Our answer is affirmative. Drawing inspiration from the concept
+module, guiding the network to focus on regions with high local of hypernetworks, we introduce a dynamic unfolding paradigm
+contrast. Lin et al. [14] proposed a contrast-shape representation that enables adaptive, iteration-wise parameter generation condilearning approach that utilizes central difference convolutions tioned on the input. This context-conditioned prior unfolding
+and large-kernel operations to extract shape-preserving features mechanism allows the network to retain the mathematical clarity
+while maintaining sensitivity to low-contrast targets. Recently, of RPCA while gaining the flexibility of deep learning.
+Wu et al. [15] and Zhou et al. [16] have introduced deep
+Building on this idea, we propose the Dynamic Robust
+unfolding strategies to transform traditional low-rank sparse Principal Component Analysis Network (DRPCA-Net), a novel
+decomposition models into hierarchical and learnable deep deep unfolding architecture that we refer to as a dynamic
+frameworks, which can leverage the advantages of both global unfolding framework. Unlike conventional designs, DRPCApriors from low-rank sparsity and data-driven approaches. Net decouples the parameterization of each iteration step
+While promising, these attempts to bridge domain-specific from static training and instead generates it dynamically
+priors with deep architectures still reveal critical limitations in via a lightweight hypernetwork. We introduce a set of core
+real-world IRSTD scenarios:
+parameters, such as update coefficients and balancing factors,
+1) Prior Under-Utilization: Current contrast-enhanced net- which govern the iterative decomposition process. In contrast to
+works implicitly guide target localization through local traditional deep unfolding methods that learn these parameters
+intensity variations but fail to explicitly encode the global globally and keep them fixed across all inputs, DRPCAsparsity of infrared small targets and the low-rankness Net predicts them in a scene-aware manner. This dynamic
+of backgrounds. This leads to ambiguous discrimination adjustment enables the model to adapt its inference trajectory
+between true sparse targets and high-contrast background to the specific characteristics of each input, enhancing flexibility
+noise, resulting in persistent false alarms.
+and generalization across diverse scenarios.
+2) Context-Blind Prior Modeling: Existing unfolding netBeyond the optimization parameters, we also propose the
+works employ fixed convolutional kernels for background Dynamic Residual Group (DRG) module to model the image
+estimation, assuming uniform spatial correlations across reconstruction in a context-aware manner. Traditional image
+scenes. As shown in Fig. 1, this rigid approach conflicts modeling modules rely on fixed convolutional kernels, which
+with the heterogeneous nature of infrared backgrounds, are insufficient for capturing the heterogeneous spatial statistics
+causing either over-smoothed structures or residual clutter. of infrared scenes. Our DRG module integrates residual
+learning with dynamic spatial attention mechanisms, which
+B. Motivation
+replaces static convolutional operations with content-adaptive
+To address the above limitations, we revisit the classical filters to better capture spatially varying background patterns
+Robust Principal Component Analysis (RPCA) formulation and structural dependencies.
+from a new perspective. Specifically, we ask: Can we build a
+learnable yet prior-aware architecture that dynamically adapts
+its optimization trajectory to the input scene, while preserving
+
+Extensive experiments on multiple public infrared small
+target detection datasets validate the efficacy of our approach,
+in which DRPCA-Net consistently outperforms state-of-the-
+
+3
+
+art methods in both detection accuracy and computational
+efficiency. It demonstrates that our input-conditioned parameterization paradigm significantly enhances the model’s robustness
+across varying IRSTD conditions.
+The main contributions of this work are summarized as
+follows:
+1) Dynamic Prior-Aware Unfolding: We propose a novel
+deep unfolding framework that integrates RPCA priors
+with a dynamic parameter generation mechanism via
+hypernetworks, enabling input-conditioned optimization.
+2) Dynamic Residual Group: We design a DRG module that
+combines residual connections with a dynamic attention
+mechanism to improve image modeling and enhance targetbackground separation.
+3) State-of-the-Art Performance: DRPCA-Net achieves
+new benchmarks on multiple IRSTD datasets in terms
+of accuracy and robustness, demonstrating its practical
+viability.
+
+typically fixed across scenes. This rigidity hinders their
+ability to generalize to varying target sizes, contrast levels,
+and noise distributions, making them less applicable to
+dynamic and heterogeneous infrared environments.
+3) Computational Inefficiency: The matrix decomposition
+in conventional RPCA-based methods imposes prohibitive
+computational burdens. Specifically, the singular value
+decomposition (SVD) operation required for low-rank
+approximation scales cubically with matrix dimension
+(O(n3 )), becoming intractable for high-resolution imagery.
+The emergence of deep learning has revolutionized the
+IRSTD field by addressing these limitations through datadriven feature learning. Wang et al. [24] introduced conditional
+generative adversarial networks to balance detection sensitivity
+and specificity, while Dai et al. [11] established a standardized benchmark dataset and proposed asymmetric contextual
+modeling for enhanced feature representation. Subsequent research has explored various architectures, including specialized
+convolutional networks [25], vision transformers [26, 27], statespace models [28], U-shaped architectures [29], and segmentII. R ELATED W ORK
+anything adaptations [30]. These approaches leverage the repreA. Infrared Small Target Detection
+sentational capacity of deep networks to automatically extract
+The evolution of infrared small target detection reflects discriminative features without explicit prior formulations.
+a paradigm shift from low-level image processing to high- However, this shift toward increasingly complex architectures
+level semantic understanding. Early approaches relied on introduces new challenges: these models typically demand
+heuristic feature engineering based on grayscale variance and substantial training data to avoid overfitting, a fundamental
+local contrast, treating detection as an anomaly identification issue in the data-scarce IRSTD domain. Besides, their computaproblem. With the advent of deep learning, the field has tional load often exceeds the constraints of real-time detection
+transitioned toward data-driven representation learning, where systems deployed on resource-limited platforms.
+hierarchical features are automatically discovered through
+To address these limitations, our DRPCA-Net differs from
+neural architectures. This progression mirrors broader trends existing approaches with the context-aware unfolding paradigm,
+in computer vision, yet retains unique challenges due to the which fundamentally transforms the rigid decomposition frameextreme sparsity and weak signature of infrared targets [17]. work into a flexible architecture that maintains mathematical
+Among model-driven techniques, low-rank and sparse de- interpretability while achieving state-of-the-art performance in
+composition (LRSD) methods have emerged as a principled challenging IRSTD environments.
+framework for IRSTD by explicitly modeling the structural
+1) We explicitly encode the sparsity and low-rank priors
+priors of infrared imagery: sparse targets embedded in lowwithin a learnable architecture, enabling our model to
+rank backgrounds. Representative works such as the Infrared
+achieve superior detection performance with significantly
+Patch-Image (IPI) model [18] formulate the detection task as
+fewer parameters compared to conventional deep learning
+a constrained optimization problem, separating targets from
+methods that lack such structured inductive biases.
+backgrounds via global low-rank approximation and spatially
+2) We introduce a dynamic parameter generation mechasparse regularization. Subsequent efforts introduced non-convex
+nism that produces iteration-specific and input-dependent
+relaxations [19, 20], tensor-based decompositions [7, 21], and
+parameters for the unfolding process, enabling adaptive despatial-structural regularizations [22, 23] to better capture the
+composition across diverse operational scenarios without
+intrinsic global and local structure of infrared scenes. These
+manual recalibration.
+methods achieve interpretable decompositions and remain
+competitive in scenarios with limited data.
+Despite their mathematical elegance, model-driven ap- B. Deep Unfolding Networks
+proaches suffer from several intrinsic limitations:
+Deep unfolding networks (DUNs) represent a principled
+1) Idealized Priors: The assumption that targets are strictly paradigm that integrates model-based optimization and datasparse and backgrounds are perfectly low-rank is often driven learning. Instead of treating neural networks as blackviolated in real-world scenarios. Many background tex- box function approximators, DUNs unfold classical iterative
+tures, such as small clouds, sea clutter, and terrain features, algorithms into layer-wise neural architectures, enabling end-toexhibit sparse-like behavior, leading to a high false alarm end training while preserving algorithmic interpretability. This
+rate when relying solely on low-rank/sparse separation.
+approach not only embeds domain knowledge into the network
+2) Hyperparameter Sensitivity: Most LRSD models require structure but also enhances generalization under limited training
+careful tuning of multiple hyperparameters, such as data–a particularly desirable property for tasks constrained by
+regularization weights and rank thresholds, which are data scarcity or requiring strong inductive priors.
+
+4
+
+The origins of DUNs trace back to the Learned Iterative
+Shrinkage-Thresholding Algorithm (LISTA) [31], which parameterized the ISTA process via learnable matrices. Later,
+ISTA-Net [32] introduced convolutional variants to better
+capture spatial dependencies in images. ISTA-Net+ [33]
+and ISTA-Net++ [34] further improved feature propagation
+and representational capacity through the use of long-range
+skip connections and channel modulation (CM) structures.
+Meanwhile, FISTA-Net [35] extended the unfolding of the
+accelerated FISTA algorithm, allowing adaptive learning of step
+sizes and thresholds. These advances collectively demonstrate
+how unfolding strategies can enhance convergence speed,
+representation learning, and robustness, especially in ill-posed
+inverse problems.
+Beyond sparse coding and compressed sensing, DUNs
+have been successfully extended to a variety of imaging and
+vision tasks. For instance, ADMM-CSNet [36] leverages the
+unfolded ADMM framework for MRI reconstruction, while
+AMP-inspired unfolding has been employed for denoising [37]
+and artifact reduction in CT imaging [38]. In the domain of
+hyperspectral and HDR imaging, attention-augmented unfolding networks have shown strong performance by capturing
+both global structure and local variations [39]. Furthermore,
+contrastive learning has been integrated into DUNs to improve
+feature discrimination in image deraining tasks [40]. These
+works collectively validate the versatility and extensibility of
+the unfolding framework across domains.
+Despite such promising advances, the application of DUNs
+to the field of IRSTD remains rarely explored. Existing
+efforts, such as RPCANet [15], have attempted to integrate
+RPCA-inspired priors into deep unfolding schemes. However,
+the challenges of fixed parameterization and context-agnostic
+modeling still persist. Our work addresses these limitations
+by introducing scene-conditioned parameter adaptation within
+the unfolding framework. Unlike conventional approaches that
+learn fixed parameters during training, DRPCA-Net employs
+a lightweight hypernetwork that generates iteration-specific
+parameters conditioned on input characteristics.
+III. M ETHOD
+A. Overall Architecture of DRPCA-Net
+
+where B ∈ RH×W represents the low-rank background,
+encapsulating spatially correlated clutter and structures, and
+T ∈ RH×W denotes the sparse foreground, primarily capturing
+the localized signatures of small targets alongside potential
+impulsive noise. This decomposition elegantly reflects the
+inherent priors of typical infrared imagery: backgrounds exhibit
+significant spatial redundancy, while targets manifest as sparse,
+isolated entities.
+To render the decomposition amenable to optimization within
+a learning framework, we consider a relaxed unconstrained
+objective with penalized regularization terms:
+µ
+2
+min L(B, T) = R(B) + λS(T) + ∥D − B − T∥F (2)
+B,T
+2
+where R(·) enforces the low-rank or smoothness prior on the
+background B, while S(·) promotes the sparsity prior on the
+target component T. The hyperparameter λ > 0 balances the
+influence of the target prior, and µ > 0 controls the weight of
+the data fidelity term, ensuring the reconstructed components
+adhere to the original observation D. This objective function
+is typically minimized through iterative algorithms, alternating
+updates for B and T.
+2) Deep Unfolding RPCA into DRPCA-Net: Inspired by the
+deep unfolding paradigm, we reinterpret the iterative solution
+trajectory of Eq. (2) as a deep neural network composed of
+K cascaded stages. Each stage k ∈ {1, . . . , K} refines the
+estimates of the background and target components based on
+the outputs of the preceding stage. Let Bk , Tk , and Dk denote
+the estimated background, target, and reconstructed image at
+the k-th stage, respectively. The process is initialized with the
+input image X, setting D0 = X and the initial target estimate
+T0 = 0. Within each stage k, the updates are performed by
+three specialized modules, corresponding to the optimization
+subproblems for B, T, and ensuring data consistency.
+a) Latent Background Encoder Module (LBEM): In
+classical iterative RPCA solvers, the background update step
+aims to minimize R(B) + µ2 ∥D − B − Tk−1 ∥2F with respect to
+B. This often involves applying a proximal operator associated
+with the chosen low-rank prior (e.g., singular value thresholding
+for the nuclear norm). Instead of relying on explicit, often
+computationally demanding, matrix operations, DRPCA-Net
+employs a learnable LBEM. The LBEM implicitly captures the
+background characteristics by learning a corrective mapping
+Gθk :
+
+DRPCA-Net establishes a principled synergy between the
+model-based interpretability of RPCA and the adaptive repreBk = (Dk−1 − Tk−1 ) + Gθk (Dk−1 − Tk−1 )
+(3)
+sentation power of dynamic deep networks. By conceptualizing
+the iterative optimization process inherent to RPCA through the where G k is realized as a lightweight convolutional network
+θ
+lens of deep unfolding, DRPCA-Net materializes as a learnable, with stage-specific
+parameters θk , whose architecture correstage-wise architecture specifically tailored for infrared small sponds to the LBEM illustrated in Fig. 2, with the number of
+target detection. Crucially, it introduces a dynamic parameteri- residual blocks l is empirically set to 6 in our experiments.
+B
+zation mechanism, enabling adaptive inference conditioned on It operates on the current residual (Dk−1 − Tk−1 ), predicting
+the input scene statistics, thereby transcending the limitations the refinement needed to isolate the underlying low-rank
+of conventional unfolding networks with fixed parameters.
+background structure.
+1) Revisiting Robust Principal Component Analysis: RPCA
+b) Dynamic Target Extraction Module (DTEM): The
+serves as a cornerstone for modeling infrared scenes, postutarget
+update step traditionally minimizes λS(T)+ µ2 ∥D−Bk −
+lating that an observed infrared image D ∈ RH×W can be
+2
+T∥F with respect to T, often solved via proximal gradient
+intrinsically decomposed into two constituent components:
+descent. For instance, using an l1 norm for S(·) leads to
+D=B+T
+(1) iterative soft-thresholding. Prior unfolding works (e.g., based
+
+LBEM
+
+BN
+
+Batch Normalization
+
+LReLU
+
+Leaky ReLU
+
+DTEM
+
+DIRM
+K1 1-C
+BN
+LReLU
+DRG
+K1 C-1
+
+Kernel Size 3
+Channel from C to C
+
+K3 1-C
+ReLU
+K3 C-C
+ReLU
+K3 C-1
+
+K3 C-C
+
+K3 1-C
+BN
+ReLU
+K3 C-C
+BN
+ReLU
+K3 C-1
+
+5
+
+Element-wise Addition
+
+×𝑙 #
+
+×𝑙"
+
+Stage K
+𝐃$%&
+
+DIRM
+
+-
+
+LBEM
+
+CA
+
+Channel Attention
+
+DSA
+
+Dynamic Spatial
+Attention
+
+-
+
+𝐓𝒌
+
+𝐓$
+
+𝛾#$
+
+ε-gen
+DRG
+
+Parameter generator
+
+𝜀#$
+
+RCSAB
+K3 C-C
+
+RCSAB
+
+Residual Channel
+Spatial Attention Block
+
+DTEM
+
+𝐓$%&
+
+AvgPool
+K1 1-3
+ReLU
+K1 3-1
+Sigmoid
+
+Dynamic Residual Group
+
+-
+
+𝐁𝐤
+
+γ-gen
+DRG
+
+𝐃$
+
+1 − 𝛾#$
+
+K3 C-C
+BN
+LReLU
+K3 C-C
+BN
+CA
+DSA
+
+𝐓'
+
+Stage 2 ~ k-1
+
+Init(0)
+
+Stage 1
+
+𝐃'
+
+×𝑙!
+
+Fig. 2. Overall structure of DRPCA-Net. The network is composed of K stages, and the structure of each stage is the same. The detailed structure of the K-th
+stage is presented, which includes: latent background encoder module (LBEM), dynamic target extraction module (DTEM), dynamic image reconstruction
+module (DIRM), and a parameter generator. Among them, dynamic spatial attention (DSA) belongs to DIRM.
+
+on the input scene.The number of blocks lT is empirically
+k
+set to 3 in our experiments. The dynamic parameters γD
+k
+and εD , inferred based on scene characteristics (detailed in
+Sec. III-B), allow DTEM to adaptively balance information
+k
+k−1
+k−1
+k
+T ≈ γT
++ (1 − γ)(D
+− B ) − ε · ∇T S(Tinterim ) (4)
+from the previous estimate and the current residual, and to
+where Tinterim is an intermediate estimate, while define γ = modulate the refinement strength, enhancing robustness across
+λL
+λ
+diverse scenarios.
+λL+µ and ε = λL+µ , The detailed derivation process can
+c) Dynamic Image Reconstruction Module (DIRM):
+be found in Ref. [15]. γ and ε are step-size and momentum
+While
+the fundamental RPCA model simply sums the comparameters derived from optimization constants (e.g., Lipschitz
+ponents
+(Eq. 1), ensuring fidelity (the third term in Eq. 2) is
+constants, λ, µ). A key limitation is that these parameters are
+crucial.
+In
+DRPCA-Net, we introduce the DIRM to potentially
+typically fixed across all inputs and iterations.
+refine this process beyond simple addition. DIRM aims to
+DRPCA-Net revolutionizes this step with the DTEM. DTEM synergistically fuse the estimated background Bk and target
+replaces the fixed parameters and the explicit gradient/proximal Tk while potentially enhancing features relevant for subsequent
+operator with learnable components and dynamically gener- stages or the final output. It is formulated as:
+ated parameters. Specifically, a lightweight parameter genDk = DMk (Bk , Tk )
+(6)
+erator network (hypernetwork) predicts stage-specific, inputk
+k
+conditioned parameters γD and εD . The target update becomes: where DMk represents the reconstruction operation at stage
+on ISTA or FISTA variants, such as the formulation adapted
+in [15]) established update rules resembling momentum-based
+gradient steps:
+
+k k−1
+k
+Tk = γD
+T
++ (1 − γD
+)(Dk−1 − Bk )
+k k−1
+k
+− εkD S k γD
+T
++ (1 − γD
+)(Dk−1 − Bk )
+k
+
+
+
+(5)
+
+where S (·) is a learnable sparsity regularization module
+instantiated as a small CNN at the k-th stage. It serves as
+a data-driven surrogate for the analytical gradient ∇T S(·) in
+Eq. (4), learning to approximate its functional effect within
+the unfolding process. This module corresponds to the DTEM
+illustrated in Fig. 2, and is responsible for adaptively refining
+the target feature map by implicitly promoting sparsity based
+
+k. In our design, DMk involves not just summation but
+also processing by advanced convolutional blocks, such as
+the proposed Dynamic Residual Group (DRG, detailed in
+Sec. III-C), to improve the integration and representation quality.
+This allows for a more sophisticated interaction between the
+decomposed components than a mere summation.
+3) Network Architecture Overview: The overall architecture
+of DRPCA-Net is depicted in Fig. 2. The network comprises K
+sequential stages, each structurally identical and implementing
+one cycle of background estimation, dynamic target extraction,
+
+6
+
+and dynamic image reconstruction. The input infrared image
+2) Dynamic Regularization Strength (εkD ): This parameter
+0
+0
+X initializes D , and T is set to zero. The output of stage modulates the magnitude of the sparsity-promoting refinement
+k − 1, namely Dk−1 and Tk−1 , are fed into stage k. Within term (second line of Eq. (5)), effectively controlling the step
+stage k, the LBEM computes Bk (Eq. 3). Subsequently, the size or intensity of the target update based on the sparsity
+DTEM utilizes Dk−1 , Bk , and Tk−1 , along with dynamically prior S k . Its value should depend on the characteristics of
+k
+generated parameters (γD
+, εkD ) from the Parameter Generator, the intermediate target representation before the sparsity
+k
+to compute T (Eq. 5). Finally, the DIRM takes Bk and Tk refinement is applied. Consequently, the generator Pε is
+to produce the refined reconstruction Dk (Eq. 6), which serves conditioned on this intermediate fused representation:
+as input to the next stage. The final target map is typically
+k k−1
+k
+Tkinterim = γD
+T
++ (1 − γD
+)(Dk−1 − Bk )
+(9)
+derived from the target estimate of the last stage, TK . The
+
+entire network, encompassing the parameters of all LBEMs,
+εkD = Pε Tkinterim
+(10)
+DTEMs (including S k ), DIRMs (including DRGs), and the
+Parameter Generator across all K stages, is trained end-to-end. This design enables the network to adapt the regularization
+strength based on the current estimate’s properties (e.g.,
+intensity, estimated sparsity).
+B. Dynamic Parameter Generation within DTEM
+We refer to Pγ and Pε as lightweight hypernetworks, in the
+A salient limitation inherent in conventional deep unfolding sense that they act as auxiliary, input-conditioned parameter
+architectures is the reliance on static, globally learned scalar generators that modulate the iterative optimization process.
+parameters (e.g., step sizes, weighting coefficients) that remain Unlike classical hypernetworks that generate full weight
+invariant across diverse input instances and processing stages. matrices for target networks, the proposed generators produce
+This inherent rigidity significantly impedes the model’s capacity scalar coefficients that control the update dynamics of each
+to adaptively respond to the complex and heterogeneous stage.
+The integration of these dynamically generated, inputcharacteristics prevalent in infrared imagery, such as varying
+k
+and εkD endows the DTEM with
+target saliency, background clutter levels, and noise patterns. To conditioned parameters γD
+k
+transcend this limitation, DRPCA-Net incorporates a dynamic significant adaptive capabilities. The dynamic weighting γD
+parameter generation mechanism specifically within the DTEM, facilitates adaptive temporal smoothing, allowing the model to
+enabling stage-wise, input-conditioned modulation of the target judiciously blend historical information with current observations based on inferred reliability. Concurrently, the dynamic
+refinement process.
+Specifically, we instantiate two dedicated, lightweight pa- step-size modulation via εkD enables adaptive regularization,
+rameter generator sub-networks, denoted as Pγ and Pε , tasked potentially applying stronger refinement when target signals
+k
+with inferring the adaptive parameters γD
+and εkD (ref. Eq. (5)) are weak or ambiguous within the residual, and gentler updates
+for each stage k. These generators share an identical, compu- when targets are already salient, akin to adaptive learning
+tationally efficient architecture designed to distill contextual rate strategies in optimization. This stage-wise, scene-adaptive
+parameterization is pivotal for enhancing the robustness and
+information into scalar control signals:
+generalization performance of DRPCA-Net across diverse and
+P (Z) = σ (Conv2 (δ (Conv1 (GAP(Z)))))
+(7)
+challenging infrared small target detection scenarios.
+where Z represents the input feature map to the generator.
+GAP(·) denotes Global Average Pooling, which aggregates
+C. Dynamic Residual Group for Enhanced Reconstruction
+spatial information into a global representation. Conv1 and
+The DIRM, introduced in Eq. (6), serves a critical role
+Conv2 are 1 × 1 convolutional layers, forming a bottleneck
+structure for efficient channel interaction and dimensionality beyond the mere summation of the estimated background
+adjustment. δ(·) represents the ReLU activation function, and (Bk ) and target (Tk ) components. It aims for a synergistic
+σ(·) is the Sigmoid function, ensuring the output parameters fusion and refinement of these decomposed features to produce
+an enhanced reconstruction Dk , which benefits subsequent
+reside within the range (0, 1).
+Crucially, while sharing the structural blueprint (Eq. (7)), processing stages and the final target extraction. As delineated
+the two generators are conditioned on distinct, functionally in Fig. 2, the DIRM employs a bottleneck structure with
+1 × 1 convolutions for channel dimensionality adjustment,
+relevant inputs to infer their respective parameters:
+k
+1) Dynamic Fusion Weight (γD
+): This parameter governs sandwiching its core computational engine: the proposed DRG.
+The DRG represents an advancement over conventional
+the balance between the previous target estimate Tk−1 and the
+current residual information (Dk−1 − Bk ) in the preliminary residual blocks, such as the Residual Group (RG) structure
+k
+target update (first line of Eq. (5)). Intuitively, γD
+should reflect promulgated in RCAN [41]. While standard RGs effectively
+the confidence in the previous estimate. Therefore, its generator leverage deep residual learning and Channel Attention (CA)
+Pγ is conditioned solely on the state of the previous target mechanisms for feature enhancement, they typically remain
+agnostic to the spatial variance of feature importance. This
+map:
+
+k
+k−1
+γ D = Pγ T
+(8) limitation can hinder the precise localization and delineation
+of small, low-contrast targets embedded within complex and
+This allows the network to dynamically emphasize temporal spatially heterogeneous infrared backgrounds. To address this,
+consistency when the prior target estimate is strong or reliable. the DRG integrates a novel DSA mechanism alongside CA [42],
+
+7
+
+enabling adaptive feature recalibration across both channel and
+spatial dimensions.
+Architecturally, the DRG module processes an input feature
+map Fin by passing it through a sequence of N Residual
+Channel-Spatial Attention Blocks (RCSABs), followed by a
+final convolutional layer and a long skip connection:
+
+where Convdynamic denotes this sample-wise dynamic convolution operation, and σ is the Sigmoid function scaling the
+attention weights. Finally, the input feature map F is modulated
+by these dynamic spatial attention weights:
+Y = F ⊙ Satt
+
+(14)
+
+where ⊙ signifies element-wise multiplication (broadcast across
+DRG(Fin ) = Fin +Convout (RCSABN (. . . (RCSAB1 (Fin )) . . . ))
+the channel dimension). The resulting Y is the spatially refined
+(11)
+feature map.
+where RCSABi denotes the i-th block, and Convout is typically
+Although DRPCA-Net introduces learnable modules such
+a 1 × 1 convolution for feature integration. This structure
+as the DRG and dynamic parameter generators, each stage
+facilitates the learning of deep hierarchical features while
+still explicitly follows the decomposition logic of RPCA. The
+preserving gradient flow through multiple shortcut connections
+optimization trajectory is preserved in structure, while the
+inherent within the RCSABs and the main DRG body.
+learned components enhance adaptability without breaking the
+To overcome the spatial insensitivity of channel-centric interpretability of each sub-step.
+attention, we introduce the DSA module, illustrated in Fig. 3.
+Unlike conventional spatial attention mechanisms that often
+IV. E XPERIMENTS
+employ static convolutional kernels or fixed pooling strategies,
+DSA generates input-conditioned spatial attention maps via A. Experimental Settings
+dynamically computed convolutional kernels. This allows the
+To facilitate a rigorous and comprehensive evaluation of the
+network to tailor its spatial focus based on the specific content proposed DRPCA-Net, our experimental protocol leverages
+of each input feature map, thereby achieving bespoke spatial established benchmark datasets, standardized evaluation metrics,
+modulation critical for isolating small targets.
+and meticulously defined implementation parameters.
+
+BN
+
+K1 C- K𝟐
+
+K1 C-C
+
+1) Datasets: We conducted experiments on four widely
+adopted
+benchmark datasets for infrared small target detection:
+Dynamic Spatial Attention
+Kernel generator
+𝟐
+SIRST
+V1
+[11], IRSTD-1K [43], NUDT-SIRST [24], and
+B×C×1×1
+B×K ×1×1
+…
+…
+AvgPool
+SIRST-Aug
+[44].
+These datasets collectively represent a diverse
+B×C×H×W
+B×C×H×W
+spectrum of real-world and synthetic infrared imaging scenarios,
+B×1×H×W
+B×1×K×K
+…
+encompassing significant variations in target scale, intensity,
+…
+Kernel
+…
+and morphology, as well as background clutter complexity
+(e.g.,
+urban, maritime, aerial, natural landscapes) and sensor
+Y
+f
+Mean
+Conv
+F
+Sigmoid
+characteristics.
+The inclusion of both real-world captures and
+F
+augmented data (SIRST-Aug) ensures a thorough assessment of
+Fig. 3. Illustration of the proposed Dynamic Spatial Attention (DSA) module. It model effectiveness, robustness, and generalization capabilities.
+generates sample-specific convolutional kernels (Wds ) based on input features
+2) Evaluation Metrics: In this study, following the main(F) to compute an adaptive spatial attention map (Satt ), enabling targeted spatial
+stream
+paradigms [15]. Quantitative performance assessment
+feature modulation for enhanced target preservation during reconstruction.
+was carried out using a suite of standard metrics evaluating both
+Given an intermediate feature map F ∈ RB×C×H×W within pixel-level segmentation accuracy and object-level detection
+an RCSAB, the DSA module operates as follows: First, a global efficacy. Specifically, we report Intersection over Union (IoU)
+context vector is derived via Global Average Pooling (GAP) and the F1-measure (F1 ) to gauge the fidelity of target
+over the spatial dimensions of F. This vector is then processed segmentation masks. For object-level performance, we utilize
+by a miniature two-layer convolutional network (using 1 × the Probability of Detection (Pd ) and False Alarm Rate (Fa ),
+1 convolutions for efficiency) with intermediate ReLU and computed based on a standard IoU threshold of 0.5 for matching
+final Sigmoid activation (σ) to generate the parameters for the predicted bounding boxes or masks to ground truth targets.
+Additionally, Receiver Operating Characteristic (ROC) curves
+dynamic convolutional kernels:
+are presented to visualize the trade-off between Pd and Fa
+Wds = σ (Conv2 (δ (Conv1 (GAP(F)))))
+(12) across different detection thresholds.
+3) Implementation Details: To jointly optimize target segwhere Wds ∈ RB×1×k×k represents a batch of k × k convomentation
+and image reconstruction, we adopt a composite
+lutional kernels (one per sample in the batch), dynamically
+loss
+function
+defined as:
+generated based on the input F.
+Subsequently, a spatial descriptor Fmean ∈ RB×1×H×W is
+obtained by averaging F across the channel dimension. The
+dynamic spatial attention map Satt ∈ RB×1×H×W is then
+(b)
+computed by convolving each sample’s spatial descriptor Fmean
+(b)
+with its corresponding dynamically generated kernel Wds
+(implemented efficiently via grouped convolution):
+Satt = σ(Convdynamic (Fmean , Wds ))
+
+(13)
+
+L = Lseg + λ · Lrec
+
+(15)
+
+where Lseg denotes the SoftIoU loss [45], which directly
+optimizes the intersection-over-union (IoU) metric and guides
+the segmentation branch to accurately localize targets. Lrec
+represents the mean squared error (MSE) between the reconstructed image DK and the original input image D0 ,
+encouraging the model to preserve background structure and
+
+8
+
+regularize the decomposition process. The weighting coefficient
+λ balances the contributions of the two terms. Following
+empirical evaluation in Sec. IV-B5, we set λ = 0.1, which
+offers a favorable trade-off between performance and stability.
+Optimization was performed using the Adam optimizer with
+an initial learning rate set to 1 × 10−4 . The learning rate
+decayed throughout training following a polynomial schedule
+defined by (1 − iter/total_iter)0.9 . A batch size of 8 was used
+across all experiments. Models were trained for a total of 400
+epochs. All experiments were implemented within the PyTorch
+framework and executed on NVIDIA GeForce RTX 4090 GPUs.
+For establishing comparative benchmarks, we utilized the
+publicly available BasicISTD Toolbox v2.0 where applicable;
+for methods not included therein, we meticulously followed
+their officially released codebases and training protocols to
+ensure equitable comparison.
+B. Ablation Study
+To rigorously validate the architectural design of DRPCANet and quantify the contributions of its constituent components,
+we performed a series of systematic ablation experiments.
+These studies dissect the impact of the dynamic parameter
+generation mechanism, the DRG, and key hyperparameters.
+Evaluations were conducted on the SIRST V1 and NUDTSIRST benchmark datasets, with results presented in Tab. IVII. Optimal performance values are marked with red font,
+and ↑ / ↓ indicate preference for higher/lower metric values,
+respectively.
+1) Efficacy of Core Components: We first assessed the
+individual and synergistic contributions of the primary innovations within DRPCA-Net: the dynamic parameter generators
+(Pγ , Pε ) and the DRG. Starting from a baseline unfolding
+network employing static learnable parameters and standard
+convolutional reconstruction (Tab. I, Strategy (a)), we incrementally incorporated these modules. Introducing the dynamic
+ε-generator (Strategy (b)) and subsequently the γ-generator
+(Strategy (c)) yielded progressive performance improvements,
+confirming the benefits of adaptive, input-conditioned parameterization over static counterparts. Independently replacing the
+standard reconstruction block with our DRG module (Strategy
+(d)) also resulted in substantial gains, highlighting its superior
+feature fusion and refinement capabilities. The full DRPCA-Net
+configuration (Strategy (f)), integrating both dynamic parameter
+generation and the DRG, achieved the highest performance,
+demonstrating a significant synergistic effect between adaptive
+optimization dynamics and enhanced feature representation
+(e.g., +7.15% mIoU on SIRST V1 vs. baseline). This validates
+the effectiveness of our integrated design philosophy.
+2) Analysis of Dynamic Parameter Generation: The design
+of the parameter generator itself is critical. We compared our
+proposed lightweight architecture (Tab. II, Strategy (h)) against
+several alternatives: static learnable scalars (a), simpler scalar
+regression mappings (single Conv layer (c), FC layer (d)),
+attention-based structures (CBAM (b)), and three designs that
+attempt to generate spatial parameter maps rather than scalar
+coefficients — namely LSK (e), CBAM spatial attention (f),
+and a newly introduced multi-scale structure (g). Strategies (e),
+
+TABLE I
+Q UANTITATIVE ABLATION STUDY ASSESSING THE IMPACT OF CORE
+COMPONENTS , INCLUDING ε- GENERATOR , γ- GENERATOR , AND DRG. T HE
+BEST RESULTS ARE HIGHLIGHTED IN BOLD RED FONT.
+
+Strategy
+(a)
+(b)
+(c)
+(d)
+(e)
+(f)
+
+Module
+ε-Gen γ-Gen DRG
+✗
+✓
+✗
+✗
+✓
+✓
+
+✗
+✗
+✓
+✗
+✓
+✓
+
+✗
+✗
+✗
+✓
+✗
+✓
+
+SIRST V1
+mIoU↑ F1 ↑
+
+NUDT-SIRST
+mIoU↑ F1 ↑
+
+68.37
+70.36
+70.43
+73.69
+74.74
+75.52
+
+88.24
+90.25
+89.93
+93.47
+91.27
+94.16
+
+81.21
+82.60
+82.65
+84.85
+85.55
+86.05
+
+93.75
+94.87
+94.69
+96.62
+94.86
+96.99
+
+TABLE II
+A BLATION STUDY ON THE PARAMETER GENERATOR MODULE ACROSS
+DIFFERENT CONFIGURATIONS . T HE BEST RESULTS ARE HIGHLIGHTED IN
+BOLD RED FONT.
+
+Strategy
+(a) Learnable
+(b) CBAM
+(c) Simple
+(d) FC
+(e) LSK
+(f) CBAM(map)
+(g) Multiscale
+(h) Ours
+
+SIRST V1
+mIoU ↑ F1 ↑
+
+NUDT-SIRST
+mIoU ↑ F1 ↑
+
+67.47
+74.31
+72.72
+72.39
+68.67
+67.87
+65.82
+74.74
+
+86.49
+57.87
+89.77
+91.06
+87.65
+82.99
+86.81
+91.27
+
+80.58
+85.26
+84.20
+83.99
+81.43
+80.86
+79.38
+85.55
+
+92.76
+73.32
+94.60
+95.23
+93.43
+90.70
+92.94
+95.43
+
+(f), and (g) all aim to produce spatially varying parameter maps
+as opposed to global scalar coefficients. Strategy (e) uses the
+LSK attention module to generate location-sensitive modulation
+maps; Strategy (f) directly adopts the spatial attention map
+from CBAM; and Strategy (g) employs a multi-branch convolutional structure with kernel sizes 1, 3, and 5, followed
+by channel fusion to compute a pixel-wise attention map.
+However, despite their higher representational capacity, these
+approaches exhibited inferior performance compared to scalarbased generators. Spatial modulation introduces unnecessary
+complexity and noise when applied to global optimization
+parameters like step sizes and momentum coefficients, which
+inherently require global semantic understanding rather than
+local spatial detail. By contrast, scalar-generating designs —
+including strategies (b), (c), and (d) — are more aligned
+with the theoretical formulation of RPCA, where the update
+coefficients are global constants. Among them, our proposed
+architecture (h) achieves consistently superior performance
+across datasets, benefiting from its ability to extract compact,
+globally representative features via GAP and lightweight
+convolutions. Static parameters (a) proved insufficient, lacking
+adaptability to varying scene statistics, while simpler mappings
+(c, d) showed limited representational power. Furthermore,
+an ablation study on the number of intermediate channels
+(Tab. III) confirmed that using 3 channels offers an ideal tradeoff between model capacity and generalization.
+
+9
+
+TABLE III
+A BLATION S TUDY ON THE N UMBER OF C HANNELS IN THE PARAMETER
+G ENERATOR . T HE BEST RESULTS ARE HIGHLIGHTED IN BOLD RED FONT.
+
+Channels
+2
+3
+4
+8
+
+SIRST V1
+mIoU ↑ F1 ↑
+
+NUDT-SIRST
+mIoU ↑ F1 ↑
+
+70.83
+74.74
+72.19
+73.87
+
+90.26
+91.57
+91.00
+90.20
+
+82.92
+85.69
+83.58
+84.97
+
+94.88
+95.60
+95.28
+94.85
+
+performance (Tab. VI). Increasing the number of stages from
+4 to 6 progressively improved performance, suggesting that
+deeper unfolding allows for more thorough iterative refinement
+of the background and target components, better approximating
+the RPCA optimization process. However, increasing the depth
+further to 7 stages led to a slight performance degradation.
+This indicates that K = 6 stages represent an optimal tradeoff, providing sufficient modeling capacity without incurring
+excessive computational overhead or potential optimization
+instability associated with overly deep unfolded networks.
+TABLE VI
+
+3) Analysis of the Dynamic Residual Group (DRG): We
+A BLATION STUDY ON THE NUMBER OF UNFOLDING STAGES IN
+investigated the internal configuration of the DRG by evaluating DRPCA-N ET. T HE BEST RESULTS ARE HIGHLIGHTED IN BOLD RED FONT.
+different attention mechanisms within its RCSABs (Tab. IV).
+Stages
+SIRST V1
+NUDT-SIRST
+Comparing enhanced channel attention (CA2, based on CBAM)
+Params
+Number
+mIoU ↑ F1 ↑ mIoU ↑ F1 ↑
+against a simpler baseline (CA1), CA2 demonstrated superior
+inter-channel relationship modeling (cf. Strategy (a) vs. (b)).
+4
+0.779M
+72.61
+84.13
+93.09
+96.42
+5
+0.974M
+74.32
+85.27
+93.48
+96.63
+Crucially, comparing our proposed DSA against standard
+6
+1.169M
+75.52
+86.05
+94.16
+96.99
+Spatial Attention (SA) revealed the significant advantage of
+7
+1.364M
+73.89
+84.99
+93.57
+96.68
+dynamic, input-conditioned spatial modulation for small target
+detection (cf. Strategy (c) vs. (d), showing +0.67% mIoU for
+DSA on SIRST V1). The optimal configuration (Strategy (d))
+5) Impact of Reconstruction Loss Weight λ: We evaluate the
+integrates both CA2 and DSA, confirming the effectiveness impact of the reconstruction loss weight λ in the total loss funcof coordinating adaptive attention across both channel and tion (Eq. (15)). As shown in Tab.VII, setting λ = 0.1 achieves
+spatial dimensions for refined target feature extraction and the best performance on both SIRST V1 and NUDT-SIRST
+reconstruction. Additionally, varying the number of RCSABs datasets. Larger values (e.g., 0.5) overemphasize reconstruction,
+within the DRG (Tab. V) indicated that N = 5 blocks while smaller values (e.g., 0.05) reduce regularization. Based
+provide the optimal depth, balancing sufficient hierarchical on this, we adopt λ = 0.1 as the default setting.
+feature refinement against computational cost and the risk of
+diminishing returns or overfitting associated with excessive
+TABLE VII
+depth.
+A BLATION STUDY ON THE RECONSTRUCTION LOSS WEIGHT λ IN THE TOTAL
+LOSS FUNCTION .T HE BEST RESULTS ARE HIGHLIGHTED IN BOLD RED FONT.
+
+TABLE IV
+A BLATION STUDY ON THE DRG STRUCTURE . T HE BEST RESULTS ARE
+HIGHLIGHTED IN BOLD RED FONT.
+
+DRG
+
+Attention Modules
+CA1 CA2 SA DSA
+
+SIRST V1
+mIoU↑ F1 ↑
+
+NUDT-SIRST
+mIoU↑ F1 ↑
+
+(a)
+(b)
+(c)
+(d)
+
+✓
+✗
+✗
+✗
+
+71.62
+72.01
+72.58
+73.69
+
+91.76
+92.19
+92.80
+93.47
+
+✗
+✓
+✓
+✓
+
+✗
+✗
+✓
+✗
+
+✗
+✗
+✗
+✓
+
+83.46
+83.72
+84.11
+84.85
+
+95.70
+95.93
+96.26
+96.62
+
+TABLE V
+A BLATION STUDY ON THE NUMBER OF RCSAB S . T HE BEST RESULTS ARE
+HIGHLIGHTED IN BOLD RED FONT.
+RCSAB
+Number
+
+Params
+
+SIRST V1
+mIoU ↑ F1 ↑
+
+NUDT-SIRST
+mIoU ↑ F1 ↑
+
+3
+4
+5
+6
+
+0.927M
+1.048M
+1.169M
+1.290M
+
+72.23
+73.03
+73.69
+72.10
+
+91.66
+92.37
+93.47
+92.92
+
+83.87
+84.43
+84.85
+83.79
+
+95.65
+96.03
+96.62
+96.33
+
+4) Impact of Unfolding Depth: Finally, we examined the influence of the number of unfolding stages (K) on DRPCA-Net’s
+
+Weight λ
+0.5
+0.1
+0.05
+
+SIRST V1
+mIoU ↑ F1 ↑
+
+NUDT-SIRST
+mIoU ↑ F1 ↑
+
+73.87
+75.52
+72.54
+
+92.80
+94.16
+93.83
+
+84.91
+86.05
+72.97
+
+96.27
+96.99
+96.82
+
+C. Comparison with State-of-the-Arts
+To ascertain the efficacy and advancement offered by
+DRPCA-Net, we conducted a rigorous comparative analysis
+against a wide array of state-of-the-art (SOTA) infrared small
+target detection algorithms. This benchmark suite encompasses
+both classical model-driven techniques (e.g., Top-hat [46],
+IPI [18], PSTNN [51]) and contemporary data-driven deep
+learning frameworks, including recent end-to-end CNNs and
+other deep unfolding networks (e.g., ACM [11], ISNet [43],
+UIUNet [57], L2 SKNet [59], RPCANet [15],PConv [61]).
+Notably, the PConv model is an enhanced version of MSHNet,
+in which a pinwheel-shaped convolution is introduced to
+improve feature representation. Performance was evaluated
+across the four aforementioned public datasets using standard
+metrics: mIoU, F1 , Pd , and Fa . Detailed quantitative results
+are presented in Tab. VIII.
+
+10
+
+TABLE VIII
+P ERFORMANCE COMPARISON OF DIFFERENT METHODS ON SIRST V1, NUDT-SIRST, SIRST-AUG , AND IRSTD-1K IN TERMS OF I O U (%), F1 (%), Pd
+−6
+(%), Fa (10 ), AND THE NUMBER OF PARAMETERS (M). E VALUATIONS ARE CONDUCTED ON 256 × 256 IMAGES . T HE BEST RESULTS ARE HIGHLIGHTED
+IN BOLD RED FONT.
+Methods
+
+IoU↑
+
+SIRST V1
+F1 ↑ Pd ↑
+
+Fa ↓
+
+IoU↑
+
+NUDT-SIRST
+F1 ↑ Pd ↑ Fa ↓
+
+IoU↑
+
+SIRST-Aug
+F1 ↑ Pd ↑
+
+Fa ↓
+
+IRSTD-1K (Failure Case)
+IoU↑ F1 ↑ Pd ↑ Fa ↓
+
+-
+
+26.93
+32.56
+22.40
+11.95
+27.22
+10.43
+18.73
+32.30
+36.28
+17.16
+20.35
+28.36
+
+42.44
+49.12
+36.60
+21.36
+42.80
+18.89
+31.55
+48.83
+53.24
+29.29
+33.82
+44.18
+
+88.99
+94.46
+88.07
+79.81
+88.99
+78.89
+81.65
+95.41
+86.23
+71.13
+83.48
+81.65
+
+182.7
+33.88
+408.3
+413.2
+25.37
+15.26
+21.11
+392.6
+74.16
+33.48
+13.66
+20.94
+
+22.25
+20.49
+9.25
+7.60
+14.36
+9.37
+12.33
+31.71
+21.69
+12.70
+18.60
+19.11
+
+36.41
+34.01
+16.94
+14.13
+25.11
+17.13
+21.96
+48.16
+35.64
+22.54
+31.37
+32.99
+
+91.21
+84.97
+67.33
+60.74
+71.42
+65.29
+72.63
+87.30
+68.04
+63.49
+70.68
+69.52
+
+757.3
+312.7
+317.1
+178.4
+199.1
+86.27
+119.3
+109.4
+222.1
+27.37
+39.69
+41.46
+
+16.37
+16.88
+19.76
+2.37
+13.31
+4.12
+2.60
+19.00
+17.75
+8.56
+8.68
+9.78
+
+28.14
+28.89
+33.00
+46.37
+23.50
+7.93
+5.08
+31.93
+30.15
+15.77
+15.97
+17.82
+
+81.15
+79.36
+90.92
+50.61
+83.76
+60.11
+24.89
+75.79
+58.59
+58.59
+59.00
+52.54
+
+160.3
+82.57
+31.42
+1461
+45.72
+119.9
+18.28
+101.9
+92.05
+46.81
+66.49
+83.66
+
+6.64
+20.76
+15.52
+12.60
+14.54
+4.94
+10.24
+26.55
+21.35
+21.05
+10.90
+21.08
+
+12.46
+34.38
+26.88
+22.38
+25.39
+9.41
+18.58
+41.96
+35.19
+34.79
+19.65
+34.82
+
+81.09
+85.56
+61.85
+57.73
+76.97
+58.41
+64.60
+89.34
+68.04
+78.89
+64.26
+76.88
+
+142.4
+212.1
+109.3
+100.8
+24.75
+21.10
+10.40
+71.63
+270.1
+10.47
+18.30
+22.24
+
+0.398
+0.378
+0.967
+0.216
+0.904
+2.751
+4.697
+8.220
+12.36
+50.54
+4.066
+0.680
+0.899
+11.19
+4.064
+1.169
+
+69.67
+67.73
+67.11
+68.76
+72.31
+73.73
+73.03
+73.71
+68.84
+74.91
+68.35
+68.37
+72.23
+71.15
+72.62
+75.52
+
+82.12
+80.85
+80.31
+81.52
+83.94
+84.88
+84.44
+84.89
+81.54
+85.63
+81.20
+81.21
+83.87
+83.14
+84.14
+86.05
+
+98.16
+99.08
+99.08
+98.16
+97.24
+99.08
+99.08
+98.16
+98.16
+98.16
+98.16
+94.49
+98.16
+97.24
+99.08
+99.08
+
+26.79
+7.10
+57.66
+36.02
+7.63
+8.87
+2.46
+1.06
+17.57
+0.53
+28.92
+24.49
+9.23
+8.87
+21.46
+3.73
+
+69.22
+69.14
+87.53
+85.24
+90.97
+92.99
+93.00
+91.60
+82.52
+92.51
+77.92
+88.24
+93.13
+89.49
+78.58
+94.16
+
+81.79
+81.76
+93.28
+92.03
+95.23
+96.36
+96.37
+95.58
+90.43
+96.08
+87.59
+93.75
+96.44
+94.45
+88.00
+96.99
+
+94.39
+96.50
+96.50
+97.03
+96.08
+98.09
+97.98
+97.56
+96.71
+96.50
+96.82
+96.40
+98.09
+97.67
+97.56
+98.41
+
+12.85
+30.82
+12.20
+14.27
+5.93
+3.98
+9.10
+6.48
+13.42
+1.70
+16.70
+20.96
+5.81
+10.29
+14.13
+2.55
+
+71.92
+72.94
+72.04
+74.88
+72.23
+74.79
+71.96
+73.18
+74.07
+73.45
+72.97
+71.64
+72.75
+72.75
+73.55
+76.50
+
+83.67
+84.35
+83.74
+85.63
+83.87
+85.56
+83.68
+84.50
+85.11
+84.69
+84.33
+83.48
+84.22
+84.20
+84.76
+86.69
+
+94.63
+98.07
+96.14
+98.07
+97.79
+97.11
+96.28
+98.34
+98.07
+97.79
+93.25
+97.93
+96.56
+97.76
+97.93
+98.62
+
+204.4
+54.20
+27.13
+53.59
+41.32
+30.69
+42.33
+58.71
+32.67
+40.90
+305.3
+97.88
+54.82
+52.04
+74.81
+30.60
+
+54.35
+57.28
+63.42
+63.59
+63.08
+65.25
+65.52
+63.65
+60.18
+65.61
+64.56
+61.23
+63.73
+62.04
+67.45
+64.14
+
+70.26
+72.71
+76.77
+77.64
+77.33
+79.04
+79.24
+77.74
+75.14
+79.17
+78.56
+75.95
+77.84
+76.56
+80.56
+78.15
+
+84.53
+85.56
+88.62
+88.31
+92.09
+91.40
+93.47
+91.75
+90.72
+90.03
+89.45
+89.69
+92.78
+73.47
+93.19
+92.09
+
+11.01
+13.36
+28.24
+12.98
+19.05
+19.74
+7.82
+14.88
+13.44
+6.98
+7.21
+22.48
+16.85
+23.68
+9.71
+17.92
+
+Params
+
+Traditional Method
+Tophat [46]
+Max-Median [47]
+MPCM [48]
+HBMLCM [49]
+NWMTH [46]
+FKRW [50]
+TLLCM [5]
+IPI [18]
+PSTNN [51]
+NRAM [52]
+NOLC [53]
+NIPPS [19]
+Deep Learning Methods
+ACM [11]
+ALCNet [1]
+ISNet [43]
+RDIAN [54]
+ResUNet [55]
+ISTDU-Net [56]
+DNANet [13]
+MTUNet [26]
+AGPCNet [44]
+UIUNet [57]
+MSHNet [58]
+RPCANet [15]
+L2 SKNet [59]
+SCTransNet [60]
+PConv [61]
+Ours
+
+The empirical evidence underscores the superior performance
+of DRPCA-Net. As delineated in Tab. VIII, our proposed
+method consistently achieves state-of-the-art or highly competitive results across the majority of datasets and evaluation
+metrics. Notably, DRPCA-Net secures the top rank in mIoU,
+F1 , and Pd on the SIRST V1, SIRST-AUG, and NUDT-SIRST
+datasets. This consistent superiority attests to the potency of
+the dynamic unfolding mechanism and the enhanced feature
+representation facilitated by the DRG module, enabling robust
+adaptation to diverse target characteristics and background
+complexities. While traditional model-driven approaches exhibit inherent limitations in handling complex scenes, often
+yielding lower segmentation accuracy and higher false alarms,
+deep learning paradigms demonstrate significantly improved
+efficacy. Within this advanced category, DRPCA-Net further
+distinguishes itself.
+Furthermore, DRPCA-Net achieves this state-of-the-art performance with remarkable computational efficiency. Possessing
+only 1.169 M parameters, it strikes an advantageous balance
+between detection prowess and model complexity, rendering it
+practical for resource-constrained applications.
+
+The quantitative superiority of DRPCA-Net is visually
+corroborated by the ROC analysis presented in Fig. 4 for
+the NUDT-SIRST dataset. The ROC curve for DRPCA-Net
+exhibits a significantly steeper ascent towards the top-left corner
+compared to nearly all other evaluated methods. This trajectory
+signifies a higher Pd achievable for any given Fa , particularly
+under stringent low Fa regimes. Such characteristics underscore
+the model’s enhanced robustness against background clutter
+and its heightened sensitivity in discerning faint or challenging
+targets, which are critical capabilities in practical infrared
+detection scenarios.
+In conclusion, the comprehensive comparative evaluation
+confirms that DRPCA-Net advances the state of the art in
+infrared small target detection, offering superior accuracy, robustness, and a favorable efficiency profile, largely attributable
+to its principled integration of dynamic adaptation within the
+deep unfolding RPCA framework.
+D. Discussion on Failure Cases and Model Priors
+Notwithstanding its overall state-of-the-art performance, a
+nuanced observation emerges from Tab. VIII: DRPCA-Net
+
+11
+
+   
+
+Origin
+
+000041
+
+GT
+
+   
+
+   
+   
+
+ ' 5 3 & $  1 H W
+ $ & 0
+ $ * 3 & 1 H W
+       
+
+ $ / & 1 H W
+ ' 1 $ 1 H W
+ , 6 1 H W
+
+       
+
+ /2 6 . 1 H W
+ 0 3 & 0
+ 0 6 + 1 H W
+
+       
+
+ 0 7 8 1 H W
+ 5 ' , $ 1
+ 5 3 & $ 1 H W
+
+       
+
+ ) D O V H  3 R V L W L Y H  5 D W H
+
+ 5 H V 8 1 H W
+ 7 R S K D W
+ 8 , 8 1 H W
+
+       
+
+000203
+
+   
+
+       
+
+Fig. 4. Comparative ROC curve analysis of detection methods on NUDTSIRST dataset.
+
+000968
+
+ 7 U X H  3 R V L W L Y H  5 D W H
+
+   
+
+Ours
+
+demonstrates particularly dominant results on the SIRSTV1,
+NUDT-SIRST, and SIRST-AUG datasets, while exhibiting
+comparatively less, though still highly competitive, performance Fig. 5. Examples of failure cases on the IRSTD-1K dataset. From left to right:
+original infrared image, DRPCA-Net prediction, and ground truth. Correct
+ascendancy on IRSTD-1K. We posit that this variation stems detections are marked by red boxes, missed detections by green boxes, and
+fundamentally from the degree of congruence between the false positives by white circles.
+intrinsic characteristics of each dataset and the canonical lowrank background plus sparse target assumption underpinning
+the Robust PCA model, which DRPCA-Net dynamically deviate from these priors, particularly violating the sparsity
+unfolds. The former three datasets predominantly feature aero- constraint as observed in parts of IRSTD-1K, the very priors
+spatial scenes, where backgrounds often exhibit strong spatial that confer advantages under aligned conditions may impose
+correlations amenable to low-rank approximation, and targets constraints on the model’s flexibility, potentially limiting its
+manifest as sparse, localized anomalies, thereby aligning well performance ceiling relative to methods employing different
+with the RPCA prior. Conversely, the IRSTD-1K dataset inductive biases or purely data-driven feature extraction. This
+incorporates a significant proportion of complex terrestrial underscores a fundamental trade-off: the significant gains
+scenes replete with salient clutter and interference that can in performance, interpretability, and efficiency afforded by
+visually mimic small targets. The presence of such dense, target- model-based priors are most pronounced when the underlying
+like distractors inherently challenges and potentially violates assumptions resonate with the data’s statistical properties.
+the core assumption of target sparsity.
+To illustrate these effects more concretely, we provide visual E. Visual Analysis
+analysis in Fig. 5, which highlights two representative failure
+To complement the quantitative evaluations and offer qualitapatterns encountered by DRPCA-Net in complex terrestrial tive insights into the operational advantages of DRPCA-Net, we
+scenes. First, in Row 2, the model exhibits excessive target present visualizations of detection results on several challenging
+suppression, failing to detect a true small target located near the exemplars drawn from the SIRSTV1, SIRST-AUG, and NUDTedge of a building. This omission arises from the target’s subtle SIRST datasets. Fig. 6 provides a comparative visual assessment
+contrast and proximity to high-frequency textures, causing the against representative traditional (TopHat) and contemporary
+model to mistakenly absorb it into the background during deep learning (RDIAN, ISNet, UIUNet, L2 SKNet) methods.
+the sparse component update. Second, across Rows 1 to 3,
+As visually substantiated in Fig. 6, traditional methods like
+background texture misidentification is observed, where false TopHat frequently succumb to high false alarm rates and
+positives (white dotted circles) are generated due to background missed detections, particularly in the presence of significant
+structures that visually resemble small targets.
+background clutter or low target contrast (e.g., rows 1, 3,
+This phenomenon illustrates a potential limitation of lever- 5). While modern deep learning techniques generally exhibit
+aging strong model-based priors within deep unfolding archi- enhanced performance, they remain susceptible to spurious
+tectures. The explicit encoding of the low-rank and sparsity activations induced by complex textures or structured noise,
+priors provides DRPCA-Net with a powerful inductive bias, and can still fail to detect targets under challenging conditions
+enabling it to achieve remarkable detection accuracy and (e.g., RDIAN, ISNet in rows 2, 4).
+computational efficiency when these assumptions largely hold
+In contrast, DRPCA-Net consistently demonstrates superior
+true, as evidenced by its performance on the first three datasets. robustness and discriminative capability. For instance, in sample
+However, when faced with data distributions that significantly 008843 (row 4), while several competing methods (RDIAN,
+
+12
+
+TopHat
+
+RDIAN
+
+ISNet
+
+UIUNet
+
+L2 SKNet
+
+Ours
+
+GT
+
+000523
+
+000680
+
+008632
+
+008843
+
+Misc_356
+
+Misc_229
+
+Origin
+
+Fig. 6. Qualitative comparison on challenging infrared scenes. Columns display the original image, results from TopHat, RDIAN, ISNet, UIUNet, L2 SKNet,
+our DRPCA-Net, and the Ground Truth (GT). Correct detections are marked by red boxes, missed detections by green boxes, and false positives by white
+dotted circles. Best viewed electronically.
+
+UIUNet, L2 SKNet) generate more spatially extensive segmen- (2) high-clutter backgrounds such as textured terrain or noisy
+tations, they concurrently produce numerous false positives. environments that are prone to false alarms (row 3 and row 5),
+DRPCA-Net, however, yields a more precise localization, and (3) target-like distractors that often mislead methods relying
+effectively isolating the true target while adeptly suppressing on local intensity contrast (row 5). These cases are designed to
+the surrounding distractors. This highlights its capacity for evaluate the robustness and generalization capability of each
+high-fidelity discrimination, prioritizing detection accuracy over method under complex conditions. We also provide 3D surface
+potentially noisy shape completion. Furthermore, in challenging plots of the predicted soft outputs, which intuitively reveal the
+NUDT-SIRST scenes (000680, 000523; rows 5, 6), DRPCA- response distributions across the spatial domain. Compared
+Net achieves remarkable alignment with the ground truth, with other approaches, our DRPCA-Net consistently produces
+successfully identifying all targets without introducing false sharp and sparse peaks corresponding to true targets, while
+alarms, thereby showcasing an excellent balance between maintaining low and flat responses over background clutter.
+sensitivity and specificity. Its performance in diverse scenarios, This demonstrates its superior ability to enhance target saliency
+including complex aerial backgrounds (Misc_229, Misc_356; and suppress false positives. In contrast, competing methods
+rows 1, 2), further underscores its adaptability.
+often exhibit either overly flat responses (missed detections)
+For a more comprehensive assessment of detection perfor- or noisy activations in the background (false alarms), which
+mance, we present a set of diverse visualization examples are clearly observable from their surface maps.
+from the NUDT-SIRST dataset in Fig. 7, covering a wide
+range of challenging scenarios beyond single-target cases. The
+selected samples include: (1) multi-target scenes with both
+spatially scattered and closely locatedtargets (row 1 and 3),
+
+The effectiveness of the proposed DSA module is further
+illustrated through visual analysis on representative samples
+from the NUDT-SIRST dataset, as shown in Fig. 8. Each
+row corresponds to one sample and sequentially displays:
+
+13
+
+RDIAN
+
+ISNet
+
+UIUNet
+
+L2 SKNet
+
+Ours
+
+GT
+
+001298
+
+000671
+
+000041
+
+Origin
+
+Fig. 7. Qualitative comparison on representative challenging infrared scenes featuring multi-target instances, cluttered backgrounds, and target-like distractors.
+Columns display the original image, results from RDIAN, ISNet, UIUNet, L2 SKNet, our DRPCA-Net, and the Ground Truth (GT). Correct detections are
+marked by red boxes, missed detections by green boxes, and false positives by white dotted circles. Best viewed electronically.
+
+the input feature map, the dynamically generated 3 × 3
+convolution kernel, the resulting spatial attention map, and
+the final output after attention modulation. The DSA module
+generates sample-specific kernels that adapt to the spatial
+distribution of scene content. The resulting attention maps
+clearly highlight target regions with strong activations (in red)
+while suppressing surrounding background clutter. In the final
+output, target features are selectively enhanced and background
+interference is effectively attenuated, demonstrating the DSA
+module’s ability to improve target perception under low signalto-noise conditions and enhance robustness in complex infrared
+environments.
+To further investigate the scene adaptability of our DRPCANet, we conduct a fine-grained evaluation across different
+background scene types. We categorize the test images from
+
+SIRST V1, NUDT-SIRST, and SIRST-Aug datasets into four
+major scene types based on the semantic context of the target
+region: sky, ground, building, and ocean. The dataset contains
+983 images labeled as sky scenes, 202 as ground scenes, 83
+as building scenes, and 27 as ocean scenes.
+From the results illustrated in Fig. 9, we observe that
+DRPCA-Net performs more robustly in structured scenes, while
+its performance slightly degrades in homogeneous or lowtexture backgrounds. This trend aligns well with the underlying
+modeling principles of DRPCA-Net. In structured environments,
+the background often exhibits strong spatial regularity and
+redundancy, which conforms to the low-rank assumption used
+in background modeling. Simultaneously, infrared targets in
+these scenes typically appear as localized anomalies, satisfying
+the sparse prior applied to the target component. In contrast,
+
+14
+
+0.00
+
+0.12
+
+0.01
+
+0.04
+
+0.46
+
+0.11
+
+0.11
+
+000380
+
+0.12
+0.25
+
+facilitates sophisticated contextual feature refinement and more
+accurate low-rank background component estimation, thereby
+significantly improving the discriminability of subtle targets
+against intricate clutter. Extensive experiments demonstrate
+DRPCA-Net’s compelling potential of harmonizing principled
+model-based priors with the adaptive power of deep learning to
+advance the state of the art in infrared small target detection.
+
+000448
+
+conv
+
+0.25
+
+-0.01
+
+0.29
+
+0.20
+
+-0.01
+
+0.17
+
+0.71
+
+0.09
+
+0.12
+
+ACKNOWLEDGMENT
+
+conv
+
+Fig. 8. Visualization of the DSA module on two infrared target images from
+the NUDT-SIRST dataset.Red areas in attention maps indicate strong focus
+on target regions.
+
+The authors would like to thank the editor and the anonymous
+reviewers for their critical and constructive comments and
+suggestions. We acknowledge the Tianjin Key Laboratory of
+Visual Computing and Intelligent Perception (VCIP) for their
+essential resources. Computation is partially supported by the
+Supercomputing Center of Nankai University (NKSC).
+R EFERENCES
+
+unstructured scenes like sky or ocean may violate the lowrank assumption due to stochastic noise and lack of spatial
+correlation. Targets in such conditions also tend to have lower
+contrast and less distinct spatial footprints, making them harder
+to isolate under sparse decomposition. This analysis highlights
+the strengths and limitations of DRPCA-Net under different
+scene types and validates the theoretical motivations behind
+its design.
+
+96.02
+
+84.43
+
+73.05
+
+97.97
+
+87.82
+
+93.51
+
+79.77
+
+88.74
+
+IoU
+SKY
+
+GROUND
+
+F1
+BUILDING
+
+OCEAN
+
+Fig. 9. Scene-wise performance of DRPCA-Net across four background
+categories (SKY, GROUND, BUILDING, OCEAN), evaluated by both mean
+Intersection over Union (IoU, left) and F1 score (right). In each polar chart,
+the angular width of a sector reflects the proportion of test images belonging
+to the corresponding scene type, while the radial length indicates the average
+value of the corresponding metric.
+
+V. C ONCLUSION
+In this paper, we introduced DRPCA-Net, a novel deep
+unfolding network architecture that effectively reinvigorates
+the classical Robust Principal Component Analysis framework
+for the challenging domain of infrared small target detection.
+By meticulously unfolding the RPCA optimization process
+into a dynamic network structure, DRPCA-Net incorporates
+two principal designs to overcome the limitations of static
+model assumptions and conventional deep learning approaches.
+Firstly, a dynamic parameter generation mechanism, realized
+through a lightweight hypernetwork, imparts input-conditioned
+adaptability to the unfolding dynamics, enhancing robustness
+across diverse operational scenarios. Secondly, the DRG module
+
+[1] Y. Dai, Y. Wu, F. Zhou, and K. Barnard, “Attentional
+local contrast networks for infrared small target detection,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 59, no. 11, pp. 9813–9824, 2021. 1, 2, 10
+[2] M. Zhang, R. Zhang, J. Zhang, J. Guo, Y. Li, and X. Gao,
+“Dim2Clear network for infrared small target detection,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 61, pp. 1–14, 2023. 1
+[3] J.-J. Yin, H.-C. Li, Y.-B. Zheng, G. Gao, Y. Hu, and
+R. Tao, “Spatial-temporal weighted and regularized tensor
+model for infrared dim and small target detection,” IEEE
+Transactions on Geoscience and Remote Sensing, vol. 62,
+pp. 1–17, 2024. 1
+[4] C. L. P. Chen, H. Li, Y. Wei, T. Xia, and Y. Y. Tang, “A
+local contrast method for small infrared target detection,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 52, no. 1, pp. 574–581, 2014. 1
+[5] J. Han, S. Liu, G. Qin, Q. Zhao, H. Zhang, and N. Li, “A
+local contrast method combined with adaptive background
+estimation for infrared small target detection,” IEEE
+Geoscience and Remote Sensing Letters, vol. 16, no. 9,
+pp. 1442–1446, 2019. 1, 10
+[6] Y. Zhang, Z. Li, A. Siddique, A. Azeem, W. Chen, and
+D. Cao, “Infrared small target detection based on interpretation weighted sparse method,” IEEE Transactions
+on Geoscience and Remote Sensing, vol. 63, pp. 1–15,
+2025. 1
+[7] Y. Dai and Y. Wu, “Reweighted infrared patch-tensor
+model with both nonlocal and local priors for singleframe small target detection,” IEEE Journal of Selected
+Topics in Applied Earth Observations and Remote Sensing,
+vol. 10, no. 8, pp. 3752–3767, 2017. 1, 3
+[8] J. Han, S. Liu, G. Qin, Q. Zhao, H. Zhang, and N. Li, “A
+local contrast method combined with adaptive background
+estimation for infrared small target detection,” IEEE
+Geoscience and Remote Sensing Letters, vol. 16, no. 9,
+pp. 1442–1446, 2019. 1
+[9] W. Wang, C. Xiao, H. Dou, R. Liang, H. Yuan, G. Zhao,
+Z. Chen, and Y. Huang, “ISPANet: A pyramid selfattention network for single-frame high-resolution infrared
+
+15
+
+small target detection with a large-scale dataset SHRIRST,” IEEE Journal of Selected Topics in Applied Earth
+Observations and Remote Sensing, vol. 17, pp. 11 146–
+11 162, 2024. 1
+[10] L. Zhang, J. Luo, Y. Huang, F. Wu, X. Cui, and Z. Peng,
+“MDIGCNet: Multi-directional information-guided contextual network for infrared small target detection,” IEEE
+Journal of Selected Topics in Applied Earth Observations
+and Remote Sensing, vol. 18, pp. 2063–2076, 2025. 1
+[11] Y. Dai, Y. Wu, F. Zhou, and K. Barnard, “Asymmetric
+contextual modulation for infrared small target detection,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 59, no. 11, pp. 9813–9824, 2021. 1, 3, 7, 9, 10
+[12] J.-H. Kim and Y. Hwang, “GAN-based synthetic data
+augmentation for infrared small target detection,” IEEE
+Transactions on Geoscience and Remote Sensing, vol. 60,
+pp. 1–12, 2022. 1
+[13] B. Li, C. Xiao, L. Wang, Y. Wang, Z. Lin, M. Li, W. An,
+and Y. Guo, “Dense nested attention network for infrared
+small target detection,” IEEE Transactions on Image
+Processing, vol. 32, pp. 1745–1758, 2023. 1, 10
+[14] F. Lin, K. Bao, Y. Li, D. Zeng, and S. Ge, “Learning contrast-enhanced shape-biased representations for
+infrared small target detection,” IEEE Transactions on
+Image Processing, vol. 33, pp. 3047–3058, 2024. 2
+[15] F. Wu, T. Zhang, L. Li, Y. Huang, and Z. Peng, “RPCANet: Deep unfolding RPCA based infrared small target
+detection,” in IEEE Winter Conference on Applications of
+Computer Vision, 2024, pp. 4797–4806. 2, 4, 5, 7, 9, 10
+[16] X. Zhou, P. Li, Y. Zhang, X. Lu, and Y. Hu, “Deep lowrank and sparse patch-image network for infrared dim and
+small target detection,” IEEE Transactions on Geoscience
+and Remote Sensing, vol. 61, pp. 1–14, 2023. 2
+[17] M. Zhang, K. Yue, B. Li, J. Guo, Y. Li, and X. Gao,
+“Single-frame infrared small target detection via gaussian
+curvature inspired network,” IEEE Transactions on Geoscience and Remote Sensing, vol. 62, pp. 1–13, 2024.
+3
+[18] C. Gao, D. Meng, Y. Yang, Y. Wang, X. Zhou, and A. G.
+Hauptmann, “Infrared patch-image model for small target
+detection in a single image,” IEEE Transactions on Image
+Processing, vol. 22, no. 12, pp. 4996–5009, 2013. 3, 9,
+10
+[19] Y. Dai, Y. Wu, Y. Song, and J. Guo, “Non-negative
+infrared patch-image model: Robust target-background
+separation via partial sum minimization of singular values,”
+Infrared Physics & Technology, vol. 81, pp. 182–194,
+2017. 3, 10
+[20] Y. Dai, Y. Wu, and Y. Song, “Infrared small target
+and background separation via column-wise weighted
+robust principal component analysis,” Infrared Physics &
+Technology, vol. 77, pp. 421–430, 2016. 3
+[21] F. Zhou, M. Fu, Y. Duan, Y. Dai, and Y. Wu, “Infrared
+small target detection via l0 sparse gradient regularized tensor spectral support low-rank decomposition,”
+IEEE Transactions on Aerospace and Electronic Systems,
+vol. 59, no. 3, pp. 2105–2122, 2023. 3
+[22] T. Liu, J. Yang, B. Li, Y. Wang, and W. An, “Infrared
+
+small target detection via nonconvex tensor tucker decomposition with factor prior,” IEEE Transactions on
+Geoscience and Remote Sensing, vol. 61, pp. 1–17, 2023.
+3
+[23] H. Zhu, H. Ni, S. Liu, G. Xu, and L. Deng, “TNLRS:
+Target-aware non-local low-rank modeling with saliency
+filtering regularization for infrared small target detection,”
+IEEE Transactions on Image Processing, vol. 29, pp.
+9546–9558, 2020. 3
+[24] H. Wang, L. Zhou, and L. Wang, “Miss detection vs. false
+alarm: Adversarial learning for small object segmentation
+in infrared images,” in IEEE International Conference on
+Computer Vision, 2019, pp. 8508–8517. 3, 7
+[25] F. Chen, C. Gao, F. Liu, Y. Zhao, Y. Zhou, D. Meng,
+and W. Zuo, “Local patch network with global attention
+for infrared small target detection,” IEEE Transactions
+on Aerospace and Electronic Systems, vol. 58, no. 5, pp.
+3979–3991, 2022. 3
+[26] T. Wu, B. Li, Y. Luo, Y. Wang, C. Xiao, T. Liu,
+J. Yang, W. An, and Y. Guo, “MTU-Net: Multilevel
+TransUNet for space-based infrared tiny ship detection,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 61, pp. 1–15, 2023. 3, 10
+[27] S. Yuan, H. Qin, X. Yan, N. Akhtar, and A. Mian,
+“SCTransNet: Spatial-channel cross transformer network
+for infrared small target detection,” IEEE Transactions
+on Geoscience and Remote Sensing, vol. 62, pp. 1–15,
+2024. 3
+[28] T. Chen, Z. Ye, Z. Tan, T. Gong, Y. Wu, Q. Chu,
+B. Liu, N. Yu, and J. Ye, “MiM-ISTD: Mamba-inmamba for efficient infrared small-target detection,” IEEE
+Transactions on Geoscience and Remote Sensing, vol. 62,
+pp. 1–13, 2024. 3
+[29] L. Guo, W. Wang, and B. Tu, “Infrared small target detection via nested u-structure with attention and multiscale
+feature pyramid,” IEEE Transactions on Geoscience and
+Remote Sensing, vol. 62, pp. 1–15, 2024. 3
+[30] M. Zhang, Y. Wang, J. Guo, Y. Li, X. Gao, and J. Zhang,
+“IRSAM: Advancing segment anything model for infrared
+small target detection,” in European Conference on
+Computer Vision. Springer, 2024, pp. 233–249. 3
+[31] K. Gregor and Y. LeCun, “Learning fast approximations
+of sparse coding,” in International Conference on Machine
+Learning, 2010, pp. 399–406. 4
+[32] Y. Liu, X. Zhang, J. Wang, W. Xu, and J. Luo, “ISTA-Net:
+Iterative shrinkage-thresholding algorithm inspired deep
+network for compressed sensing,” IEEE Transactions on
+Neural Networks and Learning Systems, vol. 34, no. 1,
+pp. 1–13, 2023. 4
+[33] D. You, J. Xie, and J. Zhang, “ISTA-NET++: Flexible
+deep unfolding network for compressive sensing,” in IEEE
+International Conference on Multimedia and Expo, 2021,
+pp. 1–6. 4
+[34] C. Zhang, S. Bengio, M. Hardt, B. Recht, and O. Vinyals,
+“Understanding deep learning requires rethinking generalization,” in International Conference on Learning
+Representations, 2017. 4
+[35] B. Xin, Y. Wang, W. Gao, D. Wipf, and B. Wang,
+
+16
+
+“Maximal sparsity with deep networks?” in Advances in
+Neural Information Processing Systems, vol. 29. Curran
+Associates, Inc., 2016. 4
+[36] Y. Yang, J. Sun, H. Li, and Z. Xu, “ADMM-CSNet: A
+deep learning approach for image compressive sensing,”
+IEEE Transactions on Pattern Analysis and Machine
+Intelligence, vol. 42, no. 3, pp. 521–538, 2020. 4
+[37] Z. Zhang, Y. Liu, J. Liu, F. Wen, and C. Zhu, “AMP-Net:
+Denoising-based deep unfolding for compressive image
+sensing,” IEEE Transactions on Image Processing, vol. 30,
+pp. 1487–1500, 2021. 4
+[38] H. Wang, Y. Li, D. Meng, and Y. Zheng, “Adaptive
+convolutional dictionary network for CT metal artifact
+reduction,” in International Joint Conference on Artificial
+Intelligence. Morgan Kaufmann, 2022, pp. 1401–1407.
+4
+[39] T. T. N. Mai, E. Y. Lam, and C. Lee, “Attentionguided low-rank tensor completion,” IEEE Transactions
+on Pattern Analysis and Machine Intelligence, vol. 46,
+no. 12, pp. 9818–9833, 2024. 4
+[40] Z. Huang and J. Zhang, “Contrastive unfolding deraining
+network,” IEEE Transactions on Neural Networks and
+Learning Systems, vol. 35, no. 4, pp. 5155–5169, 2024. 4
+[41] Y. Zhang, K. Li, K. Li, L. Wang, B. Zhong, and Y. Fu,
+“Image super-resolution using very deep residual channel
+attention networks,” in European Conference on Computer
+Vision, vol. 11211, 2018, pp. 294–310. 6
+[42] S. Woo, J. Park, J.-Y. Lee, and I. S. Kweon, “CBAM:
+Convolutional block attention module,” in European
+Conference on Computer Vision, vol. 11211, 2018, pp.
+3–19. 6
+[43] M. Zhang, R. Zhang, Y. Yang, H. Bai, J. Zhang, and
+J. Guo, “ISNet: Shape matters for infrared small target
+detection,” in IEEE Conference on Computer Vision and
+Pattern Recognition, 2022, pp. 867–876. 7, 9, 10
+[44] T. Zhang, L. Li, S. Cao, T. Pu, and Z. Peng, “Attentionguided pyramid context networks for detecting infrared
+small target under complex background,” IEEE Transactions on Aerospace and Electronic Systems, vol. 59, no. 4,
+pp. 4250–4261, 2023. 7, 10
+[45] Y. Huang, Z. Tang, D. Chen, K. Su, and C. Chen,
+“Batching soft IoU for training semantic segmentation
+networks,” IEEE Signal Processing Letters, vol. 27, pp.
+66–70, 2020. 7
+[46] X. Bai and F. Zhou, “Analysis of new top-hat transformation and the application for infrared dim small target
+detection,” Pattern Recognition, vol. 43, no. 6, pp. 2145–
+2156, 2010. 9, 10
+[47] S. D. Deshpande, M. H. Er, R. Venkateswarlu, and P. Chan,
+“Max-mean and max-median filters for detection of small
+targets,” in Signal and Data Processing of Small Targets,
+vol. 3809. SPIE, 1999, pp. 74–83. 10
+[48] Y. Wei, X. You, and H. Li, “Multiscale patch-based
+contrast measure for small infrared target detection,”
+Pattern Recognition, vol. 58, pp. 216–226, 2016. 10
+[49] Y. Shi, Y. Wei, H. Yao, D. Pan, and G. Xiao, “High-boostbased multiscale local contrast measure for infrared small
+target detection,” IEEE Geoscience and Remote Sensing
+
+Letters, vol. 15, no. 1, pp. 33–37, 2018. 10
+[50] Y. Qin, L. Bruzzone, C. Gao, and B. Li, “Infrared small
+target detection based on facet kernel and random walker,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 57, no. 9, pp. 7104–7118, 2019. 10
+[51] L. Zhang and Z. Peng, “Infrared small target detection
+based on partial sum of the tensor nuclear norm,” Remote
+Sensing, vol. 11, no. 4, p. 382, 2019. 9, 10
+[52] L. Zhang, L. Peng, T. Zhang, S. Cao, and Z. Peng,
+“Infrared small target detection via non-convex rank
+approximation minimization joint ℓ2,1 norm,” Remote
+Sensing, vol. 10, no. 11, p. 1821, 2018. 10
+[53] T. Zhang, H. Wu, Y. Liu, L. Peng, C. Yang, and Z. Peng,
+“Infrared small target detection based on non-convex
+optimization with lp -norm constraint,” Remote Sensing,
+vol. 11, no. 5, p. 559, 2019. 10
+[54] H. Sun, J. Bai, F. Yang, and X. Bai, “Receptive-field
+and direction induced attention network for infrared dim
+small target detection with a large-scale dataset IRDST,”
+IEEE Transactions on Geoscience and Remote Sensing,
+vol. 61, pp. 1–13, 2023. 10
+[55] F. I. Diakogiannis, F. Waldner, P. Caccetta, and C. Wu,
+“ResUNet-a: A deep learning framework for semantic
+segmentation of remotely sensed data,” ISPRS Journal
+of Photogrammetry and Remote Sensing, vol. 162, pp.
+94–114, 2020. 10
+[56] Q. Hou, L. Zhang, F. Tan, Y. Xi, H. Zheng, and N. Li,
+“ISTDU-Net: Infrared small-target detection U-Net,” IEEE
+Geoscience and Remote Sensing Letters, vol. 19, pp. 1–5,
+2022. 10
+[57] X. Wu, D. Hong, and J. Chanussot, “UIU-Net: U-Net
+in U-Net for infrared small object detection,” IEEE
+Transactions on Image Processing, vol. 32, pp. 364–376,
+2023. 9, 10
+[58] Q. Liu, R. Liu, B. Zheng, H. Wang, and Y. FU, “Infrared
+small target detection with scale and location sensitivity,”
+in IEEE Conference on Computer Vision and Pattern
+Recognition, 2024, pp. 17 490–17 499. 10
+[59] F. Wu, A. Liu, T. Zhang, L. Zhang, J. Luo, and Z. Peng,
+“Saliency at the helm: Steering infrared small target
+detection with learnable kernels,” IEEE Transactions on
+Geoscience and Remote Sensing, vol. 63, pp. 1–14, 2025.
+9, 10
+[60] S. Yuan, H. Qin, X. Yan, N. Akhtar, and A. Mian,
+“SCTransNet: Spatial-channel cross transformer network
+for infrared small target detection,” IEEE Transactions
+on Geoscience and Remote Sensing, vol. 62, pp. 1–15,
+2024. 10
+[61] J. Yang, S. Liu, J. Wu, X. Su, N. Hai, and X. Huang,
+“Pinwheel-shaped convolution and scale-based dynamic
+loss for infrared small target detection,” in Proceedings
+of the AAAI Conference on Artificial Intelligence, vol. 39,
+no. 9, 2025, pp. 9202–9210. 9, 10
+
+17
+
+Zihao Xiong is currently pursuing his Bachelor’s
+degree in Electronic Information Engineering at the
+School of Information Science and Engineering,
+Henan University of Technology. He is also a research
+intern at the PCA Lab, VCIP, College of Computer
+Science, Nankai University. His research interests
+include infrared small target detection, tracking, and
+super-resolution.
+
+Fei Zhou received his M.S. degree in electronic
+engineering from Xinjiang University in 2017, and
+received Ph.D. degree from College of Electronic
+and Information Engineering, Nanjing University
+of Aeronautics and Astronautics. He is currently
+an Associate Professor with College of Information Science and Engineering, Henan University of
+Technology, Zhengzhou, China. His main research
+interests are signal processing, target detection and
+image processing. He has published 10+ papers in
+journals and conferences, such as TGRS, TAES,
+WACV, etc.
+
+Fengyi Wu received his dual B.E. degree in Electric
+and Electronic Engineering from both University
+of Electronic Science and Technology of China
+(UESTC) and University of Glasgow (UoG) in 2021
+and is currently chasing a PhD degree at the School
+of Information and Communication Engineering,
+UESTC. His current interests include image processing, computer vision, and interpretable target
+detection.
+
+Shuai Yuan received the B.S. degree from Xi’an
+Technological University, Xi’an, China, in 2019.
+He is currently pursuing a Ph.D. degree at Xidian
+University, Xi’an, China. He is currently studying
+at the University of Melbourne as a visiting student,
+working closely with Dr. Naveed Akhtar. His research
+interests include infrared image understanding, remote sensing, and deep learning.
+
+Maixia Fu received the B.S. degree in electronic
+science and technology from Information Engineering
+University, Zhengzhou, China, in 2003, the M.S. degree in information and communication engineering
+from Zhengzhou University, Zhengzhou, China, in
+2009, and the Ph.D. degree in optical engineering
+from Capital Normal University, Beijing, China, in
+2017. She is currently an Associate Professor and
+master’s Supervisor with the College of Information
+Science and Engineering, Henan University of Technology, Zhengzhou, China. Her research interests
+include signal processing, spectrum analysis, optoelectronic devices designing,
+and remote sensing.
+
+Zhenming Peng (Member, IEEE) received a Ph.D.
+degree in geodetection and information technology from the Chengdu University of Technology,
+Chengdu, China, in 2001. From 2001 to 2003, he
+was a Post-Doctoral Researcher with the Institute
+of Optics and Electronics, Chinese Academy of
+Sciences, Chengdu. He is a Professor with the
+University of Electronic Science and Technology of
+China, Chengdu. His research interests include image
+processing, signal processing, and target recognition
+and tracking.
+
+Jian Yang received the PhD degree from Nanjing
+University of Science and Technology (NJUST) in
+2002, majoring in pattern recognition and intelligence
+systems. From 2003 to 2007, he was a Postdoctoral
+Fellow at the University of Zaragoza, Hong Kong
+Polytechnic University and New Jersey Institute of
+Technology, respectively. From 2007 to present, he is
+a professor in the School of Computer Science and
+Technology of NJUST. Currently, he is also a visiting
+distinguished professor in the College of Computer
+Science of Nankai University. His papers have been
+cited over 50000 times in the Scholar Google. His research interests include
+pattern recognition and computer vision. Currently, he is/was an associate
+editor of Pattern Recognition, Pattern Recognition Letters, IEEE Trans. Neural
+Networks and Learning Systems, and Neurocomputing. He is a Fellow of
+IAPR.
+
+Yimian Dai (Member, IEEE) received the B.E.
+degree in information engineering and the Ph.D.
+degree in signal and information processing from
+Nanjing University of Aeronautics and Astronautics,
+Nanjing, China, in 2013 and 2020, respectively. From
+2021 to 2024, he was a Postdoctoral Researcher with
+the School of Computer Science and Engineering,
+Nanjing University of Science and Technology, Nanjing, China. He is currently an Associate Professor
+with the College of Computer Science, Nankai
+University, Tianjin, China. His research interests
+include computer vision, deep learning, and their applications in remote
+sensing. For more information, please visit the link (https://yimian.grokcv.ai/).
+
+

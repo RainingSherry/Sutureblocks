@@ -1,0 +1,1050 @@
+arXiv:2405.14343v1 [cs.CV] 23 May 2024
+
+Efficient Visual State Space Model
+for Image Deblurring
+
+Lingshun Kong1 , Jiangxin Dong1 , Ming-Hsuan Yang2,3,4 , Jinshan Pan1
+1
+Nanjing University of Science and Technology
+2
+University of California, Merced 3 Yonsei University 4 Google Research
+
+Abstract
+Convolutional neural networks (CNNs) and Vision Transformers (ViTs) have
+achieved excellent performance in image restoration. ViTs typically yield superior
+results in image restoration compared to CNNs due to their ability to capture
+long-range dependencies and input-dependent characteristics. However, the computational complexity of Transformer-based models grows quadratically with the
+image resolution, limiting their practical appeal in high-resolution image restoration tasks. In this paper, we propose a simple yet effective visual state space
+model (EVSSM) for image deblurring, leveraging the benefits of state space models (SSMs) to visual data. In contrast to existing methods that employ several
+fixed-direction scanning for feature extraction, which significantly increases the
+computational cost, we develop an efficient visual scan block that applies various
+geometric transformations before each SSM-based module, capturing useful nonlocal information and maintaining high efficiency. Extensive experimental results
+show that the proposed EVSSM performs favorably against state-of-the-art image
+deblurring methods on benchmark datasets and real-captured images.
+
+1
+
+Introduction
+
+Image deblurring aims to restore sharp images from blurry ones, attracting much attention due to the
+popularization of various cameras and hand-held imaging devices. This task is challenging as only
+the blurred images are available while lacking access to the blur and latent images.
+Significant progress has been made due to the development of deep convolutional neural networks
+(CNNs) [40, 11, 5, 53, 3]. However, as the main operation in CNNs, the convolution is spatially
+invariant and spatially local. This does not capture the spatially variable properties of the image
+contents and cannot explore non-local information that is beneficial for deblurring.
+In contrast to the convolution operation, the self-attention mechanism [44] in Transformers can
+capture global information by computing correlations between each token and all other tokens,
+which can extract better features for image deblurring. However, the self-attention mechanism
+(i.e., the scaled dot-product attention) entails quadratic space and time complexity regarding the
+number of tokens, which becomes unacceptable when handling high-resolution images. Although the
+local window-based methods [48, 26], transposed attention [54], and the frequency domain-based
+approximation [21] have been developed to reduce the computational cost, these approaches sacrifice
+their abilities to model non-local information [48, 26] and spatial information [54, 21], which thus
+affects the quality of restored images. Therefore, it is of great need to develop an efficient approach
+that can explore non-local information for high-quality deblurring performance while not significantly
+increasing the computational cost.
+Recently, state space models (SSMs) [16, 15] have demonstrated significant potential in modeling
+long-range dependencies for natural language processing (NLP) tasks with linear or near-linear
+computational complexity. The improved SSM, specifically Mamba [13], develops a selective
+
+scan mechanism (S6) and can remember relevant information and ignore irrelevant contents while
+achieving linear computational complexity. This motivates us to utilize Mamba to explore useful
+non-local information for better image deblurring efficiently. However, as Mamba is designed for
+handling one-dimensional (1D) sequences, it requires first flattening the image data to a 1D image
+sequence if straightforwardly applying Mamba to visual tasks [12, 7]. This disrupts the spatial
+structure of the image, making it difficult to capture local information from various adjacent pixels.
+Several approaches adopt a multi-direction scan mechanism to utilize the state space model in visual
+applications [27, 17, 37]. However, the multi-direction scan mechanism significantly increases the
+computational cost.
+In this paper, we propose an effective and efficient visual state space model for image deblurring.
+We find that existing visual state space models mostly adopt several fixed-direction scanning for
+feature extraction, which may not explore non-local information adaptively and lead to higher
+computational costs, We thus develop a simple yet effective scanning strategy that captures non-local
+spatial information while maintaining low computational costs. Specifically, we only scan the input
+feature in one direction but employ a simple geometric transformation before each scan, which
+effectively and adaptively explores useful information with a minimal increase in computational
+costs.
+The main contributions are summarized as follows. First, we propose a simple yet effective visual
+state space model that efficiently restores high-quality images. Second, we develop an effective
+and efficient scanning strategy that captures non-local spatial information while maintaining low
+computational costs. Finally, we quantitatively and qualitatively evaluate the proposed method on
+benchmark datasets and real-world images and show that it performs effectively and efficiently against
+state-of-the-art methods.
+
+2
+
+Related Work
+
+Deep CNN-based image deblurring methods. In recent years, significant progress has been made
+in image deblurring through deep CNN-based methods [31, 40, 11, 55, 53, 5, 3]. In [31], a deep CNN
+is proposed based on a multi-scale framework that directly estimates clear images from blurry ones.
+Tao et al. [40] introduce an effective scale recurrent network to enhance the utilization of information
+from each scale within the multi-scale framework. Furthermore, Gao et al. [11] propose a selective
+network parameter-sharing method to enhance further the methods proposed in [31, 40]. Additionally,
+generative adversarial networks (GANs) have been widely applied in image deblurring [22, 23],
+aiming to enhance the quality of deblurred results by generating realistic and sharp images.
+Due to the limited improvement in performance with the utilization of additional scales, Zhang et
+al. [55] propose an effective network that adopts a multi-patch strategy for image deblurring. The
+deblurring process is executed step-by-step, enabling the network to refine the output progressively.
+To further exploit the features extracted at different stages, Zamir et al. [53] introduce a cross-stage
+feature fusion technique, aiming to enhance the overall performance of the deblurring method. To
+mitigate the problem of high computational cost associated with multi-scale frameworks, Cho et
+al. [5] present a multi-input and multi-output network architecture, reducing the computational
+burden while maintaining the deblurring performance. Chen et al. [3] analyze the baseline modules
+and propose simplified versions to improve the efficiency of image restoration. However, as the
+convolution operation is spatially invariant and spatially local, it cannot effectively model the global
+and spatially-variant information, limiting its ability to achieve better image restoration.
+Transformer-based image deblurring methods. As Transformers can establish long-range dependencies and effectively model global information, it has achieved significant advancements in various
+high-level vision tasks such as image classification [28, 47], object detection [1, 56], and semantic
+segmentation [57, 51]. Researchers have extended its application to image super-resolution [26],
+image deblurring [54, 21], and image denoising [2, 48]. The Transformer’s self-attention mechanism
+requires quadratic computational complexity, which is unacceptable for image restoration tasks with
+high-resolution images. To reduce the computational complexity of Transformers, Zamir et al. [54]
+propose an efficient Transformer model that computes scaled dot-product attention in the feature
+depth domain. Tsai et al. [42] simplify the self-attention calculation by constructing intra- and
+inter-strip tokens to replace global attention. Wang et al. [48] introduce a Transformer based on a
+UNet architecture that applies non-overlapping window-based self-attention for single image deblur2
+
+GeoT
+
+Geometric
+Transformation
+
+S6
+
+Selective
+Scan
+
+EVS
+
+Norm
+
+(a) EVSSM
+
+(b) EVSS module
+
+Conv1x1
+
+Reshape
+
+S6
+
+Reshape
+
+GELU
+
+Norm
+
+Patch
+Unfolding
+
+IFFT
+
+W
+
+FFT
+
+EVSS
+
+GEGLU
+
+EVSS
+
+EDFFN
+Dconv
+
+UP
+
+Summation
+
+(c) EVS block
+
+Conv1x1
+
+DOWN
+
+Conv1x1
+
+EVSS
+
+DConv
+
+EVSS
+
+Conv1x1
+
+UP
+GeoT
+
+DOWN
+
+Element-wise
+Production
+
+GELU
+
+Patch
+Unfolding
+
+EVSS
+
+Quantization
+Matrix
+
+·
+
+EVSS
+
+Norm
+
+W
+
+·
+
+Conv3
+
+Depth-wise
+Convolution
+
+·
+
+Conv3
+
+DConv
+
+(d) EDFFN
+
+Figure 1: Efficient visual state space model. To efficiently restore high-quality images with SSMs, we
+propose an effective EVSS module that involves an efficient EVS block and an efficient EDFFN block.
+A geometric transformation is employed at the beginning of each EVS block to facilitate more useful
+information exploration in the following selective scan with a minimal increase in computational
+costs.
+ring. Kong et al. [21] propose a frequency domain-based Transformer and achieve state-of-the-art
+results. Although these approaches employ various strategies to reduce computational complexity,
+they cannot characterize long-range dependencies and non-local information effectively. In contrast,
+we develop an efficient visual state space model that can explore useful non-local information with
+low computational costs.
+State space models. State Space Models (SSMs) have been a time series analysis and modeling
+cornerstone for decades. Recent methods [16, 15] have adopted SSMs to capture long-range dependencies for sequence modeling. SSM-based methods can be computed efficiently using recurrence or
+convolution, with linear or near-linear computational complexity. Gu et al. [14] propose a framework
+(HiPPO) that poses the abstraction of optimal function approximation concerning time-varying measures. The method [15] develops a linear state-space layer to handle long-range dependency problems.
+To address the issue of high computational and memory requirements induced by state representation, S4 [16] proposes a method of normalizing parameters into a diagonal structure. Furthermore,
+Mamba [13] introduces a selective scanning layer with dynamic weights, showcasing significant
+potential in natural language processing. To apply SSMs for visual tasks, recent methods [27, 37, 17]
+adopt multi-direction scanning strategies, which will increase the computational cost. In contrast, we
+propose an efficient visual scan block that employs a geometric transformation before each scan to
+achieve non-local information exploration with high efficiency.
+
+3
+
+Efficient Visual State Space Model
+
+Our goal is to present an effective and efficient method to explore the properties of state space models
+for high-quality image deblurring. To this end, we propose an efficient visual state space model
+(EVSSM) that can explore more non-local information for visual tasks with a minimal increase in
+computational costs.
+3.1
+
+Overall architecture
+
+As shown in Figure 1, the overall architecture of the proposed efficient visual state space model is
+based on a hierarchical encoder-decoder framework [21]. Given a blurry image Iblur ∈ RH×W ×3 ,
+we first employ a 3 × 3 convolution layer to obtain the shallow feature Fs ∈ RH×W ×C , where
+H × W denotes the spatial dimension, and C is the number of feature channels. Then, the shallow
+feature Fs is put into a 3-level symmetric encoder-decoder network. The encoder/decoder at each
+3
+
+level is composed of several efficient vision state space (EVSS) modules (see Section 3.2). For the
+encoder/decoder at level-l, the input feature is progressively processed by each EVSS module and the
+l−1
+H
+W
+l
+l
+intermediate feature Fenc
+/ Fdec
+∈ R 2l−1 × 2l−1 ×2 C (l = 1, 2, 3 in this work) is generated. We then
+employ the bilinear interpolation and 1 × 1 convolution to achieve upsampling and downsampling and
+add the skip connection between the encoder and decoder at each level. Finally, a 3 × 3 convolution
+3
+layer is applied to the feature Fdec
+to generate the residual image R ∈ RH×W ×3 .
+The restored image Ideblur is obtained by Ideblur = R + Iblur = N (Iblur ) + Iblur , and N denotes
+the proposed encoder-decoder network regularized by minimizing the following loss function:
+L = ∥Ideblur − Igt ∥1 + λ∥F(Ideblur ) − F(Igt )∥1 ,
+
+(1)
+
+where F denotes the discrete Fourier transform and the weight parameter λ is empirically set as 0.1.
+3.2
+
+Efficient vision state space module
+
+State space model. A state space model is a mathematical framework commonly used in time series
+analysis and control systems. The state equation describes the evolution of an underlying system over
+time, representing the relationship between the system’s hidden states and their temporal dynamics.
+The input signal x(t) is mapped to the output response y(t) through the hidden state h(t). It is
+typically modeled as a set of first-order difference or differential equations:
+′
+
+h (t) = Ah(t) + Bx(t),
+
+y(t) = Ch(t) + Dx(t),
+
+(2)
+
+where A, B, C, and D are learnable weight matrices.
+To this end, the state equation can be discretized using the zero-order hold (ZOH) technique:
+ht = Āht−1 + B̄xt ,
+Ā = e
+
+∆A
+
+,
+
+yt = Cht + Dxt ,
+
+B̄ = (∆A)−1 (e∆A − I) · ∆B.
+
+(3)
+
+Based on (3), Mamba [13] proposes a mechanism of selective scanning (S6) to achieve inputdependent weights and linear computational complexity simultaneously. Using a state space model
+for NLP tasks poses no issue since natural language data is inherently a causal sequence. However,
+visual tasks present significant challenges because visual data is fundamentally non-sequential and
+contains spatial information such as local textures and global structures. As S6 is a recursive process,
+when processing an input at the current timestep t, it can only utilize information from previous
+timesteps and not consider information from future timesteps.
+Efficient visual scan (EVS) block. A straightforward approach to solve this problem is to scan the
+visual data in different directions (e.g., forward and backward). However, this strategy increases the
+computational cost by a significant factor. For example, the computational cost of the scanning in
+VMamba [27] is 4× higher than that of Mamba [13] due to its strategy of performing bidirectional
+scanning in the longitudinal and transverse directions. Then, a natural question is whether it can
+reasonably process visual data using a state space model with a minimal increase in computational
+costs.
+The answer is YES. We develop an efficient vision state space model that explores more useful
+information with a minimal increase in computational costs. The key is the proposed EVS block.
+Instead of scanning in multiple directions, we scan only in one direction and apply one geometric
+transformation (e.g., flip, and transposition) to the input before each scan. Due to the translationinvariant property of convolution, the geometric transformation does not affect the convolution itself
+but only influences the process of selective scanning. Specifically, for each EVS block, assuming that
+it is in the i-th EVSS module of the whole network, we first transpose or flip the input feature Fin as:
+
+T ranspose(Fin ) if i % 2 = 0,
+G=
+(4)
+F lip(Fin )
+if i % 2 = 1.
+Here, we flip along both the horizontal and vertical axes of the feature in F lip(·). According to (4),
+the image feature will be automatically restored to the original spatial structure after every 4 EVSS
+modules. In particular, if the total number of EVSS modules in our network is not divisible by 4, we
+can restore the original spatial structure by applying the corresponding inverse transformations, as
+4
+
+Table 1: Quantitative evaluations of the proposed method against state-of-the-art ones on the GoPro
+dataset [31] in terms of PSNR and SSIM.
+Method
+
+SRN [40]
+
+DMPHN [55]
+
+PSNR (dB)
+SSIM
+
+30.26
+0.9342
+
+31.20
+0.9453
+
+Method
+
+MIMO-UNet+ [5] MPRNet [53] MAXIM [43]
+
+Stripformer [42] Restormer-local [6]
+
+PSNR (dB)
+SSIM
+
+33.08
+0.9624
+
+33.57
+0.9656
+
+32.45
+0.9567
+
+32.66
+0.9589
+
+NAFNet [3]
+
+GRL [25]
+
+33.71
+0.9668
+
+33.93
+0.9680
+
+32.86
+0.9616
+
+Uformer [48] Restormer [54]
+33.06
+0.9670
+
+32.92
+0.9611
+
+FFTformer [21] CU-mamba [7] EVSSM (ours)
+34.21
+0.9692
+
+33.53
+0.9650
+
+34.50
+0.9712
+
+both flip and transposition are reversible. In this way, our EVSS module effectively solves the above
+question, avoiding any additional computational burden other than efficient geometric transformations.
+Then, the selective scan can be formulated as follows:
+X1 , X2 = split(Conv1×1 (G))
+X̂1 = S6(Reshape(σ(Dconv3×3 (X1 ))))
+X̂2 = σ(X2 )
+
+(5)
+
+Fout = Conv1×1 (Reshape(L(X̂1 )) · X̂2 ),
+where Conv1×1 (·) denotes a convolutional layer with the filter size of 1 × 1 pixel, DConv3×3 (·)
+denotes a depth-wise convolutional layer with the filter size of 3 × 3 pixels, L(·) denotes a normalization layer, split(·) splits the image features in the channel dimension, σ denotes the GeLU activation,
+and S6 denotes the selective scanning mechanism proposed by [13]. Figure 1(b) shows the detailed
+network architecture.
+Efficient discriminative frequency domain-based FFN (EDFFN). To effectively and efficiently
+transform the features from the EVSS module, we develop an efficient discriminative frequency
+domain-based FFN. The FFN part is typically the core component of deep learning models which
+can help the latent clear image reconstruction [54, 21]. FFTformer [21] develops a discriminative
+frequency domain-based FFN that adaptively determines which frequency information should be
+preserved. However, this increases the computational cost when performing the frequency domainbased operations. In contrast to DFFN which applies frequency-domain based operations in the
+middle of the FFN network, our approach is to perform frequency-domain screening on the features
+at the final stage of the FFN network. Figure 1(c) shows the detailed network architecture.
+
+4
+
+Experimental Results
+
+4.1
+
+Datasets and implementation
+
+Datasets. Following existing state-of-the-art methods, we evaluate our approach on the commonly
+used GoPro dataset by Nah et al. [31], HIDE dataset by Shen et al. [36], and RealBlur dataset by
+Rim et al. [35]. The GoPro dataset contains 2103 images for training and 1111 images for testing.
+The HIDE dataset includes 2025 images mainly about humans for testing. The RealBlur dataset [35]
+contains RealBlur-J and RealBlur-R subsets generated by different post-processing strategies. It uses
+182 scenes for training and 50 scenes for testing. For fair comparisons, we follow the protocols of
+these datasets to evaluate our method.
+Implementation details. The shallow feature Fs has a channel number of 48 and the numbers of
+EVSS modules in the encoder/decoder from level-1 to level-3 are [6, 6, 12]. We use the ADAM
+optimizer [20] with default parameters in the training process. We use the data augmentation method
+with the flipping and rotation operations to generate training data. We apply the progressive training
+similar to but simpler than [54]: the training starts with the patch size of 128 × 128 pixels and batch
+size 64 for 300, 000 iterations, where the learning rate gradually reduces from 1 × 10−3 to 1 × 10−7 .
+Then the patch size is enlarged to 256 × 256 pixels with 16 batches for 300, 000 iterations where the
+learning rate is initialized as 5 × 10−4 and decreases to 1 × 10−7 . The learning rate is updated based
+on the Cosine Annealing scheme. Unless otherwise specified, all experiments are conducted with the
+PyTorch framework on NVIDIA RTX 4090 GPUs. The training code and test model are available at
+https://github.com/kkkls/EVSSM.
+5
+
+Table 2: Quantitative evaluations of the proposed method against state-of-the-art ones on the realworld dataset [35] in terms of PSNR and SSIM.
+Dataset
+RealBlur-J
+RealBlur-R
+
+Method
+DeblurGAN-v2 [23] SRN [40] MIMO-Unet+ [5] BANet [41] DeepRFT+ [30] Stripformer [42] FFTformer [21] EVSSM (ours)
+PSNR (dB)
+29.69
+31.38
+31.92
+32.00
+32.19
+32.48
+32.62
+34.15
+SSIM
+0.8703
+0.9091
+0.9190
+0.9230
+0.9305
+0.9290
+0.9326
+0.9450
+PSNR (dB)
+36.44
+38.65
+39.55
+39.84
+39.94
+40.11
+41.04
+SSIM
+0.9347
+0.9652
+0.9710
+0.9721
+0.9739
+0.9732
+0.9770
+
+Table 3: Quantitative evaluations of the proposed method against state-of-the-art ones on the HIDE
+dataset [36] in terms of PSNR and SSIM.
+Method
+
+SRN [40]
+
+DMPHN [55]
+
+SAPHN [39]
+
+PSNR (dB)
+SSIM
+
+28.36
+0.9040
+
+29.09
+0.9240
+
+29.98
+0.9300
+
+Method
+PSNR (dB)
+SSIM
+
+MIMO-UNet+ [5] MPRNet [53]
+
+Restormer [54] Stripformer [42] Restormer-local [6]
+31.22
+0.9423
+
+31.03
+0.9395
+
+31.49
+0.9447
+
+Uformer [48]
+
+MPRNet-local [6]
+
+29.99
+0.9304
+
+30.96
+0.9397
+
+30.90
+0.9530
+
+31.19
+0.9418
+
+NAFNet [3]
+
+GRL [25]
+
+FFTformer [21]
+
+EVSSM (ours)
+
+31.31
+0.9427
+
+31.65
+0.947
+
+31.62
+0.9455
+
+31.97
+0.9501
+
+(a) Blurred input
+
+(b) GT
+
+(c) MIMO-UNet+ [5]
+
+(d) Stripformer [42]
+
+(e) Restormer-local [6]
+
+(f) NAFNet [3]
+
+(g) FFTformer [21]
+
+(h) EVSSM (ours)
+
+Figure 2: Deblurred results on the GoPro dataset [31]. Compared to the results in (c)-(g), the proposed
+method generates a better deburred image with clearer structures and detail in (h).
+4.2
+
+Comparisons with the state of the art
+
+Evaluations on the GoPro dataset. We first evaluate the performance of the proposed approach on
+the GoPro dataset [31]. We compare our method against state-of-the-art approaches, including CNNbased ones (SRN [40], DMPHN [55], MIMO-UNet+ [5], MPRNet [53], NAFNet [3]), Transformerbased ones (Uformer [48], Restormer [54], Stripformer [42], Restormer-local [6], GRL [25], and
+FFTformer [21]), MLP-based ones (MAXIM [43]), and SSM-based ones (CU-mamba [7]). We
+retrain or fine-tune the deep learning-based methods for fair comparisons if they are not trained on
+the benchmarks. As CU-mamba [7] does not provide training and test codes, for fair comparison,
+we compare our result with the reported result of [7]. We use the PSNR and SSIM as the evaluation
+metrics to measure the quality of each restored image. Table 1 shows the quantitative evaluation
+results, where our approach outperforms other methods with the highest PSNR and SSIM values.
+Figure 2 shows evaluation results on the GoPro dataset [31]. Since CNN-based methods cannot
+effectively utilize global information, the images restored by [5, 3] still contain severe blur residuals
+as shown in Figure 2(c) and (f). Although Transformer-based methods can model the global context,
+the methods [42, 6, 21] have adopted various approximations to reduce the computational cost. This
+affects their ability to model the global information, and as a result, some main structures, e.g., tire,
+and wheel, are not restored well (see Figure 2(d), (e) and (g)). In contrast to existing Transformerbased methods, we propose a simple yet effective visual state space model for image deblurring,
+which is effective at exploring non-local information with low computational costs. As shown in
+Figure 2(h), our approach generates better results, where the text and tire are much clearer.
+6
+
+(a) Blurred input
+
+(b) GT
+
+(c) SRN [40]
+
+(d) DeblurGAN-v2 [23]
+
+(e) MIMO-UNet+ [5]
+
+(f) Stripformer [42]
+
+(g) FFTformer [21]
+
+(h) EVSSM (ours)
+
+Figure 3: Deblurred results on the RealBlur dataset [35]. The results obtained by [40, 23, 5] in
+(c)-(e) are still blurry. For other results by [42, 21] in (f)-(g), fine-scale structures are not effectively
+recovered. In contrast, our method restores a better-deblurred image with clearer characters.
+Table 4: Quantitative evaluations of the proposed method against state-of-the-art ones on the realworld dataset [46] for image deraining in terms of PSNR and SSIM.
+Method
+
+DSC [29] MSPFN [19] RCDNet [45] DualGCN [10] SPDNet [52] Restormer [54] IDT [50] DRSformer [4] EVSSM (ours)
+
+PSNR (dB)
+SSIM
+
+34.95
+0.9416
+
+43.43
+0.9843
+
+43.36
+0.9831
+
+44.18
+0.9902
+
+43.20
+0.9871
+
+47.98
+0.9921
+
+47.35
+0.9930
+
+48.54
+0.9924
+
+48.78
+0.9951
+
+Table 5: Quantitative evaluations of the proposed method against state-of-the-art ones on the RESIDE6K dataset [24] for image dehazing in terms of PSNR and SSIM.
+Method
+PSNR (dB)
+SSIM
+
+DCP [18] MSCNN [33] GFN [34] MSBDN [8] PFDN [9] FFA-Net [32] AECRNet [49] DehazeFormer [38] EVSSM (ours)
+17.88
+0.816
+
+20.31
+0.863
+
+23.52
+0.905
+
+28.56
+0.966
+
+28.15
+0.962
+
+29.96
+0.973
+
+28.52
+0.964
+
+31.45
+0.980
+
+31.66
+0.968
+
+Evaluations on the RealBlur dataset. Using the same protocols, we evaluate our approach on the
+real-world blurry dataset by Rim et al. [35]. Table 2 shows that the proposed method outperforms
+previous work significantly, improving the PSNR by at least 1.53dB and 0.93dB on the datasets of
+RealBlur-J and RealBlur-R, respectively. Figure 3 shows the visual comparisons on the RealBlur
+dataset, where our method generates the result with clearer characters and finer structural details.
+Evaluations on the HIDE dataset. We examine our method on the HIDE dataset [36] in Table 3.
+Similar to state-of-the-art methods [21, 6], we directly use the models trained on the GoPro dataset
+for testing. The PSNR value of our approach is 0.35dB higher than those from competing methods,
+showing that our method generalizes well, as the models are not trained on this dataset.
+Evaluations on datasets for other image restoration tasks. We also evaluate our method on
+the real-world dataset [46] for image deraining and RESIDE-6K dataset [24] for image dehazing.
+Tables 4-5 show that the proposed approach performs favorably against state-of-the-art methods on
+7
+
+Table 6: Effectiveness of the proposed EVS block, evaluated on the GoPro dataset [31].
+Scanning mode
+one-direction
+two-direction
+four-direction
+EVS (ours)
+
+(a) Blurred input
+
+Parameters (M)
+17.1
+18.3
+20.1
+17.1
+
+(b) one-direction
+
+FLOPs (G)
+126
+135
+148
+126
+
+Runtime (ms)
+87.9
+122.7
+182.6
+88.7
+
+PSNR/SSIM
+33.99/0.9683
+34.08/0.9687
+34.05/0.9686
+34.13/0.9690
+
+(c) two-direction
+
+(d) four-direction
+
+(e) EVS (ours)
+
+Figure 4: Effect of the proposed EVS block. Our method with the proposed EVS block is more
+effective at recovering clearer structures.
+image deraining and dehazing datasets, which demonstrates the generalization ability of our method
+on other image restoration tasks.
+
+5
+
+Analysis and Discussion
+
+We have shown that the proposed efficient visual state space model generates favorable results
+compared to state-of-the-art methods. In this section, we provide more analysis of the proposed
+method and discuss the effect of the main components. For the ablation studies in this section, we
+train our approach and all the baselines on the GoPro dataset using a batch size of 64 and a patch size
+of 128 × 128 pixels.
+Effectiveness of the EVS block. The core of our proposed EVS block is the geometric transformation
+(4) applied at the beginning of this block. To demonstrate the effect of the EVS block, we first remove
+the geometric transformation (one-direction for short, which performs scanning in one direction as
+in [13]) and train this baseline model using the same settings as ours. Table 6 shows that the PSNR of
+our approach is 0.14dB higher than this baseline method. The state space model requires flattening the
+image feature into a one-dimensional sequence, which compromises the spatial structural information
+of the visual data. Compared to the baseline, our method with the geometric transformation can better
+explore non-local information. Meanwhile, the number of parameters and the FLOPs of our method
+are the same as those of the baseline, and their runtimes are also almost identical, which demonstrates
+the effectiveness of the proposed EVS block in improving the ability of the state space model for
+handling visual data with a minimal increase in computational costs.
+In addition, we also compare with two baselines that respectively perform scanning in two directions
+(two-direction for short) and four directions [27] (four-direction for short). As Table 6 shows,
+although scanning in multi-directions can alleviate the limitation of the state space model on handling
+visual data, it leads to an increase in the number of network parameters and the computational
+complexity, resulting in significantly longer runtimes, cf. 122.7ms for one-direction vs. 182.6ms
+for four-direction vs. 88.7ms for our approach. Note that the results of scanning in four-directions
+are slightly lower than those of scanning in two-directions. This is because the methods that scan
+in multiple directions simply employ the summation followed by normalization to fuse features
+extracted from different scanning directions. Thus, the multi-direction information is not effectively
+and fully utilized. In contrast to simultaneously scanning in multiple directions, our approach applies
+geometric transformations to the input feature at the beginning of each EVS block. This allows each
+scan to capture the contextual information from different directions and mitigates the increase in
+computational complexity and runtime. Figure 4 demonstrates that our approach can deblur images
+better than other methods, where the structures of the windows are restored well (see Figure 4(e)).
+Effectiveness of the geometric transformation. In the EVS block, we adopt two classical image
+geometric transformations in the proposed EVS block: flip and transpose. To demonstrate their
+8
+
+Table 7: Effectiveness of the geometric transformation, evaluated on the GoPro dataset [31].
+Method
+w/o F&T
+w/o F
+w/o T
+EVSSM (ours)
+
+Scanning in one direction
+"
+"
+"
+"
+
+Transpose
+%
+"
+%
+"
+
+Flip
+%
+%
+"
+"
+
+Parameters (M)
+17.1
+17.1
+17.1
+17.1
+
+FLOPs (G)
+126
+126
+126
+126
+
+Runtime (ms)
+87.9
+88.4
+88.5
+88.7
+
+PSNR/SSIM
+33.99/0.9683
+34.05/0.9686
+34.03/0.9684
+34.13/0.9690
+
+Table 8: Model complexity of the top-performance methods on the GoPro dataset, evaluated on
+images with the size of 256 × 256 pixels. All the results are obtained on a machine with an NVIDIA
+RTX 3090 GPU.
+Method
+
+DMPHN [55] IPT [2] MPRNet-local [6] Restormer-local [6] GRL [25] FFTformer [21] EVSSM (ours)
+
+Parameters (M)
+FLOPs (G)
+Runtime (ms)
+
+21.7
+234
+143
+
+(a) Blurred input
+
+114
+376
+298
+
+(b) w/o F&T
+
+20.1
+760
+95
+
+26.1
+155
+286
+
+(c) w/o F
+
+20.20
+1289
+518
+
+(d) w/o T
+
+16.6
+131
+132
+
+17.1
+126
+89
+
+(e) EVSSM (ours)
+
+Figure 5: Effect of the geometric transformations. Compared to the results in (b)-(d), our approach
+with both the filp and transpose transformations generates a clearer image in (e).
+effectiveness, we individually remove the flip transformation (w/o F for short), the transpose transformation (w/o T for short), and both flip and transpose transformations (w/o F&T for short). The
+comparison results in Table 7 demonstrate that applying the flip or transpose transformation can
+achieve better results, improving the PSNR by at least 0.04dB. Our approach, which uses both flip and
+transpose transformations, outperforms all these baseline methods without significantly increasing
+the computational cost or runtime. The visual comparisons in Figure 5 further demonstrate the
+effectiveness of our approach, where the wheel recovered by our method is much clearer.
+Model complexity. We further examine the model complexity of the proposed approach and other
+top-performance methods in terms of model parameters, floating point operations (FLOPs), and
+average runtime. Table 8 shows that the proposed method has fewer FLOPs and is faster than the
+evaluated methods.
+Limitations. We develop an effective and efficient method that explores the the properties of the
+state space model for high-quality image restoration. However, we have only considered simple
+transformations such as flip and transpose so far. In future work, we will consider more powerful
+transformation methods, such as the polar coordinate transformation, to better characterize the spatial
+information of visual data with SSMs.
+
+6
+
+Conclusion
+
+In this paper, we propose an efficient visual state space model for image deblurring. Specifically, we
+develop an efficient visual scan block, where we employ various geometric transformations before
+each scan to adapt SSMs to visual data. We show that compared to existing methods that scan along
+multiple directions simultaneously, our method is more effective at exploring non-local information
+without significantly increasing the computational cost. Extensive evaluations and comparisons
+with state-of-the-art methods demonstrate that our approach is much more efficient while achieving
+favorable performance.
+9
+
+References
+[1] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier, Alexander Kirillov, and Sergey
+Zagoruyko. End-to-end object detection with transformers. In ECCV, 2020. 2
+[2] Hanting Chen, Yunhe Wang, Tianyu Guo, Chang Xu, Yiping Deng, Zhenhua Liu, Siwei Ma, Chunjing Xu,
+Chao Xu, and Wen Gao. Pre-trained image processing transformer. In CVPR, 2021. 2, 9
+[3] Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, and Jian Sun. Simple baselines for image restoration. In
+ECCV, 2022. 1, 2, 5, 6
+[4] Xiang Chen, Hao Li, Mingqiang Li, and Jinshan Pan. Learning a sparse transformer network for effective
+image deraining. In CVPR, 2023. 7
+[5] Sung-Jin Cho, Seo-Won Ji, Jun-Pyo Hong, Seung-Won Jung, and Sung-Jea Ko. Rethinking coarse-to-fine
+approach in single image deblurring. In ICCV, 2021. 1, 2, 5, 6, 7
+[6] Xiaojie Chu, Liangyu Chen, , Chengpeng Chen, and Xin Lu. Improving image restoration by revisiting
+global information aggregation. In ECCV, 2022. 5, 6, 7, 9
+[7] Rui Deng and Tianpei Gu. Cu-mamba: Selective state space models with channel learning for image
+restoration. arXiv preprint arXiv:2404.11778, 2024. 2, 5, 6
+[8] Hang Dong, Jinshan Pan, Lei Xiang, Zhe Hu, Xinyi Zhang, Fei Wang, and Ming-Hsuan Yang. Multi-scale
+boosted dehazing network with dense feature fusion. In CVPR, 2020. 7
+[9] Jiangxin Dong and Jinshan Pan. Physics-based feature dehazing networks. In ECCV, 2020. 7
+[10] Xueyang Fu, Qi Qi, Zheng-Jun Zha, Yurui Zhu, and Xinghao Ding. Rain streak removal via dual graph
+convolutional network. In AAAI, 2021. 7
+[11] Hongyun Gao, Xin Tao, Xiaoyong Shen, and Jiaya Jia. Dynamic scene deblurring with parameter selective
+sharing and nested skip connections. In CVPR, 2019. 1, 2
+[12] Hu Gao and Depeng Dang. Aggregating local and global features via selective state spaces model for
+efficient image deblurring. arXiv preprint arXiv:2403.20106, 2024. 2
+[13] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint
+arXiv:2312.00752, 2023. 1, 3, 4, 5, 8
+[14] Albert Gu, Tri Dao, Stefano Ermon, Atri Rudra, and Christopher Ré. Hippo: Recurrent memory with
+optimal polynomial projections. In NeurIPS, 2020. 3
+[15] Albert Gu, Isys Johnson, Karan Goel, Khaled Saab, Tri Dao, Atri Rudra, and Christopher Ré. Combining
+recurrent, convolutional, and continuous-time models with linear state space layers. In NeurIPS, 2021. 1, 3
+[16] Albert Gu, Karan Goel, and Christopher R’e. Efficiently modeling long sequences with structured state
+spaces. In ICLR, 2022. 1, 3
+[17] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong Ren, and Shu-Tao Xia. Mambair: A simple
+baseline for image restoration with state-space model. arXiv preprint arXiv:2402.15648, 2024. 2, 3
+[18] Kaiming He, Jian Sun, and Xiaoou Tang. Single image haze removal using dark channel prior. IEEE
+TPAMI, 2010. 7
+[19] Kui Jiang, Zhongyuan Wang, Peng Yi, Chen Chen, Baojin Huang, Yimin Luo, Jiayi Ma, and Junjun Jiang.
+Multi-scale progressive fusion network for single image deraining. In CVPR, 2020. 7
+[20] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In ICLR, 2015. 5
+[21] Lingshun Kong, Jiangxin Dong, Jianjun Ge, Mingqiang Li, and Jinshan Pan. Efficient frequency domainbased transformers for high-quality image deblurring. In CVPR, 2023. 1, 2, 3, 5, 6, 7, 9
+[22] Orest Kupyn, Volodymyr Budzan, Mykola Mykhailych, Dmytro Mishkin, and Jiri Matas. Deblurgan:
+Blind motion deblurring using conditional adversarial networks. In CVPR, 2018. 2
+[23] Orest Kupyn, Tetiana Martyniuk, Junru Wu, and Zhangyang Wang. Deblurgan-v2: Deblurring (orders-ofmagnitude) faster and better. In ICCV, 2019. 2, 6, 7
+[24] Boyi Li, Wenqi Ren, Dengpan Fu, Dacheng Tao, Dan Feng, Wenjun Zeng, and Zhangyang Wang. Benchmarking single-image dehazing and beyond. IEEE TIP, 2018. 7
+
+10
+
+[25] Yawei Li, Yuchen Fan, Xiaoyu Xiang, Denis Demandolx, Rakesh Ranjan, Radu Timofte, and Luc Van Gool.
+Efficient and explicit modelling of image hierarchies for image restoration. In CVPR, 2023. 5, 6, 9
+[26] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc Van Gool, and Radu Timofte. Swinir: Image
+restoration using swin transformer. In ICCV Workshops, 2021. 1, 2
+[27] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi Xie, Yaowei Wang, Qixiang Ye, and Yunfan
+Liu. Vmamba: Visual state space model. arXiv preprint arXiv:2401.10166, 2024. 2, 3, 4, 8
+[28] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin
+transformer: Hierarchical vision transformer using shifted windows. In ICCV, 2021. 2
+[29] Yu Luo, Yong Xu, and Hui Ji. Removing rain from a single image via discriminative sparse coding. In
+ICCV, 2015. 7
+[30] Xintian Mao, Yiming Liu, Wei Shen, Qingli Li, and Yan Wang. Deep residual fourier transformation for
+single image deblurring. arXiv preprint arXiv:2111.11745, 2021. 6
+[31] Seungjun Nah, Tae Hyun Kim, and Kyoung Mu Lee. Deep multi-scale convolutional neural network for
+dynamic scene deblurring. In CVPR, 2017. 2, 5, 6, 8, 9
+[32] Xu Qin, Zhilin Wang, Yuanchao Bai, Xiaodong Xie, and Huizhu Jia. Ffa-net: Feature fusion attention
+network for single image dehazing. In AAAI, 2020. 7
+[33] Wenqi Ren, Si Liu, Hua Zhang, Jinshan Pan, Xiaochun Cao, and Ming-Hsuan Yang. Single image dehazing
+via multi-scale convolutional neural networks. In ECCV, 2016. 7
+[34] Wenqi Ren, Lin Ma, Jiawei Zhang, Jinshan Pan, Xiaochun Cao, Wei Liu, and Ming-Hsuan Yang. Gated
+fusion network for single image dehazing. In CVPR, 2018. 7
+[35] Jaesung Rim, Haeyun Lee, Jucheol Won, and Sunghyun Cho. Real-world blur dataset for learning and
+benchmarking deblurring algorithms. In ECCV, 2020. 5, 6, 7
+[36] Ziyi Shen, Wenguan Wang, Xiankai Lu, Jianbing Shen, Haibin Ling, Tingfa Xu, and Ling Shao. Humanaware motion deblurring. In ICCV, 2019. 5, 6, 7
+[37] Yuan Shi, Bin Xia, Xiaoyu Jin, Xing Wang, Tianyu Zhao, Xin Xia, Xuefeng Xiao, and Wenming Yang.
+Vmambair: Visual state space model for image restoration. arXiv preprint arXiv:2403.11423, 2024. 2, 3
+[38] Yuda Song, Zhuqing He, Hui Qian, and Xin Du. Vision transformers for single image dehazing. IEEE TIP,
+2023. 7
+[39] Maitreya Suin, Kuldeep Purohit, and A. N. Rajagopalan. Spatially-attentive patch-hierarchical network for
+adaptive motion deblurring. In CVPR, 2020. 6
+[40] Xin Tao, Hongyun Gao, Xiaoyong Shen, Jue Wang, and Jiaya Jia. Scale-recurrent network for deep image
+deblurring. In CVPR, 2018. 1, 2, 5, 6, 7
+[41] Fu-Jen Tsai, Yan-Tsung Peng, Yen-Yu Lin, Chung-Chi Tsai, and Chia-Wen Lin. Banet: Blur-aware
+attention networks for dynamic scene deblurring. In CVPR, 2021. 6
+[42] Fu-Jen Tsai, Yan-Tsung Peng, Yen-Yu Lin, Chung-Chi Tsai, and Chia-Wen Lin. Stripformer: Strip
+transformer for fast image deblurring. In ECCV, 2022. 2, 5, 6, 7
+[43] Zhengzhong Tu, Hossein Talebi, Han Zhang, Feng Yang, Peyman Milanfar, Alan Bovik, and Yinxiao Li.
+Maxim: Multi-axis mlp for image processing. In CVPR, 2022. 5, 6
+[44] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz
+Kaiser, and Illia Polosukhin. Attention is all you need. In NIPS, 2017. 1
+[45] Hong Wang, Qi Xie, Qian Zhao, and Deyu Meng. A model-driven deep neural network for single image
+rain removal. In CVPR, 2020. 7
+[46] Tianyu Wang, Xin Yang, Ke Xu, Shaozhe Chen, Qiang Zhang, and Rynson W.H. Lau. Spatial attentive
+single-image deraining with a high quality real rain dataset. In CVPR, 2019. 7
+[47] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao Song, Ding Liang, Tong Lu, Ping Luo, and
+Ling Shao. Pyramid vision transformer: A versatile backbone for dense prediction without convolutions.
+In ICCV, 2021. 2
+
+11
+
+[48] Zhendong Wang, Xiaodong Cun, Jianmin Bao, Wengang Zhou, Jianzhuang Liu, and Houqiang Li. Uformer:
+A general u-shaped transformer for image restoration. In CVPR, 2022. 1, 2, 5, 6
+[49] Haiyan Wu, Yanyun Qu, Shaohui Lin, Jian Zhou, Ruizhi Qiao, Zhizhong Zhang, Yuan Xie, and Lizhuang
+Ma. Contrastive learning for compact single image dehazing. In CVPR, 2021. 7
+[50] Jie Xiao, Xueyang Fu, Aiping Liu, Feng Wu, and Zheng-Jun Zha. Image de-raining transformer. IEEE
+TPAMI, 2023. 7
+[51] Lian Xu, Wanli Ouyang, Mohammed Bennamoun, Farid Boussaid, and Dan Xu. Multi-class token
+transformer for weakly supervised semantic segmentation. In CVPR, 2022. 2
+[52] Qiaosi Yi, Juncheng Li, Qinyan Dai, Faming Fang, Guixu Zhang, and Tieyong Zeng. Structure-preserving
+deraining with residue channel prior guidance. In ICCV, 2021. 7
+[53] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, Ming-Hsuan
+Yang, and Ling Shao. Multi-stage progressive image restoration. In CVPR, 2021. 1, 2, 5, 6
+[54] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan
+Yang. Restormer: Efficient transformer for high-resolution image restoration. In CVPR, 2022. 1, 2, 5, 6, 7
+[55] Hongguang Zhang, Yuchao Dai, Hongdong Li, and Piotr Koniusz. Deep stacked hierarchical multi-patch
+network for image deblurring. In CVPR, 2019. 2, 5, 6, 9
+[56] Jing Zhang, Jianwen Xie, Nick Barnes, and Ping Li. Learning generative vision transformer with energybased latent space for saliency prediction. In NeurIPS, 2021. 2
+[57] Sixiao Zheng, Jiachen Lu, Hengshuang Zhao, Xiatian Zhu, Zekun Luo, Yabiao Wang, Yanwei Fu, Jianfeng
+Feng, Tao Xiang, Philip H. S. Torr, and Li Zhang. Rethinking semantic segmentation from a sequence-tosequence perspective with transformers. In CVPR, 2021. 2
+
+12
+
+

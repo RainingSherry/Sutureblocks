@@ -1,0 +1,2563 @@
+SCSA: Exploring the Synergistic Effects Between Spatial and Channel
+Attention⋆
+Yunzhong Sia , Huiying Xua,b,∗ , Xinzhong Zhua,b,c , Wenhao Zhanga , Yao Donga , Yuxing Chena and
+Hongbo Lic
+a College of Computer Science and Technology, Zhejiang Normal University, Jinhua, 321004, China
+b Research Institute of Hangzhou Artificial Intelligence, Zhejiang Normal University, Hangzhou, 311231, China
+
+arXiv:2407.05128v2 [cs.CV] 12 Nov 2024
+
+c Beijing Geekplus Technology Co., Ltd, Beijing, 100101, China
+
+ARTICLE INFO
+
+ABSTRACT
+
+Keywords:
+Synergistic Attention
+Spatial Multi-Semantic Guidance
+Multi-Semantic Information Interaction
+Mitigation of Multi-Semantic Disparities
+Feature Extraction Capability
+
+Channel and spatial attentions have respectively brought significant improvements in extracting feature
+dependencies and spatial structure relations for various downstream vision tasks. The combined
+use of both channel and spatial attentions is widely considered beneficial for further performance
+improvement; however, the synergistic effects between channel and spatial attentions, especially in
+terms of spatial guidance and mitigating semantic disparities, have not yet been thoroughly studied.
+This motivates us to propose a novel Spatial and Channel Synergistic Attention module (SCSA),
+entailing our investigation toward the synergistic relationship between spatial and channel attentions
+at multiple semantic levels. Our SCSA consists of two parts: the Shareable Multi-Semantic Spatial
+Attention (SMSA) and the Progressive Channel-wise Self-Attention (PCSA). SMSA integrates multisemantic information and utilizes a progressive compression strategy to inject discriminative spatial
+priors into PCSA’s channel self-attention, effectively guiding channel recalibration. Additionally, the
+robust feature interactions based on the Channel-wise single-head self-attention mechanism in PCSA
+further mitigate the disparities in multi-semantic information among different sub-features within
+SMSA. We conduct extensive experiments on seven benchmark datasets, including classification on
+ImageNet-1K, object detection on MSCOCO, segmentation on ADE20K, and four other complex
+scene detection datasets. Our results demonstrate that our proposed SCSA not only surpasses the
+current plug-and-play state-of-the-art attention but also exhibits enhanced generalization capabilities
+across various task scenarios. The code and models are available at: https://github.com/HZAIZJNU/SCSA .
+
+1. Introduction
+Attention mechanisms, by enhancing representations of interest, facilitate the learning of more discriminative features
+and are widely used in redistributing channel relationships
+and spatial dependencies. Existing plug-and-play attention
+methods can be primarily categorized into three types: channel attention [23, 27, 62, 55, 31, 41], spatial attention [22,
+56, 42, 9], and hybrid channel-spatial attention [57, 40, 38,
+14, 20, 65, 39, 61]. Their focuses differ: channel attention
+focus on enhancing the extraction of key object features by
+adaptively weighting the importance of different channels,
+while spatial attention is tailored to augment critical spatial
+information. Spatial information represents semantic feature
+objects at the pixel level. Local spatial information captures
+low-semantic objects, such as fine details and textures, while
+global spatial information perceives high-semantic objects,
+such as overall shape.
+In models based on convolutional neural network (CNN)
+architectures, deep convolutional operators are commonly
+employed for feature extraction. The gradients generated
+⋆
+
+This work was supported by the National Natural Science Foundation
+of China(62376252); Key Project of Zhejiang Provincial Natural Science
+Foundation(LZ22F030003).
+∗ Corresponding author.
+Email addresses: siyunzhong@zjnu.edu.cn (Y. Si); xhy@zjnu.edu.cn
+(H. Xu); zxz@zjnu.edu.cn (X. Zhu); zwh2012918201@zjnu.edu.cn (W.
+Zhang); dongyao@zjnu.edu.cn (Y. Dong); cyx2001@zjnu.edu.cn (Y. Chen);
+jason.li@geekplus.com (H. Li)
+
+Y. Si et al.
+
+Figure 1. Visualization of several feature maps. Different box or
+circle colors highlight inherent spatial semantic disparities across
+specific parts in various feature maps.
+
+by these operators can flow and propagate across different
+feature channels, facilitating the update of convolutional
+weights and effectively representing image features. However, numerous studies have shown that relying solely on
+the convolutional branch for feature extraction can lead to
+distorted gradient flows [54], resulting in the loss of critical
+information or redundancy of similar features [4, 17, 66, 35].
+To address this, several methods based on excitation and
+suppression mechanisms [23] have been proposed, which
+Page 1 of 13
+
+focus feature learning on the most critical features for different tasks, thereby enhancing the model’s representational
+capacity. In particular, CBAM [57] aggregates global spatial
+and channel information separately by chaining channel and
+spatial attention, but compressing all channel information
+leads to sharing across all spatial structures. This weakens
+the adaptability of spatial context to different feature maps.
+To overcome this, CPCA [24] introduces a channel-priority
+attention mechanism and depth-wise stripe convolutions,
+independently extracting spatial structures of each feature,
+significantly improving medical image segmentation. Furthermore, the EMA [39] module, based on grouped attention and cross-spatial multi-scale interactions, effectively
+integrates spatial information of both long and short-range
+dependencies but overlooks inter-group feature interactions.
+Although these hybrid attention mechanisms enhance
+representation learning, they overlook the inherent multisemantic information across spatial and channel dimensions,
+as well as the interaction and disparity mitigation of multisemantic features, which are crucial for fine-grained tasks
+such as detection and segmentation, thereby limiting the
+plug-and-play capability of these methods. As shown in
+Fig. 1, we analyze several feature maps of the image and
+observe that distinct spatial regions exhibit inherent semantic disparities and similarities, arising from the feature
+selectivity of different channels.
+Based on this insight, this raises the question of whether
+it is possible to leverage the inherent spatial semantic disparities across different feature channels to guide the learning of important features? Furthermore, given the presence
+of semantic disparities, how can we mitigate these multisemantic differences and promote better fusion of multisemantic information?
+Differing from the aforementioned methods, we explore solutions to the above issues from following three
+aspects: dimension decoupling, lightweight multi-semantic
+guidance, and semantic disparities mitigation, and propose
+a novel, plug-and-play Spatial and Channel Synergistic
+Attention (SCSA). Our SCSA is composed of a shareable
+Multi-Semantic Spatial Attention (SMSA) and a Progressive
+Channel-wise Self-Attention (PCSA) linked sequentially.
+Our study initially employs multi-scale, depth-shared 1D
+convolutions to extract spatial information at various semantic levels from four independent sub-features. We utilize Group Normalization [58] across four sub-features to
+hasten model convergence while avoiding the introduction
+of batch noise and the interference of semantic information
+between different sub-features. Subsequently, we input the
+SMSA-modulated feature maps into PCSA, incorporating
+progressive compression and channel-specific single-head
+self-attention mechanisms. Our progressive compression
+strategy is designed to minimize computational complexity
+while preserving the spatial priors within SMSA, offering
+a practical trade-off. Moreover, our PCSA leverages an
+input-aware single-head self-attention mechanism to effectively explore channel similarities, thereby mitigating
+semantic disparities among different sub-features in SMSA
+Y. Si et al.
+
+and promoting information fusion. We conducted extensive
+experiments across four visual tasks and seven benchmark
+datasets, illustrating the effectiveness of the multi-semantic
+synergy applied in our SCSA. In summary, our contributions
+are as follows:
+• We identify two key limitations in existing plugand-play attention mechanisms: 1) insufficient utilization of inherent multi-semantic spatial information to
+guide the extraction of key features along spatial and
+channel dimensions, and 2) inadequate handling of
+semantic disparities and interactions caused by multisemantic information across feature maps.
+• We propose the Spatial and Channel Synergistic Attention (SCSA), comprising the SMSA and PCSA
+modules. SMSA utilizes multi-scale depth-shared 1D
+convolutions to capture multi-semantic spatial information, enhancing both local and global feature representations. PCSA employs input-aware self-attention
+to refine channel features, effectively mitigating semantic disparities and ensuring robust feature integration across channels.
+• Our proposed method outperforms other state-of-theart plug-and-play attention mechanisms on multiple
+benchmarks, including ImageNet-1K for classification, MSCOCO for object detection, and ADE20K for
+segmentation, and demonstrates strong generalization
+capability across various complex scenarios, such as
+low-light and small-object benchmarks.
+
+2. Related Work
+2.1. Multi-Semantic Spatial Information
+Multi-semantic spatial structures incorporate rich category
+and contextual information. Effectively integrating global
+context and local spatial priors enables models to learn
+higher-quality representations from various perspectives.
+The InceptionNets [49, 25, 50, 48] pioneered a multibranch approach, employing parallel vanilla convolutions
+of different sizes to capture varying receptive fields, significantly enhancing feature extraction capabilities. SKNet [27]
+incorporates multi-scale convolutions into channel attention,
+using the squeeze-and-excitation mechanism proposed by
+SENet [23] to integrate spatial priors with varying receptive fields. Benefiting from the global contextual modeling
+ability, ViT [9] employs MHSA to capture correlations
+at different spatial positions within distinct semantic subfeatures, complemented by position embedding to compensate for spatial priors, achieving remarkable success in
+various downstream tasks. Currently, many studies develop
+efficient models [66, 35, 4, 53] based on multi-semantic
+ideas, reducing parameters and computation for enhanced
+inference efficiency. Mamba [16] introduces a selectable
+state space model using scanning mechanisms and GPU parallelism to model global contextual dependencies with linear
+time complexity. Additionally, VMamba [32] proposes a
+Page 2 of 13
+
+Shared Multi-Semantic Spatial Attention(SMSA)
+
+MS-DWConv1d
+(k1, k2, k3, k4)
+
+n=4
+
+split
+X AvgPool
+
+Concat
+
+GroupNorm ~4
+
+Sigmoid
+
+Concat
+
+GroupNorm ~4
+
+Sigmoid
+
+MS-DWConv1d
+(3, 5, 7, 9)
+
+DWConv1d, k1
+
+split
+
+Y AvgPool
+
+DWConv1d, k2
+
+n=4
+DWConv1d, k3
+Progressive Channel-wise Self-Attention(PCSA)
+
+V
+K
+
+DWConv2d, 1x1
+
+Q
+
+AvgPool
+
+CA-SHSA
+
+Sigmoid
+
+DWConv1d, k4
+DWConv2d, 1x1
+
+DWConv2d, 1x1
+
+AvgPool
+GroupNorm ~1
+
+CA-SHSA
+Q
+K
+MS-DWConv1d
+(3, 5, 7, 9)
+
+Multi-Receptive Field Shared Depthwise 1D
+Convolutions with Kernels of 3, 5, 7, and 9
+
+Q
+
+Query
+
+K
+
+Key
+
+V
+
+Query
+
+V
+
+Fundamental Dimension Transformation Operations (e.g., Reshape)
+Softmax
+
+CA-SHSA
+
+Channel-wise Single-Head
+Self-Attention
+
+Element-wise Multiplication
+
+Matrix Multiplication
+
+GroupNorm ~N
+
+Group Normalization with N Groups
+
+Figure 2. An illustration of our proposed SCSA, which uses multi-semantic spatial information to guide the learning of channel-wise
+self-attention. 𝐵 denotes the batch size, 𝐶 signifies the number of channels, and 𝐻 and 𝑊 correspond to the height and width of the feature
+maps, respectively. The variable 𝑛 represents the number of groups into which sub-features are divided, and 1𝑃 denotes a single pixel.
+
+cross-scanning module that extends 1D sequence scanning
+to 2D image scanning, effectively capturing multi-semantic
+global context information from four directions.
+
+2.2. Attention Decomposition
+Integrating attention mechanisms into mainstream backbones or feature fusion networks enhances fine-grained
+feature understanding and improves feature representation
+accuracy. However, it inevitably leads to increased memory
+usage and computational time. CA [20] and ELA [61]
+perform unidirectional spatial compression along the height
+(H) and width (W) dimensions separately, preserving spatial
+structures in one direction while aggregating global spatial
+information in another, mitigating information loss from
+global compression. SA [65] and EMA [39] reshape features into sub-features, reducing attention computation and
+parameters. However, the reshape operations they used in the
+high-dimensional B (batch size) and C (number of channels)
+constrained by GPU bandwidth can lead to expensive data
+transfers, significantly impacting inference speeds. CPCA
+[24] uses stripe convolutions in independent channels to reduce parameters in large-kernel convolutions. Recent studies
+also apply dimension decomposition in MHSA, with RMT
+[12] applying MHSA separately across H and W dimensions
+to minimize computational costs.
+In this study, we build upon the concept of attention decomposition and propose a lightweight guidance module that
+integrates multi-semantic spatial information. Additionally,
+we design a multi-semantic discrepancy mitigation module based on a progressive channel-wise single-head selfattention mechanism, aiming to explore a more optimized
+synergistic relationship between the spatial and channel dimensions.
+Y. Si et al.
+
+3. Method
+In this section, we begin by discussing the SMSA module,
+which explores the benefits of lightweight multi-semantic
+information guidance. Next, we introduce the PCSA module, which utilizes a progressive compression strategy and
+channel-wise self-attention to mitigate semantic disparities.
+The synergistic effects of multi-semantic guidance and semantic disparities mitigation motivate us to propose SCSA
+module. The overall architecture is shown in Fig. 2.
+
+3.1. Shared Multi-Semantic Spatial Attention
+Spatial and Channel Decomposition. Decomposition
+
+techniques in neural network architectures substantially
+reduce the parameter count and computational overhead. Inspired by the structure of 1D sequences in Transformer [52],
+in our work, we decompose the given input 𝑋 ∈ ℝ𝐵×𝐶×𝐻×𝑊
+along the height and width dimensions. We apply global
+average pooling to each dimension, thereby creating two
+unidirectional 1D sequence structures: 𝑋𝐻 ∈ ℝ𝐵×𝐶×𝑊 and
+𝑋𝑊 ∈ ℝ𝐵×𝐶×𝐻 . To learn varying spatial distributions and
+contextual relationships, we partition the feature set into 𝐾
+𝑖 and 𝑋 𝑖 ,
+identically sized, independent sub-features, 𝑋𝐻
+𝑊
+𝐶
+with each sub-feature having a channel count of 𝐾
+. In this
+paper, we set the default value 𝐾 = 4. The process of
+decomposing into sub-features is presented as follows:
+𝐶
+𝐶
+∶ 𝑖 × , ∶]
+𝐾
+𝐾
+𝐶
+𝐶
+𝑖
+𝑋𝑊
+= 𝑋𝑊 [∶, (𝑖 − 1) ×
+∶ 𝑖 × , ∶]
+𝐾
+𝐾
+𝑖
+𝑋𝐻
+= 𝑋𝐻 [∶, (𝑖 − 1) ×
+
+(1)
+(2)
+
+𝑋 𝑖 represents the 𝑖-th sub-feature, where 𝑖 ∈ [1, 𝐾]. Each
+sub-feature is independent, facilitating efficient extraction of
+multi-semantic spatial information.
+Page 3 of 13
+
+Lightweight Convolution Strategies Across Disjoint
+Sub-features. After partitioning the feature maps into
+exclusive sub-features, we aim to efficiently capture distinct
+semantic spatial structures within each sub-feature. Inspired
+by extensive research on reducing feature redundancy [35,
+17, 4], which reveal that such redundancy is likely due to
+intense interactions among features, we also observe varied
+spatial structures among features, as illustrated in Fig. 1.
+Based on these insights and aiming to enrich semantic information, enhance semantic coherence, and minimize semantic gaps, we apply depth-wise 1D convolutions with kernel
+sizes of 3, 5, 7, and 9 to four sub-features. Furthermore, to
+address the limited receptive field caused by decomposing
+features into H and W dimensions and applying 1D convolutions separately, we use lightweight shared convolutions for
+alignment, implicitly modeling the dependency between the
+two dimensions by learning consistent features across both.
+The ablation details regarding them are provided in Tab. 1.
+The implementation process for extracting multi-semantic
+spatial information is defined as follows:
+𝐶
+
+𝐶
+
+→
+𝑖
+𝑖
+𝑋̃𝐻
+= 𝐷𝑊 𝐶𝑜𝑛𝑣1𝑑𝑘𝐾 𝐾 (𝑋𝐻
+)
+
+(3)
+
+𝑖
+𝑋̃𝑊
+= 𝐷𝑊 𝐶𝑜𝑛𝑣1𝑑𝑘
+
+(4)
+
+𝑖
+𝐶
+𝐶
+→𝐾
+𝐾
+𝑖
+
+𝑖
+(𝑋𝑊
+)
+
+𝑋̃ 𝑖 represents the spatial structural information of the 𝑖-th
+sub-feature obtained after lightweight convolutional operations. 𝑘𝑖 denotes the convolution kernel applied to the 𝑖-th
+sub-feature.
+After decomposing the independent sub-features and
+capturing the spatial information of different semantics, we
+need to construct the spatial attention map. Specifically,
+we concat distinct semantic sub-features and use Group
+Normalization (GN) [58] with 𝐾 groups for normalization.
+We opt for GN over the common Batch Normalization
+(BN) [26] because our study finds that GN is superior
+in distinguishing semantic differences among sub-features.
+GN allows for the independent normalization of each subfeature without introducing batch statistical noise, effectively mitigating semantic interference between sub-features
+and preventing attention dilution. This design is validated by
+ablation studies shown in Tab. 1. Finally, spatial attention
+is generated using a simple Sigmoid activation function,
+which activates and suppresses specific spatial regions. The
+computation of output features is as follows:
+1
+2
+𝐾
+𝐴𝑡𝑡𝑛𝐻 = 𝜎(𝐺𝑁𝐻𝐾 (𝐶𝑜𝑛𝑐𝑎𝑡(𝑋̃𝐻
+, 𝑋̃𝐻
+, ..., 𝑋̃𝐻
+)))
+𝐾
+̃
+̃
+1
+2
+𝐾
+̃
+𝐴𝑡𝑡𝑛 = 𝜎(𝐺𝑁 (𝐶𝑜𝑛𝑐𝑎𝑡(𝑋 , 𝑋 , ..., 𝑋 )))
+𝑊
+
+(6)
+
+𝑆𝑀𝑆𝐴(𝑋) = 𝑋𝑠 = 𝐴𝑡𝑡𝑛𝐻 × 𝐴𝑡𝑡𝑛𝑊 × 𝑋
+
+(7)
+
+𝑊
+
+𝑊
+
+𝑊
+
+𝑊
+
+(5)
+
+𝐾 (⋅) and
+𝜎(⋅) denotes the Sigmoid normalization, while 𝐺𝑁𝐻
+𝐾
+𝐺𝑁𝑊 (⋅) represent GN with K groups along the H and W
+dimensions, respectively.
+
+3.2. Progressive Channel-wise Self-Attention
+
+A prevalent approach to compute channel attention is through
+convolutional operations that explore dependencies among
+channels [23, 55]. The use of convolution to model the
+similarities between features is somewhat non-intuitive and
+makes it difficult to effectively measure the similarity across
+different channels. Inspired by the significant advantages
+Y. Si et al.
+
+of the ViT [9] in utilizing MHSA for modeling similarities
+among different tokens in spatial, we propose combining the
+Single-Head Self-Attention (SHSA) with modulated spatial
+priors from SMSA to compute inter-channel similarities.
+Moreover, to preserve and utilize the multi-semantic spatial
+information extracted by SMSA, and to reduce the computational cost of SHSA, we employ a progressive compression
+method based on average pooling, which serves as the
+guidance in our synergistic effects. Compared with modeling channel dependencies using common convolutional
+operations, PCSA exhibits stronger input perception capabilities and effectively leverages the spatial priors provided
+by SMSA to deepen learning. The implementation details of
+our PCSA are as follows:
+′
+
+′
+
+(𝐻,𝑊 )→(𝐻 ,𝑊 )
+𝑋𝑝 = 𝑃 𝑜𝑜𝑙(7,7)
+(𝑋𝑠 )
+
+(8)
+
+𝐶→𝐶
+𝐹𝑝𝑟𝑜𝑗 = 𝐷𝑊 𝐶𝑜𝑛𝑣1𝑑(1,1)
+
+(9)
+
+𝑄
+𝐾
+𝑄 = 𝐹𝑝𝑟𝑜𝑗
+(𝑋𝑝 ), 𝐾 = 𝐹𝑝𝑟𝑜𝑗
+(𝑋𝑝 ), 𝑉
+
+𝑉
+= 𝐹𝑝𝑟𝑜𝑗
+(𝑋𝑝 )
+𝑇
+
+𝑄𝐾
+𝑋𝑎𝑡𝑡𝑛 = 𝐴𝑡𝑡𝑛(𝑄, 𝐾, 𝑉 ) = 𝑆𝑜𝑓 𝑡𝑚𝑎𝑥( √ )𝑉
+𝐶
+′
+
+′
+
+(𝐻 ,𝑊 )→(1,1)
+𝑃 𝐶𝑆𝐴(𝑋𝑠 ) = 𝑋𝑐 = 𝑋𝑠 × 𝜎(𝑃 𝑜𝑜𝑙(𝐻
+(𝑋𝑎𝑡𝑡𝑛 ))
+′ ,𝑊 ′ )
+′
+
+(10)
+(11)
+(12)
+
+′
+
+(𝐻,𝑊 )→(𝐻 ,𝑊 )
+𝑃 𝑜𝑜𝑙(𝑘,𝑘)
+(⋅) denotes a pooling operation with a
+kernel size of 𝑘 × 𝑘 that rescales the resolution from (𝐻, 𝑊 )
+to (𝐻 ′ , 𝑊 ′ ). 𝐹𝑝𝑟𝑜𝑗 (⋅) represents the linear projection that
+generates the query, key, and value.
+It’s important to note that, unlike the MHSA in the
+ViTs where 𝑄, 𝐾, 𝑉 ∈ ℝ𝐵×𝑁×𝐶 with 𝑁 = 𝐻𝑊 , in
+our PCSA’s CA-SHSA, self-attention is computed along the
+channel dimension, with 𝑄, 𝐾, 𝑉 ∈ ℝ𝐵×𝐶×𝑁 . Additionally,
+to fully interact with the different sub-features decomposed
+in SMSA, We select to implement a simpler single-head selfattention mechanism instead of the combination of multihead self-attention with channel shuffling [66].
+
+3.3. Synergistic Effects
+
+The synergistic spatial and channel attention mechanisms
+aim to complement each other. In our work, we propose a
+novel concept of guiding channel attention learning through
+spatial attention. Drawing inspiration from the connection
+between CBAM [57] and CPCA[24], we employ a similar
+serial structure to integrate our SMSA and PSCA modules, forming the Spatial and Channel Synergistic Attention
+(SCSA). The difference is that the spatial attention SMSA
+is applied first, followed by the channel attention PSCA.
+The former extracts multi-semantic spatial information from
+each feature, providing precise spatial priors for the latter;
+the latter refines the semantic understanding of the local subfeature 𝑋 𝑖 by leveraging the overall feature map 𝑋, thereby
+mitigating the semantic disparities caused by the multi-scale
+convolutions in the former. Additionally, unlike previous
+approaches [23, 57, 40, 20], we do not employ channel compression, effectively preventing the loss of crucial features.
+Ultimately, our constructed SCSA is as follows:
+𝑆𝐶𝑆𝐴(𝑋) = 𝑃 𝐶𝑆𝐴(𝑆𝑀𝑆𝐴(𝑋))
+
+(13)
+
+Page 4 of 13
+
+Throughput Top-1
+(imgs/s)
+(%)
+
+Ablations
+
+Variants
+
+Baseline
+
+SCSA-50
+
+2019
+
+77.49
+
+Macro Design
+
+w/o SMSA
+w/o PCSA
+
+2217
+2155
+
+77.21
+77.44
+
+Ordering
+
+PCSA Prior
+GN Prior
+
+2005
+2010
+
+77.20
+77.47
+
+2010
+1999
+2005
+1982
+2082
+1981
+2001
+
+77.15
+77.19
+77.20
+77.31
+77.35
+77.32
+77.34
+
+2085
+2063
+2040
+
+77.24
+77.17
+77.32
+
+w/o Normalization in SMSA
+GN→BN
+GN→LN
+Micro Design
+w/o PC
+w/ Multi-head + Shuffle
+Shared
+√ → Unshared
+√
+Scaled: 𝐶 → 𝐻 ∗ 𝑊
+G1(3)
+G1(7)
+G2(3,7)
+
+Branch
+
+Table 1. Ablation studies on the design strategy of SCSA, conducted at a 224x224 resolution, using the ImageNet-1K validation set. The abbreviation "PC" denotes progressive compression.
+𝐺𝑖(𝐾1 , 𝐾2 , … , 𝐾𝑖 ) denotes splitting 𝑋 into 𝑖 sub-features and applying a 1D convolution of size 𝐾𝑖 to each 𝑖-th sub-feature.
+
+Conv 1x1
+
+Conv 1x1
+
+Conv 3x3
+Conv 3x3
+
+DWConv
+3x3
+
+SCSA
+
+SCSA
+
+Conv 1x1
+
+Conv 1x1
+
+(c) Bottleneck
+
+(a) Inverted Residual Block
+
+Conv 3x3
+
+Conv 1x1
+
+BN
+
+SCSA
+
+Conv 3x3
+
+(b) BasicBlock
+
+SCSA
+
+(d) Reparameterization Block
+
+Figure 3. Main Module Structures with SCSA
+
+3.4. Integration of Attention Mechanisms
+In our work, we integrate the proposed SCSA into different
+backbone networks to validate its effectiveness in enhancing feature extraction capabilities. As shown in Fig. 3, the
+SCSA is integrated into four mainstream blocks: (a) and (b)
+represent blocks based on the ResNet [19] and its variant
+series [60]; (c) represents the inverted residual structure
+based on the MobileNet series [46, 21, 37]; (d) represents
+the block structure of RepVGG [8], a representative of the
+reparameterization approach.
+
+4. Experiments
+4.1. Experiments Settings
+In this section, we first introduce the experimental details.
+Next, we conduct experiments on four visual tasks, comparing our proposed SCSA with other state-of-the-art attention
+mechanisms. Following this, in Sec. 4.5, we perform a
+
+Y. Si et al.
+
+comprehensive ablation study on our meticulously designed
+SCSA from four different perspectives.
+
+Datasets. We validate the effectiveness of our method
+across four visual tasks. For the image classification, we select the widely used ImageNet-1K [44] dataset. In the object
+detection, we employ several challenging detection datasets,
+including MSCOCO [30], Pascal VOC [11], VisDrone [10],
+and ExDark [34]. For semantic segmentation and instance
+segmentation, we selected the widely used ADE20K [67]
+and MSCOCO [30] benchmarks.
+We are keen to explore whether attention mechanisms
+can be more effectively applied to various complex scene
+tasks. While previous attention research [23, 55, 65, 39, 57,
+61] has shown good performance on widely used benchmarks (e.g., ImageNet-1K [44], MSCOCO [30]), the effectiveness in dense, low-light, and small-object scenes remains uncharted. Therefore, we conduct more experiments
+using representative benchmarks in Tab. 4: the small-object
+dataset VisDrone [10], low-light dataset ExDark [34], infrared automotive dataset FLIR-ADAS v2 [13], and general
+dataset Pascal VOC [11].
+Metrics. We use Top-1 and Top-5 metrics to measure image classification, Average Precision (AP) to evaluate object
+detection, and report Parameter Count (Params) and Floating
+Point Operations Per Second (FLOPs), and throughput to
+measure performance. For semantic segmentation, we employ the mean Intersection over Union (mIoU).
+Implementation Details. To evaluate our proposed SCSA
+on ImageNet-1K [44], we select four mainstream backbone
+networks based on CNN and Transformer architectures,
+including ResNet [19], MobileNetV2 [46], RepVGG [8]
+and Swin [33]. Specifically, we follow the parameter configurations in the original papers [19, 46, 8, 33], except
+for the batch size and learning rate. Since all classification
+models are trained on a single NVIDIA RTX 4090 GPU,
+we adjust the batch size and learning rate according to
+the linear scaling rule [15, 63]. For ResNet [19], RepVGG
+[8], and Swin [33], the batch size is uniformly set to 128,
+with the learning rates scaled down to 0.05, 0.05, and
+0.000125, respectively. When training MobileNetV2 with
+our SCSA, we use the batch size and learning rate from
+ECANet [55], set to 96 and 0.045, respectively. Notably,
+to enhance training efficiency, we employ Automatically
+Mixed Precision(AMP) training.
+We evaluate our SCSA on MSCOCO [30] using Faster
+R-CNN [43], Mask R-CNN [18], Cascade R-CNN [3], and
+RetinaNet [29]. These detectors are implemented using the
+MMDetection [5] toolboxes with default settings. All models are trained using an SGD optimizer with a momentum
+of 0.9 and a weight decay of 1e-4, with a batch size of 2
+per GPU, over a total of 12 epochs. Faster R-CNN, Mask
+R-CNN and Cascade R-CNN started with a learning rate
+of 0.0025, while RetinaNet starts at 0.00125. The learning
+rates for all models are decreased by a factor of 10 at the
+8th and 11th epochs. We fine-tuned the model on MSCOCO
+Page 5 of 13
+
+Backbones
+
+Type
+
+Methods
+
+Params(M)
+
+FLOPs(G)
+
+Throughput(imgs/s)
+
+Top-1(%)
+
+Top-5(%)
+
+–
+
+ResNet
+
+25.56
+
+4.02
+
+2433
+
+76.39
+
+93.09
+
+Channel
+
+ECANet
+SENet
+FcaNet
+
+25.56
+28.07
+28.07
+
+4.11
+4.11
+4.11
+
+2109
+2077
+1905
+
+77.05
+77.23
+77.29
+
+93.43
+93.56
+93.64
+
+CPCA
+CBAM
+SANet
+ELA
+CA
+EMA
+SCSA(Ours)
+
+27.40
+28.07
+25.56
+25.59
+25.69
+25.57
+25.62
+
+4.87
+4.12
+4.12
+4.11
+4.11
+4.18
+4.12
+
+1379
+1687
+1493
+2233
+2244
+1861
+2019
+
+75.80
+77.12
+77.12
+77.25
+77.37
+77.43
+77.49
+
+92.57
+93.50
+93.64
+93.52
+93.52
+93.79
+93.60
+
+–
+
+ResNet
+
+44.55
+
+7.83
+
+1588
+
+77.76
+
+93.81
+
+Channel
+
+ECANet
+SENet
+FcaNet
+
+44.55
+49.30
+49.29
+
+7.83
+7.84
+7.84
+
+1408
+1399
+1242
+
+78.32
+78.40
+78.51
+
+93.99
+94.05
+94.10
+
+Hybrid
+
+CBAM
+CA
+SCSA(Ours)
+
+49.30
+44.80
+44.68
+
+7.84
+7.84
+7.85
+
+1118
+1437
+1298
+
+78.09
+78.11
+78.56
+
+94.07
+93.92
+94.31
+
+–
+
+MobileNetV2
+
+3.51
+
+0.31
+
+6693
+
+71.54
+
+90.11
+
+Channel
+
+ECANet
+
+3.51
+
+0.31
+
+5746
+
+72.02
+
+90.35
+
+Hybrid
+
+CBAM
+SCSA(Ours)
+
+4.07
+3.63
+
+0.32
+0.34
+
+4539
+2751
+
+72.43
+72.72
+
+90.49
+90.81
+
+–
+
+RepVGG
+
+9.11
+
+1.52
+
+6685
+
+72.30
+
+90.49
+
+Channel
+
+ECANet
+
+9.11
+
+1.52
+
+5059
+
+72.76
+
+90.71
+
+Hybrid
+
+CA
+SCSA(Ours)
+
+9.35
+9.18
+
+1.52
+1.53
+
+3095
+2842
+
+73.12
+73.51
+
+90.99
+91.12
+
+–
+Hybrid
+
+Swin
+SCSA(Ours)
+
+28.29
+28.36
+
+4.51
+4.52
+
+1523
+1315
+
+80.83
+81.53
+
+95.49
+95.84
+
+ResNet-50
+Hybrid
+
+ResNet-101
+
+MobileNetV2-1.0
+
+RepVGG-A0
+
+Swin-T
+
+Table 2. Comparison of our proposed SCSA with other state-of-the-art attention mechanisms across multiple benchmark models at a
+224x224 resolution on the ImageNet-1K validation set [44].
+
+[30] for 12 epochs using a single NVIDIA H800 GPU and
+reported comparative results on validation set. Building on
+the above configurations, we further evaluate the proposed
+SCSA method’s detection performance and generalization
+capability on Pascal VOC [11], as well as in complex scenarios such as VisDrone [10], ExDark [34], and FLIR-ADAS
+V2 [13].
+We further validate our method on ADE20K [67] with
+the UperNet [59] for semantic segmentation. Following
+common practices [6, 64], we utilize the MMSegmentation
+[7] toolboxes, set the batch size to 16, and conduct 80k
+training iterations. All models are trained using an SGD
+optimizer with an initial learning rate of 0.01, a momentum
+of 0.9, and a weight decay of 5e-4. We also conduct training
+and inference using a single NVIDIA H800 GPU.
+All models are trained with the default random seed 0.
+
+4.2. Image Classification
+We compare our SCSA against other state-of-the-art attention mechanisms, including SENet [23], CBAM [57],
+ECANet [55], FcaNet (FCA) [41], CA [20], SANet [65],
+Y. Si et al.
+
+EMA [39], CPCA [24] and ELA [61]. As shown in Tab. 2,
+our SCSA achieved the highest Top-1 accuracy across networks of different scales, with negligible parameter count
+and computational complexity. Within hybrid architectures,
+our method’s throughput based on ResNet is second only
+to CA and ELA, but it offer a better balance of accuracy,
+speed, and model complexity with a moderate model width.
+Integrating the SCSA method into the MobileNetV2 architecture significantly improves model accuracy. Although
+SCSA is more lightweight in terms of parameter count
+(3.63M vs. 4.07M, -0.44M), its multi-branch structure encounters a sharp increase in channel dimensions within
+the inverted residual blocks, which leads to a reduction in
+throughput. Notably, integrating the proposed SCSA method
+into advanced models like RepVGG [8] and the spatial
+self-attention-based Swin [33] still yields notable accuracy
+improvements of 1.21% and 0.70%, respectively, effectively
+demonstrating the adaptability of our attention mechanism
+across different model architectures.
+
+Page 6 of 13
+
+Detectors
+
+Faster R-CNN
+
+Cascade R-CNN
+
+RetinaNet
+
+Methods
+
+Params(M)
+
+FLOPs(G)
+
+AP(%)
+
+𝐴𝑃50 (%)
+
+𝐴𝑃75 (%)
+
+𝐴𝑃𝑆 (%)
+
+𝐴𝑃𝑀 (%)
+
+𝐴𝑃𝐿 (%)
+
+ResNet-50
++ FCA
++ ECA
++ SE
++ CA
++ SCSA(Ours)
+
+41.75
+44.27
+41.75
+44.27
+41.89
+41.81
+
+187.20
+187.31
+187.20
+187.20
+187.21
+187.35
+
+37.6
+38.4
+38.5
+38.7
+39.0
+39.3
+
+58.7
+59.8
+60.0
+60.2
+60.6
+60.6
+
+40.9
+41.5
+41.4
+41.6
+42.3
+42.8
+
+21.5
+22.8
+22.6
+23.2
+23.2
+23.2
+
+41.2
+42.4
+42.6
+42.4
+42.8
+43.1
+
+48.1
+48.9
+49.4
+49.3
+49.5
+50.2
+
+ResNet-101
++ FCA
++ SE
++ ECA
++ CA
++ SCSA(Ours)
+
+60.75
+65.49
+65.49
+60.75
+60.99
+60.88
+
+255.43
+255.60
+255.44
+255.43
+255.45
+255.74
+
+40.2
+40.6
+40.8
+40.9
+41.1
+41.5
+
+61.3
+62.2
+62.2
+62.4
+62.2
+62.9
+
+43.8
+44.1
+44.4
+44.3
+44.8
+45.4
+
+23.9
+23.8
+24.9
+24.2
+24.1
+24.6
+
+44.2
+44.9
+44.7
+45.0
+45.0
+45.3
+
+51.8
+52.5
+53.0
+53.0
+53.5
+53.7
+
+ResNet-50
++ FCA
++ SE
++ CBAM
++ ECA
++ SCSA(Ours)
+
+69.40
+71.91
+71.91
+71.91
+69.40
+69.46
+
+214.84
+214.94
+214.84
+214.87
+214.84
+214.99
+
+40.3
+41.3
+41.4
+41.4
+41.7
+42.1
+
+58.9
+60.2
+60.2
+60.2
+60.7
+61.4
+
+43.8
+44.6
+44.9
+45.0
+45.2
+45.7
+
+22.5
+24.1
+24.5
+24.5
+24.7
+24.6
+
+43.8
+44.9
+44.7
+44.6
+45.4
+45.5
+
+52.8
+53.7
+54.0
+54.3
+54.3
+54.3
+
+ResNet-101
++ SE
++ FCA
++ ECA
++ CA
++ SCSA(Ours)
+
+88.39
+93.13
+93.13
+88.39
+88.64
+88.52
+
+283.07
+283.08
+283.24
+283.07
+283.09
+283.38
+
+42.6
+43.2
+43.4
+43.7
+43.8
+44.2
+
+61.1
+62.3
+62.5
+62.7
+62.8
+63.1
+
+46.6
+47.2
+47.6
+47.5
+48.0
+48.2
+
+24.9
+25.8
+25.5
+25.5
+26.0
+26.0
+
+46.7
+47.1
+47.3
+47.7
+47.6
+48.2
+
+55.7
+56.2
+56.8
+56.8
+57.4
+57.5
+
+ResNet-50
++ FCA
++ SE
++ ECA
++ CBAM
++ SCSA(Ours)
+
+37.97
+40.48
+40.49
+37.97
+40.49
+38.03
+
+214.68
+214.78
+214.68
+214.68
+214.71
+214.83
+
+36.5
+37.3
+37.4
+37.5
+37.6
+37.9
+
+55.5
+57.2
+57.0
+57.2
+57.0
+57.6
+
+39.1
+39.3
+40.0
+39.8
+40.2
+40.2
+
+20.2
+21.6
+21.5
+21.5
+22.0
+22.5
+
+40.1
+40.9
+41.3
+41.1
+41.6
+41.3
+
+48.1
+49.0
+49.0
+49.5
+48.7
+49.7
+
+ResNet-101
++ SE
++ FCA
++ CA
++ ECA
++ SCSA(Ours)
+
+56.96
+61.71
+61.70
+57.21
+56.96
+57.09
+
+282.91
+282.92
+283.08
+282.93
+282.91
+283.22
+
+39.3
+39.8
+39.9
+40.2
+40.3
+40.5
+
+58.7
+59.9
+60.0
+60.0
+60.4
+60.8
+
+41.9
+42.2
+42.4
+43.0
+42.9
+43.6
+
+22.8
+22.9
+22.9
+23.2
+23.4
+23.7
+
+43.5
+43.8
+44.6
+44.3
+44.2
+44.3
+
+51.8
+52.1
+52.4
+52.8
+52.7
+53.1
+
+Table 3. Comparison of the performance of different attention mechanisms for object detection on the MSCOCO validation set [30],
+utilizing models such as Faster R-CNN [43], Cascade R-CNN [3], and RetinaNet [29]. All models were fine-tuned using the "1×" schedule
+with optimal results in bold and suboptimal results underlined in blue.
+
+4.3. Object Detection
+Results on MSCOCO. We evaluate various attention
+
+mechanisms on MSCOCO to verify the effectiveness of
+our approach in dense detection scenario. We use ResNet50 and ResNet-101 as the backbone and FPN [28] as the
+feature fusion network. As shown in Tab. 3, our method
+outperforms other state-of-the-art attention methods across
+various detectors, model sizes, and object scales. For Faster
+R-CNN [43], our SCSA improves by 1.7% and 1.3% in terms
+of AP compared to the original ResNet-50 and ResNet101, respectively. Compared to other plug-and-play attention modules, including CBAM [57], FCA [57], ECA [55],
+and CA [20], SCSA demonstrates superior performance,
+achieving gains of 0.4% to 1.0% on the Cascade R-CNN [3]
+detector. Moreover, it consistently excels in detecting targets
+Y. Si et al.
+
+across a range of scales, confirming its robust adaptability to
+multi-scale features.
+
+Results on Infrared, Low-Light, and Small Target Detection. As shown in Tab. 4, it is gratifying to see that proposed SCSA performs better across these benchmarks [34,
+10, 11, 13] compared to other counterparts, further demonstrating the robustness of our strategy in maintaining channel
+dimensions and the synergistic concept of multi-semantic
+information. Notably, our results indicate that there are still
+some limitations in the application of attention mechanisms
+on long-tail datasets, such as FLIR-ADASv2 [13], has led
+to minimal performance gains and even declines. This may
+be due to the attention mechanism’s squeeze-and-excitation
+strategy being illsuited for handling imbalanced distributed
+Page 7 of 13
+
+ResNet-50
+
+ResNet-101
+
+Datasets
+
+Methods
+
+Pascal VOC
+
++SE
++ECA
++FCA
++CA
++SCSA
+
+50.7
+50.2
+50.7
+50.8
+51.8
+53.0
+
+81.9
+81.9
+82.2
+82.0
+82.5
+83.0
+
+55.7
+54.1
+55.0
+55.2
+56.5
+58.0
+
+54.3
+53.7
+54.4
+53.7
+55.4
+55.5
+
+83.8
+83.6
+84.4
+83.7
+84.2
+84.6
+
+61.0
+60.1
+60.5
+59.6
+61.5
+61.8
+
+VisDrone2019
+
++SE
++FCA
++ECA
++CA
++SCSA
+
+22.1
+21.6
+21.9
+21.9
+22.8
+22.9
+
+37.3
+36.7
+37.1
+37.3
+38.3
+38.7
+
+23.1
+22.4
+22.7
+22.7
+23.9
+24.0
+
+23.1
+22.1
+22.4
+22.6
+23.5
+23.3
+
+38.5
+37.6
+38.0
+38.3
+39.2
+39.2
+
+24.5
+23.1
+22.8
+22.9
+24.4
+24.2
+
+ExDark
+
++ECA
++SE
++FCA
++CA
++SCSA
+
+39.2
+37.9
+38.3
+38.3
+39.5
+40.2
+
+71.4
+70.7
+71.1
+71.4
+72.2
+73.2
+
+38.6
+37.2
+37.1
+37.6
+39.8
+40.0
+
+42.4
+42.4
+41.8
+41.9
+43.2
+43.0
+
+74.9
+75.1
+74.8
+75.0
+75.6
+75.6
+
+43.4
+42.8
+42.0
+42.4
+45.4
+44.9
+
++CA
++FCA
+FLIR-ADAS v2
++SE
++ECA
++SCSA
+
+24.7
+24.2
+24.4
+24.5
+24.6
+24.8
+
+42.2
+42.2
+41.5
+42.5
+41.9
+42.3
+
+25.5
+25.0
+25.8
+25.5
+25.6
+26.1
+
+26.3
+25.5
+24.7
+25.2
+25.3
+25.4
+
+44.6
+43.7
+42.0
+42.9
+42.8
+43.2
+
+28.0
+26.8
+25.9
+26.0
+25.9
+26.2
+
+AP 𝐴𝑃50 𝐴𝑃75 AP 𝐴𝑃50 𝐴𝑃75
+
+Table 4. Comparison of our SCSA, based on ResNet-50 and
+ResNet-101, with other attention mechanisms for object detection
+performance across four different datasets.
+
+data, resulting in a focus on high-frequency categories while
+neglecting the learning of low-frequency ones.
+
+UperNet
+
+Methods
+
+Params(M)
+
+FLOPs(G)
+
+mIoU(%)
+
+ResNet-50
++ CBAM
++ CPCA
++ SE
++ SA
++ ECA
++ FCA
++ SCSA(Ours)
+
+64.10
+66.62
+65.94
+66.62
+64.10
+64.10
+66.61
+64.16
+
+1895
+1895
+1927
+1895
+1895
+1895
+1895
+1895
+
+40.20
+39.62
+39.68
+39.94
+40.01
+40.46
+41.09
+41.14
+
+ResNet-101
++ CBAM
++ ECA
++ SE
++ FCA
++ SCSA(Ours)
+
+83.09
+87.84
+83.09
+87.84
+87.83
+83.22
+
+2051
+2051
+2051
+2051
+2051
+2051
+
+42.74
+41.65
+42.63
+42.66
+43.22
+43.76
+
+Table 5. Comparison of our method, based on the UperNet model,
+with other attention mechanisms for semantic segmentation performance on the ADE20K benchmark.
+Methods
+ResNet50
++ CBAM
++ ECA
++ FCA
++ SE
++ SA
++ CA
++ SCSA
+
+Mask R-CNN
+AP
+
+𝐴𝑃50
+
+𝐴𝑃75
+
+𝐴𝑃𝑆
+
+𝐴𝑃𝑀
+
+𝐴𝑃𝐿
+
+34.8
+35.4
+35.5
+35.5
+35.7
+35.7
+35.8
+36.1
+
+55.9
+56.9
+57.6
+57.2
+57.3
+57.7
+57.5
+58.4
+
+36.9
+37.6
+37.6
+37.6
+38.1
+38.0
+38.2
+38.3
+
+16.4
+17.4
+16.6
+17.1
+17.7
+17.2
+16.9
+17.2
+
+37.4
+38.3
+38.4
+38.6
+38.6
+38.7
+38.5
+39.1
+
+50.2
+50.6
+52.0
+51.3
+50.9
+51.5
+51.7
+51.9
+
+Table 6. Comparison of our method, based on the Mask R-CNN,
+with other attention mechanisms for instance segmentation performance on the MSCOCO validation set [30].
+
+4.4. Segmentation
+We also test its performance in semantic segmentation on
+ADE20K [67] and instance segmentation on MSCOCO [30].
+We conduct extensive comparative experiments based on
+the UperNet [59] network. As shown in Tab. 5 and Tab. 6,
+our SCSA significantly outperforms other attention methods. Specifically, SCSA improves performance by 0.94%
+and 1.02% in terms of mIoU on ResNet-50 and ResNet101, respectively, while other methods only achieve improvements of 0.1% to 0.2%, and some even fall below the
+baseline model. Meanwhile, SCSA achieves a 0.3% to 0.7%
+increase in terms of AP in instance segmentation tasks, surpassing other counterparts. These results demonstrate that
+our method, based on multi-semantic spatial information,
+performs well in pixel-level tasks.
+
+4.5. Ablation study
+As shown in Tab. 1, we apply SCSA to ResNet-50, constructing SCSA-50 as the baseline on ImageNet-1K [44] for
+ablation studies across four aspects.
+
+Macro Design. We validate the SMSA and PCSA modules separately, and both show significant improvements in
+Y. Si et al.
+
+accuracy compared to ResNet-50. With SMSA, guided by
+multi-semantic information, the Top-1 accuracy improved
+significantly by 1.05%, while PCSA, which mitigates multisemantic disparities and promotes channel interaction, increased the accuracy by 0.82%. Without progressive compression in PCSA, accuracy drops by 0.18%, and this is
+primarily because, after direct global spatial compression,
+PCSA cannot leverage the discriminative spatial priors provided by SMSA for its computations.
+
+Ordering. Our study primarily aims to explore whether
+the inherent multi-semantic spatial information across the
+spatial and channel dimensions can effectively guide the
+learning of channel features. To further demonstrate the
+benefits of this "guidance," we swapped the order of PCSA
+and SMSA. Interestingly, the Top-1 accuracy dropped by
+0.29%, which further validates our previous hypothesis that
+spatial attention can guide channel feature learning, thereby
+confirming the effectiveness of guiding with multi-semantic
+information.
+
+Page 8 of 13
+
+Input
+
+CBAM-50 ECA-50
+
+CA-50
+
+FCA-50
+
+SMSA
+
+PCSA
+
+SCSA-50
+
+Figure 4. Comparative attention visualizations for ’layer 4.2’
+across multiple models, generated using samples randomly selected from different categories of the ImageNet-1K validation set,
+through Grad-CAM [47].
+
+Although normalization helps reduce the impact of data
+noise and accelerates model convergence [45], the placement of normalization within SMSA may yield varying effects. Backbone networks based on MHSA [52, 9] typically
+use Layer Normalization (LN) [1] before attention computation, whereas some plug-and-play attention modules either
+omit normalization layers [55, 24] or apply them beforehand
+[65, 39]. To explore the necessity and optimal placement of
+normalization in SMSA, we conduct experiments by placing
+normalization before attention and by removing it. Results
+shown in Tab. 1 indicate that normalization is essential for
+the attention mechanism, though its specific position has a
+minor impact. Pre-normalization aids in handling variations
+among input features and improves training stability, but
+may cause loss of feature details, reducing attention sensitivity to fine-grained information. In contrast, applying normalization after attention calculation can mitigate noise but
+may also diminish the model’s focus on important features.
+Ultimately, based on accuracy results, we opted to place
+normalization after attention calculation in SMSA.
+
+Micro Design. Following the experimental analysis above,
+which confirms the importance of normalization layers in
+attention calculation, we consider whether group normalization is more suitable for extracting multi-semantic information from multiple sub-features in the proposed SCSA.
+To investigate this, we perform ablation studies comparing
+popular normalization methods in deep neural networks
+(DNNs), such as BN [26] and LN [1]. The results show that
+when GN is sequentially replaced with BN and LN, both
+accuracy and inference speed decrease, with Top-1 accuracy dropping to 77.19% and 77.20%, respectively. These
+declines are attributed to GN’s superior ability to preserve
+the independence of semantic patterns among sub-features,
+thereby minimizing semantic interference. Conversely, BN’s
+sensitivity to batch size can introduce statistical noise [2]
+when processing multi-semantic information. LN, by normalizing along the channel dimension and capturing information across all features, may disrupt the distinct semantic
+patterns that SMSA’s multi-scale convolutions extract from
+individual sub-features. These ablation suggest that GN may
+be a more suitable choice in convolution layers that involve
+multiple semantics. Furthermore, the decline in accuracy
+Y. Si et al.
+
+and increase in parameters with unshared convolutions further validate the effectiveness of using shared convolutions
+to consistently learn and model features dependencies across
+the H and W dimensions.
+Additionally, when replacing the single attention head in
+PCSA with multi-head and channel shuffle operation [66],
+performance decrease from 77.49% to 77.35%. This phenomenon is primarily attributed to the strong inter-channel
+interactions facilitated by the single head, which effectively
+alleviate semantic disparities produced in SMSA. To validate the shared convolutional learning on 1D sequences
+decomposed along the Height and Width dimensions, we
+compare it to non-shared convolutional learning. Results
+show a 0.17% accuracy drop, reduced throughput, and increased parameters and FLOPs due to more convolutional
+operators. This confirms that shared learning across dimensions captures complementary features, enhancing model
+expressiveness.
+
+Branch. The richness of semantic feature capture in SMSA
+is determined by the number of branches and the convolution
+kernel sizes used in each branch. Each branch is designed
+to learn a distinct sub-features. Reducing the number of
+branches weakens the module’s ability to extract inherent
+multi-semantic features. To assess the impact of capturing different semantic features on model performance, we
+conducted experiments with varying branch numbers and
+convolution kernel sizes. As shown in the "Branch" section
+of Tab. 1, the accuracy of the dual-branch structure surpasses
+that of the single-branch, while the four-branch structure
+further outperforms the dual-branch. This results supports
+the effectiveness of our multi-branch, multi-scale structure
+in capturing diverse semantic patterns across sub-features,
+thereby enhancing the model’s representational capacity. As
+the number of branches increases, the model’s memory access overhead also rises, resulting in a decrease in inference
+speed.
+
+5. Visualization and Analysis
+5.1. Visualization of Attention
+We evaluate the effectiveness of our method in mitigating
+semantic disparities and enhancing consistency by ensuring
+appropriate attention to key regions. As shown in Fig. 4,
+compared to other state-of-the-art attention mechanisms, our
+SCSA distinctly focuses on multiple key regions, significantly reducing critical information loss while providing
+rich feature information. We also visualize the components
+of SCSA, including the SMSA and PCSA modules. In the
+absence of the PCSA module to address semantic disparities,
+the distribution of activation intensity remains inadequately
+balanced. Without the SMSA module for guiding multisemantic spaces, the focus on important regions may be
+limited.
+
+5.2. Visualization of Effective Receptive Field
+As depicted in Fig. 5, leveraging the spatial structure of
+multi-semantic modeling, our SCSA has achieved a broader
+Page 9 of 13
+
+layer-2-scsa-50(Ours)
+
+layer-2-resnet-50
+
+layer-4-resnet-50
+
+layer-3-scsa-50(Ours)
+
+layer-3-resnet-50
+
+layer-4-scsa-50(Ours)
+
+0
+
+0
+
+0
+
+0
+
+0
+
+0
+
+25
+
+25
+
+25
+
+25
+
+25
+
+25
+
+50
+
+50
+
+50
+
+50
+
+50
+
+50
+
+75
+
+75
+
+75
+
+75
+
+75
+
+75
+
+100
+
+100
+
+100
+
+100
+
+100
+
+100
+
+125
+
+125
+
+125
+
+125
+
+125
+
+125
+
+150
+
+150
+
+150
+
+150
+
+150
+
+150
+
+175
+
+175
+
+175
+
+175
+
+175
+
+175
+
+200
+
+200
+
+200
+
+200
+
+200
+
+0
+
+25 50 75 100 125 150 175 200
+
+0
+
+0
+
+25 50 75 100 125 150 175 200
+
+25 50 75 100 125 150 175 200
+
+0
+
+25 50 75 100 125 150 175 200
+
+200
+0
+
+25 50 75 100 125 150 175 200
+
+0
+
+25 50 75 100 125 150 175 200
+
+Figure 5. Comparison of effective receptive fields (ERFs). Our SCSA provides a larger effective receptive field compared to the baseline,
+and the effect becomes more pronounced as the layers deepen.
+
+perceptual area. A larger effective receptive field (ERF) is
+beneficial for the network to utilize rich contextual information for collective decision-making, which is one of the
+important factors for performance improvement. To verify
+that the performance of our method benefits from a larger
+ERF, we randomly sample 300 images of different categories
+from the ImageNet-1K validation set [44], measure the contribution of each pixel on the original image to the center
+point of the output feature maps of the third and fourth stages
+of the model, and quantify the range of the ERF with the
+gradient values weighted and normalized. The visualization
+results demonstrate that as the network layers deepen, the
+ERF of our SCSA becomes increasingly evident, confirming
+our hypothesis and the effectiveness of our method.
+
+5.3. Computational Complexity
+
+Given an input 𝑋 ∈ ℝ𝐵×𝐶×𝐻×𝑊 , a pooling size of 𝑃 × 𝑃 ,
+and a depth-wise convolutional kernel size of 𝐾 × 𝐾, we
+sequentially consider the impact of dimension decoupling,
+depth-shared 1D convolutions, normalization, progressive
+compression, and channel-wise self-attention, which collectively constitute the SCSA module. For simplicity of
+observation, we ignore the coefficients. The computational
+complexities of SCSA are:
+Ω(𝑆𝐶𝑆𝐴) = (𝐻𝐶 + 𝑊 𝐶) + (𝐾𝐻𝐶 + 𝐾𝑊 𝐶)
+′
+
+′
+
+′
+
+′
+
++ (𝐻𝑊 𝐶) + (𝑃 2 𝐻 𝑊 𝐶 + 𝐻 𝑊 𝐶)
+′
+
+′
+
+′
+
+′
+
++ (𝐻 𝑊 𝐶 + 𝐻 𝑊 𝐶 2 )
+′
+
+5.5. Qualitative Results of Object Detection
+As shown in Fig. 6, our method demonstrates superior performance in challenging scenarios, including obstruction,
+dense environments, clusters of small objects, and low-light
+conditions.
+
+5.6. Qualitative Results of Instance Segmentation
+As shown in Fig. 7, our method segments obscured and
+overlapping objects more comprehensively and accurately,
+achieving higher confidence scores. These results underscore the benefits of our method in leveraging multi-semantic
+information to better perceive the contextual space of relevant objects.
+
+5.7. Qualitative Results of Semantic Segmentation
+It can be observed from Fig. 8 that our method significantly
+improves the segmentation of objects that overlap and are
+semantically adjacent, effectively distinguishing between
+scenarios such as spectators seated on chairs and toilets near
+bathtubs.
+
+(14)
+
+′
+
+𝐻 and 𝑊 denote the height and width, respectively, of
+the intermediate feature map produced by the progressive
+compression operation.
+We observe that when the model width (i.e., the number
+of channels, 𝐶) is moderate, Ω(𝑆𝐶𝑆𝐴) scales linearly with
+the length of the input sequence. This indicates that our
+SCSA can perform inference with linear complexity when
+the model width is moderate.
+
+5.4. Inference Throughput Evaluation
+As demonstrated in Tab. 1 and Tab. 2, we evaluate the
+throughput of SCSA’s individual components in ablation
+experiments and compare the throughput across various
+benchmark models using different attention mechanisms.
+We conduct our experiments using a GeForce RTX 4090
+GPU at a resolution of 224x224, with a batch size of 32
+to simulate real-world applications and maximize GPU utilization. To minimize variability, we repeat 100 times for
+Y. Si et al.
+
+each attention mechanism and report the average inference
+time. Specifically, As illustrated in Tab. 2, although SCSA
+is slightly slower than pure channel attention, it outperforms most hybrid attention mechanisms, including CBAM,
+SANet, EMA, and CPCA, and achieves the highest accuracy.
+
+6. Limitations
+We demonstrated that our SCSA, a plug-and-play synergistic attention method, excels in image classification, object detection, and instance and semantic segmentation. Although we are committed to exploring the synergistic effects
+across various dimensions and have empirically validated
+the effectiveness of leveraging multi-semantic spatial information to guide channel recalibration and enhance feature
+interactions for mitigating semantic disparities, inference
+latency remains a significant challenge in real-world deployment. Our approach achieves an optimal balance of model
+parameters, accuracy, and inference speed at an appropriate
+model width. However, at larger widths, the primary bottleneck in inference speed is the use of depth-wise convolutions
+and branching within the construction of a mutli-semantic
+spatial structure, which have low FLOPS, frequently access
+memory, and exhibit low computational density [4, 51, 36].
+Page 10 of 13
+
+Faster R-CNN
+Cascade R-CNN
+RetinaNet
+
+ResNet-50
+
+SCSA-50 (Ours)
+
+ResNet-50
+
+SCSA-50 (Ours)
+
+Figure 6. Detection results are visualized on Faster R-CNN [43], Cascade R-CNN [3], and RetinaNet [29] by respectively selecting
+two random samples from MSCOCO validation set [30] and comparing our SCSA with the ResNet-50 [19] baseline to demonstrate the
+effectiveness of our method.
+
+Ground Truth
+
+ResNet-50
+
+SCSA-50 (Ours)
+
+Ground Truth
+
+ResNet-50
+
+SCSA-50 (Ours)
+
+Figure 7. Visualization of instance segmentation results using the
+Mask R-CNN [18]. Each instance depicted in a distinct color.
+
+Figure 8. Visualization of semantic segmentation results using the
+UperNet [59] on ADE20K [67].
+
+We believe that the positioning and quantity of these plugand-play attention modules should be optimized based on
+specific tasks and scenarios to ensure peak performance. In
+the future, we will investigate more lightweight and faster
+plug-and-play attention mechanisms, exploring the synergistic relationships across different dimensions.
+
+disparities. To address these issues, we propose a novel
+plug-and-play Spatial and Channel Synergistic Attention
+(SCSA) mechanism, which incorporates dimension decoupling, lightweight multi-semantic guidance, and semantic
+disparity mitigation. SCSA leverages multi-semantic spatial
+attention to guide the learning of diverse channel features,
+followed by single-head self-attention in the channel dimension to alleviate semantic disparities and promote semantic
+interaction. Extensive experiments demonstrate that SCSA
+consistently outperforms state-of-the-art attention mechanisms on widely used benchmarks, showing enhanced performance and robust generalization capabilities. We hope
+
+7. Conclusion
+In this study, we analyze the limitations of most plug-andplay attention methods in leveraging the inherent multisemantic information of features across spatial and channel
+dimensions, as well as the challenges posed by semantic
+Y. Si et al.
+
+Page 11 of 13
+
+our work encourages further exploration of synergistic properties across multiple dimensions in various domains.
+
+References
+[1] Ba, J.L., 2016. Layer normalization. arXiv preprint arXiv:1607.06450
+.
+[2] Bjorck, N., Gomes, C.P., Selman, B., Weinberger, K.Q., 2018. Understanding batch normalization. Advances in neural information
+processing systems 31.
+[3] Cai, Z., Vasconcelos, N., 2018. Cascade r-cnn: Delving into high
+quality object detection, in: Proceedings of the IEEE conference on
+computer vision and pattern recognition, pp. 6154–6162.
+[4] Chen, J., Kao, S.h., He, H., Zhuo, W., Wen, S., Lee, C.H., Chan,
+S.H.G., 2023. Run, don’t walk: Chasing higher flops for faster neural
+networks, in: Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pp. 12021–12031.
+[5] Chen, K., Wang, J., Pang, J., Cao, Y., Xiong, Y., Li, X., Sun, S., Feng,
+W., Liu, Z., Xu, J., et al., 2019. Mmdetection: Open mmlab detection
+toolbox and benchmark. arXiv preprint arXiv:1906.07155 .
+[6] Chen, L.C., Papandreou, G., Kokkinos, I., Murphy, K., Yuille, A.L.,
+2017. Deeplab: Semantic image segmentation with deep convolutional nets, atrous convolution, and fully connected crfs. IEEE
+transactions on pattern analysis and machine intelligence 40, 834–
+848.
+[7] Contributors, M., 2020. Mmsegmentation: Openmmlab semantic segmentation toolbox and benchmark. https://github.com/open-mmlab/
+mmsegmentation.
+[8] Ding, X., Zhang, X., Ma, N., Han, J., Ding, G., Sun, J., 2021.
+Repvgg: Making vgg-style convnets great again, in: Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition, pp. 13733–13742.
+[9] Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai,
+X., Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly,
+S., et al., 2021. An image is worth 16x16 words: Transformers for
+image recognition at scale, in: The Twelfth International Conference
+on Learning Representations. URL: https://openreview.net/pdf?id=
+YicbFdNTTy.
+[10] Du, D., Zhu, P., Wen, L., Bian, X., Lin, H., Hu, Q., Peng, T.,
+Zheng, J., Wang, X., Zhang, Y., et al., 2019. Visdrone-det2019: The
+vision meets drone object detection in image challenge results, in:
+Proceedings of the IEEE/CVF international conference on computer
+vision workshops, pp. 0–0.
+[11] Everingham, M., Eslami, S.A., Van Gool, L., Williams, C.K., Winn,
+J., Zisserman, A., 2015. The pascal visual object classes challenge: A
+retrospective. International journal of computer vision 111, 98–136.
+[12] Fan, Q., Huang, H., Chen, M., Liu, H., He, R., 2024. Rmt: Retentive
+networks meet vision transformers, in: Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, pp. 5641–
+5651.
+[13] FLIR, T., 2023. Free teledyne flir thermal dataset for algorithm
+training. Https://www.flir.com/oem/adas/adas-dataset-form/.
+[14] Fu, J., Liu, J., Tian, H., Li, Y., Bao, Y., Fang, Z., Lu, H., 2019.
+Dual attention network for scene segmentation, in: Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition,
+pp. 3146–3154.
+[15] Goyal, P., 2017. Accurate, large minibatch sg d: training imagenet in
+1 hour. arXiv preprint arXiv:1706.02677 .
+[16] Gu, A., Dao, T., 2023. Mamba: Linear-time sequence modeling with
+selective state spaces. arXiv preprint arXiv:2312.00752 .
+[17] Han, K., Wang, Y., Tian, Q., Guo, J., Xu, C., Xu, C., 2020. Ghostnet: More features from cheap operations, in: Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition,
+pp. 1580–1589.
+[18] He, K., Gkioxari, G., Dollár, P., Girshick, R., 2017. Mask r-cnn, in:
+Proceedings of the IEEE international conference on computer vision,
+pp. 2961–2969.
+
+Y. Si et al.
+
+[19] He, K., Zhang, X., Ren, S., Sun, J., 2016. Deep residual learning
+for image recognition, in: Proceedings of the IEEE conference on
+computer vision and pattern recognition, pp. 770–778.
+[20] Hou, Q., Zhou, D., Feng, J., 2021. Coordinate attention for efficient
+mobile network design, in: Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition, pp. 13713–13722.
+[21] Howard, A., Sandler, M., Chu, G., Chen, L.C., Chen, B., Tan, M.,
+Wang, W., Zhu, Y., Pang, R., Vasudevan, V., et al., 2019. Searching for mobilenetv3, in: Proceedings of the IEEE/CVF international
+conference on computer vision, pp. 1314–1324.
+[22] Hu, J., Shen, L., Albanie, S., Sun, G., Vedaldi, A., 2018a. Gatherexcite: Exploiting feature context in convolutional neural networks.
+Advances in neural information processing systems 31.
+[23] Hu, J., Shen, L., Sun, G., 2018b. Squeeze-and-excitation networks, in:
+Proceedings of the IEEE conference on computer vision and pattern
+recognition, pp. 7132–7141.
+[24] Huang, H., Chen, Z., Zou, Y., Lu, M., Chen, C., 2023. Channel
+prior convolutional attention for medical image segmentation. arXiv
+preprint arXiv:2306.05196 .
+[25] Ioffe, S., Szegedy, C., 2015a. Batch normalization: Accelerating deep
+network training by reducing internal covariate shift, in: International
+conference on machine learning, pmlr. pp. 448–456.
+[26] Ioffe, S., Szegedy, C., 2015b. Batch normalization: Accelerating deep
+network training by reducing internal covariate shift, in: International
+conference on machine learning, pmlr. pp. 448–456.
+[27] Li, X., Wang, W., Hu, X., Yang, J., 2019. Selective kernel networks,
+in: Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, pp. 510–519.
+[28] Lin, T.Y., Dollár, P., Girshick, R., He, K., Hariharan, B., Belongie, S.,
+2017a. Feature pyramid networks for object detection, in: Proceedings
+of the IEEE conference on computer vision and pattern recognition,
+pp. 2117–2125.
+[29] Lin, T.Y., Goyal, P., Girshick, R., He, K., Dollár, P., 2017b. Focal loss
+for dense object detection, in: Proceedings of the IEEE international
+conference on computer vision, pp. 2980–2988.
+[30] Lin, T.Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D.,
+Dollár, P., Zitnick, C.L., 2014. Microsoft coco: Common objects in
+context, in: Computer Vision–ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part
+V 13, Springer. pp. 740–755.
+[31] Liu, J.J., Hou, Q., Cheng, M.M., Wang, C., Feng, J., 2020. Improving convolutional networks with self-calibrated convolutions, in:
+Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, pp. 10096–10105.
+[32] Liu, Y., Tian, Y., Zhao, Y., Yu, H., Xie, L., Wang, Y., Ye, Q., Liu,
+Y., 2024. Vmamba: Visual state space model. arXiv preprint
+arXiv:2401.10166 .
+[33] Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., Guo, B.,
+2021. Swin transformer: Hierarchical vision transformer using shifted
+windows, in: Proceedings of the IEEE/CVF international conference
+on computer vision, pp. 10012–10022.
+[34] Loh, Y.P., Chan, C.S., 2019. Getting to know low-light images
+with the exclusively dark dataset. Computer Vision and Image
+Understanding 178, 30–42.
+[35] Ma, N., Zhang, X., Zheng, H.T., Sun, J., 2018. Shufflenet v2: Practical
+guidelines for efficient cnn architecture design, in: Proceedings of the
+European conference on computer vision (ECCV), pp. 116–131.
+[36] Ma, X., Dai, X., Yang, J., Xiao, B., Chen, Y., Fu, Y., Yuan, L.,
+2024. Efficient modulation for vision networks, in: The Twelfth
+International Conference on Learning Representations. URL: https:
+//openreview.net/forum?id=ip5LHJs6QX.
+[37] Mehta, S., Rastegari, M., 2022. Mobilevit: Light-weight, generalpurpose, and mobile-friendly vision transformer, in: International
+Conference on Learning Representations.
+[38] Misra, D., Nalamada, T., Arasanipalai, A.U., Hou, Q., 2021. Rotate
+to attend: Convolutional triplet attention module, in: Proceedings of
+the IEEE/CVF winter conference on applications of computer vision,
+pp. 3139–3148.
+
+Page 12 of 13
+
+[39] Ouyang, D., He, S., Zhang, G., Luo, M., Guo, H., Zhan, J., Huang,
+Z., 2023. Efficient multi-scale attention module with cross-spatial
+learning, in: ICASSP 2023-2023 IEEE International Conference on
+Acoustics, Speech and Signal Processing (ICASSP), IEEE. pp. 1–5.
+[40] Park, J., Woo, S., Lee, J.Y., Kweon, I.S., 2018. Bam: Bottleneck
+attention module. arXiv preprint arXiv:1807.06514 .
+[41] Qin, Z., Zhang, P., Wu, F., Li, X., 2021. Fcanet: Frequency channel
+attention networks, in: Proceedings of the IEEE/CVF international
+conference on computer vision, pp. 783–792.
+[42] Ramachandran, P., Parmar, N., Vaswani, A., Bello, I., Levskaya,
+A., Shlens, J., 2019. Stand-alone self-attention in vision models.
+Advances in neural information processing systems 32.
+[43] Ren, S., He, K., Girshick, R., Sun, J., 2015. Faster r-cnn: Towards
+real-time object detection with region proposal networks. Advances
+in neural information processing systems 28.
+[44] Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh, S., Ma, S.,
+Huang, Z., Karpathy, A., Khosla, A., Bernstein, M., et al., 2015.
+Imagenet large scale visual recognition challenge. International
+journal of computer vision 115, 211–252.
+[45] Salimans, T., Kingma, D.P., 2016. Weight normalization: A simple
+reparameterization to accelerate training of deep neural networks.
+Advances in neural information processing systems 29.
+[46] Sandler, M., Howard, A., Zhu, M., Zhmoginov, A., Chen, L.C.,
+2018. Mobilenetv2: Inverted residuals and linear bottlenecks, in:
+Proceedings of the IEEE conference on computer vision and pattern
+recognition, pp. 4510–4520.
+[47] Selvaraju, R.R., Cogswell, M., Das, A., Vedantam, R., Parikh, D., Batra, D., 2017. Grad-cam: Visual explanations from deep networks via
+gradient-based localization, in: Proceedings of the IEEE international
+conference on computer vision, pp. 618–626.
+[48] Szegedy, C., Ioffe, S., Vanhoucke, V., Alemi, A., 2017. Inception-v4,
+inception-resnet and the impact of residual connections on learning,
+in: Proceedings of the AAAI conference on artificial intelligence.
+[49] Szegedy, C., Liu, W., Jia, Y., Sermanet, P., Reed, S., Anguelov, D.,
+Erhan, D., Vanhoucke, V., Rabinovich, A., 2015. Going deeper with
+convolutions, in: Proceedings of the IEEE conference on computer
+vision and pattern recognition, pp. 1–9.
+[50] Szegedy, C., Vanhoucke, V., Ioffe, S., Shlens, J., Wojna, Z., 2016.
+Rethinking the inception architecture for computer vision, in: Proceedings of the IEEE conference on computer vision and pattern
+recognition, pp. 2818–2826.
+[51] Vasu, P.K.A., Gabriel, J., Zhu, J., Tuzel, O., Ranjan, A., 2023. Mobileone: An improved one millisecond mobile backbone, in: Proceedings of the IEEE/CVF conference on computer vision and pattern
+recognition, pp. 7907–7917.
+[52] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez,
+A.N., Kaiser, Ł., Polosukhin, I., 2017. Attention is all you need.
+Advances in neural information processing systems 30.
+[53] Wang, A., Chen, H., Lin, Z., Han, J., Ding, G., 2024a. Repvit:
+Revisiting mobile cnn from vit perspective, in: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+pp. 15909–15920.
+[54] Wang, C.Y., Yeh, I.H., Liao, H.Y.M., 2024b. Yolov9: Learning what
+you want to learn using programmable gradient information. arXiv
+preprint arXiv:2402.13616 .
+[55] Wang, Q., Wu, B., Zhu, P., Li, P., Zuo, W., Hu, Q., 2020. Eca-net:
+Efficient channel attention for deep convolutional neural networks,
+in: Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, pp. 11534–11542.
+[56] Wang, X., Girshick, R., Gupta, A., He, K., 2018. Non-local neural
+networks, in: Proceedings of the IEEE conference on computer vision
+and pattern recognition, pp. 7794–7803.
+[57] Woo, S., Park, J., Lee, J.Y., Kweon, I.S., 2018. Cbam: Convolutional
+block attention module, in: Proceedings of the European conference
+on computer vision (ECCV), pp. 3–19.
+[58] Wu, Y., He, K., 2018. Group normalization, in: Proceedings of the
+European conference on computer vision (ECCV), pp. 3–19.
+
+Y. Si et al.
+
+[59] Xiao, T., Liu, Y., Zhou, B., Jiang, Y., Sun, J., 2018. Unified perceptual
+parsing for scene understanding, in: Proceedings of the European
+conference on computer vision (ECCV), pp. 418–434.
+[60] Xie, S., Girshick, R., Dollár, P., Tu, Z., He, K., 2017. Aggregated
+residual transformations for deep neural networks, in: Proceedings of
+the IEEE conference on computer vision and pattern recognition, pp.
+1492–1500.
+[61] Xu, W., Wan, Y., 2024. Ela: Efficient local attention for deep
+convolutional neural networks. arXiv preprint arXiv:2403.01123 .
+[62] Yang, Z., Zhu, L., Wu, Y., Yang, Y., 2020. Gated channel transformation for visual recognition, in: Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition, pp. 11794–
+11803.
+[63] You, Y., Gitman, I., Ginsburg, B., 2017. Scaling sgd batch size to 32k
+for imagenet training. arXiv preprint arXiv:1708.03888 6, 6.
+[64] Yu, W., Zhou, P., Yan, S., Wang, X., 2024. Inceptionnext: When inception meets convnext, in: Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pp. 5672–5683.
+[65] Zhang, Q.L., Yang, Y.B., 2021. Sa-net: Shuffle attention for deep
+convolutional neural networks, in: ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing
+(ICASSP), IEEE. pp. 2235–2239.
+[66] Zhang, X., Zhou, X., Lin, M., Sun, J., 2018. Shufflenet: An extremely efficient convolutional neural network for mobile devices, in:
+Proceedings of the IEEE conference on computer vision and pattern
+recognition, pp. 6848–6856.
+[67] Zhou, B., Zhao, H., Puig, X., Fidler, S., Barriuso, A., Torralba, A.,
+2017. Scene parsing through ade20k dataset, in: Proceedings of the
+IEEE conference on computer vision and pattern recognition, pp.
+633–641.
+
+Page 13 of 13
+
+

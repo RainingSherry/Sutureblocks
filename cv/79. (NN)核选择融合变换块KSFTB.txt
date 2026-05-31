@@ -1,0 +1,2353 @@
+Neural Networks 187 (2025) 107311
+
+Contents lists available at ScienceDirect
+
+Neural Networks
+journal homepage: www.elsevier.com/locate/neunet
+
+Full Length Article
+
+Dual selective fusion transformer network for hyperspectral image
+classification
+Yichu Xu a , Di Wang a , Lefei Zhang a
+a
+b
+
+,∗, Liangpei Zhang b
+
+School of Computer Science, Wuhan University, Wuhan, 430072, PR China
+Aerospace Information Research Institute, Henan Academy of Sciences, Zhengzhou 450046, PR China
+
+ARTICLE
+
+INFO
+
+Keywords:
+Hyperspectral image classification
+Transformer
+Receptive field
+Self-attention
+Spatial-spectral joint
+
+ABSTRACT
+Transformer has achieved satisfactory results in the field of hyperspectral image (HSI) classification. However,
+existing Transformer models face two key challenges when dealing with HSI scenes characterized by diverse
+land cover types and rich spectral information: (1) A fixed receptive field overlooks the effective contextual
+scales required by various HSI objects; (2) invalid self-attention features in context fusion affect model
+performance. To address these limitations, we propose a novel Dual Selective Fusion Transformer Network
+(DSFormer) for HSI classification. DSFormer achieves joint spatial and spectral contextual modeling by flexibly
+selecting and fusing features across different receptive fields, effectively reducing unnecessary information
+interference by focusing on the most relevant spatial–spectral tokens. Specifically, we design a Kernel Selective
+Fusion Transformer Block (KSFTB) to learn an optimal receptive field by adaptively fusing spatial and spectral
+features across different scales, enhancing the model’s ability to accurately identify diverse HSI objects.
+Additionally, we introduce a Token Selective Fusion Transformer Block (TSFTB), which strategically selects
+and combines essential tokens during the spatial–spectral self-attention fusion process to capture the most
+crucial contexts. Extensive experiments conducted on four benchmark HSI datasets demonstrate that the
+proposed DSFormer significantly improves land cover classification accuracy, outperforming existing stateof-the-art methods. Specifically, DSFormer achieves overall accuracies of 96.59%, 97.66%, 95.17%, and
+94.59% in the Pavia University, Houston, Indian Pines, and Whu-HongHu datasets, respectively, reflecting
+improvements of 3.19%, 1.14%, 0.91%, and 2.80% over the previous model. The code will be available online
+at https://github.com/YichuXu/DSFormer.
+
+1. Introduction
+With the continuous advancements in hyperspectral imaging technology, hyperspectral images (HSIs) now offer increasingly rich spatial–
+spectral information, enabling precise Earth Observation (Paoletti et al.,
+2019; Wang et al., 2024; Xu et al., 2023; Yang et al., 2024; Zhang
+et al., 2022). Leveraging their distinctive spectral characteristics, HSIs
+are capable of performing a wide range of tasks, including classification (Gao et al., 2024; Li, Song et al., 2019; Roy, Deria, Hong et al.,
+2023; Shi et al., 2023), target detection (Xie et al., 2021; Xu et al., 2022;
+Zhu et al., 2023), change detection (Chang & Ghamisi, 2023; Chen
+et al., 2024; Hu et al., 2023), and image quality enhancement (Chen,
+Zhang et al., 2023; Wang, Ma et al., 2022; Xiao, Yuan, Jiang, Chen
+et al., 2024). Notably, HSI classification has become a fundamental
+task in the remote sensing community due to its extensive applications
+in areas such as disaster monitoring (Hong et al., 2021), precision
+agriculture (Zhang et al., 2016), and urban planning (van der Linden
+
+& Hostert, 2009). The primary goal of HSI classification is to assign
+specific class labels to each pixel within the HSI.
+HSI classification increasingly relies on deep learning techniques,
+which offer significant advantages over traditional machine learning
+methods due to their powerful feature extraction capabilities (Mou
+et al., 2018; Zhao & Du, 2016). In particularly, convolutional neural
+networks (CNNs) enable the extraction of features in a hierarchical
+manner (Roy et al., 2020; Xu, Du et al., 2018). However, their local convolutional structure limits their ability to capture long-range
+dependencies. To address this, recent studies Wang et al. (2018) introduced self-attention mechanisms to capture non-local contextual
+information, though at a high computational cost due to extensive
+similarity calculations.
+Recently, the success of self-attention in natural language processing (Vaswani et al., 2017) has inspired its application in computer
+vision. Dosovitskiy et al. (2021) proposed the Vision Transformer (ViT),
+
+∗ Corresponding author at: School of Computer Science, Wuhan University, Wuhan, 430072, PR China.
+
+E-mail addresses: xuyichu@whu.edu.cn (Y. Xu), d_wang@whu.edu.cn (D. Wang), zhanglefei@whu.edu.cn (L. Zhang), zlp62@whu.edu.cn (L. Zhang).
+https://doi.org/10.1016/j.neunet.2025.107311
+Received 17 November 2024; Received in revised form 5 February 2025; Accepted 21 February 2025
+Available online 3 March 2025
+0893-6080/© 2025 Elsevier Ltd. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+which segments images into tokens and applies self-attention to capture
+long-range dependencies, achieving notable improvements in image
+classification. Transformer-based approaches (He et al., 2024; Hong
+et al., 2022; Zhao et al., 2024; Zhong et al., 2022) have become a
+mainstream trend in HSI classification research, with numerous studies
+introducing novel methods to advance HSI classification technology.
+However, most transformer structures typically utilize a fixed receptive field for feature extraction, overlooking the fact that different
+types of land cover require varying contextual information (Li et al.,
+2023; Li, Wang et al., 2019). As shown in Fig. 1(a), HSI with a
+fixed receptive field may exhibit misclassification issues. Therefore,
+we argue that different objects in HSIs should be recognized with
+correspondingly required receptive fields. After determining the scope
+of visual perception, the next step is to perform effective context
+capturing. To achieve this, most transformer-based HSI classification
+models usually employ vanilla Multi-Head Self-Attention (MHSA) to
+build global features (Mei et al., 2022) by enabling interactions between one token and all the other tokens. However, since not all tokens
+are informative, the original MHSA inevitably introduces unexpected
+noise during context feature extraction. As shown in Fig. 1(b), the green
+boxes represent unnecessary tokens relative to the red query marker
+for asphalt, such as meadows and bitumen. Additionally, in capturing
+contextual information, existing transformer-based HSI classification
+models predominantly focus on either spatial or spectral information alone (Hong et al., 2022), neglecting the integrated modeling of
+spatial–spectral contexts within HSI data.
+To address these issues, this paper proposes a novel Dual Selective
+Fusion Transformer Network (DSFormer) for HSI classification, which
+selects and fuses the most valuable and relevant spatial–spectral information within a reasonable receptive field. To accommodate this,
+DSFormer incorporates a Kernel Selective Fusion Transformer Block
+(KSFTB), which dynamically selects and integrates multiple convolutional kernels of appropriate sizes, optimizing the receptive fields
+to obtain effective spatial–spectral features. Furthermore, rather than
+utilizing all tokens for dense attention calculation, DSFormer introduces
+a Token Selective Fusion Transformer Block (TSFTB). This block selects
+the most relevant tokens of the highest attention values for fusion
+through a spectral grouping strategy that can directly utilize the 3D
+HSI characteristic. These selective mechanisms allow DSFormer to produce the most significant and appropriate spatial–spectral information
+within an optimal receptive field. The main contributions of this study
+are summarized as follows:
+
+Fig. 1. The challenges existing in current HSI classification methods. (a) Fixed and
+limited receptive fields in HSI classification can potentially lead to misclassifications,
+such as confusing asphalt to bricks. (b) Irrelevant tokens may introduce noise which
+may potentially impair classification accuracy.
+
+The remaining section of this paper is organized as follows. Section 2 reviews the related work of HSI classification. In Section 3 provides a comprehensive description of the proposed DSFormer model.
+Section 4 presents and thoroughly analyzes the experimental results.
+Finally, Section 5 concludes the paper.
+2. Related works
+2.1. CNN-based methods
+With the rapid progress in deep learning, CNNs have shown remarkable potential and significant practical value across a wide range of
+computer vision tasks, particularly in the field of HSI classification. Owing to their powerful feature representation capabilities, CNNs (Chen
+et al., 2016; Xu et al., 2020; Zhao & Du, 2016; Zhu et al., 2017) have attracted significant attention. A 1D-CNN (Hu et al., 2015) was proposed
+to achieve efficient local spectral feature extraction through multiple
+convolutional layers. Further, 2D-CNN was introduced in Zhao and Du
+(2016) that extracts spatial–spectral features and uses a balanced local
+discriminant embedding. Later, 3D-CNNs (Ben Hamida et al., 2018; Li
+et al., 2017) were developed to directly extract joint spatial–spectral
+features from the HSI cube. Then, some multiscale convolutional networks (Gong et al., 2019; Wang et al., 2021; Xu et al., 2018; Yang et al.,
+2021) were proposed to extract deep multiscale features.
+
+(1) This paper proposes a novel Dual Selective Fusion Transformer
+Network (DSFormer) for HSI classification. It adaptively selects and fuses features from diverse receptive fields to achieve
+joint spatial–spectral context modeling, while reducing unnecessary information interference by focusing on the most relevant spatial–spectral tokens. This approach enables the precise
+classification of HSI ground objects.
+(2) To adaptively select and integrate the appropriate contextual
+information, we design a Kernel Selective Fusion Transformer
+Block (KSFTB). This mechanism ensures that features are acquired within an optimal receptive field from both spatial and
+spectral perspectives, thereby enhancing the model’s capacity to
+effectively perceive and distinguish various HSI objects.
+(3) We further develop a Token Selective Fusion Transformer Block
+(TSFTB) that strategically selects the most relevant tokens in the
+context fusion process, effectively integrating essential information while reducing the impact of irrelevant objects, thereby improving the distinguishability of the generated spatial–spectral
+features for HSI visual interpretation.
+(4) Extensive experiments are conducted on four benchmark HSI
+datasets: Pavia University, Houston, Indian Pines, and WhuHongHu. The results indicate that the proposed DSFormer,
+which utilizes appropriate and valuable contextual information,
+performs better than other state-of-the-art methods.
+
+2.2. Transformer-based methods
+However, the above CNN-based networks are constrained by their
+inherent local perception, which limits the amount of information
+they can capture, and thus hinders accuracy. Subsequently, HSI classification approaches with attention mechanism (Hang et al., 2021;
+Sun et al., 2020; Wang, Du et al., 2022; Zhu et al., 2021) emerged
+and achieved significant classification results, particularly self-attention
+mechanisms (Vaswani et al., 2017; Xu et al., 2021, 2024), due to their
+ability to improve long-range perception.
+Transformer-based networks (Chen, Li et al., 2023; Cheng et al.,
+2024; Sun et al., 2024, 2022; Xiao, Yuan, Jiang, He et al., 2024) have
+been widely adopted for their use of MHSA to achieve superior context
+modeling. These approaches have notably outperformed traditional
+CNNs, which are limited by their receptive fields. SpectralFormer was
+proposed in Hong et al. (2022), a network that enhances HSI classification by capturing spectral sequence information between adjacent HSI
+bands using transformers and cross-layer skip connections. Further, Sun
+et al. (2022) proposed a spectral–spatial feature tokenization transformer (SSFTT), where shallow features are extracted by convolutions,
+semantic features are processed by a Gaussian weighted tokenization
+module, and a single-layer transformer is used for feature representation. Then, LESSFormer was introduced (Zou et al., 2022), which
+2
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+Fig. 2. An illustration of the proposed DSFormer. The Dual Selective Fusion Transformer Group (DSFTG) is composed of a Kernel Selective Fusion Transformer Block (KSFTB)
+and three consecutive Token Selective Fusion Transformer Blocks (TSFTBs). Followed by two DSFTGs, we adopt the fully connected layer as the classification head to obtain the
+classification results.
+
+employs an HSI2Token module to extract adaptive spatial–spectral
+tokens and uses a local transformer to enhance the local spectral representation. Inspired by the effectiveness of spectral partitioning, Mei
+introduced a grouped pixel embedding strategy and hierarchical structure to extract discriminative multiscale spatial–spectral features (Mei
+et al., 2022). Yang et al. (2023) introduced a transformer-based
+center-to-surround interactive learning (CSIL) framework for extracting multi-scale features for HSI classification tasks. Roy et al. (2023)
+incorporated morphological characteristics into their proposed MorphFormer by combining spectral and spatial morphological convolution
+operations with attention mechanisms to effectively integrate structural and morphological information. After that, Zhao et al. (2024)
+introduced a lightweight variant of the ViT network, which combines
+group-separable convolution and MHSA modules within feature extraction blocks to efficiently capture local and global spatial features with
+reduced parameter complexity.
+Compared with the aforementioned Transformer-based methods,
+we contend that the proposed DSFormer is distinct. First, KSFTB is
+specifically designed to adaptively choose and fuse relevant context
+scopes. This mechanism ensures that feature extraction takes place
+within an optimal receptive field, encompassing both spatial and spectral dimensions. We further develop TSFTB, which aims to combine
+the most relevant tokens to capture valuable information. This mechanism effectively integrates essential information while mitigating the
+influence of redundant and irrelevant ingredients, thereby enhancing the representation capability of spatial–spectral features for HSI
+classification.
+
+Fig. 3. The proposed Kernel Selective Fusion Attention (KSFA). Here, DwConv represents Depth-wise convolution, Avg and Max represent channel-wise average pooling
+and max pooling, respectively, and GAP means spatial global average pooling.
+
+Taking the pixel-level patch cube 𝑥 ∈ R𝑐×𝑤×𝑤 as input, we first employ
+a 3 × 3 convolutional layer to capture shallow features, denoted as 𝐅1 .
+Next, we perform deep feature generation on 𝐅1 using two consecutive
+DSFTGs. This process can be formulated as: 𝐅2 = DSFTG2 (DSFTG1 (𝐅1 )).
+Finally, a layer normalization followed by a fully connected layer in the
+classification head is applied to obtain the final classification results.
+3.2. Kernel selective fusion transformer block
+As analyzed in the Introduction, different land cover classes in HSI
+require distinct contextual scales. Existing methods are often limited
+by the fixed and limited size of the receptive field of the network or
+cannot dynamically adapt the receptive field to suit specific types of
+land cover (Roy et al., 2023; Sun et al., 2022). To address this issue,
+we designed the KSFTB which learns an optimal receptive field through
+selecting and integrating multiscale features. KSFTB initially employs
+dilated depthwise convolutions to construct a large receptive field to
+obtain sufficient range of feature perception. Then, it incorporates a
+spatial–spectral selection mechanism to adaptively fusion the appropriate receptive field size required for different types of land cover.
+Specifically, KSFTB primarily consists of a Kernel Selective Fusion
+Attention (KSFA) module and a Feed-Forward Network (FFN).
+The structure of KSFA is shown in Fig. 3, two decoupled depthwise convolutions (DwConv) are employed for input 𝐗 ∈ R𝑐×𝑤×𝑤 .
+The features generated with decomposed kernels are then processed by
+1 × 1 convolution layers 1×1 (⋅) to integrate channel information and
+unify dimensions, obtaining contextual features with different receptive
+
+3. Methodology
+In this section, we present the implementation details of our DSFormer. DSFormer consists of convolutional layers, dual selective fusion
+transformer groups (DSFTGs), and a classification head. We begin with
+an overview of DSFormer, followed by a detailed explanation of two
+components KSFTB, and TSFTB.
+3.1. Overview of DSFormer
+As shown in Fig. 2, the HSI is first subjected to PCA for dimensionality reduction, followed by the extraction of overlapping patch
+cubes, {𝑥𝑖 ∈ R𝑐×𝑤×𝑤 }𝐻×𝑊
+, where each patch is classified based on
+𝑖=1
+the central pixel. Here, 𝐻 and 𝑊 denote the height and width, 𝑤
+represents the patch size, and 𝑐 is the reduced spectral dimension.
+3
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+fields:
+1
+𝑑 𝑤𝑐
+2
+𝑑 𝑤𝑐
+𝑑 𝑤𝑐
+𝐔𝟏 = 1×1
+(3×3
+(𝐗)), 𝐔𝟐 = 1×1
+(5×5
+(3×3
+(𝐗))),
+
+(1)
+
+𝑑 𝑤𝑐 and  𝑑 𝑤𝑐 denote a 3 × 3 DwConv and a 5 × 5 DwConv
+where 3×3
+5×5
+
+with a dilation of 2, respectively.
+Given the varying scales of contextual information required by
+different types of land cover, we employ a spatial–spectral selection
+mechanism to enhance the dynamic adaptability of the network. Specif𝑐
+ically, we first concatenate the features 𝐔𝟏 , 𝐔𝟐 ∈ R 2 ×𝑤×𝑤 extracted by
+convolutional kernels with diverse receptive fields:
+[
+]
+𝐔 = 𝐔𝟏 ; 𝐔𝟐 ∈ R𝑐×𝑤×𝑤 ,
+(2)
+subsequently, channel-wise average pooling avg (⋅) and max pooling
+max (⋅) are applied to squeeze 𝐔 to capture spatial descriptors. To
+enable information exchange among different spatial descriptors, we
+first concatenate the aforementioned pooling features and then using
+2→𝑂 to transform the two pooling
+a simple 1 × 1 convolutional layer 1×1
+features into 𝑂 spatial attention maps, we set 𝑂 to 2 in our structure.
+These process can be written as below:
+[
+]
+2→𝑂
+𝐒̄ = 1×1
+( avg (𝐔); max (𝐔) ).
+(3)
+
+Fig. 4. The illustration of the proposed Token Selective Fusion Attention (TSFA). The
+input feature 𝑃 is first grouped and then fed through a 3D point-wise convolution,
+followed by a 3D depth-wise convolution to generate the corresponding 𝐐𝐊𝐕. Subsequently, a token selection mechanism is utilized for further self-attention operation.
+
+The FFN module comprises a fully connected layer, a depthwise
+convolution, a GELU activation function, and a second fully connected
+layer.
+
+Following this, the sigmoid activation function 𝜎(⋅) is applied to
+each spatial attention feature map 𝐒̄ ∈ R2×𝑤×𝑤 , generating separate
+spatial selection masks corresponding to the different convolutional
+kernels:
+𝐒𝑖 = 𝜎(𝐒̄ 𝑖 ).
+
+3.3. Token selective fusion transformer block
+Previous research has typically utilized the self-attention mechanism within Transformers to capture long-range dependencies, facilitating the modeling of global spatial or spectral relationships (Hong
+et al., 2022; Zhang et al., 2024). However, HSI often contains a wide
+variety of complex land cover types. The conventional Transformer
+architecture tends to compute attention across all query–key pairs,
+which inevitably leads to interactions between redundant and irrelevant information, ultimately diminishing interpretative accuracy.
+To overcome this limitation, we propose a novel multi-head Token
+Selective Fusion Attention (TSFA) mechanism to replace the traditional
+MHSA mechanism. Furthermore, our TSFA retains the data characteristics of the HSI three-dimensional cube through a grouped operation
+and employs 3D convolutions to extract tokens with spatial and spectral
+properties. During the computation of self-attention, the TSFA selectively focuses on the most relevant tokens, effectively disregarding
+the least relevant information. This approach improves interpretive
+accuracy while reducing redundant computations.
+As illustrated in Fig. 4, we first begin by partitioning the input
+feature 𝐏 ∈ R𝐶×𝐻×𝑊 into 𝑔 groups, each producing a feature map
+of size 𝑐 × 𝐻 × 𝑊 . Then we feed them through a 3D point-wise
+convolution with a kernel size of 1 × 1 × 1, followed by a 3D
+depth-wise convolution with a kernel size of 1 × 3 × 3. This process
+generates the corresponding query 𝐐, key 𝐊, and value 𝐕. To facilitate
+the calculation of self-attention, we reshape and transpose the tensors
+𝐐, 𝐊, and 𝐕, adjusting their dimensions by flattening the operation, so
+each has a shape of (𝐻 × 𝑊 × 𝑔) × 𝑐. These processes can be extended
+to the multi-head scenario and expressed as follows:
+
+(4)
+
+Considering the substantial differences in contextual spectral information required by various types of complex land cover in HSIs, we
+have devised a spectral selection mechanism to meet this demand.
+First, we utilize spatial global average pooling GAP (⋅) to compress
+the feature 𝐔 into spectral feature descriptors. Next, a fully connected
+layer FC (⋅) is employed to produce more compact spectral attention
+features 𝒁 ∈ R𝑐×1 . These operations can be mathematically expressed
+as follows:
+𝒁 = FC (GAP (𝐔)).
+
+(5)
+
+Subsequently, spectral-wise attention is generated through a softmax operation to guide the selection process, resulting in spectral
+selection masks, which can be obtained as follows:
+𝑒𝑀𝑗 𝑍𝑗
+𝑒 𝑁𝑗 𝑍 𝑗
+𝐶1[𝑗] = 𝑀 𝑍
+, 𝐶 [𝑗] = 𝑀 𝑍
+,
+(6)
+𝑒 𝑗 𝑗 + 𝑒𝑁𝑗 𝑍𝑗 2
+𝑒 𝑗 𝑗 + 𝑒𝑁𝑗 𝑍𝑗
+where 𝐶𝑖[𝑗] represents 𝑗th attention value in 𝑪 𝒊 ∈ R𝑐×1 , 𝑖 = 1, 2, 𝑀𝑗
+refers the 𝑗th row of 𝑴, likewise 𝐶2𝑗 and 𝑁𝑗 , and 𝑴, 𝑵 ∈ R𝑐×1 are
+two initially defined learnable vectors.
+Furthermore, the spatial–spectral selection weights are obtained by
+matrix multiplication with the corresponding spatial–spectral selection
+masks:
+𝐖1 = 𝑪 1 × 𝐒1 , 𝐖2 = 𝑪 2 × 𝐒2 .
+
+(7)
+
+The enhanced feature maps derived from the decomposed kernel
+sequence are weighted using their respective spatial–spectral selection
+weights 𝐖𝑖 ∈ R𝑐×𝑤×𝑤 . These weighted maps are then combined via
+the convolutional layer 1×1 (⋅), 𝑖 = 1, 2, the attention feature 𝐒 can be
+expressed as:
+𝑂
+∑
+(
+)
+𝐒 = 1×1 (
+𝐖𝑖 ⋅ 𝐔𝑖 ).
+
+(10)
+
+𝐐𝑖 , 𝐊𝑖 , 𝐕𝑖 = 𝐹 𝑙𝑎𝑡𝑡𝑒𝑛(𝑅𝑒𝑠ℎ𝑎𝑝𝑒(𝐐𝑖 , 𝐊𝑖 , 𝐕𝑖 )),
+
+(11)
+
+where 𝐞𝑖 denotes the feature in 𝑖th head, 𝐐𝑖 , 𝐊𝑖 , 𝐕𝑖 ∈ R𝐻 𝑊 𝑔×𝑐 correspond to 𝐐, 𝐊, and 𝐕 in 𝑖th head, respectively, and 𝑔 represents the
+number of groups. The 𝑆 𝑝𝑙𝑖𝑡(⋅) function refers to the chunk operation
+performed along the channel dimension. Next, a dense attention matrix
+ ∈ R𝐻 𝑊 𝑔×𝐻 𝑊 𝑔 is generated through the dot product between 𝐐𝑖 and
+𝐊𝑖 :
+
+(8)
+
+𝐐𝑖 𝐊𝑖 𝑇
+,
+(12)
+𝜆
+√
+𝐶
+where 𝜆 =
+, ℎ denotes the number of heads. Following this, the
+ℎ
+token selection mechanism is applied to identify the top 𝑘 percent of
+
+𝑖=1
+
+=
+
+The KSFA module generates its final output by performing an
+element-wise multiplication between the input features 𝐗 and 𝐒:
+𝐗′ = 𝐗 ⋅ 𝐒.
+
+𝑑 𝑤𝑐
+𝐐𝑖 , 𝐊𝑖 , 𝐕𝑖 = 𝑆 𝑝𝑙𝑖𝑡(1×3×3
+(1×1×1 (𝐞𝑖 ))),
+
+(9)
+4
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+Algorithm 1 Token Selective Fusion Attention.
+Input: Feature 𝐏 ∈ R𝐶×𝐻×𝑊 , group number 𝑔, head number ℎ, token
+selection rate 𝑘.
+Initialization: 𝐞𝑖 ∈ R𝑑×𝐻×𝑊 is the 𝑖-th head of feature, 𝑑 = 𝐶ℎ . 𝑘 ∈
+√
+R𝑛×𝑛 is initialized with -∞, 𝑛 = 𝐻 𝑊 𝑔. 𝑐 = 𝑑𝑔 , 𝜆 = 𝑑.
+1: for each 𝐞𝑖 do
+2:
+𝐆𝑖 ← 𝐺𝑟𝑜𝑢𝑝(𝐞𝑖 );
+3:
+𝐆𝑖 ← 𝐷𝑊 𝐶 𝑜𝑛𝑣(𝑃 𝐶 𝑜𝑛𝑣(𝐆𝑖 ));
+4:
+𝐐𝑖 , 𝐊𝑖 , 𝐕𝑖 ← 𝐹 𝑙𝑎𝑡𝑡𝑒𝑛(𝐶 ℎ𝑢𝑛𝑘(𝐆𝑖 ));
+𝐐𝑖 𝐊𝑇𝑖
+
+5:
+
+←
+
+6:
+
+𝑻 [𝑝]
+← min(𝑇 𝑜𝑝𝑘{𝑝1 , ⋯ , 𝑝𝑛 }, 𝑝 = 1, ⋯ , 𝑛);
+𝑘
+
+𝜆
+
+;
+
+// 𝑔 × 𝑐 × 𝐻 × 𝑊
+// 𝑔 × 𝑐 × 𝐻 × 𝑊
+// 𝐻 𝑊 𝑔 × 𝑐
+
+// Dense Attention 𝐻 𝑊 𝑔 × 𝐻 𝑊 𝑔
+// 1 × 1
+
+𝑘𝑝𝑞 ← 𝑝𝑞 𝑖𝑓 𝑝𝑞 > 𝑇𝑘[𝑝] ;
+// 𝐻 𝑊 𝑔 × 𝐻 𝑊 𝑔
+8:
+∗ ← 𝑆 𝑜𝑓 𝑡𝑚𝑎𝑥(𝑘 );
+// Selective Attention 𝐻 𝑊 𝑔 × 𝐻 𝑊 𝑔
+9:
+𝐕∗𝑖 ← ∗ ⊗ 𝐕𝑖 ;
+// 𝐻 𝑊 𝑔 × 𝑐
+10:
+𝐕∗𝑖 ← 𝑅𝑒𝑠ℎ𝑎𝑝𝑒(𝐕∗𝑖 );
+// 𝑑 × 𝐻 × 𝑊
+′
+11:
+𝐏𝑖 ← 𝐏𝑖 + 𝐕∗𝑖
+// 𝑑 × 𝐻 × 𝑊
+12: end for
+′
+′
+13: 𝐏 ← 1×1 (𝐶 𝑜𝑛𝑐 𝑎𝑡(𝐏𝑖 ))
+// 𝐶 × 𝐻 × 𝑊
+7:
+
+Fig. 5. Comparison of classification performance across four datasets under different
+values of 𝑘.
+
+(1) Pavia University1 . This dataset was acquired by the Reflective
+Optics System Imaging Spectrometer (ROSIS) on the campus of
+Pavia University in northern Italy in 2001. It has 103 spectral
+bands. The dataset consists of 610 by 340 pixels and covers 9
+main categories of interest.
+(2) Houston. The Houston dataset was acquired over the University
+of Houston campus and its surrounding areas in 2012 (Debes
+et al., 2014). It has 144 spectral bands in the wavelength range
+of 400–1000 nm and a spatial resolution of 2.5 m. It consists of
+349 by 1905 pixels and covers 15 categories.
+(3) Indian Pines1 . The AVIRIS sensor acquired this dataset in Northwest Indiana in 1992. It has a dimension of 145 by 145 pixels
+and a spatial resolution of 20 m. It covers 200 spectral bands in
+the wavelength range of 400–2500 nm after removing the water
+absorption bands. The dataset includes 16 vegetation classes.
+(4) Whu-HongHu. This dataset was collected using a UAV platform
+in HongHu City in 2017 (Zhong et al., 2020). It comprises
+270 spectral bands ranging from 400 to 1000 nm, with a high
+spatial resolution of approximately 0.04 m. The dimensions of
+the imagery are 940 by 475 pixels, which includes 17 typical
+crop types.
+
+the most relevant elements within . For example, with 𝑘 = 0.8, the top
+80% of the elements are retained for activation, while the remaining
+20% are masked to 0. To achieve this, a matrix 𝑘 is created, which
+operates as follows:
+{
+𝑝𝑞 , 𝑝𝑞 > 𝑇𝑘[𝑝]
+𝑘
+𝑝𝑞 =
+(13)
+−∞, otherwise,
+where 𝑘𝑝𝑞 denotes the value at position 𝑝𝑞, and 𝑻 𝒌 ∈ R𝐻 𝑊 𝑔×1 is the
+lower threshold vector of the highest 𝑘 percent attention values in each
+row of , i.e, each token has a unique threshold, and 𝑇𝑘[𝑝] is the 𝑝th
+value of 𝑻 𝒌 . After that, the selective attention matrix is activated by
+the softmax function. The activated attention can be written as follows:
+∗ = 𝑆 𝑜𝑓 𝑡𝑚𝑎𝑥(𝑘 ),
+
+(14)
+
+Further, the 𝑖th head selective attention 𝐕∗𝑖 can be multiplied by ∗
+and 𝐕𝑖 , and then add the input feature 𝐏𝑖 for residual connection:
+𝐏′𝑖 = 𝐏𝑖 + ∗𝑖 𝐕𝑖 .
+
+(15)
+
+Given our multi-head design, we concatenate the outputs from
+each head and then aggregate them using a 1 × 1 convolution, as
+demonstrated below:
+𝐏′ = 1×1 (𝐶 𝑜𝑛𝑐 𝑎𝑡(𝐏′𝑖 )).
+
+4.2. Experimental settings
+
+(16)
+
+The experiments in this study were conducted on the PyTorch
+platform, utilizing an NVIDIA GeForce RTX 3090 GPU. For the Pavia
+University dataset, 30 samples per class were randomly selected for
+training. For the other three datasets, 50 samples per class were chosen,
+except for classes 1, 7, and 9 of the Indian Pines dataset, where only
+15 samples were selected. The remaining labeled samples were used
+for testing. The training process used the AdamW optimizer, starting
+with an initial learning rate of 1𝑒 − 4 and a weight decay of 1𝑒 − 5, was
+run for 500 epochs, extract patch cubes of size 𝐶 × 10 × 10, patch size
+in transformer is 2, and embedding dimension is fixed with 128 in all
+datasets. To quantitatively assess classification performance, we used
+three widely recognized evaluation metrics: overall accuracy (OA),
+average accuracy (AA), and kappa coefficient (𝜅). Each experiment was
+repeated 10 times with different random seeds, and the classification
+results are presented as mean and standard deviation.
+
+The detailed implementation of our Token Selective Fusion Attention is presented in Algorithm 1.
+4. Experiment
+In this section, we first provide an overview of the datasets and the
+implementation details. We then conduct a comprehensive evaluation
+of the proposed method, including in-depth parameter analysis and
+module ablation studies. This is followed by a qualitative and quantitative comparison of our approach with current state-of-the-art methods.
+Finally, we evaluated and discussed the operational efficiency of our
+model compared to other methods.
+4.1. Data descriptions
+
+4.3. Parameter analysis
+(1) Effect of Different Values 𝑘. In the TSFTB module, one of the
+core parameters to select the 𝑘 tokens is the value of 𝑘. To identify
+
+1
+https://www.ehu.eus/ccwintco/index.php?title=Hyperspectral_Remote_
+Sensing_Scenes
+
+5
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+Table 1
+Performance contribution of different module on four datasets (reported in OA (%). Best results are highlighted in Bold.
+Depth
+
+KSFTB
+
+TSFTB
+
+Pavia University
+
+Houston
+
+Indian Pines
+
+Whu-HongHu
+
+1
+9
+9
+9
+
+✗
+✗
+✓
+✗
+
+✗
+✗
+✗
+✓
+
+87.67
+86.33
+93.44
+95.81
+
+92.51
+90.04
+96.98
+97.44
+
+85.97
+85.99
+92.14
+93.65
+
+88.32
+86.58
+92.95
+93.84
+
+9
+
+✓
+
+✓
+
+96.59
+
+97.66
+
+95.17
+
+94.59
+
+Table 2
+The performance of spatial–spectral receptive field selective fusion mechanism on four
+datasets (reported in OA (%)). The best results are highlighted in Bold. ‘‘w/o Spa/Spe’’
+represents the absence of the fusion of spatial or spectral receptive fields, while ‘‘w/
+Spa-Spe’’ indicates that spatial and spectral features of different scales are employed.
+DSFormer
+
+Pavia University
+
+Houston
+
+Indian Pines
+
+Whu-HongHu
+
+w/o Spa
+w/o Spe
+
+96.01
+96.09
+
+97.41
+97.43
+
+94.20
+94.38
+
+94.13
+94.32
+
+w/ Spa-Spe
+
+96.59
+
+97.66
+
+95.17
+
+94.59
+
+determine the optimal value for 𝑔, we conducted four experimental
+configurations with 𝑔 set to 1, 2, 4, and 8, respectively. By utilizing
+grouping and 3D convolutions, the TSFTB module preserves the spatial–
+spectral characteristics of HSIs, enabling the extraction of tokens that
+incorporate both spatial and spectral features. The value of 𝑔 directly
+impacts the size of the attention matrix, with larger 𝑔 values leading to
+increased computational complexity due to the expansion of the matrix.
+When 𝑔 is set to 1, the TSFTB module reduces to purely spatial token
+selection without any grouping. The experimental results, as illustrated
+in Fig. 6, show that when 𝑔 is set to 1, no grouping strategy is applied
+to preserve spatial–spectral characteristics, resulting in a relatively
+lower classification accuracy across the four datasets. In contrast, the
+grouping strategy significantly improves classification performance.
+Notably, the optimal classification performance is achieved with 𝑔 is
+set to 4 across all four datasets, while maintaining relatively efficient
+computational complexity.
+4.4. Ablation study
+(1) Performance Contribution of Each Module. We explore the
+impact of each module within DSFormer on classification performance
+through an ablation study, as shown in Table 1. The baseline architecture utilizes a single 3 × 3 convolutional layer, as well as a variant that
+employs nine consecutively stacked 3 × 3 convolutional layers to align
+with the depth of the DSFormer network. The results presented indicate
+that both the KSFTB and TSFTB modules significantly enhance the network’s classification performance. For example, on the Pavia University
+dataset, the baseline with single convolutional layer achieves an OA of
+only 87.67%. However, increasing the number of network layers did
+not lead to improved accuracy. In fact, employing nine convolutional
+layers yielded an OA of only 86.33%. The introduction of the KSFTB
+module improved the OA to 93.44%, while the application of the TSFTB
+module increased the OA to 95.81%. Each of these modules contributes
+to improved classification performance through their fusion mechanisms. Specifically, the KSFTB module improves recognition accuracy
+for objects of varying scales by enabling the network to adaptively
+select and fuse appropriate receptive field features from spatial and
+spectral respectives. While the TSFTB module enhances classification
+by computing self-attention spatial–spectral contexts on the most relevant tokens. This process reduces redundancy and interference from
+irrelevant information, thus improving the integration and utilization
+of useful features. When both KSFTB and TSFTB modules are applied
+together, the classification performance is further improved, with the
+OA yielding 96.59%. In summary, the results of the ablation study have
+demonstrated that KSFTB and TSFTB modules are able to simultaneously improve the network’s classification performance on all four HSI
+datasets, while the combination of two modules exhibits a synergistic
+effect, achieving the best OAs and confirming the effectiveness of these
+modules in enhancing network classification performance.
+(2) Performance Contribution of Spatial–Spectral Mechanism.
+We further explored the impact of the spatial–spectral selection mechanism within KSFTB on classification performance. As shown in Table 2,
+classification performance decreases in the four datasets when using the
+single spatial or spectral selection branch individually. This highlights
+the importance of considering both spatial and spectral information
+for the accurate identification of ground objects in HSIs. It is essential
+to not only adaptively optimal the spatial receptive field but also
+
+Fig. 6. Comparison of classification performance across four datasets under different
+group number 𝑔.
+
+the optimal value of 𝑘, we performed four experiments with 𝑘 set to
+0.2, 0.4, 0.6, 0.8, and 1, respectively. When 𝑘 is set to 0.8, the TSFTB
+module selects the most relevant 80% tokens for the spatial–spectral
+context modeling, while the remaining 20% are considered the least
+relevant and are therefore excluded from the information interaction
+process. When 𝑘 is set to 1, the attention mechanism in the TSFTB
+module degenerates into the conventional full self-attention form. Fig. 5
+presents the OA results in four datasets with different values of 𝑘. The
+experimental results show that when 𝑘 is set to 0.2, the classification
+accuracy is relatively low due to the insufficient information available
+for long-range modeling. As the value of 𝑘 increases, the OA improves,
+indicating that more pixels contribute to the fusion of contextual relationships, enabling the network to capture richer and more effective
+information for the classification task. However, when 𝑘 exceeds the
+optimal value, OA begins to decline, likely due to the inclusion of
+irrelevant or redundant information, which negatively impacts classification performance. Finally, based on the experimental results, we
+selected 𝑘 values of 0.4, 0.6, 0.8, and 0.8 across the four datasets to
+achieve optimal classification performance. Furthermore, we observe
+that performance in most 𝑘 configurations outperforms the traditional
+self-attention mechanism (𝑘 = 1), validating the effectiveness of the
+token selection strategy.
+(2) Effect of Different Group Numbers 𝑔. A critical parameter in
+the DSFormer architecture is the number of groups, denoted as 𝑔. To
+6
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+Table 3
+Quantitative classification results of the Pavia University dataset. Best results are shown in bold.
+Class
+
+3-DCNN
+
+SSFCN
+
+SACNet
+
+FcontNet
+
+SpectralFormer
+
+SSFTT
+
+GAHT
+
+MorphFormer
+
+GSCViT
+
+DSFormer
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+77.43 ± 7.99
+70.94 ± 10.10
+68.47 ± 14.58
+93.48 ± 7.12
+99.56 ± 0.42
+75.85 ± 13.08
+88.00 ± 3.75
+82.22 ± 15.26
+99.42 ± 0.67
+
+77.51 ± 1.48
+78.88 ± 2.21
+76.25 ± 2.10
+89.31 ± 1.52
+98.09 ± 1.53
+82.65 ± 2.37
+86.72 ± 1.84
+84.50 ± 2.23
+99.09 ± 0.63
+
+80.10 ± 3.43
+80.12 ± 3.82
+82.13 ± 4.84
+77.97 ± 3.18
+95.70 ± 1.47
+91.96 ± 2.09
+92.35 ± 2.37
+86.65 ± 1.12
+98.46 ± 0.77
+
+82.17 ± 3.72
+90.74 ± 2.95
+95.35 ± 2.63
+86.59 ± 4.38
+99.64 ± 0.36
+96.54 ± 2.14
+95.45 ± 0.89
+90.72 ± 3.21
+95.53 ± 4.20
+
+66.00 ± 11.47
+77.25 ± 8.09
+80.32 ± 11.09
+91.10 ± 2.12
+99.86 ± 0.21
+77.09 ± 11.96
+75.66 ± 10.84
+62.86 ± 20.38
+96.80 ± 1.23
+
+77.11 ± 17.13
+69.92 ± 20.30
+60.63 ± 14.57
+97.26 ± 2.03
+99.85 ± 0.22
+77.10 ± 16.86
+78.88 ± 20.94
+76.74 ± 20.03
+98.83 ± 1.95
+
+88.39 ± 9.29
+89.27 ± 4.43
+87.25 ± 6.23
+96.87 ± 1.65
+99.85 ± 0.19
+92.96 ± 5.98
+97.07 ± 3.82
+88.08 ± 5.43
+99.35 ± 0.49
+
+87.79 ± 6.34
+90.40 ± 4.98
+74.95 ± 16.35
+93.50 ± 3.43
+99.54 ± 0.51
+94.20 ± 4.21
+93.50 ± 5.26
+91.89 ± 6.18
+99.75 ± 0.25
+
+93.48 ± 3.62
+91.69 ± 6.45
+94.09 ± 4.18
+93.61 ± 4.88
+99.86 ± 0.15
+93.86 ± 4.74
+98.53 ± 1.17
+95.12 ± 1.94
+99.64 ± 0.44
+
+96.08 ± 1.65
+95.76 ± 3.15
+95.57 ± 2.45
+97.09 ± 0.76
+99.94 ± 0.12
+98.00 ± 1.35
+99.51 ± 0.42
+97.04 ± 0.85
+99.12 ± 0.66
+
+OA (%)
+𝜅 (%)
+AA (%)
+
+77.01 ± 4.48
+70.95 ± 5.22
+83.93 ± 2.36
+
+81.48 ± 1.45
+76.23 ± 1.78
+85.89 ± 0.98
+
+83.27 ± 1.72
+78.53 ± 2.03
+87.27 ± 0.91
+
+90.54 ± 2.17
+87.68 ± 2.74
+92.53 ± 1.66
+
+76.46 ± 2.36
+69.94 ± 2.64
+80.77 ± 1.91
+
+75.79 ± 9.10
+69.92 ± 9.98
+81.81 ± 4.10
+
+90.69 ± 2.44
+87.91 ± 3.09
+93.23 ± 1.38
+
+90.62 ± 2.29
+87.77 ± 2.89
+91.72 ± 1.69
+
+93.40 ± 2.43
+91.39 ± 3.05
+95.54 ± 1.07
+
+96.59 ± 1.41
+95.52 ± 1.82
+97.57 ± 0.51
+
+Fig. 7. Visualization of the classification maps on the Pavia University dataset. (a) False-color image. (b) Ground truth. (c) 3-DCNN. (d) SSFCN. (e) SACNet. (f) FcontNet. (g)
+SpectralFormer. (h) SSFTT. (i) GAHT. (j) MorphFormer. (k) GSCViT. (l) DSFormer.
+
+Table 4
+Quantitative classification results of the Houston dataset. Best results are shown in bold.
+Class
+
+3-DCNN
+
+SSFCN
+
+SACNet
+
+FcontNet
+
+SpectralFormer
+
+SSFTT
+
+GAHT
+
+MorphFormer
+
+GSCViT
+
+DSFormer
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+
+91.96 ± 6.02
+92.57 ± 6.08
+99.21 ± 0.95
+93.58 ± 2.12
+98.98 ± 0.83
+92.95 ± 5.28
+87.83 ± 2.82
+72.97 ± 6.39
+83.60 ± 4.00
+85.53 ± 5.68
+71.20 ± 4.31
+84.33 ± 4.93
+94.84 ± 0.66
+98.68 ± 1.31
+99.64 ± 0.39
+
+94.17 ± 1.94
+96.80 ± 2.54
+99.09 ± 0.49
+89.61 ± 1.12
+97.23 ± 0.58
+91.78 ± 1.09
+82.31 ± 1.36
+83.15 ± 2.30
+81.41 ± 1.20
+88.07 ± 1.97
+84.08 ± 2.49
+79.37 ± 2.80
+88.76 ± 1.74
+98.39 ± 0.48
+95.77 ± 0.60
+
+87.38 ± 1.43
+79.50 ± 3.08
+98.56 ± 0.87
+82.05 ± 3.02
+82.10 ± 3.33
+89.20 ± 2.17
+73.04 ± 1.83
+62.19 ± 2.66
+68.82 ± 2.52
+90.93 ± 2.32
+84.14 ± 1.93
+84.57 ± 2.84
+82.98 ± 3.61
+98.92 ± 0.69
+94.23 ± 2.15
+
+94.44 ± 1.57
+90.35 ± 1.89
+99.41 ± 0.64
+90.59 ± 2.89
+97.87 ± 0.80
+95.85 ± 1.68
+85.48 ± 2.66
+80.45 ± 3.09
+80.05 ± 2.10
+92.56 ± 3.15
+94.36 ± 2.81
+94.61 ± 1.99
+97.28 ± 1.33
+100
+99.64 ± 0.32
+
+94.32 ± 3.37
+96.45 ± 1.04
+99.43 ± 0.42
+93.72 ± 2.53
+98.70 ± 0.92
+96.33 ± 1.87
+78.10 ± 4.61
+84.86 ± 3.65
+76.15 ± 4.90
+89.97 ± 3.90
+76.36 ± 3.41
+80.35 ± 4.81
+76.11 ± 4.69
+96.85 ± 1.76
+98.84 ± 1.08
+
+87.76 ± 5.05
+94.97 ± 5.43
+90.36 ± 17.37
+97.85 ± 2.74
+98.72 ± 1.85
+97.09 ± 3.11
+87.73 ± 6.38
+78.49 ± 5.71
+89.54 ± 5.53
+63.59 ± 27.82
+82.01 ± 14.44
+67.31 ± 29.28
+96.56 ± 2.74
+99.79 ± 0.39
+99.82 ± 0.21
+
+93.61 ± 4.89
+97.52 ± 3.83
+99.57 ± 0.49
+96.81 ± 2.57
+99.66 ± 0.57
+98.95 ± 1.18
+94.11 ± 2.77
+89.36 ± 2.98
+90.87 ± 3.73
+93.02 ± 5.28
+94.18 ± 2.62
+92.53 ± 3.96
+97.18 ± 1.48
+100
+99.89 ± 0.18
+
+96.79 ± 1.73
+97.57 ± 3.50
+99.32 ± 0.90
+96.73 ± 2.60
+99.35 ± 0.82
+98.87 ± 1.19
+93.45 ± 2.06
+87.24 ± 4.22
+90.52 ± 2.48
+96.29 ± 2.30
+93.79 ± 2.55
+94.22 ± 3.13
+98.42 ± 1.60
+99.81 ± 0.56
+99.69 ± 0.42
+
+96.81 ± 1.95
+99.31 ± 0.86
+99.58 ± 0.54
+99.39 ± 0.65
+100
+99.96 ± 0.11
+95.48 ± 2.67
+89.66 ± 4.75
+90.87 ± 4.30
+98.09 ± 1.25
+96.25 ± 2.02
+93.44 ± 4.63
+98.59 ± 1.65
+100
+99.66 ± 0.42
+
+98.25 ± 1.26
+99.37 ± 0.34
+99.61 ± 0.26
+99.56 ± 0.67
+99.87 ± 0.24
+99.78 ± 0.65
+97.95 ± 1.06
+92.28 ± 2.94
+94.38 ± 2.07
+97.69 ± 3.11
+98.03 ± 1.81
+95.16 ± 2.97
+99.38 ± 0.66
+99.97 ± 0.08
+100
+
+OA (%)
+𝜅 (%)
+AA (%)
+
+88.14 ± 1.32
+87.17 ± 1.43
+89.86 ± 1.18
+
+88.89 ± 1.00
+87.99 ± 1.08
+90.00 ± 0.85
+
+81.74 ± 0.93
+80.26 ± 1.00
+83.91 ± 0.90
+
+91.47 ± 1.32
+90.78 ± 1.42
+92.86 ± 1.07
+
+88.10 ± 0.74
+87.14 ± 0.80
+89.10 ± 0.68
+
+86.72 ± 4.09
+85.65 ± 4.41
+88.77 ± 3.57
+
+94.99 ± 0.91
+94.58 ± 0.99
+95.82 ± 0.81
+
+95.36 ± 0.99
+94.98 ± 1.07
+96.14 ± 0.88
+
+96.52 ± 0.60
+96.23 ± 0.65
+97.14 ± 0.49
+
+97.66 ± 0.51
+97.47 ± 0.56
+98.09 ± 0.42
+
+7
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+Fig. 8. Visualization of the classification maps on the Houston dataset. (a) False-color image. (b) Ground truth. (c) 3-DCNN. (d) SSFCN. (e) SACNet. (f) FcontNet. (g) SpectralFormer.
+(h) SSFTT. (i) GAHT. (j) MorphFormer. (k) GSCViT. (l) DSFormer.
+
+Table 5
+Quantitative classification results of the Indian Pines dataset. Best results are shown in Bold.
+Class
+
+3-DCNN
+
+SSFCN
+
+SACNet
+
+FcontNet
+
+SpectralFormer
+
+SSFTT
+
+GAHT
+
+MorphFormer
+
+GSCViT
+
+DSFormer
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+
+93.87 ± 2.26
+60.45 ± 9.78
+70.64 ± 4.44
+95.72 ± 3.80
+89.49 ± 2.49
+96.85 ± 0.64
+96.92 ± 3.77
+98.06 ± 1.90
+100
+76.80 ± 6.72
+66.88 ± 7.56
+82.71 ± 7.42
+99.87 ± 0.26
+92.24 ± 2.85
+94.85 ± 4.19
+100
+
+93.23 ± 2.26
+75.64 ± 1.76
+83.36 ± 2.00
+92.51 ± 3.08
+90.30 ± 3.39
+89.75 ± 1.65
+98.46 ± 3.08
+94.35 ± 1.40
+100
+75.42 ± 2.65
+64.51 ± 3.09
+80.41 ± 5.46
+98.39 ± 1.09
+89.34 ± 1.18
+90.65 ± 2.18
+99.30 ± 1.07
+
+99.68 ± 0.97
+89.33 ± 1.66
+93.59 ± 1.95
+97.86 ± 1.29
+97.76 ± 0.75
+98.65 ± 0.79
+100
+98.62 ± 0.82
+100
+89.34 ± 2.62
+91.06 ± 1.24
+86.10 ± 1.31
+99.61 ± 0.43
+96.02 ± 1.04
+99.97 ± 0.09
+100
+
+90.32 ± 6.12
+80.86 ± 6.15
+94.21 ± 2.93
+95.29 ± 1.24
+94.83 ± 3.19
+96.74 ± 2.12
+100
+99.77 ± 0.26
+100
+93.67 ± 2.42
+89.84 ± 5.82
+91.20 ± 2.78
+100
+95.74 ± 1.77
+99.52 ± 0.40
+99.07 ± 1.14
+
+90.00 ± 7.83
+68.72 ± 3.71
+82.14 ± 6.69
+94.60 ± 2.40
+90.81 ± 2.73
+95.32 ± 1.80
+98.46 ± 4.62
+97.27 ± 2.36
+98.00 ± 6.00
+81.40 ± 3.86
+73.53 ± 4.42
+74.84 ± 6.65
+99.42 ± 0.54
+92.10 ± 2.82
+93.45 ± 4.24
+99.53 ± 0.93
+
+96.77 ± 4.33
+84.45 ± 7.24
+79.05 ± 26.67
+97.65 ± 2.74
+95.38 ± 2.33
+96.82 ± 5.89
+100
+99.58 ± 0.55
+100
+88.37 ± 5.57
+60.80 ± 25.84
+91.14 ± 3.34
+99.94 ± 0.19
+96.29 ± 2.00
+97.11 ± 1.79
+99.77 ± 0.70
+
+100
+88.08 ± 3.69
+93.76 ± 3.85
+99.63 ± 0.79
+96.56 ± 2.07
+99.34 ± 0.42
+100
+99.86 ± 0.28
+100
+91.91 ± 2.68
+82.13 ± 4.48
+94.97 ± 2.23
+100
+95.62 ± 1.83
+98.72 ± 1.20
+100
+
+97.10 ± 3.04
+88.15 ± 2.65
+94.05 ± 5.19
+99.89 ± 0.32
+96.95 ± 1.59
+98.63 ± 1.28
+100
+99.74 ± 0.29
+100
+91.34 ± 3.36
+87.42 ± 4.85
+95.49 ± 1.51
+99.94 ± 0.19
+97.42 ± 1.54
+98.72 ± 1.40
+99.77 ± 0.70
+
+99.03 ± 1.48
+89.47 ± 2.85
+96.53 ± 2.67
+99.89 ± 0.21
+97.23 ± 1.69
+99.43 ± 0.61
+100
+99.93 ± 0.21
+100
+94.03 ± 2.51
+89.50 ± 3.21
+95.82 ± 1.88
+99.94 ± 0.19
+97.77 ± 0.88
+99.38 ± 0.80
+100
+
+99.35 ± 1.29
+93.22 ± 2.14
+96.08 ± 2.40
+99.79 ± 0.43
+98.48 ± 1.45
+99.68 ± 0.22
+100
+100
+100
+94.03 ± 2.55
+90.25 ± 1.53
+96.24 ± 1.73
+100
+98.52 ± 0.66
+99.88 ± 0.15
+100
+
+OA (%)
+𝜅 (%)
+AA (%)
+
+78.28 ± 2.01
+75.30 ± 2.26
+88.46 ± 1.28
+
+79.40 ± 1.30
+76.68 ± 1.45
+88.48 ± 1.09
+
+93.05 ± 0.60
+92.04 ± 0.68
+96.10 ± 0.35
+
+91.93 ± 3.22
+90.78 ± 3.66
+95.06 ± 1.91
+
+81.88 ± 1.36
+79.43 ± 1.51
+89.35 ± 1.10
+
+83.47 ± 9.07
+81.43 ± 9.94
+92.70 ± 3.71
+
+91.39 ± 1.32
+90.17 ± 1.48
+96.29 ± 0.45
+
+92.91 ± 1.52
+91.89 ± 1.73
+96.54 ± 0.82
+
+94.26 ± 0.89
+93.43 ± 1.01
+97.37 ± 0.39
+
+95.17 ± 0.93
+94.47 ± 1.07
+97.85 ± 0.44
+
+Fig. 9. Visualization of the classification maps on the Indian Pines dataset. (a) False-color image. (b) Ground truth. (c) 3-DCNN. (d) SSFCN. (e) SACNet. (f) FcontNet. (g)
+SpectralFormer. (h) SSFTT. (i) GAHT. (j) MorphFormer. (k) GSCViT. (l) DSFormer.
+
+8
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+Table 6
+Quantitative classification results of the Whu-HongHu dataset. Best results are shown in bold.
+Class
+
+3-DCNN
+
+SSFCN
+
+SACNet
+
+FcontNet
+
+SpectralFormer
+
+SSFTT
+
+GAHT
+
+MorphFormer
+
+GSCViT
+
+DSFormer
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+
+90.78 ± 2.65
+92.10 ± 1.50
+80.27 ± 7.44
+90.10 ± 2.58
+85.49 ± 3.52
+90.33 ± 4.36
+66.40 ± 3.44
+59.23 ± 6.12
+95.45 ± 1.16
+82.54 ± 4.28
+68.36 ± 5.18
+70.88 ± 5.60
+66.08 ± 7.33
+86.10 ± 5.35
+94.50 ± 1.95
+91.36 ± 3.75
+91.41 ± 3.83
+91.13 ± 2.78
+89.90 ± 2.60
+92.40 ± 2.76
+83.04 ± 9.61
+90.53 ± 4.40
+
+92.34 ± 1.76
+88.75 ± 1.34
+81.16 ± 0.94
+87.93 ± 1.28
+84.99 ± 1.04
+85.74 ± 1.27
+61.18 ± 2.27
+51.81 ± 2.87
+95.04 ± 0.74
+66.45 ± 2.86
+56.68 ± 2.51
+58.97 ± 2.42
+54.73 ± 1.88
+76.66 ± 2.60
+93.32 ± 1.00
+89.41 ± 1.53
+89.81 ± 2.16
+90.33 ± 2.19
+85.11 ± 1.81
+96.38 ± 0.78
+87.71 ± 1.64
+87.92 ± 1.82
+
+88.22 ± 1.86
+89.69 ± 1.26
+85.64 ± 1.10
+91.50 ± 1.90
+90.95 ± 0.75
+86.64 ± 1.04
+57.62 ± 2.61
+81.22 ± 3.34
+87.93 ± 1.76
+59.82 ± 2.38
+57.55 ± 3.51
+78.58 ± 3.28
+67.93 ± 2.28
+78.39 ± 1.78
+98.58 ± 0.83
+90.74 ± 2.92
+95.75 ± 1.78
+94.03 ± 0.81
+81.46 ± 1.40
+91.49 ± 2.31
+95.23 ± 2.22
+94.77 ± 3.57
+
+89.94 ± 2.38
+88.54 ± 5.40
+85.93 ± 0.73
+89.94 ± 5.18
+93.46 ± 5.21
+91.05 ± 2.85
+76.95 ± 3.22
+97.54 ± 1.79
+92.61 ± 1.73
+86.82 ± 2.46
+80.69 ± 4.14
+89.90 ± 3.60
+86.36 ± 4.36
+95.91 ± 2.47
+99.35 ± 0.47
+94.29 ± 2.02
+95.14 ± 2.61
+97.23 ± 1.67
+86.18 ± 2.97
+99.56 ± 0.16
+99.69 ± 0.20
+99.13 ± 0.66
+
+95.28 ± 1.04
+90.01 ± 2.12
+78.32 ± 1.68
+93.20 ± 2.40
+85.74 ± 5.17
+90.41 ± 2.92
+70.49 ± 3.32
+63.43 ± 3.11
+96.94 ± 0.86
+61.54 ± 5.74
+71.51 ± 3.36
+70.96 ± 4.17
+67.83 ± 5.20
+85.54 ± 3.17
+94.02 ± 2.90
+89.36 ± 3.51
+89.21 ± 2.37
+90.66 ± 3.82
+90.03 ± 1.94
+94.45 ± 2.00
+87.86 ± 5.67
+91.54 ± 3.50
+
+82.37 ± 15.01
+69.44 ± 31.34
+80.07 ± 11.96
+84.41 ± 11.17
+72.78 ± 19.67
+66.43 ± 29.85
+69.35 ± 14.28
+64.45 ± 12.07
+95.58 ± 3.40
+81.11 ± 8.85
+55.64 ± 19.38
+56.33 ± 20.32
+67.83 ± 5.20
+85.43 ± 8.74
+97.13 ± 2.83
+91.33 ± 3.20
+92.08 ± 3.87
+64.21 ± 25.62
+67.38 ± 24.16
+75.31 ± 22.05
+55.38 ± 36.65
+88.84 ± 9.76
+
+96.13 ± 0.81
+96.23 ± 1.47
+84.00 ± 8.94
+95.46 ± 0.70
+93.45 ± 2.38
+94.12 ± 2.52
+78.60 ± 3.92
+80.02 ± 4.75
+97.27 ± 1.74
+89.57 ± 2.24
+85.85 ± 3.57
+79.35 ± 5.21
+78.49 ± 4.74
+94.55 ± 2.26
+98.26 ± 1.01
+94.82 ± 1.69
+96.65 ± 1.96
+95.68 ± 2.52
+94.89 ± 0.94
+95.69 ± 2.37
+93.64 ± 12.16
+95.71 ± 2.00
+
+94.97 ± 4.13
+95.61 ± 2.81
+87.78 ± 4.15
+93.31 ± 2.80
+94.44 ± 3.14
+94.68 ± 2.32
+78.57 ± 3.69
+84.93 ± 7.33
+96.12 ± 2.53
+88.08 ± 5.46
+87.15 ± 4.04
+82.53 ± 5.54
+80.09 ± 4.50
+95.28 ± 3.66
+98.94 ± 1.06
+94.05 ± 4.07
+97.54 ± 1.77
+98.21 ± 1.22
+94.36 ± 1.48
+96.27 ± 2.90
+92.61 ± 15.09
+97.01 ± 2.54
+
+93.46 ± 5.86
+95.07 ± 4.31
+89.40 ± 2.69
+95.56 ± 5.62
+90.68 ± 9.77
+93.32 ± 2.90
+80.01 ± 5.05
+83.12 ± 3.24
+97.55 ± 1.37
+82.34 ± 11.69
+87.65 ± 3.80
+81.50 ± 9.10
+78.77 ± 4.33
+92.92 ± 5.11
+98.89 ± 0.66
+98.31 ± 1.48
+95.30 ± 5.49
+96.14 ± 2.73
+94.21 ± 2.12
+97.42 ± 1.69
+89.48 ± 11.80
+97.14 ± 1.80
+
+96.35 ± 0.77
+96.84 ± 1.23
+92.66 ± 1.20
+97.09 ± 1.01
+96.76 ± 1.79
+94.95 ± 1.93
+84.44 ± 1.99
+92.69 ± 2.15
+97.21 ± 1.80
+93.54 ± 1.42
+92.58 ± 1.61
+88.52 ± 2.96
+84.46 ± 2.80
+97.54 ± 0.91
+99.26 ± 0.76
+97.26 ± 1.37
+97.66 ± 1.49
+98.80 ± 0.90
+95.80 ± 0.74
+98.90 ± 0.52
+99.01 ± 0.66
+97.95 ± 1.12
+
+OA (%)
+𝜅 (%)
+AA (%)
+
+85.16 ± 1.18
+81.67 ± 1.39
+84.02 ± 1.09
+
+81.26 ± 0.70
+76.98 ± 0.81
+80.11 ± 0.72
+
+84.12 ± 1.13
+80.33 ± 1.31
+83.81 ± 0.68
+
+89.10 ± 2.83
+86.55 ± 3.32
+91.65 ± 1.31
+
+86.36 ± 1.05
+83.03 ± 1.24
+84.01 ± 0.83
+
+77.17 ± 9.41
+72.46 ± 10.69
+75.03 ± 9.24
+
+91.65 ± 0.85
+89.55 ± 1.05
+91.29 ± 0.90
+
+91.19 ± 1.52
+89.04 ± 1.82
+91.93 ± 1.60
+
+91.79 ± 2.32
+89.76 ± 2.72
+91.28 ± 1.23
+
+94.59 ± 0.50
+93.20 ± 0.62
+95.01 ± 0.21
+
+Fig. 10. Visualization of the classification maps on the Whu-HongHu dataset. (a) False-color image. (b) Ground truth. (c) 3-DCNN. (d) SSFCN. (e) SACNet. (f) FcontNet. (g)
+SpectralFormer. (h) SSFTT. (i) GAHT. (j) MorphFormer. (k) GSCViT. (l) DSFormer.
+
+9
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+Fig. 11. Comparison of classification performance with different training sample per class: (a) Pavia University dataset. (b) Houston dataset. (c) Indian Pines dataset. (d) WhuHongHu dataset.
+
+integrate the spectral features in appropriate scales, as the required
+spatial–spectral contextual information varies significantly across different land cover types. For example, in the Pavia University dataset,
+the OA reaches 96.09% and 96.01% respectively when using the single spatial or spectral branches. In contrast, when both spatial and
+spectral receptive field fusion mechanisms are applied simultaneously,
+the OA reaches 96.59%. In summary, this ablation study demonstrates
+that optimal classification performance is achieved when both spatial
+and spectral multiscale features are employed, thus validating the
+effectiveness of the proposed KSFTB.
+
+(9) GSCViT (Zhao et al., 2024): A lightweight network utilizing
+groupwise separable convolution and ViT in each feature extraction block. The model is trained with the AdamW optimizer,
+featuring a learning rate of 1𝑒 − 3 and a weight decay coefficient
+of 0.05.
+(1) Quantitative Results. The quantitative results include the accuracy per class, OA, 𝜅, and AA as shown in Tables 3 to 6, with the
+best results highlighted in bold. Taking the Pavia University dataset as
+an example, CNN-based HSI classification methods such as 3D-CNN at
+the patch level, the classification performance is limited by the size of
+the input patch, resulting in an OA of only 77.01%. For image-based
+methods such as SSFCN, although the entire image is used as input, the
+limited receptive field of the convolutional layer hampers the effective
+extraction of contextual information, leading to a lower OA of 81.48%.
+The SACNet method introduces a self-attention learning mechanism
+and context encoding to establish long-range dependencies, but its
+performance improvement is restricted by spatial resolution during the
+self-attention mechanism calculation, yielding an OA of 83.27%. In
+contrast, FcontNet achieves a relatively higher accuracy with an OA of
+90.54% by combining scale, spatial, and channel attention mechanisms
+for multiscale classification. However, the extensive self-attention computations and multiscale feature design of this method result in high
+computational resource demands and low operational efficiency.
+For transformer-based methods, both SpectralFormer and SSFTT are
+built on the ViT structure and learn by constructing sequence data
+from adjacent bands. However, due to redundancy between bands and
+the lack of spatial context modeling, these methods perform slightly
+worse than the CNN-based HSI classification methods aforementioned,
+with an OA of 76. 46% and 75.79%, respectively. GAHT builds a
+hierarchical transformer on the ViT foundation by integrating grouped
+pixel embeddings, MorphFormer incorporates morphological operations into the ViT attention mechanism, and GSCViT uses groupwise
+separable convolution with ViT to extract local and global features.
+All of these methods achieve relatively high accuracy, with OAs of
+90.69%, 90.6%, and 93.40%, respectively. However, these approaches
+overlook the varying contextual ranges required by different types of
+land cover in the HSI, and the traditional full self-attention mechanism
+will inevitably includes redundant and irrelevant information during
+computation. Furthermore, insufficient refinement in capturing the
+interspectral context limits the accuracy of existing transformer-based
+HSI classification methods.
+To address the aforementioned issues, we employ KSFTB for adaptive receptive field selection and fusion, followed by TSFTB to intelligently choose the most relevant spatial–spectral tokens for selfattention computation. Our method, DSFormer, achieved an optimal
+OA of 96.59%, surpassing the second-best method by 3.2%. Notably,
+DSFormer obtained the best results in nearly all per-class accuracy
+metrics, except for the ninth class, shadows, where it was slightly outperformed by MorphFormer. This may be attributed to the integration
+of morphological operations within the attention mechanism, which
+likely provides more clear category priors for shadow recognition. Similarly, our proposed method also demonstrated superior accuracy on
+other additional datasets, highlighting its advantages and applicability.
+
+4.5. Performance comparison and analysis
+In this subsection, we compare the proposed method with other
+classical and state-of-the-art approaches. A brief introduction to each
+method included in the experiments is provided below.
+(1) 3D-CNN (Ben Hamida et al., 2018): Spatial–spectral classification
+using 3D-CNN. We follow the implementation with the original
+article.
+(2) SSFCN (Xu et al., 2020): Spatial–spectral classification with an
+end-to-end fully convolutional network. The model is trained
+using the Adam optimizer with a learning rate of 5𝑒 − 4 and a
+momentum of 0.9.
+(3) SACNet (Xu et al., 2021): Spatial–spectral classification method
+that integrates self-attention learning with context encoding. The
+network is trained using the Adam optimizer with a learning rate
+of 5𝑒 − 4 and a weight decay of 5𝑒 − 5.
+(4) FcontNet (Wang, Du et al., 2022): Multiscale classification based
+on non-local contextual attention across space, bands, and scales.
+The base learning rate is 0.01, adjusted using the poly scheduling
+policy. The model is optimized using SGD with a momentum of
+0.9 and a weight decay of 1𝑒 − 4.
+(5) SpectralFormer (Hong et al., 2022): A Transformer-based architecture that employs sequential learning, focusing on adjacent
+bands and patches. The model is trained using the Adam optimizer with a learning rate of 5𝑒 − 4, which decays by a factor of
+0.9 after every tenth of the total epochs.
+(6) SSFTT (Sun et al., 2022): Spatial–spectral classification method
+integrates a CNN with a single-layer transformer and a Gaussian
+distribution-weighted tokenization module. The model is trained
+using the Adam optimizer with a learning rate of 1𝑒 − 3.
+(7) GAHT (Mei et al., 2022): Spatial–spectral classification through
+a hierarchical transformer with grouped pixel embedding. The
+model is trained using the SGD optimizer with a momentum of
+0.9, a weight decay of 1𝑒 − 4, and a learning rate of 1𝑒 − 3.
+(8) MorphFormer (Roy et al., 2023): A ViT-based spatial–spectral
+classification method that combines attention mechanisms with
+morphological operations. The model is trained using the Adam
+optimizer with a weight decay of 5𝑒 − 3 and a learning rate of
+5𝑒 − 4.
+10
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+
+Fig. 13. Visualization of the alterations in the attention matrix before and after the
+token selective operation using the Pavia University dataset. (a) The dense attention
+matrix. (b) The selective attention mask. The attention map is obtained from the first
+head of MHSA with a group number of 2 and a selection rate of 40%.
+
+methods regarding parameters, inference time, and OA results, as presented in Table 7. In our performance evaluation, the proposed DSFormer exhibited strong competitiveness and achieved a good balance
+between precision and efficiency in four benchmark datasets. Regarding
+model parameters, our DSFormer has fewer parameters than the stateof-the-art methods GAHT and GSCViT. For inference time, DSFormer is
+faster than SpectralFormer while achieving higher OAs. We believe the
+efficiency of DSFormer is primarily influenced by the grouping strategy
+in TSFTB, which generates a large number of tokens for subsequent selfattention calculations. In summary, these results suggest that DSFormer
+enables a good trade-off between computational resource usage and
+complex scene perception.
+4.6. Visualization
+(1) Different Objects of Selection Weights. To validate the differences in the receptive field requirements for various types of land cover
+in HSIs, we present visualizations of the selection weights for different
+objects during receptive field fusion. Fig. 12(a) presents the locations
+of three land covers: Asphalt, Meadows and Bare Soil within the Pavia
+University dataset and their corresponding positions. And Fig. 12(b)
+shows the weight values 𝐖1 and 𝐖2 in Eq. (7) (normalized for visualization) for different receptive fields used in the final fusion within
+the KSFTB. The weight results show that the weight corresponding to
+the larger receptive field in P1 is 54.07%, which confirms our previous
+analysis (see Fig. 1) that asphalt requires more contextual information
+to perform an accurate classification. In contrast, at locations P2 and
+P3, both of which exhibit spatial continuity, smaller receptive field
+characteristics are sufficient for classification.
+(2) Attention Matrix Change of Token Selection. To further understand the token selection process in TSFTB, we present the changes
+in the attention matrix before and after the operation (corresponding
+to Eq. (13)). As shown in Fig. 13, we used the Pavia University dataset
+with a group number of 2 and a selection rate of 40%. Specifically, we
+selected the dense attention matrix from the first head of the MHSA
+mechanism. From the figure, it is evident that after the token selection
+operation, only 40% of the elements in the original dense attention
+matrix retain their values, while the remaining 60% are set to 0,
+resulting in a sparse selective attention mask for subsequent effective
+fusion. Through this process, the relevant information for classification
+is retained, whereas irrelevant and redundant information is discarded.
+
+Fig. 12. Visualization of the objects with different receptive fields selection weights
+on the Pavia University dataset. (a) Position of three objects P1: Asphalt, P2: Meadows,
+and P3:Bare soil. (b) Weights selection values of different receptive fields.
+
+(2) Qualitative Results. We also present classification maps in
+Figs. 7–10 to evaluate various methods. Using the Pavia University
+dataset as a case study, we observed that methods such as 3D-CNN and
+SSFCN exhibit significant salt-and-pepper noise. In contrast, FcontNet
+and the latest Transformer-based approaches yield smoother and better
+results. A particularly noteworthy observation is on the classification
+of the bricks class, where most existing methods exhibit omissions or
+misclassifications. However, our DSFormer model significantly reduces
+these errors, producing outputs that are much closer to the ground
+truth. This advantage has been consistently validated across multiple
+datasets, highlighting the superior performance of the DSFormer model
+in handling complex classification tasks.
+(3) Robustness with different training samples. To assess the
+stability of the proposed DSFormer method, we conducted extensive
+experiments on four diverse datasets, each with varying numbers of
+training samples. Specifically, we randomly selected 25, 50, 75, and
+100 samples per class to construct the training sets. Fig. 11 compares
+the classification performance in these different sample sizes. The
+results indicate that the classification accuracy of DSFormer is steadily
+improving as the number of training samples increases, demonstrating
+its robustness. Furthermore, DSFormer consistently outperforms existing state-of-the-art methods, achieving the highest accuracy across all
+training sample configurations.
+(4) Computation Cost Analysis. Given that previous comparative
+experiments indicate that transformer-based models typically achieve
+higher accuracy, we performed a comprehensive comparison of these
+
+5. Conclusion
+In this article, we introduce a novel network called DSFormer
+for HSI classification. DSFormer flexibly selects and fuses features
+across varying receptive fields, achieving contextual modeling of crucial spatial–spectral features through adaptive attention selection and
+11
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+Table 7
+Comparison of model parameters (K), inference time (s) and OA (%) across four datasets.
+Dataset
+
+Method
+
+SpectralFormer
+
+SSFTT
+
+GAHT
+
+MorphFormer
+
+GSCViT
+
+DSFormer
+
+Pavia University
+
+Parameters (K)
+Inference time (s)
+OA (%)
+
+174.19
+44.03
+76.46
+
+484.42
+8.52
+75.79
+
+927.11
+15.86
+90.69
+
+149.75
+26.17
+90.62
+
+984.33
+14.06
+93.40
+
+571.88
+39.40
+96.59
+
+Houston
+
+Parameters (K)
+Inference time (s)
+OA (%)
+
+235.95
+226.92
+88.10
+
+673.74
+37.94
+86.72
+
+973.58
+60.49
+94.99
+
+155.19
+99.22
+95.36
+
+995.22
+123.07
+96.52
+
+577.90
+136.28
+97.66
+
+Indian Pines
+
+Parameters (K)
+Inference time (s)
+OA (%)
+
+352.44
+14.05
+81.88
+
+931.85
+1.44
+83.47
+
+830.80
+2.46
+91.39
+
+199.99
+3.55
+92.91
+
+1009.62
+1.96
+94.26
+
+585.20
+4.66
+95.17
+
+Whu-HongHu
+
+Parameters (K)
+Inference time (s)
+OA (%)
+
+551.28
+274.36
+86.36
+
+1254.80
+45.98
+77.17
+
+1514.97
+63.54
+91.65
+
+255.99
+83.65
+91.19
+
+1027.93
+49.25
+91.79
+
+594.93
+108.51
+94.59
+
+References
+
+fusion. Recognizing that objects in HSI of varying scales require distinct
+spatial–spectral contextual ranges, DSFormer incorporates a KSFTB,
+which enables the learning of optimal receptive fields by dynamically
+selecting and integrating multiscale features extracted through multiple
+dilated convolutions. Furthermore, since the original MHSA may introduce redundant and irrelevant regions and targets that negatively affect
+HSI classification performance. We develop a TSFTB that realize the
+adaptive selection of the most valuable spatial–spectral tokens during
+the context fusion process under a spectral grouping strategy. These selection and fusion mechanisms collectively enable DSFormer to achieve
+effective visual perception of spatial–spectral contexts within an optimal receptive field. Extensive experiments conducted on four benchmark HSI datasets demonstrate that the proposed DSFormer achieves
+competitive comprehension performance on accuracy, robustness and
+inference efficiency compared to existing advanced methods.
+
+Ben Hamida, A., Benoit, A., Lambert, P., & Ben Amar, C. (2018). 3-d deep learning approach for remote sensing image classification. IEEE Transactions on Geoscience and
+Remote Sensing, 56, 4420–4434. http://dx.doi.org/10.1109/TGRS.2018.2818945.
+Chang, S., & Ghamisi, P. (2023). Changes to captions: An attentive network for remote
+sensing change captioning. IEEE Transactions on Image Processing, 32, 6047–6060.
+http://dx.doi.org/10.1109/TIP.2023.3328224.
+Chen, Y., Jiang, H., Li, C., Jia, X., & Ghamisi, P. (2016). Deep feature extraction and
+classification of hyperspectral images based on convolutional neural networks. IEEE
+Transactions on Geoscience and Remote Sensing, 54, 6232–6251.
+Chen, X., Li, H., Li, M., & Pan, J. (2023). Learning a sparse transformer network
+for effective image deraining. In Proc. IEEE conf. comput. vis. pattern recognit. (pp.
+5896–5905).
+Chen, H., Song, J., Han, C., Xia, J., & Yokoya, N. (2024). Changemamba: Remote
+sensing change detection with spatiotemporal state space model. IEEE Transactions
+on Geoscience and Remote Sensing, 62, 1–20. http://dx.doi.org/10.1109/TGRS.2024.
+3417253.
+Chen, S., Zhang, L., & Zhang, L. (2023). MSDformer: Multiscale deformable transformer
+for hyperspectral image super-resolution. IEEE Transactions on Geoscience and
+Remote Sensing, 61, 1–14. http://dx.doi.org/10.1109/TGRS.2023.3315970.
+Cheng, S., Chan, R., & Du, A. (2024). CACFTNet: A hybrid cov-attention and cross-layer
+fusion transformer network for hyperspectral image classification. IEEE Transactions
+on Geoscience and Remote Sensing, 62, 1–17. http://dx.doi.org/10.1109/TGRS.2024.
+3374081.
+Debes, C., Merentitis, A., Heremans, R., Hahn, J., Frangiadakis, N., van Kasteren, T.,
+Liao, W., Bellens, R., Pižurica, A., Gautama, S., Philips, W., Prasad, S., Du, Q., &
+Pacifici, F. (2014). Hyperspectral and lidar data fusion: Outcome of the 2013 grss
+data fusion contest. IEEE Journal of Selected Topics in Applied Earth Observations and
+Remote Sensing, 7, 2405–2418. http://dx.doi.org/10.1109/JSTARS.2014.2305441.
+Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T.,
+Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J., & Houlsby, N.
+(2021). An image is worth 16x16 words: Transformers for image recognition at
+scale. In Proc. int. conf. learn. represent.
+Gao, L., Hu, H., Xue, X., & Hu, H. (2024). From appearance to inherence: A hyperspectral image dataset and benchmark of material classification for surveillance. IEEE
+Transactions on Multimedia, 26, 8569–8580. http://dx.doi.org/10.1109/TMM.2024.
+3379876.
+Gong, Z., Zhong, P., Yu, Y., Hu, W., & Li, S. (2019). A cnn with multiscale convolution
+and diversified metric for hyperspectral image classification. IEEE Transactions on
+Geoscience and Remote Sensing, 57, 3599–3618. http://dx.doi.org/10.1109/TGRS.
+2018.2886022.
+Hang, R., Li, Z., Liu, Q., Ghamisi, P., & Bhattacharyya, S. (2021). Hyperspectral image
+classification with attention-aided cnns. IEEE Transactions on Geoscience and Remote
+Sensing, 59, 2281–2293. http://dx.doi.org/10.1109/TGRS.2020.3007921.
+He, Y., Tu, B., Liu, B., Chen, Y., Li, J., & Plaza, A. (2024). Hybrid multiscale spatial–
+spectral transformer for hyperspectral image classification. IEEE Transactions on
+Geoscience and Remote Sensing, 62, 1–18. http://dx.doi.org/10.1109/TGRS.2024.
+3443662.
+Hong, D., Han, Z., Yao, J., Gao, L., Zhang, B., Plaza, A., & Chanussot, J. (2022).
+Spectralformer: Rethinking hyperspectral image classification with transformers.
+IEEE Transactions on Geoscience and Remote Sensing, 60, 1–15. http://dx.doi.org/
+10.1109/TGRS.2021.3130716.
+Hong, D., He, W., Yokoya, N., Yao, J., Gao, L., Zhang, L., Chanussot, J., & Zhu, X.
+(2021). Interpretable hyperspectral artificial intelligence: When nonconvex modeling meets hyperspectral remote sensing. IEEE Geoscience and Remote Sensing
+Magazine, 9, 52–87. http://dx.doi.org/10.1109/MGRS.2021.3064051.
+Hu, W., Huang, Y., Wei, L., Zhang, F., & Li, H. (2015). Deep convolutional neural
+networks for hyperspectral image classification. Journal of Sensors, 2015, Article
+258619.
+
+CRediT authorship contribution statement
+Yichu Xu: Writing – review & editing, Writing – original draft, Visualization, Validation, Software, Methodology, Investigation, Formal
+analysis, Data curation, Conceptualization. Di Wang: Writing – review
+& editing, Writing – original draft, Resources, Methodology, Data curation, Conceptualization. Lefei Zhang: Writing – review & editing,
+Writing – original draft, Supervision, Project administration, Funding acquisition, Conceptualization. Liangpei Zhang: Writing – review
+& editing, Supervision, Project administration, Funding acquisition,
+Conceptualization.
+
+Declaration of competing interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to
+influence the work reported in this paper.
+
+Acknowledgment
+This work was supported in part by the National Natural Science
+Foundation of China Major Program (42192580 and 42192583).
+
+Data availability
+The authors do not have permission to share data.
+
+12
+
+Neural Networks 187 (2025) 107311
+
+Y. Xu et al.
+Hu, M., Wu, C., Du, B., & Zhang, L. (2023). Binary change guided hyperspectral
+multiclass change detection. IEEE Transactions on Image Processing, 32, 791–806.
+http://dx.doi.org/10.1109/TIP.2022.3233187.
+Li, Y., Hou, Q., Zheng, Z., Cheng, M., Yang, J., & Li, X. (2023). Large selective kernel
+network for remote sensing object detection. In Proc. IEEE/CVF int. conf. comput.
+vis. (pp. 16794–16805).
+Li, S., Song, W., Fang, L., Chen, Y., Ghamisi, P., & Benediktsson, J. (2019). Deep
+learning for hyperspectral image classification: An overview. IEEE Transactions on
+Geoscience and Remote Sensing, 57, 6690–6709. http://dx.doi.org/10.1109/TGRS.
+2019.2907932.
+Li, X., Wang, W., Hu, X., & Yang, J. (2019). Selective kernel networks. In Proc. IEEE/CVF
+conf. comput. vis. pattern recognit. (pp. 510–519).
+Li, Y., Zhang, H., & Shen, Q. (2017). Spectral–spatial classification of hyperspectral
+imagery with 3d convolutional neural network. Remote Sensing, 9, 67.
+Mei, S., Song, C., Ma, M., & Xu, F. (2022). Hyperspectral image classification using
+group-aware hierarchical transformer. IEEE Transactions on Geoscience and Remote
+Sensing, 60, 1–14. http://dx.doi.org/10.1109/TGRS.2022.3207933.
+Mou, L., Ghamisi, P., & Zhu, X. (2018). Unsupervised spectral–spatial feature learning
+via deep residual conv–deconv network for hyperspectral image classification. IEEE
+Transactions on Geoscience and Remote Sensing, 56, 391–406.
+Paoletti, M., Haut, J., Plaza, J., & Plaza, A. (2019). Deep learning classifiers for
+hyperspectral imaging: A review. ISPRS Journal of Photogrammetry and Remote
+Sensing, 158, 279–317.
+Roy, S., Deria, A., Hong, D., Rasti, B., Plaza, A., & Chanussot, J. (2023). Multimodal
+fusion transformer for remote sensing image classification. IEEE Transactions on
+Geoscience and Remote Sensing, 1. http://dx.doi.org/10.1109/TGRS.2023.3286826.
+Roy, S., Deria, A., Shah, C., Haut, J., Du, Q., & Plaza, A. (2023). Spectral–spatial
+morphological attention transformer for hyperspectral image classification. IEEE
+Transactions on Geoscience and Remote Sensing, 61, 1–15. http://dx.doi.org/10.1109/
+TGRS.2023.3242346.
+Roy, S., Krishna, G., Dubey, S., & Chaudhuri, B. (2020). Hybridsn: Exploring 3-d–
+2-d cnn feature hierarchy for hyperspectral image classification. IEEE Geoscience
+and Remote Sensing Letters, 17, 277–281. http://dx.doi.org/10.1109/LGRS.2019.
+2918719.
+Shi, C., Wu, H., & Wang, L. (2023). CEGAT: A CNN and enhanced-gat based on key
+sample selection strategy for hyperspectral image classification. Neural Networks,
+168, 105–122.
+Sun, L., Zhang, H., Zheng, Y., Wu, Z., Ye, Z., & Zhao, H. (2024). MASSFormer: Memoryaugmented spectral-spatial transformer for hyperspectral image classification. IEEE
+Transactions on Geoscience and Remote Sensing, 62, 1–15. http://dx.doi.org/10.1109/
+TGRS.2024.3392264.
+Sun, L., Zhao, G., Zheng, Y., & Wu, Z. (2022). Spectral–spatial feature tokenization
+transformer for hyperspectral image classification. IEEE Transactions on Geoscience
+and Remote Sensing, 60, 1–14. http://dx.doi.org/10.1109/TGRS.2022.3144158.
+Sun, H., Zheng, X., Lu, X., & Wu, S. (2020). Spectral–spatial attention network for
+hyperspectral image classification. IEEE Transactions on Geoscience and Remote
+Sensing, 58, 3232–3245. http://dx.doi.org/10.1109/TGRS.2019.2951160.
+van der Linden, S., & Hostert, P. (2009). The influence of urban structures on
+impervious surface maps from airborne hyperspectral data. Remote Sensing of
+Environment, 113, 2298–2305.
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A., Kaiser, L., &
+Polosukhin, I. (2017). Attention is all you need. In NeurIPS.
+Wang, D., Du, B., & Zhang, L. (2022). Fully contextual network for hyperspectral
+scene parsing. IEEE Transactions on Geoscience and Remote Sensing, 60, 1–16. http:
+//dx.doi.org/10.1109/TGRS.2021.3050491.
+Wang, D., Du, B., Zhang, L., & Xu, Y. (2021). Adaptive spectral–spatial multiscale contextual feature extraction for hyperspectral image classification. IEEE Transactions
+on Geoscience and Remote Sensing, 59, 2461–2477. http://dx.doi.org/10.1109/TGRS.
+2020.2999957.
+Wang, X., Girshick, R., Gupta, A., & He, K. (2018). Non-local neural networks. In Proc.
+IEEE conf. comput. vis. pattern recognit. (pp. 7794–7803).
+Wang, D., Hu, M., Jin, Y., Miao, Y., Yang, J., Xu, Y., Qin, X., Ma, J., Sun, L.,
+Li, C., Fu, C., Chen, H., Han, C., Yokoya, N., Zhang, J., Xu, M., Liu, L.,
+Zhang, L., Wu, C., .... Zhang, L. (2024). HyperSIGMA: Hyperspectral intelligence
+comprehension foundation model. arXiv preprint arXiv:2406.11519.
+Wang, X., Ma, J., Jiang, J., & Zhang, X. (2022). Dilated projection correction network
+based on autoencoder for hyperspectral image super-resolution. Neural Networks,
+146, 107–119.
+Xiao, Y., Yuan, Q., Jiang, K., Chen, Y., Zhang, Q., & Lin, C. (2024). Frequency-assisted
+mamba for remote sensing image super-resolution. IEEE Transactions on Multimedia,
+26, 1–14.
+Xiao, Y., Yuan, Q., Jiang, K., He, J., Lin, C., & Zhang, L. (2024). TTST: A top-k token
+selective transformer for remote sensing image super-resolution. IEEE Transactions
+on Image Processing, 33, 738–752. http://dx.doi.org/10.1109/TIP.2023.3349004.
+
+Xie, W., Zhang, J., Lei, J., Li, Y., & Jia, X. (2021). Self-spectral learning with GAN
+based spectral-spatial target detection for hyperspectral image. Neural Networks,
+142, 375–387.
+Xu, Y., Bai, T., Yu, W., Chang, S., Atkinson, P., & Ghamisi, P. (2023). AI security for
+geoscience and remote sensing: Challenges and future trends. IEEE Geoscience and
+Remote Sensing Magazine, 11, 60–85.
+Xu, Y., Du, B., & Zhang, L. (2020). Beyond the patchwise classification: Spectralspatial fully convolutional networks for hyperspectral image classification. IEEE
+Transactions on Big Data, 6, 492–506.
+Xu, Y., Du, B., & Zhang, L. (2021). Self-attention context network: Addressing the threat
+of adversarial attacks for hyperspectral image classification. IEEE Transactions on
+Image Processing, 30, 8671–8685. http://dx.doi.org/10.1109/TIP.2021.3118977.
+Xu, Y., Du, B., Zhang, F., & Zhang, L. (2018). Hyperspectral image classification via
+a random patches network. ISPRS Journal of Photogrammetry and Remote Sensing,
+142, 344–357.
+Xu, Y., Xu, Y., Jiao, H., Gao, Z., & Zhang, L. (2024). S3 ANet: Spatial–spectral
+self-attention learning network for defending against adversarial attacks in hyperspectral image classification. IEEE Transactions on Geoscience and Remote Sensing,
+62, 1–13. http://dx.doi.org/10.1109/TGRS.2024.3381824.
+Xu, Y., Zhang, L., Du, B., & Zhang, F. (2018). Spectral-spatial unified networks for
+hyperspectral image classification. IEEE Transactions on Geoscience and Remote
+Sensing, 56, 5893–5909.
+Xu, Y., Zhang, L., Du, B., & Zhang, L. (2022). Hyperspectral anomaly detection based
+on machine learning: An overview. IEEE Journal of Selected Topics in Applied
+Earth Observations and Remote Sensing, 15, 3351–3364. http://dx.doi.org/10.1109/
+JSTARS.2022.3167830.
+Yang, X., Ding, D., Xia, F., Zhuang, D., & Tang, C. (2024). Cube is a good form: Hyperspectral band selection via multi-dimensional and high-order structure preserved
+clustering. Neural Networks, 179, Article 106531.
+Yang, J., Du, B., & Zhang, L. (2023). From center to surrounding: An interactive learning framework for hyperspectral image classification. ISPRS Journal of
+Photogrammetry and Remote Sensing, 197, 145–166.
+Yang, J., Wu, C., Du, B., & Zhang, L. (2021). Enhanced multiscale feature fusion
+network for hsi classification. IEEE Transactions on Geoscience and Remote Sensing,
+59, 10328–10347.
+Zhang, X., Sun, Y., Shang, K., Zhang, L., & Wang, S. (2016). Crop classification based
+on feature band set construction and object-oriented approach using hyperspectral
+images. IEEE Journal of Selected Topics in Applied Earth Observations and Remote
+Sensing, 9, 4117–4128.
+Zhang, B., Wu, Y., Zhao, B., Chanussot, J., Hong, D., Yao, J., & Gao, L. (2022).
+Progress and challenges in intelligent remote sensing satellite systems. IEEE Journal
+of Selected Topics in Applied Earth Observations and Remote Sensing, 15, 1814–1822.
+http://dx.doi.org/10.1109/JSTARS.2022.3148139.
+Zhang, T., Zhang, L., Xue, Z., & Su, H. (2024). Deformable transformer and spectral
+u-net for large-scale hyperspectral image semantic segmentation. IEEE Journal of
+Selected Topics in Applied Earth Observations and Remote Sensing.
+Zhao, W., & Du, S. (2016). Spectral–spatial feature extraction for hyperspectral image
+classification: A dimension reduction and deep learning approach. IEEE Transactions
+on Geoscience and Remote Sensing, 54, 4544–4554. http://dx.doi.org/10.1109/TGRS.
+2016.2543748.
+Zhao, Z., Xu, X., Li, S., & Plaza, A. (2024). Hyperspectral image classification using
+groupwise separable convolutional vision transformer network. IEEE Transactions
+on Geoscience and Remote Sensing, 62, 1–17. http://dx.doi.org/10.1109/TGRS.2024.
+3377610.
+Zhong, Y., Hu, X., Luo, C., Wang, X., Zhao, J., & Zhang, L. (2020). WHU-Hi: Uav-borne
+hyperspectral with high spatial resolution (h2) benchmark datasets and classifier
+for precise crop identification based on deep convolutional neural network with
+crf. Remote Sensing of Environment, 250, Article 112012.
+Zhong, Z., Li, Y., Ma, L., Li, J., & Zheng, W. (2022). Spectral–spatial transformer
+network for hyperspectral image classification: A factorized architecture search
+framework. IEEE Transactions on Geoscience and Remote Sensing, 60, 1–15. http:
+//dx.doi.org/10.1109/TGRS.2021.3115699.
+Zhu, D., Du, B., Hu, M., Dong, Y., & Zhang, L. (2023). Collaborative-guided spectral
+abundance learning with bilinear mixing model for hyperspectral subpixel target
+detection. Neural Networks, 163, 205–218.
+Zhu, M., Jiao, L., Liu, F., Yang, S., & Wang, J. (2021). Residual spectral–spatial attention
+network for hyperspectral image classification. IEEE Transactions on Geoscience and
+Remote Sensing, 59, 449–462. http://dx.doi.org/10.1109/TGRS.2020.2994057.
+Zhu, X., Tuia, D., Mou, L., Xia, G., Zhang, L., Xu, F., & Fraundorfer, F. (2017). Deep
+learning in remote sensing: A comprehensive review and list of resources. IEEE
+Geoscience and Remote Sensing Magazine, 5, 8–36. http://dx.doi.org/10.1109/MGRS.
+2017.2762307.
+Zou, J., He, W., & Zhang, H. (2022). LESSFormer: Local-enhanced spectral-spatial
+transformer for hyperspectral image classification. IEEE Transactions on Geoscience
+and Remote Sensing, 60, 1–16. http://dx.doi.org/10.1109/TGRS.2022.3196771.
+
+13
+
+

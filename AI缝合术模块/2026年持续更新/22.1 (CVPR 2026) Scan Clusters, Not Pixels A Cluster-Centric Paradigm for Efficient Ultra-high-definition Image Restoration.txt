@@ -1,0 +1,1423 @@
+Scan Clusters, Not Pixels: A Cluster-Centric Paradigm for Efficient
+Ultra-high-definition Image Restoration
+
+arXiv:2602.21917v1 [cs.CV] 25 Feb 2026
+
+Chen Wu1 Ling Wang2 Zhuoran Zheng3 Yuning Cui4
+Zhixiong Yang1 Xiangyu Chen5 Yue Zhang6 Weidong Jiang1 Jingyuan Xia1, *
+1
+National University of Defense Technology 2 HKUST(GZ) 3 Qilu University of Technology
+4
+Technical University of Munich 5 Institute of Artificial Intelligence (TeleAI) 6 Beihang University
+
+Abstract
+Ultra-High-Definition (UHD) image restoration is trapped
+in a scalability crisis: existing models, bound to pixelwise operations, demand unsustainable computation. While
+state space models (SSMs) like Mamba promise linear complexity, their pixel-serial scanning remains a fundamental
+bottleneck for the millions of pixels in UHD content. We
+ask: must we process every pixel to understand the image? This paper introduces C2 SSM, a visual state space
+model that breaks this taboo by shifting from pixel-serial to
+cluster-serial scanning. Our core discovery is that the rich
+feature distribution of a UHD image can be distilled into a
+sparse set of semantic centroids via a neural-parameterized
+mixture model. C2 SSM leverages this to reformulate global
+modeling into a novel dual-path process: it scans and reasons over a handful of cluster centers, then diffuses the
+global context back to all pixels through a principled similarity distribution, all while a lightweight modulator preserves fine details. This cluster-centric paradigm achieves
+a decisive leap in efficiency, slashing computational costs
+while establishing new state-of-the-art results across five
+UHD restoration tasks. More than a solution, C2 SSM
+charts a new course for efficient large-scale vision: scan
+clusters, not pixels.
+
+1. Introduction
+With the proliferation of mobile devices and streaming media, Ultra-high-definition (UHD, specifically 3840 × 2160
+resolution) imaging has become the dominant paradigm for
+visual media consumption. However, the pursuit of highfidelity UHD image restoration (IR) confronts a fundamental and previously unresolved tension: the conflict between
+the structural redundancy inherent in natural images and the
+pixel-wise computational primitives employed by contemporary deep models. While State Space Models (SSMs)
+* Corresponding author.
+
+like Mamba [7] offer linear complexity for long-range dependency modeling, their core operational unit remains the
+individual pixel. Applying such pixel-serial scanning mechanisms to UHD images (comprising over 8 million pixels)
+results in prohibitive memory costs and computational load,
+exceeding the capacity of consumer-grade GPUs and rendering full-resolution modeling impractical.
+Existing attempts to circumvent this bottleneck are
+fundamentally limited. Multi-scale downsampling methods [15, 27, 34, 42, 43] sacrifice global context and highfrequency details. While SSM-based IR frameworks [8, 9,
+46] avoid the quadratic complexity of transformers, they remain bound to pixel- or patch-level scanning, which is intrinsically misaligned with the statistical properties of visual data. These approaches treat pixels as independent entities, failing to capitalize on the underlying low-rank structure and semantic cohesion of image features, thereby incurring substantial and unnecessary computational overhead.
+We posit that the key to efficient UHD restoration lies not
+in faster pixel processing, but in a paradigm shift from pixelcentric to cluster-centric representation. Natural images are
+not random collections of pixels; they exhibit strong statistical regularities where features converge into a sparse set
+of semantically coherent regions. Inspired by this, we introduce C2 SSM, a novel visual state space model that reformulates image restoration as a process of neural-parameterized
+mixture distribution modeling and inference.
+The core of C2 SSM is a theoretically grounded dualpath framework: i) The Cluster-Centric Scanning Module (CCSM) explicitly models the feature distribution via
+a set of learnable cluster centroids. It constructs an ndimensional similarity distribution to probabilistically associate each pixel with these centroids, effectively reducing the representation space. Global dependencies are then
+modeled efficiently by applying the SSM only to the sparse
+centroids, and the learned contextual weights are propagated back to all pixels through a similarity-guided score
+diffusion process based on the law of total probability. ii)
+The Spatial-Channel Feature Modulator (SCFM) acts as an
+
+Scanning
+
+Scanning
+
+…
+
+…
+
+（a）
+
+（b）
+
+Pixel Features
+
+Pixel Features
+
+Similarity
+
+Similarity
+
+Similarity
+
+Probabilistic
+Centroid
+Learning
+
+Similarity
+
+Similarity
+Distribution
+Modeling
+
+Pixel Features
+
+Weight
+Inversion
+
+…
+Core Pixel
+Features
+Scanning
+Pixel Features
+
+（c）
+
+Figure 1. The scanning strategies in existing Mamba-based methods and our proposed method. (a) Vmamba [17] employs a Z-shaped
+scan path that incurs VRAM bottlenecks when processing UHD images due to its full-pixel scanning. (b) EfficientVMamba [21] reduces
+scanning costs by omitting sampling steps, this compromises global modeling accuracy. (c) The proposed cluster-centric scanning strategy.
+
+information-theoretic compensator. It operates in parallel
+to preserve high-frequency details that might be attenuated
+during clustering. The proposed architectural framework
+transcends conventional engineering optimizations by introducing a novel probabilistic inference model tailored for visual state space systems. This framework facilitates global
+reasoning by employing a statistically determined sparse
+graph composed of centroids, while ensuring the preservation of local fidelity through the modulation of complementary features.
+The main contributions of this work are threefold:
+• We introduce C2 SSM, the first visual state space model
+that replaces pixel-level scanning with a cluster-centric
+probabilistic paradigm. This provides a principled solution to the computational challenges of UHD image
+restoration.
+• We design a novel, theoretically principled dual-path
+framework. The CCSM provides a low-rank approximation for global context modeling via neural-statistical
+clustering and differentiable weight inversion, while the
+SCFM ensures local detail preservation.
+• Through extensive experiments on five UHD restoration
+tasks, we demonstrate that C2 SSM not only achieves
+state-of-the-art performance but also does so with significantly reduced computational complexity, enabling practical full-resolution restoration on consumer-grade hardware. More importantly, the proposed cluster-centric
+scanning mechanism offers a new and generalizable direction for efficient large-scale visual computing.
+
+2. Related Work
+2.1. State Space Model in Image Restoration
+Global receptive fields have proven essential for image
+restoration tasks [34, 36, 44]. However, Transformer-based
+
+architectures exhibit quadratic computational complexity
+with respect to input size, resulting in prohibitive computational overhead. Recently, some studies have begun to
+explore the use of state space models, particularly Mamba,
+to balance the relationship between efficient computation
+and direct global receptive fields in restoration tasks. MambaIR [8] applied Visual State Space Models (VSSMs) to
+image super-resolution, demonstrating competitive performance. MambaIRv2 [9] subsequently resolved inherent
+causal modeling limitations. Both FreqMamba [47] and
+FourierMamba [16] employ VSSMs for image deraining
+in the Fourier domain, with FourierMamba introducing enhanced frequency modeling methods. MaIR [13] introduces
+locality and continuity properties into VSSMs by refining scanning strategies, delivering promising results across
+multiple image restoration tasks. Despite achieving linear
+complexity, these methods still encounter VRAM bottlenecks due to the excessive pixel volume of UHD images,
+rendering them undeployable on consumer-grade GPUs.
+
+2.2. UHD Image Restoration
+UHD image restoration has been an emerging topic in
+recent years. Early approaches predominantly relied on
+CNNs. For instance, some works extracted local affine coefficients via CNNs and achieved efficient restoration of
+degraded UHD images through bilateral learning [42, 43].
+DreamUHD [19] and UHD-processor [18] treat the restoration task as a compression-reconstruction task, using retrained VAE encoders instead of common downsampling.
+They process features in a downscaled latent space and then
+reconstruct them. Such methods incur high computational
+costs, and the two-stage training approach can easily lead
+to error accumulation. With the success of Transformers in
+computer vision, researchers began exploring their global
+modeling capacity for restoration tasks. LLFormer [30]
+
+(a) Overview
+
+C
+
+SCFM
+
+＋
+
+×𝑁1
+
+Decoder
+
+Bottleneck
+
+×𝑁4
+
+Conv
+
+FFN
+
+×𝑁1
+Encoder
+
+Degraded
+Image
+
+×𝑁2
+
+CCSM
+
+FFN
+
+×𝑁3
+FFN
+
+×𝑁2
+
+FFN
+
+Conv
+
+Skip Connection
+
+＋
+Restored
+Image
+
+Refinement
+
+Feature Aggregating
+
+(b) Cluster-Centric Scanning Module
+MLP
+
+ഥ
+B
+
+Score
+Diffusing
+
+𝐶
+
+SiLU
+
+Disc.
+
+SiLU
+
+Norm
+
+DWConv
+
+MLP
+
+Norm
+
+ℎ𝑡
+
+∆𝑡
+
+MLP
+
+ഥ
+ℎ𝑡−1 A
+
+Feature
+Aggregating
+
+Core pixel
+Features
+Score Diffusing
+
+Similarity
+Map
+
+MLP
+
+(c) Spatial-Channel Feature Modulator
+Conv
+
+Norm
+
+C
+
+Conv
+
+Sigmoid
+
+C
+
+Channel-wise
+Concatenation
+
+Element-wise
+Multiplication
+
+＋
+
+Element-wise
+Addition
+
+Upsample
+
+＋
+Sigmoid
+
+Conv
+
+Conv
+
+ReLU
+
+Conv
+
+＋
+Conv
+
+Feed-Forward
+Network
+
+Downsample
+
+FFN
+
+Convolution
+
+Norm Normalization
+
+Layer
+
+Figure 2. The overview of our proposed C2 SSM. C2 SSM employs an asymmetric U-Net architecture whose decoder integrates the ClusterCentric Scanning Module and Spatial-Channel Feature Modulator to achieve spatial-channel global feature coupling.
+
+processes UHD images by splitting them into patches for
+separate restoration before merging, reducing self-attention
+overhead but introducing boundary artifacts during reconstruction. UHDformer [27] employs a dual-branch strategy, performing global modeling in a highly downsampled low-resolution space. While computationally efficient,
+this approach discards substantial high-frequency information, compromising restoration quality. The closest work to
+ours is Wave-Mamba [46], which also leverages a linearcomplexity Mamba architecture for long-range modeling.
+It decomposes images into high/low-frequency components
+via wavelet transform and models only low-frequency signals. Despite reduced scanning costs, its limited channel
+capacity (fixed 48 channels throughout the UNet) weakens feature extraction capability, resulting in suboptimal
+restoration quality. To address this, we propose a novel
+scanning mechanism for VSSM that revolutionizes fullpixel scanning through cluster-centric point scanning, enabling efficient and effective UHD restoration on consumergrade GPUs.
+
+3. Methodology
+To address the prohibitive quadratic complexity of full-pixel
+scanning in UHD image restoration, we propose a novel
+
+probability-driven cluster-centric framework for C 2 SSM .
+The core innovation lies in replacing full-pixel traversal
+with ”centroid learning + global weight inversion”—with
+the critical cluster assignment and centroid refinement both
+completed in one-step operations—which achieves an acceptable computational overhead while preserving global
+context.
+
+3.1. Overall Architecture
+As illustrated in Fig. 2 (a), the proposed C2 SSM adopts
+an encoder-decoder architecture where degraded images
+undergo an N1 -level restoration pipeline.
+Each encoder/decoder level contains N2 basic blocks with convolutional sampling layers (down/up-sampling). Following
+prior works [11, 45], an asymmetric design is implemented:
+the encoder comprises only FFNs to reduce computational
+load, while the decoder, inspired by MetaFormer [38], integrates our CCSM and the SCFM alongside FFNs. A bottleneck layer between the encoder and the decoder allows deep
+feature extraction, with skip connections via 1 × 1 convolutions incorporating encoder features into decoder layers.
+A feature refinement stage post-decoder enhances learned
+representations, and the final restored image is obtained by
+adding the learned residual to the degraded input.
+
+3.2. Cluster-Centric Scanning Module
+
+is the cosine similarity:
+
+Visual images naturally contain a high degree of semantic
+redundancy due to the tendency of spatially adjacent areas
+to share converging feature weight patterns. In addressing
+this, CCSM employs feature aggregating to concentrate on
+contextually aggregated significant pixels, thereby substantially decreasing the computational burden associated with
+global scanning models. Following this, score diffusing enriches the data available for non-essential pixels, facilitating
+the regional-level reconstruction of entire areas from sparse
+center points. The CCSM architecture is depicted in Fig. 2
+(b). For a layer normalized input feature maps Fin , the calculation of CCSM is updated to:
+Fd = SiLU(DWConv(MLP(Fin ))),
+Ff = Norm(SD(S6(FA(Fd )))),
+Fout = Ff · SiLU(MLP(Fin )),
+
+(1)
+(2)
+(3)
+
+where SiLU(·) is the SiLU activation functions. Norm(·)
+denotes the normalization layer. FA(·) and SD(·) are designed feature aggregating and score diffusing, respectively.
+S6 represents the selective scanning mechanism proposed
+by Mamba [7].
+3.2.1. Feature Aggregating
+This stage aims to learn a set of effective, semantically representative centroids from UHD image features, avoiding
+the inefficiency of random or space-constrained clustering.
+The key is to model the similarity between pixels and initial
+centroids as a probabilistic distribution, enabling one-step
+cross-spatial pixel assignment and one-step adaptive centroid refinement without any iterative processes, ensuring
+computational efficiency.
+Initial Centroid Initialization: Given the layer-normalized
+feature tensor F ∈ RC×H×W (output from the encoder),
+we first select n initial centroids {c1 , c2 , ..., cn } where ck ∈
+RC×1×1 . The initialization follows a uniform sampling
+strategy across the feature space: we randomly select n
+pixel positions and calculate their k-nearest neighbor values
+to enhance local bias. This ensures initial centroids cover
+diverse feature patterns of the UHD image.
+n-Dimensional Similarity Distribution Modeling: For
+each initial centroid ck , we compute the cosine similarity
+between every pixel feature F:,i,j (flattened as fp to construct a 1-dimensional similarity distribution Dk with ck ).
+Collectively, the n centroids form an n-dimensional similarity distribution D = {D1 , D2 , ..., Dn }, where each dimension Dk is defined as a probability density function (PDF):
+sim(fp , ck )
+,
+p∈Ω sim(fp , ck )
+
+pk (fp ) = P
+
+(4)
+
+where Ω denotes all pixels in the UHD image, and sim(·, ·)
+
+sim(fp , ck ) =
+
+fpT · ck
+.
+∥fp ∥ · ∥ck ∥
+
+(5)
+
+For Dk , the horizontal axis represents the feature value of
+pixels (projected to 1D via PCA for interpretability), and the
+vertical axis represents the normalized similarity (i.e., the
+probability that the pixel belongs to the cluster dominated
+by ck ). This n-dimensional distribution effectively models
+the semantic correlation between each pixel and the n centroids, transforming pairwise similarity into a probabilistic
+association.
+Centroid Refinement via Learnable Function: For each
+initial centroid ck , precomputed similarity distribution
+pk (fp ) between the centroid and each pixel feature fp ,
+the refined centroid ĉk is obtained through adaptive feature aggregation guided by a learnable gating mechanism.
+The calculation incorporates two learnable parameters that
+adjust the sensitivity of similarity-based pixel selection
+to adapt to diverse feature patterns across different clusters and datasets. Similar to the qkv mechanism in selfattention [25], we do not directly compute it; instead, we
+first use an MLP to map ck and fp to vk and fˆp , respectively. The refined centroid is formulated as
+
+
+X
+1 
+vk +
+δ(α · pk (fp ) + β) · fˆp  ,
+ĉk =
+Nk
+
+(6)
+
+p∈Ω
+
+where the gating function δ(·) employs a smooth activation
+to softly select pixels with meaningful similarity to the initial centroid, balancing selectivity and gradient flow during
+training. The normalization factor Nk is derived from the
+sum of activated gating values plus one, ensuring the initial
+centroid’s contribution is retained while scaling the aggregated pixel features to maintain numerical stability. This
+factor is calculated as
+Nk = 1 +
+
+X
+
+δ(α · pk (fp ) + β).
+
+(7)
+
+p∈Ω
+
+The learnable scaling parameter α modulates the sharpness
+of similarity-based selection, increasing to enforce stricter
+relevance thresholds in edge-dominated regions and decreasing to include more diverse features in texture-rich areas. The learnable bias parameter β shifts the activation
+threshold, adapting to the overall similarity distribution of
+each cluster to avoid over-pruning or under-selection of relevant pixels. This gating mechanism inherently prunes pixels with insignificant similarity to the centroid, reducing the
+number of effective computations while preserving semantic relevance.
+
+3.2.2. Score Diffusing
+
+3.3. Spatial-Channel Feature Modulator
+
+This stage leverages Mamba’s strengths in long-range dependency modeling but only applies it to the n refined centroids (instead of all pixels), then inverts the global pixel
+weights based on the n-dimensional similarity distribution.
+The process mimics Transformer’s attention mechanism but
+avoids full-pixel pairwise computation.
+Mamba-Based Centroid Weight Estimation: We feed
+the refined centroids Ĉ = [ĉ1 , ĉ2 , ..., ĉn ] ∈ RC×n into
+Mamba’s selective scanning module (S6 block) to learn
+their precise global weights. Mamba’s state-space modeling
+efficiently captures long-range dependencies between centroids, outputting a set of centroid-specific weights W =
+[w1 , w2 , ..., wn ] ∈ RC×n , where wk denotes the global context weight of centroid ĉk :
+
+To address potential high-frequency detail loss caused by
+centroid-based aggregation, SCFM operates in parallel with
+the weight inversion stage. It employs dual-branch attention (spatial + channel) to maximize mutual information between input and output features [33]:
+
+W = S6(Ĉ; θmamba ).
+
+(8)
+
+Here, θmamba are the learnable parameters of the Mamba
+module. The complexity of this step is O(C · n2 ), which is
+negligible compared to O(C · H 2 W 2 ) for full-pixel scanning (since n ≪ HW , although there are dimensional
+transformations in the network that result in an unequal
+number of channels, all channels are still of the same order of magnitude.)
+Weight Inversion via Similarity Distribution: We formalize the assignment probability αp,k of pixel p to cluster k
+as the posterior probability derived from the n-dimensional
+similarity distribution D. Unlike independent parameterization, αp,k is directly normalized from the similarity distribution pk (fp ) (from Eq. 4) to retain probabilistic consistency:
+exp (α · pk (fp ) + β)
+.
+′
+k′ =1 exp (α · pk (fp ) + β)
+
+αp,k = Pn
+
+(9)
+
+Here, αp,k quantifies the probability that pixel p belongs
+to the cluster dominated by centroid ĉk . We adopt softmax
+Pn normalization to strictly satisfy the probability axiom
+k=1 αp,k = 1, where α and β are learnable parameters
+modulating the sharpness of the distribution. This definition
+directly links the weight inversion to the earlier similarity
+distribution modeling, forming a closed probabilistic loop.
+Based on the law of total probability, the global weight wp
+of pixel p is the expected value of the centroids’ weights
+W = [w1 , w2 , ..., wn ] (from Eq. (8)), conditioned on the
+pixel’s similarity distribution D. The inversion formula is
+thus:
+n
+X
+wp = Ek∼D(p) [wk ] =
+αp,k · wk
+(10)
+k=1
+
+where wp denotes the global weight of pixel p, and the
+expectation Ek∼D(p) [wk ] explicitly emphasizes that the
+weight is computed based on the probability distribution of
+the pixel across the n clusters.
+
+Ws = δ(Conv([Max(Fin ); Mean(Fin )])),
+
+(11)
+
+Fd = Conv(ReLU(Conv(Fin )),
+
+(12)
+
+Wc = δ(Max(Fd ) + Avg(Fd )),
+
+(13)
+
+Fout = Conv(Ws · Fin ) + Conv(Wc · Fin ),
+
+(14)
+
+where Max(·) refers to the maximum value operation, while
+Mean(·)/ Avg(·) denotes the average value operation. [ ; ]
+is the concatenation operation. ReLU(·) represents ReLU
+activation function.
+
+4. Experiments
+4.1. Experimental Settings
+Implementation Details: Our experiments are conducted
+using PyTorch on a setup of 4 NVIDIA A800 GPUs. To
+optimize the network, we employ the AdamW optimizer
+with a initial learning rate 5 × 10−4 and a cosine annealing strategy is used for the decay of the learning rate. We
+randomly crop the full-resolution 4K image to a resolution of 768 × 768 as the input and the batch size is set to
+16. For all UHD restoration tasks, we perform 150K iterations. To augment the training data, random horizontal and
+vertical flips are applied to the input images. Our method
+consists of an encoder-decoder with N1 = 3 levels, where
+both the encoder and decoder share the same block structure: N2 = [2, 4, 4]. The bottleneck and refinement stages
+each contain N3 = N5 = 4 blocks, with a basic embedding
+dimension of 32. To optimize the weights and biases of the
+network, we utilize the L1 loss and the FFT loss in the RGB
+color space as the basic reconstruction loss.
+Evaluation: We utilize PSNR [10] and SSIM [31] to assess
+images with ground truth, while NIQE [20] and PIQE [26]
+are used for images without it. Elevated PSNR/SSIM values
+signify enhanced performance, and diminished NIQE/PIQE
+scores reflect improved quality. Moreover, we compared
+model parameters across all techniques.
+
+4.2. Comparisons with the State-of-the-art Methods
+Low-light Image Enhancement Results: For the task of
+enhancing UHD images in low-light conditions [15, 30], we
+evaluate C2 SSM against techniques such as Z DCE++ [14],
+Uformer [32], Restormer [40], NSEN [39], UHDFour [15],
+LLFormer [30], UHDformer [27], Wave-Mamba [46],
+MixNet [34], D2Net [35], UHDDIP [29] and UHDprocesser [18]. As evidenced in Tabs. 1 and 2, our method
+outoperforms the current SOTA MixNet by 0.39 dB and
+
+Input
+
+Wave-Mamba
+
+MixNet
+
+D2Net
+
+Ours
+
+Ground Truth
+
+Figure 3. Visual quality comparisons on UHD-LOL4K dataset [30]. The last row shows the color histogram of the image.
+Table 1. Comparison of quantitative results on UHD-LOL4K
+dataset [30].
+Methods
+Z DCE++ [14]
+Uformer [32]
+Restormer [40]
+NSEN [39]
+UHDFour [15]
+LLFormer [30]
+UHDformer [27]
+Wave-Mamba [46]
+MixNet [34]
+D2Net [35]
+ours
+
+Type
+non-UHD
+
+UHD
+
+Venue
+TPAMI’21
+CVPR’22
+CVPR’22
+MM’23
+ICLR’23
+AAAI’23
+AAAI’24
+MM’24
+NeuroC’24
+WACV’25
+-
+
+PSNR
+15.58
+29.98
+36.90
+29.49
+36.12
+37.33
+36.28
+37.43
+39.22
+37.73
+39.61
+
+SSIM
+0.934
+0.980
+0.988
+0.980
+0.990
+0.988
+0.989
+0.990
+0.992
+0.992
+0.992
+
+Param
+79.42K
+20.63M
+26.11M
+2.67M
+17.54M
+24.52M
+0.34M
+1.25M
+7.77M
+5.22M
+2.71M
+
+Table 2.
+Comparison of quantitative results on UHD-LL
+dataset [15].
+Methods
+Z DCE++ [14]
+Uformer [32]
+Restormer [40]
+UHDFour [15]
+LLFormer [30]
+UHDformer [27]
+Wave-Mamba [46]
+UHDDIP [29]
+MixNet [34]
+UHD-processer [18]
+Ours
+
+Type
+non-UHD
+
+UHD
+
+Venue
+TPAMI’21
+CVPR’22
+CVPR’22
+ICLR’23
+AAAI’23
+AAAI’24
+MM’24
+TCSVT’25
+NeuralC’25
+CVPR’25
+-
+
+PSNR
+16.41
+19.28
+22.25
+26.22
+22.79
+27.11
+27.35
+26.74
+27.54
+27.22
+27.63
+
+SSIM
+0.630
+0.849
+0.871
+0.900
+0.853
+0.927
+0.913
+0.928
+0.862
+0.929
+0.931
+
+Param
+10.56K
+20.63M
+26.11M
+17.54M
+13.15M
+0.34M
+1.26M
+0.81M
+7.77M
+1.6M
+2.71M
+
+0.19 dB in PSNR on synthetic and real-world datasets, respectively. Compared to the Mamba-based method WaveMamba, it achieves a significant 2.18 dB improvement. Visual comparisons in Fig. 3 demonstrate that our approach
+delivers superior color correction, reconstructing images
+with enhanced visual fidelity and structural clarity.
+Image Deraining Results: To validate the effectiveness
+of our method on the task of rain streak Removal, we
+compare it with many methods on 4K-Rain13k dataset [1]
+and 4K-RealRain dataset [1], including RCDNet [28],
+SPDNet [37], IDT [36], Restormer [40], DRSformer [3],
+UDR-S2Former [2], NeRD-Rain [4], MambaIRv2 [9],
+
+Table 3. Comparison of quantitative results on 4K-Rain13k
+dataset [1].
+Methods
+RCDNet [28]
+SPDNet [37]
+IDT [36]
+Restormer [40]
+DRSformer [3]
+UDR-S2Former [2]
+NeRD-Rain [4]
+MambaIRv2 [9]
+UDR-Mixer [1]
+ERR [41]
+Ours
+
+Type
+
+non-UHD
+
+UHD
+
+Venue
+CVPR’20
+ICCV’21
+TPAMI’22
+CVPR’22
+CVPR’23
+ICCV’23
+CVPR’24
+CVPR’25
+TMM’25
+CVPR’25
+-
+
+PSNR
+30.83
+31.81
+32.91
+33.02
+32.96
+33.36
+33.63
+33.17
+34.30
+34.48
+35.13
+
+SSIM
+0.921
+0.922
+0.948
+0.934
+0.933
+0.946
+0.935
+0.939
+0.951
+0.952
+0.956
+
+Param
+3.17M
+3.04M
+16.41M
+26.12M
+33.65M
+8.53M
+22.9M
+12.7M
+4.90M
+1.13M
+2.71M
+
+UDR-Mixer [1] and ERR [41]. As demonstrated in Tabs. 3
+and 4, our method achieves SOTA performance consistently
+across both synthetic and real-world datasets. Specifically
+in the 4K-Rain13k dataset, it delivers significant PSNR improvements of 1.96 dB over MambaIRv2 and 0.65 dB over
+ERR, both Mamba-based methods. Furthermore, visual
+comparisons in Fig. 4 provide additional validation of our
+method’s efficacy.
+Image Deblurring Results: In the UHD image deblurring
+task [27], we evaluate our proposed C2 SSM against existing deblurring approaches, including MIMO-Unet++ [5],
+Restormer [40], Uformer [32], Stripformer [24], FFTformer [11], UHDformer [27], UHDDIP [29], DreamUHD [19], UHD-processer [18] and ERR [41]. As quantified in Tab. 5, our method achieves a significant 1.81 dB
+PSNR advantage over the top-performing baseline ERR. Visual evidence in Fig. 5 corroborates that our reconstructions
+exhibit superior structural integrity and visual naturalness.
+Image Dehazing Results: For UHD image dehazing
+task [27], we compare our C2 SSM with a wide range
+of state-of-the-art methods, including Restormer [40],
+Uformer [32], DehazeFormer [23], MB-TaylorFormer [22],
+UHD [43], UHDformer [27], UHDDIP [29] and UHDprocesser [18]. As shown in Tab. 6, our method achieves
+
+Input
+
+Restormer
+
+UDR-Mixer
+
+ERR
+
+Ours
+
+Ground Truth
+
+Figure 4. Visual quality comparisons on 4K-Rain13k dataset [1]. The last row shows the error map of the image.
+Table 4. Comparison of quantitative results on 4K-RealRain dataset [1].
+Methods
+NIQE
+PIQE
+
+RCDNet [28]
+9.997
+63.816
+
+SPDNet [37]
+9.917
+64.774
+
+IDT [36]
+9.067
+55.049
+
+Restormer [40]
+8.636
+60.335
+
+Table 5. Comparison of quantitative results on UHD-Blur
+dataset [27].
+Methods
+MIMO-Unet++ [5]
+Restormer [40]
+Uformer [32]
+Stripformer [24]
+FFTformer [11]
+UHDformer [27]
+UHDDIP [29]
+DreamUHD [19]
+UHD-processer [18]
+ERR [41]
+Ours
+
+Type
+
+non-UHD
+
+UHD
+
+Venue
+ICCV’21
+CVPR’22
+CVPR’22
+ECCV’22
+CVPR’23
+AAAI’24
+TCSVT’25
+AAAI’25
+CVPR’25
+CVPR’25
+-
+
+PSNR
+25.03
+25.21
+25.27
+25.05
+25.41
+28.82
+28.28
+29.33
+29.43
+29.72
+31.53
+
+SSIM
+0.752
+0.752
+0.752
+0.750
+0.757
+0.844
+0.845
+0.852
+0.855
+0.861
+0.890
+
+Param
+16.1M
+26.1M
+20.6M
+19.7M
+16.6M
+0.34M
+0.81M
+1.45M
+1.6M
+1.13M
+2.71M
+
+favorable results in quantitative metrics compared to existing approaches.
+Image Desnowing Results: In the image desnowing task,
+we compare HiFormer with Uformer [32], Restormer [40],
+SFNet [6], UHD [43], UHDformer [27], and UHDDIP [29].
+As shown in Tab. 7, our method exceeds the current bestperforming method, UHDDIP, by 1.5 dB in PSNR.
+
+4.3. Ablation Studies and Discussions
+We further conduct extensive ablation studies to better understand and evaluate each component in the proposed
+C2 SSM. For a fair comparison, all these variants are trained
+using the same settings.
+Effectiveness of Proposed Blocks: To assess the contribution of the proposed CCSM and SCFM to overall framework performance, we design a series of ablative variants involving their systematic removal or functional substitution, thereby rigorously quantifying their efficacy. As
+shown in Tab. 8, removing or replacing the proposed modules leads to performance degradation, confirming their
+effectiveness. Notably, due to computational complexity
+
+DRSformer [3]
+8.49
+60.441
+
+NeRD-Rain [4]
+9.139
+60.070
+
+MambaIRv2 [9]
+9.397
+62.913
+
+ERR [41]
+9.136
+59.735
+
+Ours
+8.198
+54.90
+
+Table 6. Comparison of quantitative results on UHD-Haze
+dataset [27].
+Methods
+Restormer [40]
+Uformer [32]
+DehazeFormer [23]
+MB-TaylorFormer [22]
+UHD [43]
+UHDformer [27]
+UHDDIP [29]
+UHD-processer [18]
+Ours
+
+Type
+non-UHD
+
+UHD
+
+Venue
+CVPR’22
+CVPR’22
+TIP’23
+ICCV’23
+ICCV’21
+AAAI’24
+TCSVT’25
+CVPR’25
+-
+
+PSNR
+12.72
+19.83
+15.37
+20.99
+18.04
+22.59
+22.14
+23.24
+24.08
+
+SSIM
+0.693
+0.737
+0.725
+0.919
+0.811
+0.942
+0.941
+0.953
+0.942
+
+Param
+26.11M
+20.63M
+2.5M
+2.7M
+34.5M
+0.34M
+0.81M
+1.6M
+2.71M
+
+Table 7. Comparison of quantitative results on UHD-Snow
+dataset [29].
+Methods
+Uformer [32]
+Restormer [40]
+SFNet [6]
+UHD [43]
+UHDformer [27]
+UHDDIP [29]
+Ours
+
+Type
+non-UHD
+
+UHD
+
+Venue
+CVPR’22
+CVPR’22
+ICLR’23
+ICCV’21
+AAAI’24
+TCSVT’25
+-
+
+PSNR
+23.71
+24.14
+23.63
+29.29
+36.61
+41.56
+42.45
+
+SSIM
+0.871
+0.869
+0.845
+0.949
+0.988
+0.990
+0.990
+
+Param
+20.63M
+26.12M
+7.05M
+34.5M
+0.34M
+0.81M
+2.71M
+
+constraints, both vanilla Mamba and ASSM are incapable
+of full-resolution inference on consumer-grade hardware,
+necessitating aggressive downsampling (typically 8×) for
+UHD image preprocessing, followed by upsampling to restore the original resolution. This compulsory resolution compromise not only introduces additional information
+loss but also limits the model’s capacity to preserve highfrequency details. In contrast, our CCSM, through its sparse
+representation mechanism based on cluster centroids, successfully achieves full-resolution processing while maintaining feasible computational overhead, fundamentally addressing the memory bottleneck in UHD image restoration. The most significant performance drop occurs when
+CCSM is removed, demonstrating that long-range depen-
+
+Input
+
+Restormer
+
+FFTformer
+
+UHDformer
+
+Ours
+
+Ground Truth
+
+Figure 5. Visual quality comparisons on UHD-Blur dataset [27]. The last row shows the color histogram of the image.
+Table 8. Ablation study of proposed blocks on UHD-LOL4K
+dataset [30].
+Variants
+(a) replace CCSM with ResBlock
+(b) replace CCSM with Vanilla Mamba [8]
+(c) replace CCSM with ASSM [9]
+(d) replace SCFM with ResBlock
+(e) remove CCSM
+(f) remove SCFM
+(g) full model (ours)
+
+PSNR
+37.32
+37.43
+38.71
+39.25
+35.87
+39.05
+39.61
+
+SSIM
+0.989
+0.990
+0.991
+0.992
+0.987
+0.992
+0.992
+
+Param
+2.38M
+3.11M
+2.96M
+2.69M
+2.21M
+2.53M
+2.71M
+
+dency modeling is crucial for the restoration task. Furthermore, CCSM proves superior to SCFM in importance,
+as SCFM essentially serves as a supplementary module
+to compensate for information loss caused by incomplete
+global modeling in CCSM.
+Validation of the Number of Centers: To investigate the
+impact of cluster center quantity on model performance,
+we conduct experiments on UHD-LOL4K, UHD-Blur, and
+UHD-Haze datasets. Results in Tab. 9 demonstrate that setting the number of centers to 4 achieves optimal balanced
+performance across multiple datasets. As the center count
+increases, average performance slightly declines, potentially due to redundant clusters affecting results. Notably,
+the UHD-Blur dataset attains peak performance with 6 centers, which may be attributed to its inherent dataset bias:
+consisting predominantly of indoor and complex scenes
+with high content diversity, demanding more complex representations. In contrast, UHD-LOL4K and UHD-Haze primarily contain outdoor scenes featuring extensive homogeneous regions such as skies and ground planes.
+Comparison with Other Scanning Strategy: To validate
+the efficiency of our proposed scanning strategy, we compare computational complexity with various Mamba-based
+methods. While MambaIR [8] and Wave-Mamba [46] employ vanilla scanning strategies, both EVSSM [12] and
+MambaIRv2 [9] implement customized scanning designs.
+As demonstrated in Tab. 10, our approach achieves the low-
+
+Table 9. Ablation study of the number of centers.
+Number of Centers
+UHD-LOL4K [30]
+UHD-Blur [27]
+UHD-Haze [27]
+
+2
+37.91/0.992
+30.42/0.881
+23.27/0.940
+
+4
+39.61/0.992
+31.53/0.890
+24.08/0.942
+
+6
+39.23/0.992
+31.72/0.890
+24.03/0.942
+
+8
+39.19/0.992
+31.65/0.889
+23.86/0.942
+
+Table 10. Comparison of different scanning strategies. FLOPs are
+measured with an image of the size 64 × 64 pixels.
+Method
+Parm
+FLOPs
+Venue
+
+MambaIR [8]
+1.32M
+4.774G
+ECCV’24
+
+Wave-Mamba [46]
+1.25M
+0.881G
+MM’24
+
+EVSSM [12]
+17.13M
+7.893G
+CVPR’25
+
+MambaIRv2 [9]
+0.84M
+4.940G
+CVPR’25
+
+Ours
+2.71M
+0.407G
+-
+
+est computational complexity. It is worth noting that, except for Wave-Mamba, these methods cannot perform fullresolution inference on UHD images, so we do not report
+their performance uniformly. You can find the comparison
+results of Wave-Mamba and MambaIRv2 with our method
+in Tab. 1, 2, 3 and 4. Collectively, the CCSM design enables
+our method to maintain outstanding performance while significantly reducing computational overhead.
+
+5. Conclusion
+In this paper, we proposed C2 SSM, a novel visual state
+space model that breaks the computational bottlenecks of
+existing mamba-based methods in UHD image restoration
+by shifting from pixel-serial to cluster-serial scanning. The
+core of C2 SSM lies in the CCSM, which models UHD images as a sparse set of semantic centroids. By performing
+global reasoning only on these centroids and diffusing the
+learned context back to pixels via a principled similarity distribution, CCSM achieves a dramatic reduction in computational complexity without sacrificing performance. Complementing this, the SCFM ensures the preservation of highfrequency details that may be overlooked during clustering.
+CCSM and SCFM complement each other. Comprehensive
+experiments across numerous UHD image restoration tasks
+reveal our method surpasses current SOTA methods in both
+quantitative metrics and qualitative analysis.
+
+References
+[1] Hongming Chen, Xiang Chen, Chen Wu, Zhuoran Zheng,
+Jinshan Pan, and Xianping Fu. Towards ultra-high-definition
+image deraining: A benchmark and an efficient method.
+arXiv preprint arXiv:2405.17074, 2024. 6, 7
+[2] Sixiang Chen, Tian Ye, Jinbin Bai, Erkang Chen, Jun Shi,
+and Lei Zhu. Sparse sampling transformer with uncertaintydriven ranking for unified removal of raindrops and rain
+streaks. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 13106–13117, 2023. 6
+[3] Xiang Chen, Hao Li, Mingqiang Li, and Jinshan Pan. Learning a sparse transformer network for effective image deraining. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 5896–5905,
+2023. 6, 7
+[4] Xiang Chen, Jinshan Pan, and Jiangxin Dong. Bidirectional
+multi-scale implicit neural representations for image deraining. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 25627–25636,
+2024. 6, 7
+[5] Sung-Jin Cho, Seo-Won Ji, Jun-Pyo Hong, Seung-Won Jung,
+and Sung-Jea Ko. Rethinking coarse-to-fine approach in single image deblurring. In Proceedings of the IEEE/CVF international conference on computer vision, pages 4641–4650,
+2021. 6, 7
+[6] Yuning Cui, Yi Tao, Zhenshan Bing, Wenqi Ren, Xinwei
+Gao, Xiaochun Cao, Kai Huang, and Alois Knoll. Selective
+frequency network for image restoration. In The eleventh
+international conference on learning representations, 2023.
+7
+[7] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+modeling with selective state spaces.
+arXiv preprint
+arXiv:2312.00752, 2023. 1, 4
+[8] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong
+Ren, and Shu-Tao Xia. Mambair: A simple baseline for image restoration with state-space model. In European conference on computer vision, pages 222–241. Springer, 2024. 1,
+2, 8
+[9] Hang Guo, Yong Guo, Yaohua Zha, Yulun Zhang, Wenbo
+Li, Tao Dai, Shu-Tao Xia, and Yawei Li. Mambairv2: Attentive state space restoration. In Proceedings of the Computer
+Vision and Pattern Recognition Conference, pages 28124–
+28133, 2025. 1, 2, 6, 7, 8
+[10] Quan Huynh-Thu and Mohammed Ghanbari. Scope of validity of psnr in image/video quality assessment. Electronics
+letters, 44(13):800–801, 2008. 5
+[11] Lingshun Kong, Jiangxin Dong, Jianjun Ge, Mingqiang Li,
+and Jinshan Pan. Efficient frequency domain-based transformers for high-quality image deblurring. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 5886–5895, 2023. 3, 6, 7
+[12] Lingshun Kong, Jiangxin Dong, Jinhui Tang, Ming-Hsuan
+Yang, and Jinshan Pan. Efficient visual state space model for
+image deblurring. In Proceedings of the Computer Vision
+and Pattern Recognition Conference, pages 12710–12719,
+2025. 8
+
+[13] Boyun Li, Haiyu Zhao, Wenxin Wang, Peng Hu, Yuanbiao Gou, and Xi Peng. Mair: A locality-and continuitypreserving mamba for image restoration. In Proceedings of
+the Computer Vision and Pattern Recognition Conference,
+pages 7491–7501, 2025. 2
+[14] Chongyi Li, Chunle Guo, and Chen Change Loy. Learning to
+enhance low-light image via zero-reference deep curve estimation. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 44(8):4225–4238, 2021. 5, 6
+[15] Chongyi Li, Chun-Le Guo, Man Zhou, Zhexin Liang,
+Shangchen Zhou, Ruicheng Feng, and Chen Change Loy.
+Embedding fourier for ultra-high-definition low-light image
+enhancement. arXiv preprint arXiv:2302.11831, 2023. 1, 5,
+6
+[16] Dong Li, Yidi Liu, Xueyang Fu, Senyan Xu, and ZhengJun Zha. Fouriermamba: Fourier learning integration with
+state space models for image deraining. arXiv preprint
+arXiv:2405.19450, 2024. 2
+[17] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi
+Xie, Yaowei Wang, Qixiang Ye, Jianbin Jiao, and Yunfan
+Liu. Vmamba: Visual state space model. Advances in neural
+information processing systems, 37:103031–103063, 2024. 2
+[18] Yidi Liu, Dong Li, Xueyang Fu, Xin Lu, Jie Huang, and
+Zheng-Jun Zha. Uhd-processer: Unified uhd image restoration with progressive frequency learning and degradationaware prompts. In Proceedings of the Computer Vision and
+Pattern Recognition Conference, pages 23121–23130, 2025.
+2, 5, 6, 7
+[19] Yidi Liu, Dong Li, Jie Xiao, Yuanfei Bao, Senyan Xu, and
+Xueyang Fu. Dreamuhd: Frequency enhanced variational
+autoencoder for ultra-high-definition image restoration. In
+Proceedings of the AAAI Conference on Artificial Intelligence, pages 5712–5720, 2025. 2, 6, 7
+[20] Anish Mittal, Anush Krishna Moorthy, and Alan Conrad
+Bovik. No-reference image quality assessment in the spatial
+domain. IEEE Transactions on image processing, 21(12):
+4695–4708, 2012. 5
+[21] Xiaohuan Pei, Tao Huang, and Chang Xu. Efficientvmamba:
+Atrous selective scan for light weight visual mamba. In Proceedings of the AAAI Conference on Artificial Intelligence,
+pages 6443–6451, 2025. 2
+[22] Yuwei Qiu, Kaihao Zhang, Chenxi Wang, Wenhan Luo,
+Hongdong Li, and Zhi Jin. Mb-taylorformer: Multi-branch
+efficient transformer expanded by taylor formula for image
+dehazing. In Proceedings of the IEEE/CVF international
+conference on computer vision, pages 12802–12813, 2023.
+6, 7
+[23] Yuda Song, Zhuqing He, Hui Qian, and Xin Du. Vision
+transformers for single image dehazing. IEEE Transactions
+on Image Processing, 32:1927–1941, 2023. 6, 7
+[24] Fu-Jen Tsai, Yan-Tsung Peng, Yen-Yu Lin, Chung-Chi Tsai,
+and Chia-Wen Lin. Stripformer: Strip transformer for fast
+image deblurring. In European conference on computer vision, pages 146–162. Springer, 2022. 6, 7
+[25] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. Advances in neural
+information processing systems, 30, 2017. 4
+
+[26] Narasimhan Venkatanath, D Praneeth, S Channappayya
+Sumohana, S Medasani Swarup, et al. Blind image quality
+evaluation using perception based features. In 2015 twenty
+first national conference on communications (NCC), pages
+1–6. IEEE, 2015. 5
+[27] Cong Wang, Jinshan Pan, Wei Wang, Gang Fu, Siyuan
+Liang, Mengzhu Wang, Xiao-Ming Wu, and Jun Liu. Correlation matching transformation transformers for uhd image
+restoration. In Proceedings of the AAAI Conference on Artificial Intelligence, pages 5336–5344, 2024. 1, 3, 5, 6, 7,
+8
+[28] Hong Wang, Qi Xie, Qian Zhao, and Deyu Meng. A modeldriven deep neural network for single image rain removal.
+In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 3103–3112, 2020. 6, 7
+[29] Liyan Wang, Cong Wang, Jinshan Pan, Xiaofeng Liu, Weixiang Zhou, Xiaoran Sun, Wei Wang, and Zhixun Su. Ultrahigh-definition image restoration: New benchmarks and
+a dual interaction prior-driven solution. arXiv preprint
+arXiv:2406.13607, 2024. 5, 6, 7
+[30] Tao Wang, Kaihao Zhang, Tianrun Shen, Wenhan Luo, Bjorn
+Stenger, and Tong Lu. Ultra-high-definition low-light image
+enhancement: A benchmark and transformer-based method.
+In Proceedings of the AAAI Conference on Artificial Intelligence, pages 2654–2662, 2023. 2, 5, 6, 8
+[31] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from error visibility to
+structural similarity. IEEE transactions on image processing,
+13(4):600–612, 2004. 5
+[32] Zhendong Wang, Xiaodong Cun, Jianmin Bao, Wengang
+Zhou, Jianzhuang Liu, and Houqiang Li. Uformer: A general
+u-shaped transformer for image restoration. In Proceedings
+of the IEEE/CVF conference on computer vision and pattern
+recognition, pages 17683–17693, 2022. 5, 6, 7
+[33] Sanghyun Woo, Jongchan Park, Joon-Young Lee, and In So
+Kweon. Cbam: Convolutional block attention module. In
+Proceedings of the European conference on computer vision
+(ECCV), pages 3–19, 2018. 5
+[34] Chen Wu, Zhuoran Zheng, Xiuyi Jia, and Wenqi Ren.
+Mixnet: Towards effective and efficient uhd low-light image
+enhancement. arXiv preprint arXiv:2401.10666, 2024. 1, 2,
+5, 6
+[35] Chen Wu, Ling Wang, Long Peng, Dianjie Lu, and Zhuoran
+Zheng. Dropout the high-rate downsampling: A novel design
+paradigm for uhd image restoration. In 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV),
+pages 2390–2399. IEEE, 2025. 5, 6
+[36] Jie Xiao, Xueyang Fu, Aiping Liu, Feng Wu, and Zheng-Jun
+Zha. Image de-raining transformer. IEEE Transactions on
+Pattern Analysis and Machine Intelligence, 45(11):12978–
+12995, 2022. 2, 6, 7
+[37] Qiaosi Yi, Juncheng Li, Qinyan Dai, Faming Fang, Guixu
+Zhang, and Tieyong Zeng. Structure-preserving deraining
+with residue channel prior guidance. In Proceedings of
+the IEEE/CVF international conference on computer vision,
+pages 4238–4247, 2021. 6, 7
+[38] Weihao Yu, Mi Luo, Pan Zhou, Chenyang Si, Yichen Zhou,
+Xinchao Wang, Jiashi Feng, and Shuicheng Yan. Metaformer
+
+is actually what you need for vision. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 10819–10829, 2022. 3
+[39] Wei Yu, Qi Zhu, Naishan Zheng, Jie Huang, Man Zhou, and
+Feng Zhao. Learning non-uniform-sampling for ultra-highdefinition image enhancement. In Proceedings of the 31st
+ACM International Conference on Multimedia, pages 1412–
+1421, 2023. 5, 6
+[40] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+Restormer: Efficient transformer for high-resolution image
+restoration. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 5728–5739,
+2022. 5, 6, 7
+[41] Chen Zhao, Zhizhou Chen, Yunzhe Xu, Enxuan Gu, Jian Li,
+Zili Yi, Qian Wang, Jian Yang, and Ying Tai. From zero
+to detail: Deconstructing ultra-high-definition image restoration from progressive spectral perspective. arXiv preprint
+arXiv:2503.13165, 2025. 6, 7
+[42] Zhuoran Zheng, Wenqi Ren, Xiaochun Cao, Xiaobin Hu,
+Tao Wang, Fenglong Song, and Xiuyi Jia. Ultra-highdefinition image dehazing via multi-guided bilateral learning. In 2021 IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 16180–16189. IEEE,
+2021. 1, 2
+[43] Zhuoran Zheng, Wenqi Ren, Xiaochun Cao, Tao Wang,
+and Xiuyi Jia. Ultra-high-definition image hdr reconstruction via collaborative bilateral learning. In Proceedings of
+the IEEE/CVF international conference on computer vision,
+pages 4449–4458, 2021. 1, 2, 6, 7
+[44] Man Zhou, Jie Huang, Chun-Le Guo, and Chongyi Li.
+Fourmer: An efficient global modeling paradigm for image
+restoration. In International conference on machine learning, pages 42589–42601. PMLR, 2023. 2
+[45] Shihao Zhou, Duosheng Chen, Jinshan Pan, Jinglei Shi, and
+Jufeng Yang. Adapt or perish: Adaptive sparse transformer
+with attentive feature refinement for image restoration. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 2952–2963, 2024. 3
+[46] Wenbin Zou, Hongxia Gao, Weipeng Yang, and Tongtong
+Liu. Wave-mamba: Wavelet state space model for ultrahigh-definition low-light image enhancement. In Proceedings of the 32nd ACM International Conference on Multimedia, pages 1534–1543, 2024. 1, 3, 5, 6, 8
+[47] Zhen Zou, Hu Yu, Jie Huang, and Feng Zhao. Freqmamba:
+Viewing mamba from a frequency perspective for image deraining. In Proceedings of the 32nd ACM international conference on multimedia, pages 1905–1914, 2024. 2
+
+

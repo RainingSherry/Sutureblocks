@@ -1,0 +1,2247 @@
+1
+
+High-Similarity-Pass Attention for Single Image
+Super-Resolution
+
+arXiv:2305.15768v1 [cs.CV] 25 May 2023
+
+Jian-Nan Su, Min Gan∗ , Senior Member, IEEE, Guang-Yong Chen, Wenzhong Guo,
+and C. L. Philip Chen, Fellow, IEEE
+
+Abstract—Recent developments in the field of non-local attention (NLA) have led to a renewed interest in self-similarity-based
+single image super-resolution (SISR). Researchers usually used
+the NLA to explore non-local self-similarity (NSS) in SISR and
+achieve satisfactory reconstruction results. However, a surprising
+phenomenon that the reconstruction performance of the standard
+NLA is similar to the NLA with randomly selected regions
+stimulated our interest to revisit NLA. In this paper, we first
+analyzed the attention map of the standard NLA from different
+perspectives and discovered that the resulting probability distribution always has full support for every local feature, which
+implies a statistical waste of assigning values to irrelevant nonlocal features, especially for SISR which needs to model longrange dependence with a large number of redundant non-local
+features. Based on these findings, we introduced a concise yet
+effective soft thresholding operation to obtain high-similaritypass attention (HSPA), which is beneficial for generating a
+more compact and interpretable distribution. Furthermore, we
+derived some key properties of the soft thresholding operation
+that enable training our HSPA in an end-to-end manner. The
+HSPA can be integrated into existing deep SISR models as an
+efficient general building block. In addition, to demonstrate the
+effectiveness of the HSPA, we constructed a deep high-similaritypass attention network (HSPAN) by integrating a few HSPAs in
+a simple backbone. Extensive experimental results demonstrate
+that HSPAN outperforms state-of-the-art approaches on both
+quantitative and qualitative evaluations.
+Index Terms—High-Similarity-Pass Attention, Softmax Transformation, Single Image Super-Resolution, Deep Learning.
+
+I. I NTRODUCTION
+INGLE Image Super-Resolution (SISR) is the process
+of recovering a high-resolution (HR) image from a corresponding low-resolution (LR) observation. SISR has been
+widely used for many important applications, including remote
+sensing, face recognition, and medical image processing [4],
+[24], [29]. However, SISR problems are often considered
+as ill-posed and heavily rely on efficient image priors. The
+high frequency of recurrence of small patches in a natural
+image provides powerful image-specific self-similarity priors
+[16] to regularize the SISR problems. These repeated internal
+textures are more closely related to the input LR image than
+
+S
+
+* Corresponding author (E-mail: aganmin@aliyun.com)
+Jian-Nan Su, Min Gan, Guang-Yong Chen and Wenzhong Guo are
+with the College of Computer and Data Science, Fuzhou University, Fuzhou
+350108, China.
+C. L. Philip Chen is with the School of Computer Science and
+Engineering, South China University of Technology, Guangzhou 510641,
+China, and also with the Faculty of Science and Technology, University of
+Macau, Macau, China
+
+external training datasets. Essentially, self-similarity offers
+an insightful solution based on similarity to explore nonlocal image textures, which can filter out irrelevant non-local
+textures while discovering valuable ones. For instance, when
+repairing structured architectural textures, the associated nonlocal architectural regions are more meaningful than lowfrequency face or background regions.
+In deep learning-based SISR models, self-similarity is usually explored through non-local attention (NLA) [43], which
+was originally used to model non-local dependencies for highlevel vision tasks and has also been proven to be effective in
+SISR [5], [27], [33], [34]. These NLA-based SISR methods
+use the softmax transformation to assign attention weights to
+non-local information. However, as illustrated in Fig. 1, we
+can see that as the size of non-local sequence increases, the
+resulting probability distribution of the softmax transformation
+is gradually flattened, i.e., valuable non-local information will
+be overwhelmed by a large amount of irrelevant non-local
+information. Specifically, in short-range sequence modeling
+(e.g. n = 42 ), the resulting probability distribution of the softmax transformation is distinguishable. Whereas in long-range
+sequence modeling (e.g. n = 202 ), the resulting probability
+of most non-local information is close to zero, and even the
+most important non-local information can only be assigned to
+a very small value.
+The above phenomenon shows that the softmax transformation, a key component of the standard NLA, may degrade the
+importance of valuable non-local information for long-range
+sequence modeling. Furthermore, it may introduce interference
+by incorporating irrelevant features, which can be regarded
+as noise, into the reconstruction result. Unfortunately, exploring the self-similarity in SISR involves long-range sequence
+modeling with a lot of irrelevant information. Therefore, we
+speculated that the softmax transformation would make the
+NLA inefficient in exploring the image self-similarity. To
+validate this speculation, we separately added the NLA and
+NLA random to our backbone network with 128 channels. In
+NLA random, we randomly select 512 feature vectors from
+the non-local feature space for non-local fusion, instead of
+using all non-local feature vectors like the NLA. Surprisingly,
+we found that the SR performance of NLA and NLA random
+is very close (see Fig. 2). This motivated us to revisit the softmax transformation of the NLA for more effective exploration
+of self-similarity in deep SISR.
+In many existing NLA-based SISR methods, the softmax
+transformation is commonly used to convert similarity vectors
+into probability distributions, such as NLRN [27], RNAN [53],
+
+2
+
+Fig. 1: An illustration of the resulting probability distribution
+of the softmax transformation with different size of input
+sequences. The 9 input sequences were sampled from the
+standard normal distribution N (0, 1).
+
+Fig. 2: Comparisons between the NLA [43] and our HSPA
+on Set5 (×2) during training. In NLA random, we randomly
+select 512 features for non-local fusion. Please zoom in for
+best view.
+
+SAN [5], and CSNLN [34]. However, these methods require
+modeling the global features of long-range sequences, which
+leads to the issue of the softmax transformation mentioned
+above. Hence, NLSA [33] decomposed the challenge of the
+long-range sequence modeling problem into a series of shorter
+sequence modeling sub-problems via locality sensitive hashing
+(LSH) [15]. Although NLSA avoided modeling long-range
+sequences, it may miss crucial long-range information due
+to the large variance of the LSH’s estimation. To capture
+long-range information while alleviating the issue caused by
+the softmax transformation, ENLCA [46] proposed to multiply similarity vectors by an amplifification factor, which
+enforces the non-local attention to give higher weights to
+related information. Unfortunately, this approach leads to an
+increase in approximation variance, making the selection of
+the amplifification factor non-robust.
+In this paper, we focus on exploring a novel approach
+for weighting non-local information in deep SISR, providing
+a new perspective for existing NLA-based SISR methods.
+Consequently, we proposed the high-similarity-pass attention
+(HSPA) with a soft thresholding operation, which returns compact probability distributions by truncating small probability
+values (low-similarity) to zero. This characteristic enables our
+HSPA to remove irrelevant non-local information and identify
+a set of relevant information for image reconstruction, making
+deep SISR models more efficient and interpretable. From the
+attention maps in Fig. 2, we can observe that our HSPA
+achieves superior SR performance than the NLA by fusing
+more related non-local self-similarity information. Crucially,
+we derived a closed-form Jacobian expression of the proposed
+soft thresholding operation to train our HSPA in an end-to-end
+manner. To the best of our knowledge, this is the first attempt
+to provide compact probability distributions with a closed-
+
+form Jacobian expression for backpropagation algorithms in
+self-similarity-based deep SISR models. With the proposed
+HSPA, we constructed a deep high-similarity-pass attention
+network (HSPAN) shown in Fig. 3, from which we can see that
+our HSPAN is built on a simple residual backbone with some
+HSPA-based modules (HSPAMs). Specifically, each HSPAM
+has a residual connection and consists of an HSPA, a locality
+exploration block (LEB) and a feature refinement convlution.
+The HSPA is responsible for capturing non-local information,
+while the LEB explores the locality inductive bias of nature
+images.
+We believe our findings will stimulate further investigation
+and discussion about the use of NLA in self-similarity-based
+deep SISR models. Our contributions can be summarized as
+follows:
+• We provided new insights into the limitations of NLA
+used in self-similarity-based deep SISR methods and
+argued that the softmax transformation in NLA has insurmountable flaws for SISR with long-range sequences.
+(As shown in Fig. 1 and Fig. 2)
+• We formalized a concise yet effective soft thresholding
+operation and explored its key properties, which make
+it possible to optimize our high-similarity-pass attention
+(HSPA) end-to-end in deep SISR.
+• A deep high-similarity-pass attention network (HSPAN)
+was designed by using our HSPA-based modules
+(HSPAMs) and achieved state-of-the-art results both
+quantitatively and qualitatively.
+II. R ELATED WORK
+Single image super-resolution (SISR) is a challenging problem, especially when the LR image has a limited number of
+pixels. To address this issue, various image priors have been
+
+3
+
+proposed to stabilize the inversion of this ill-posed problem,
+such as the representative self-similarity [16], [57] and sparse
+representation [3], [9]. The proposed high-similarity-pass attention (HSPA) in this paper benefits from the above two
+priors, thus we limit our discussion here to SISR methods
+based on the two priors and classify the corresponding methods into two main categories: self-similarity-based SISR and
+sparse representation-based SISR.
+A. Self-similarity-based SISR
+There are many classical self-similarity-based SISR methods [11], [14], [16], [19], [37] that have achieved satisfactory
+reconstruction results. The self-similarity prior provides a
+very efficient solution for SISR to explore non-local image
+information. The difference among these self-similarity-based
+SISR methods in utilizing self-similarity is mainly in the range
+of non-local search space. Yang et al. [47] and Freedman et
+al. [14] restricted the non-local search space to some specified local regions for reducing the patch search complexity.
+Ebrahimi et al. [11] and Glasner et al. [16] extended the
+non-local search space to cross-scale images to achieve more
+accurate SR performance. Huang et al. [19] further expanded
+the search space by modeling geometric transformations such
+as perspective distortion and local shape variation.
+In deep learning-based SISR, the self-similarity is usually
+integrated by non-local attention (NLA) [43]. Specifically, selfsimilarity prior is fused as a weighted sum over all pixelwise features in the NLA. Liu et al. [27] proposed a nonlocal recurrent network as the first attempt to use the NLA
+in deep recurrent neural network for capturing long-range
+self-similarity in SISR and denoising. Then, Dai et al. [5]
+combined the NLA with channel-wise attention in deep convolutional neural network to simultaneously utilizing both spatial
+and channel features correlations for more powerful feature
+representation. Mei et al. [34] first attempted to integrate crossscale self-similarity in deep learning-based SISR methods by
+the cross-scale non-local attention and achieved impressive
+SR performance. Luo et al. [28] proposed a hash-learnable
+non-local attention to capture long-range self-similarity for
+lightweight SISR. Although these NLA-based deep SISR
+methods can generate impressive SR results, they all ignore
+the limitations (see Fig. 1) of the softmax transformation used
+in the NLA, which leads to inefficient exploration of non-local
+self-similarity. This motivates us to explore a more efficient
+method to weight non-local self-similarity information for
+deep SISR models.
+B. Sparse representation-based SISR
+The sparse representation prior has been successfully integrated in many image processing tasks, such as SISR
+[33], [36], [44], [49] and denoising [12], [41]. In SISR, the
+sparse representation suggests that HR images can be wellexpressed by the sparse linear combinations of atoms in an
+appropriate over-complete dictionary [48], [49]. Yang et al.
+[49] proposed a joint dictionary learning method to make
+the sparse representation between LR and HR patch pairs
+consistent, thus the sparse representation of an LR image
+
+can be directly used to generate the corresponding HR image
+patch with the HR dictionary. Kim et al. [21] constructed a
+sparse basis set to reduce the time complexity of regression
+during both training and testing. Peleg et al. [36] proposed a
+statistical prediction model based on sparse representation to
+predict the HR representation vector from its corresponding
+LR coefficients without using the invariance assumption of
+the sparse representation.
+Dong et al. [7] first introduced the sparse representation
+prior in a deep CNN-based SISR model with the ReLU
+activation enforced about 50% sparsity by zeroing all negative
+features. Wang et al. [44] combined the domain expertise
+of the sparse representation and deep learning models to
+achieve further improved SR results. Recently, Fan et al. [13]
+explicitly integrated sparsity constraints in hidden neurons
+and showed that sparse representation is crucial in deep
+learning-based SISR. These sparse representation-based deep
+SISR methods only explored the sparse representation of deep
+spatial features, lacking the investigation of sparse non-local
+self-similarity. Mei et al. [33] and Su et al. [39] tried to
+combine sparse representation with the exploration of nonlocal self-similarity in deep SISR models. Although they
+limited the scope of non-local exploration for sparsity, they
+ignored the essential reason why the NLA cannot explore
+non-local self-similarity sparsely. Inspired by these sparse
+representation-based deep SISR methods and our analysis of
+the limitations of the softmax transformation in NLA, we
+integrated sparse representation into non-local self-similarity
+exploration by incorporating a soft thresholding operation into
+the high-similarity-pass attention.
+III. M ETHODOLOGY
+In this section, we will introduce the details of our deep
+high-similarity-pass attention network (HSPAN). The HSPAN
+consists of a simple residual backbone [39], [54] and some
+high-similarity-pass attention-based modules (HSPAMs). We
+start with an overview of the HSPAN and then introduce the
+details of the HSPAM.
+A. An Overview of the HSPAN
+As illustrated in Fig. 3, our HSPAN is an end-to-end SISR
+network consisting of three parts: LR features extraction, local
+and non-local deep features fusion, and HR reconstruction.
+In LR features extraction part, the shallow features F 0 are
+extracted from the given LR image x by a convolutional layer
+with trainable parameters θ. This process can be formulated
+as
+F 0 = ϕ(x; θ),
+(1)
+where ϕ(·) is a convolution operation. Then, F 0 is fed into the
+local and non-local deep features fusion part with m HSPAMs
+F m = φ(F 0 ; δ),
+
+(2)
+
+where φ(·) is the function of our local and non-local deep
+features fusion part with trainable parameters δ and F m are
+the output features. Finally, the obtained deep features F m
+
+4
+
+Fig. 3: An illustration of our HSPAN. The implementation details of the ST operation can be found in Algorithm 1.
+are upscaled by sub-pixel operation ↑ [38] and then used to
+reconstruct an HR image ŷ in the HR reconstruction part
+ŷ = ψ(F m ↑; α),
+
+(3)
+
+where ψ(·) represents the HR reconstruction part with trainable parameters α for the final RGB image reconstruction.
+The above three parts can be simplified as follow
+ŷ = HSPAN(x; (θ, δ, α)),
+
+(4)
+
+where HSPAN(·) is the function of our deep sparse nonlocal attention network. As suggested in previous works [20],
+[54], we use a long residual connection to directly bypassed
+abundant low-frequency information and prevent gradients
+from exploding.
+B. High-Similarity-Pass Attention-based Module (HSPAM)
+The structure of our HSPAM is shown in Fig. 3, from which
+we can see that the HSPAM serves as a basic block of our
+HSPAN. Specifically, each HSPAM is also with a residual
+connection and consists of a high-similarity-pass attention
+(HSPA), a locality exploration block (LEB) and a feature
+refinement layer. The HSPA is responsible for exploring nonlocal self-similarity information and the LEB is used to capture
+locality inductive bias.
+The function Ωi (·) of the i-th HSPAM can be formulated
+as follows:
+F i = Ωi (F i−1 ) = Ωi (Ωi−1 (· · · Ω2 (Ω1 (F 0 )))),
+
+(5)
+
+where F i and F i−1 are the output and input of the i-th
+HSPAM. The trainable parameters in HSPAM are omitted for
+simplicity.
+1) Locality Exploration Block (LEB):
+We proposed the LEB to utilize the locality of the convolution layer for capturing the locality inductive bias of
+nature images, which plays a crucial role in image restoration
+problems. The structure details of the LEB are shown in Fig. 3,
+from which we can see that the LEB is constructed by n
+simplified convolution residual blocks.
+2) High-Similarity-Pass Attention (HSPA): As discussed
+in Section I, the softmax transformation greatly affects the
+performance of NLA for modeling long-range sequence with a
+lot of irrelevant information. To solve the drawback caused by
+the softmax transformation, we proposed the HSPA (see Fig. 3)
+with a soft thresholding (ST) operation that can effectively
+model long-range sequence with a lot of irrelevant information
+by generating sparse probability distributions.
+NLA is a pixel-level attention mechanism used in deep SISR
+methods [5], [53], it calculates the influence of each feature
+vector on the query feature vector. The input feature maps
+′
+X ∈ RH×W ×C of NLA are first reshaped into X ∈ RHW ×C
+for illustration. Then, the response of the query feature vector
+xi in NLA can be defined as
+
+NLA(xi ) =
+
+N
+X
+
+exp(d(xi , xj ))
+ϕv (xj ),
+PN
+k=1 exp(d(xi , xk ))
+j=1
+
+(6)
+
+5
+
+′
+
+where xj and xk are the j-th and k-th feature vectors on X
+respectively and N = HW . ϕv (·) is a value vector generation
+function with 1 × 1 convolution operation. d(·, ·) is used to
+measure the dot product similarity between feature vectors
+and can be expressed as
+d(xi , xj ) = ϕq (xi )T ϕk (xj ),
+
+(7)
+
+where ϕq (·) and ϕk (·) are introduced to generate query and
+key feature vectors. From Eq. (6) and Eq. (7), we can see that
+NLA provides a non-local information fusion scheme based on
+dot product similarity, which assigns more weights to feature
+vectors with higher similarity. Furthermore, the reason why
+the NLA cannot generate sparse probability distribution is
+that the numerator of the softmax transformation is always
+greater than zero, which allows two completely unrelated or
+even negatively correlated feature vectors to be given a positive
+weight.
+In our HSPA, with Eq. (7), we can obtain the similarity
+vector s of the query feature vector xi . Then, the weight of
+j-th non-local feature vector is assigned by the proposed soft
+thresholding (ST) operation. Finally, the response of the query
+feature vector xi can be formulated as
+HSPA(xi ) =
+
+N
+X
+
+STj (s)ϕv (xj ),
+
+(8)
+
+j=1
+
+where STj (s) is the j-th component of the results of the ST
+operation and defined as
+STj (s) = max{sj − κ(s), 0},
+
+(9)
+
+where sj is the j-th component of s and κ(·) : R
+soft threshold function that satisfies
+N
+X
+max{sj − κ(s), 0} = 1
+
+N
+
+→ R is a
+(10)
+
+j=1
+
+1: Input: the similarity vector s.
+′
+2: s ← s.
+3: s ← Sort(s)
+
+# Let s(1) ≥ s(2) ≥ · · · ≥ s(N ) .
+Pk
+j=1 s(j) }
+
+4: T = max{k ∈ K | ks(k) + 1 >
+5: κ(s) =
+
+P
+( T
+j=1 s(j) )−1
+T ′
+
+6: Output: max{s
+
+− κ(s), 0}
+
+C. Properties of the ST operation
+From optimization viewpoint, the attention weight vector s̃
+obtained by the ST operation can be regarded as the projection
+of thePoriginal similarity vector s onto the simplex ∆ = {p ∈
+RN | pi = 1, pi ≥ 0} [10], [31]. That is:
+s̃ = argmin||p − s||2 .
+
+(13)
+
+p∈∆
+
+In SISR, exploring for non-local information is a longsequence modeling problem, where the sequence length N is
+usually greater than ten thousand. This makes the projection
+tend to hit the boundary of the simplex, leading to a sparse
+probability distribution.
+From the perspective of probability theory, we assume the
+similarity scores s1 , s2 , ..., sN as random variables, and the
+corresponding order statistic are denoted as s(1) ≥ s(2) ≥
+· · · ≥ s(N ) . Event [T > k] refers to the number of non-zero
+elements in the results of the ST operation
+Pk+1 is greater than
+k, which implies (k + 1)s(k+1) + 1 > j=1 s(j) . Thus, the
+probability of the event [T > k] can be estimated as
+P ([T > k]) = P ([(k + 1)s(k+1) + 1 >
+
+k+1
+X
+
+s(j) ])
+
+j=1
+
+To derive the soft threshold function κ(·), we first sorted the
+similarity vector s and let the sorted s satisfy s(1) ≥ s(2) ≥
+· · · ≥ s(N ) . Let K = {1, ..., N } and define T as
+T = max{k ∈ K | ks(k) + 1 >
+
+k
+X
+
+s(j) }.
+
+(11)
+
+j=1
+
+Then, the soft threshold function κ(·) can be derived from Eq.
+(10) and Eq. (11) as follows
+T
+X
+(
+s(j) ) − κ(s) × T = 1,
+j=1
+
+(12)
+(
+
+PT
+
+j=1 s(j) ) − 1
+
+.
+T
+The details of the ST operation are shown in Algorithm 1,
+from which we can see that the core of the ST operation is to
+calculate the result of the soft threshold function κ(·). Then,
+all coordinates below this threshold will be truncated to zero,
+and the others will be shifted by this threshold. Obviously, our
+ST operation is not only able to generate a sparse probability
+distribution, but also preserves the basic properties of the
+softmax transformation: all probability values are greater than
+zero and sum to 1, and it assigns more weights to feature
+vectors with higher similarity.
+κ(s) =
+
+Algorithm 1 Soft Thresholding (ST) Operation.
+
+= P ([(s(1) − s(k+1) ) + ... + (s(k) − s(k+1) )] < 1)
+1
+≤ P ([s(k) − s(k+1) < ]).
+k
+(14)
+With the increase of k, the probability that the number of nonzero elements in the attention weight vector is greater than
+k will become small, which is consistent with our intuitive
+motivation for designing the ST operation.
+In practice, the ST operation will cause many non-local
+weights to be truncated to zero, which means that it is not
+necessary to use all elements in the similarity vector s.
+Therefore, we can use top-k instead of the sorting algorithm to
+reduce the computational complexity. The effects of different k
+on reconstruction results will be investigated in the experiment
+section.
+To train the HSPAN in an end-to-end manner, it is necessary
+to derive the closed-form Jacobian matrix of the proposed ST
+operation for backpropagation algorithms. From Eq. (9), we
+have
+
+∂STj (s)
+δ − ∂κ(s)
+∂sk , if sj > κ(s),
+= jk
+(15)
+∂sk
+0,
+if sj ≤ κ(s),
+where δjk is the Kronecker delta which returns 1 if the variables
+i and j are equal, and 0 otherwise. The gradient of the soft
+
+6
+
+threshold function κ(·) can be expressed as
+ 1
+∂κ(s)
+, if k ∈ T(s),
+= T
+0,
+if k ∈
+/ T(s),
+∂sk
+
+(16)
+
+where T(s) = {j ∈ K | STj (s) > 0} is the support set of
+the ST operation, T is the number of elements in T(s), and
+c is the characteristic vector whose j-th component is 1 if
+j ∈ T(s), and 0 otherwise. We can combine Eq. (15) and Eq.
+(16) to obtain the derivatives of the ST operation with respect
+to the variable sk
+ck cj
+∂STj (s)
+= δjk −
+.
+∂sk
+T
+
+(17)
+
+Then, the Jacobian matrix of the ST operator can be formulated as
+ccT
+J (s) = Diag(c) −
+,
+(18)
+T
+where Diag(c) is a matrix with c in the diagonal.
+From Eq. (18) we can observe the special structure presenting in the Jacobian matrix that is obtained by subtracting a
+rank 1 matrix from a diagonal matrix. The special structure
+allows efficient calculation of the gradient. Given the feedback
+error r, the gradient of the ST operation with respect to s can
+be expressed as
+cT r
+· 1).
+(19)
+T
+From Eq. (19), we can see that the computational complexity
+of computing the gradient in our ST operation is O(T
+P ). Moreover, for the HSPA discussed in this paper, cT r = j∈T(s) r j ,
+where T(s) can be obtained during the inference, which
+makes the sublinear time complexity derived from the special
+structure in (19) efficient.
+▽s ST(s) = J (s)r = c ⊙ (r −
+
+IV. E XPERIMENTS
+A. Datasets and Metrics
+Following previous researches [5], [33], [54], we use 800
+images from DIV2K [42] to train our deep SISR model. In
+a mini-batch, there are 16 images with patch size 48 × 48
+randomly cropped from the training datasets. All these training
+patches are augmented by random rotation of 90, 180, and 270
+degrees and horizontal flipping. Then, the SR performance of
+our model is evaluated on five standard SISR benchmarks:
+Set5 [2], Set14 [50], B100 [30], Urban100 [19], and Manga109
+[32]. All results are compared by SSIM [45] and PSNR metrics
+on the Y channel in YCbCr space.
+B. Training Details
+Our deep high-similarity-pass attention network (HSPAN)
+is constructed by 10 high-similarity-pass attention-based modules (HSPAMs) in a residual backbone. The number of residual
+blocks in locality exploration block (LEB) is set to 4 empirically. All the convolutional kernel sizes are set to 3×3, except
+those in our high-similarity-pass attention (HSPA), which have
+1 × 1 kernel sizes. Intermediate features have 192 channels,
+and the last convolution layer in our HSPAN has 3 filters to
+transfer deep features into a 3-channel RGB image.
+
+During training, the ADAM algorithm [22] with β1 = 0.9,
+β2 = 0.999, and ϵ = 10−8 is used for optimizing the mean
+absolute error (MAE) loss. The initial learning rate is set to
+10−4 in ×2 model and reduced to half every 200 epochs until
+the training stops at 1000 epochs. The ×3 and ×4 models
+are initialized by the pre-trained ×2 model, and the learning
+rate 10−4 is reduced to half every 50 epochs until the finetunning stops at 200 epochs. All our models are implemented
+by PyTorch and trained on Nvidia 3090 GPUs.
+C. Ablation Studies
+We conducted an in-depth analysis of the proposed HSPA
+and LEB in ablation studies and trained our HSPAN on DIV2K
+[42] for classical SISR with scale factor ×2. The best PSNR
+(dB) values on Set5 [2] in 5 × 104 iterations are obtained for
+comparisons.
+1) Impact of HSPA and LEB:
+The SR performance of our HSPA and LEB in the highsimilarity-pass attention-based module (HSPAM) are shown in
+Table I, from which we can see that our HSPA is much better
+than the NLA [43]. Specifically, by comparing the results in
+the first and second columns, our HSPA can bring 0.84dB
+improvement. Furthermore, when exploring locality inductive
+bias with the LEB, the NLA brings 0.03dB improvement,
+while our HSPA brings 0.11dB improvement, which is about
+3.7 times that of the NLA.
+TABLE I: Ablation studeis on our HSPA and LEB. Best and
+second best results are highlighted and underlined.
+LEB
+
+%
+
+%
+
+!
+
+!
+
+!
+
+NLA [43]
+
+!
+
+%
+
+%
+
+!
+
+%
+
+HSPA
+
+%
+
+!
+
+%
+
+%
+
+!
+
+PSNR
+
+36.69
+
+37.53
+
+37.90 (Backbone)
+
+37.93
+
+38.01
+
+In Table I, we can find that the SR performance will
+degrade severely when the LEB is removed. It means that
+the locality inductive bias is important for SR reconstruction.
+Thus, to benifit from both locality inductive bias and non-local
+information, we combine the LEB and HSPA to construct our
+HSPAM.
+Visual comparisons between the NLA and our HSPA are
+shown in Fig. 5, from which we can compare the zoomed in
+results on Set14 [50], B100 [30] and Urban100 [19] datasets.
+In Fig. 5, we can observe that our HSPA can generate superior
+textures than the NLA. For example, in image ’img 004’
+(bottom) from Urban100, our HSPA can recover the severely
+damaged black circles missed by the NLA. Furthermore, we
+show the attention map of the NLA and our HSPA at some
+attention layers in Fig. 4, from which we can observe that our
+HSPA can remove irrelevant features, while the NLA must has
+full support for every non-local feature. These attention maps
+indicate that our HSPA indeed works as expected: providing
+more relevant and informative non-local textures for SISR
+reconstruction with the sparse representation.
+
+HSPA
+
+NLA
+
+7
+
+Fig. 4: Comparisons between our HSPA and the NLA on attention maps for x4 SR. These attention maps from left to right
+correspond to the 1st, 3rd, 5th, 7th, and 9th attention operations in our deep SISR backbone. Please zoom in for best view.
+
+Fig. 6: The PSNR results of different k setting.
+
+NLA
+
+HSPA (Ours)
+
+HR
+
+Fig. 5: Visual comparisons between the NLA [43] with our
+HSPA for ×4 SR. The texture regions from top to bottom
+belong to the ’barbara’, ’253027’ and ’img 004’ images from
+Set14 [50], B100 [30] and Urban100 [19] datasets, respectively.
+
+2) Impact of Top-k: As discussed in the Section III-B2,
+k determines the search space of the query feature, which
+consists of the top-k similar non-local features. The value
+of k can be set flexibly in testing phase to find the tradeoffs between reducing computational complexity and getting
+accurate reconstruction results. k = 0 corresponds to the case
+where HSPA is not used. The SR performance of different k
+setting are shown in Fig. 6, from which we can see that the
+SR performance of our HSPAN peaks at k = 128. Considering
+the computational complexity and reconstruction performance,
+we set k to be 128 in our HSPAN.
+3) Generic validation:
+We validated the generality of the proposed method through
+two parts: (1) we directly integrated the proposed HSPA into
+SISR models that did not use non-local attention (NLA); (2)
+we replaced the softmax transformation in NLA-based deep
+SISR models with our soft thresholding (ST) operation.
+
+Generic of the HSPA. To demonstrate the generic of our
+HSPA, we inserted the HSPA into some representative deep
+SISR models with different computational complexity, such
+as FSRCNN [8], EDSR [26], and RCAN [54]. From Fig. 7,
+we observe that our HSPA can significantly improve the
+SR performance of these deep SISR models with negligible
+parameters. For example, our HSPA brings 0.13dB improvement for FSRCNN [8] (12644 parameters) with only 630
+parameters.
+Generic of the ST operation. In NLA-based deep SISR
+models, we replaced the softmax transformation with our ST
+operation in considerable CSNLN [34], NLSN [33], and SAN
+[5], respectively. As shown in Fig. 8, we can see that our ST
+operation can improve the SR performance of NLA-based deep
+SISR models without additional parameters. Specifically, our
+ST operation brought performance improvements of 0.14dB,
+0.08dB, and 0.05dB for CSNLN, NLSN and SAN, respectively. Consistent with subjective perception, we found that the
+more NLA modules used in NLA-based deep SISR models,
+the more significant improvement our ST operation could
+bring after replacing the softmax transformation. For example,
+CSNLN used 24 NLA modules, and our ST operation brought
+the most significant improvement to this model, while SAN
+only used two NLA modules, resulting in relatively limited
+performance improvement. These results indicate that the
+proposed method can be integrated into existing deep SISR
+models as an effective general building unit.
+D. Model Efficiency
+In this subsection, we compare the efficiency of our HSPAN
+with other state-of-the-art models in terms of model parameters and inference time.
+
+8
+
+brings 0.05dB improvement with 29.3M additional parameters.
+This means that the proposed HSPAN can indeed significantly
+improve the SR performance and the improvement is not
+simply the result of having more parameters in the network.
+
+Fig. 7: Parameters vs. performance. Our HSPA can improve
+the SR performance of representative deep SISR models vary
+in complexity from the simple FSRCNN [8] to the very
+complex EDSR [26] and RCAN [54].
+Fig. 9: Model parameters and SR performance comparsions
+on Manga109 (×4).
+
+Fig. 8: Parameters vs. performance. The SR performance of
+typical NLA-based deep SISR models can be improved by our
+soft thresholding (ST) operation without introducing additional
+parameters.
+
+Fig. 10: Inference time and SR performance comparisions on
+Set5 (×4).
+
+Model Parameters. The parameters and SR performance of
+state-of-the-art deep SISR models including EDSR [26], RDN
+[55], RCAN [54], DBPN [17], RNAN [53], SAN [5], NLSN
+[33], ENLCN [46] are shown in Fig. 9, from which we can
+see that the SR performance of our HSPAN on Manga109
+(×4) is significantly better than other state-of-the-art models.
+Specifically, our HSPAN (about 33.6M parameters) brings
+0.47dB improvement in SR performance with much lower
+parameters than the recent state-of-the-art NLSN [33] (about
+44.9M parameters). In contrast, compared with RCAN, NLSN
+
+Inference Time. We also provide a smaller version of our
+HSPAN, denoted as HSPAN S, by integrating only one HSPA
+in the middle of the backbone. The inference time of our
+HSPAN, HSPAN S and recently competitive deep SISR models are shown in Fig. 10, from which we see that the SR
+performance of our HSPAN is much better than other stateof-the-art models. Furthermore, our HSPAN S consumes the
+least inference time while achieving better SR performance
+than other state-of-the-art models. Specifically, by comparing
+NLSN [33] and RCAN [54], we find that the SR performance
+of RCAN is 0.04dB higher than that of NLSN at a cost
+
+9
+
+TABLE II: Quantitative results on SISR benchmark datasets. Best and second best results are highlighted and underlined.
+Method
+
+Scale
+
+Bicubic
+FSRCNN [8]
+VDSR [20]
+LapSRN [23]
+MemNet [40]
+SRMDNF [52]
+DBPN [17]
+EDSR [26]
+RDN [55]
+RCAN [54]
+SAN [5]
+OISR [18]
+IGNN [56]
+CSNLN [34]
+HAN [35]
+NLSN [33]
+DRLN [1]
+SwinIR [25]
+ENLCN [46]
+HSPAN (Ours)
+HSPAN+ (Ours)
+Bicubic
+FSRCNN [8]
+VDSR [20]
+LapSRN [23]
+MemNet [40]
+SRMDNF [52]
+EDSR [26]
+RDN [55]
+RCAN [54]
+SAN [5]
+OISR [18]
+IGNN [56]
+CSNLN [34]
+HAN [35]
+NLSN [33]
+DRLN [1]
+SwinIR [25]
+HSPAN (Ours)
+HSPAN+ (Ours)
+Bicubic
+FSRCNN [8]
+VDSR [20]
+LapSRN [23]
+MemNet [40]
+SRMDNF [52]
+DBPN [17]
+EDSR [26]
+RDN [55]
+RCAN [54]
+SAN [5]
+OISR [18]
+IGNN [56]
+CSNLN [34]
+HAN [35]
+NLSN [33]
+DRLN [1]
+SwinIR [25]
+ENLCN [46]
+HSPAN (Ours)
+HSPAN+ (Ours)
+
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+
+Set5 [2]
+PSNR
+SSIM
+33.66
+0.9299
+37.05
+0.9560
+37.53
+0.9590
+37.52
+0.9591
+37.78
+0.9597
+37.79
+0.9601
+38.09
+0.9600
+38.11
+0.9602
+38.24
+0.9614
+38.27
+0.9614
+38.31
+0.9620
+38.21
+0.9612
+38.24
+0.9613
+38.28
+0.9616
+38.27
+0.9614
+38.34
+0.9618
+38.27
+0.9616
+38.35
+0.9620
+38.37
+0.9618
+38.43
+0.9622
+38.51
+0.9625
+30.39
+0.8682
+33.18
+0.9140
+33.67
+0.9210
+33.82
+0.9227
+34.09
+0.9248
+34.12
+0.9254
+34.65
+0.9280
+34.71
+0.9296
+34.74
+0.9299
+34.75
+0.9300
+34.72
+0.9297
+34.72
+0.9298
+34.74
+0.9300
+34.75
+0.9299
+34.85
+0.9306
+34.78
+0.9303
+34.89
+0.9312
+34.91
+0.9311
+35.03
+0.9318
+28.42
+0.8104
+30.72
+0.8660
+31.35
+0.8830
+31.54
+0.8850
+31.74
+0.8893
+31.96
+0.8925
+32.47
+0.8980
+32.46
+0.8968
+32.47
+0.8990
+32.63
+0.9002
+32.64
+0.9003
+32.53
+0.8992
+32.57
+0.8998
+32.68
+0.9004
+32.64
+0.9002
+32.59
+0.9000
+32.63
+0.9002
+32.72
+0.9021
+32.67
+0.9004
+32.82
+0.9013
+32.94
+0.9027
+
+Set14 [50]
+PSNR
+SSIM
+30.24
+0.8688
+32.66
+0.9090
+33.05
+0.9130
+33.08
+0.9130
+33.28
+0.9142
+33.32
+0.9159
+33.85
+0.9190
+33.92
+0.9195
+34.01
+0.9212
+34.12
+0.9216
+34.07
+0.9213
+33.94
+0.9206
+34.12
+0.9217
+34.07
+0.9223
+34.16
+0.9217
+34.08
+0.9231
+34.28
+0.9231
+34.14
+0.9227
+34.17
+0.9229
+34.30
+0.9246
+34.47
+0.9250
+27.55
+0.7742
+29.37
+0.8240
+29.78
+0.8320
+29.87
+0.8320
+30.00
+0.8350
+30.04
+0.8382
+30.52
+0.8462
+30.57
+0.8468
+30.65
+0.8482
+30.59
+0.8476
+30.57
+0.8470
+30.66
+0.8484
+30.66
+0.8482
+30.67
+0.8483
+30.70
+0.8485
+30.73
+0.8488
+30.77
+0.8503
+30.77
+0.8504
+30.88
+0.8518
+26.00
+0.7027
+27.61
+0.7550
+28.02
+0.7680
+28.19
+0.7720
+28.26
+0.7723
+28.35
+0.7787
+28.82
+0.7860
+28.80
+0.7876
+28.81
+0.7871
+28.87
+0.7889
+28.92
+0.7888
+28.86
+0.7878
+28.85
+0.7891
+28.95
+0.7888
+28.90
+0.7890
+28.87
+0.7891
+28.94
+0.7900
+28.94
+0.7914
+28.94
+0.7892
+29.03
+0.7920
+29.12
+0.7937
+
+B100 [30]
+PSNR
+SSIM
+29.56
+0.8431
+31.53
+0.8920
+31.90
+0.8960
+31.08
+0.8950
+32.08
+0.8978
+32.05
+0.8985
+32.27
+0.9000
+32.32
+0.9013
+32.34
+0.9017
+32.41
+0.9027
+32.42
+0.9028
+32.36
+0.9019
+32.41
+0.9025
+32.40
+0.9024
+32.41
+0.9027
+32.43
+0.9027
+32.44
+0.9028
+32.44
+0.9030
+32.49
+0.9032
+32.48
+0.9037
+32.53
+0.9043
+27.21
+0.7385
+28.53
+0.7910
+28.83
+0.7990
+28.82
+0.7980
+28.96
+0.8001
+28.97
+0.8025
+29.25
+0.8093
+29.26
+0.8093
+29.32
+0.8111
+29.33
+0.8112
+29.29
+0.8103
+29.31
+0.8105
+29.33
+0.8105
+29.32
+0.8110
+29.34
+0.8117
+29.36
+0.8117
+29.37
+0.8124
+29.41
+0.8137
+29.46
+0.8146
+25.96
+0.6675
+26.98
+0.7150
+27.29
+0.0726
+27.32
+0.7270
+27.40
+0.7281
+27.49
+0.7337
+27.72
+0.7400
+27.71
+0.7420
+27.72
+0.7419
+27.77
+0.7436
+27.78
+0.7436
+27.75
+0.7428
+27.77
+0.7434
+27.80
+0.7439
+27.80
+0.7442
+27.78
+0.7444
+27.83
+0.7444
+27.83
+0.7459
+27.82
+0.7452
+27.86
+0.7476
+27.93
+0.7491
+
+Urban100 [19]
+PSNR
+SSIM
+26.88
+0.8403
+29.88
+0.9020
+30.77
+0.9140
+30.41
+0.9101
+31.31
+0.9195
+31.33
+0.9204
+32.55
+0.9324
+32.93
+0.9351
+32.89
+0.9353
+33.34
+0.9384
+33.10
+0.9370
+33.03
+0.9365
+33.23
+0.9383
+33.25
+0.9386
+33.35
+0.9385
+33.42
+0.9394
+33.37
+0.9390
+33.40
+0.9393
+33.56
+0.9398
+33.87
+0.9427
+34.09
+0.9441
+24.46
+0.7349
+26.43
+0.8080
+27.14
+0.8290
+27.07
+0.8280
+27.56
+0.8376
+27.57
+0.8398
+28.80
+0.8653
+28.80
+0.8653
+29.09
+0.8702
+28.93
+0.8671
+28.95
+0.8680
+29.03
+0.8696
+29.13
+0.8712
+29.10
+0.8705
+29.25
+0.8726
+29.21
+0.8722
+29.29
+0.8744
+29.67
+0.8800
+29.90
+0.8830
+23.14
+0.6577
+24.62
+0.7280
+25.18
+0.7540
+25.21
+0.7560
+25.50
+0.7630
+25.68
+0.7731
+26.38
+0.7946
+26.64
+0.8033
+26.61
+0.8028
+26.82
+0.8087
+26.79
+0.8068
+26.79
+0.8068
+26.84
+0.8090
+27.22
+0.8168
+26.85
+0.8094
+26.96
+0.8109
+26.98
+0.8119
+27.07
+0.8164
+27.12
+0.8141
+27.36
+0.8220
+27.59
+0.8263
+
+Manga109 [32]
+PSNR
+SSIM
+30.80
+0.9339
+36.67
+0.9710
+37.22
+0.9750
+37.27
+0.9740
+37.72
+0.9740
+38.07
+0.9761
+38.89
+0.9775
+39.10
+0.9773
+39.18
+0.9780
+39.44
+0.9786
+39.32
+0.9792
+–
+–
+39.35
+0.9786
+39.37
+0.9785
+39.46
+0.9785
+39.59
+0.9789
+39.58
+0.9786
+39.60
+0.9792
+39.64
+0.9791
+39.67
+0.9787
+39.87
+0.9793
+26.95
+0.8556
+31.10
+0.9210
+32.01
+0.9340
+32.21
+0.9350
+32.51
+0.9369
+33.00
+0.9403
+34.17
+0.9476
+34.13
+0.9484
+34.44
+0.9499
+34.30
+0.9494
+–
+–
+34.39
+0.9496
+34.45
+0.9502
+34.48
+0.9500
+34.57
+0.9508
+34.71
+0.9509
+34.74
+0.9518
+34.85
+0.9522
+35.16
+0.9535
+24.89
+0.7866
+27.90
+0.8610
+28.83
+0.8870
+29.09
+0.8900
+29.42
+0.8942
+30.09
+0.9024
+30.91
+0.9137
+31.02
+0.9148
+31.00
+0.9151
+31.22
+0.9173
+31.18
+0.9169
+–
+–
+31.28
+0.9182
+31.43
+0.9201
+31.42
+0.9177
+31.27
+0.9184
+31.54
+0.9196
+31.67
+0.9226
+31.33
+0.9188
+31.74
+0.9230
+32.11
+0.9257
+
+of 66 milliseconds. However, the SR performance of our
+HSPAN S is not only 0.23dB higher than that of NLSN, but
+also reduces the inference time by 20 milliseconds. These
+results indicate that our HSPA is very efficient in improving
+SR performance. The inferences of all models are conducted
+in the same environment with a Nvidia 3090 GPU.
+
+We compare our HSPAN with 18 state-of-the-art methods
+including FSRCNN [8], VDSR [20], LapSRN [23], EDSR
+[26], MemNet [40], SRMDNF [52], DBPN [17], RDN [55],
+RCAN [54], SAN [5], OISR [18],IGNN [56], CSNLN [34],
+HAN [35], NLSN [33], DRLN [1], SwinIR [25], and ENLCN
+[46]. HSPAN+ is the self ensemble results of our HSPAN.
+
+E. Comparisons with State-of-the-art
+
+Quantitative Evaluations. The quantitative comparisons on
+five benchmark datasets with different scale factors ×2, ×3
+and ×4 are shown in Table II, from which we can see that
+our HSPAN outperforms other state-of-the-art models by a
+
+1) Bicubic-downscale degradation:
+
+10
+
+img 078
+
+img 045
+
+GOODKISSVer2
+
+MomoyamaHaikagura
+
+HR
+PSNR/SSIM
+
+Bicubic
+18.27/0.2704
+
+VDSR [20]
+18.28/0.3410
+
+LapSRN [23]
+18.32/0.3358
+
+EDSR [26]
+18.31/0.3873
+
+RCAN [54]
+18.82/0.4252
+
+NLSN [33]
+19.37/0.4698
+
+SwinIR [25]
+20.03/0.5768
+
+ENLCN [46]
+19.22/0.4646
+
+HSPAN(Ours)
+21.46/0.7382
+
+HR
+PSNR/SSIM
+
+Bicubic
+22.99/0.2856
+
+VDSR [20]
+23.04/0.3346
+
+LapSRN [23]
+23.20/0.3457
+
+EDSR [26]
+23.57/0.3848
+
+RCAN [54]
+23.33/0.3827
+
+NLSN [33]
+23.72/0.4011
+
+SwinIR [25]
+23.34/0.3437
+
+ENLCN [46]
+23.64/0.3912
+
+HSPAN(Ours)
+23.49/0.4648
+
+HR
+PSNR/SSIM
+
+Bicubic
+23.58/0.5820
+
+VDSR [20]
+26.62/0.7700
+
+LapSRN [23]
+26.61/0.7814
+
+EDSR [26]
+26.96/0.8261
+
+RCAN [54]
+26.51/0.8190
+
+NLSN [33]
+30.67/0.9080
+
+SwinIR [25]
+30.95/0.9058
+
+ENLCN [46]
+26.18/0.8061
+
+HSPAN(Ours)
+33.24/0.9351
+
+HR
+PSNR/SSIM
+
+Bicubic
+17.84/0.2758
+
+VDSR [20]
+18.21/0.3935
+
+LapSRN [23]
+17.73/0.3519
+
+EDSR [26]
+18.26/0.4244
+
+RCAN [54]
+18.21/0.4586
+
+NLSN [33]
+18.51/0.4849
+
+SwinIR [25]
+18.49/0.4902
+
+ENLCN [46]
+18.37/0.4423
+
+HSPAN(Ours)
+20.61/0.7000
+
+Fig. 11: Visual comparisons on Urban100 [19] and Manga109 [32] with scale factor 4.
+
+11
+
+TABLE III: Quantitative results on benchmark datasets with blur-downscale degradation. Best and second best results are
+highlighted and underlined.
+Method
+
+Scale
+
+Bicubic
+SPMSR [36]
+SRCNN [6]
+FSRCNN [8]
+VDSR [20]
+IRCNN [51]
+SRMDNF [52]
+RDN [55]
+EDSR [26]
+RCAN [54]
+SAN [5]
+HAN [35]
+HSPAN (Ours)
+HSPAN+ (Ours)
+
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+
+FSRCNN [8]
+26.29/0.6845
+
+EDSR [26]
+26.81/0.7974
+
+Set5 [2]
+PSNR
+SSIM
+28.78
+0.8308
+32.21
+0.9001
+32.05
+0.8944
+32.33
+0.9020
+33.25
+0.9150
+33.38
+0.9182
+34.01
+0.9242
+34.58
+0.9280
+34.64
+0.9282
+34.70
+0.9288
+34.75
+0.9290
+34.76
+0.9294
+34.90
+0.9303
+35.00
+0.9310
+
+HAN [35]
+26.43/0.7744
+
+Set14 [50]
+PSNR
+SSIM
+26.38
+0.7271
+28.89
+0.8105
+28.80
+0.8074
+28.91
+0.8122
+29.46
+0.8244
+29.63
+0.8281
+30.11
+0.8364
+30.53
+0.8447
+30.54
+0.8451
+30.63
+0.8462
+30.68
+0.8466
+30.70
+0.8475
+30.81
+0.8496
+30.91
+0.8508
+
+B100 [30]
+PSNR
+SSIM
+26.33
+0.6918
+28.13
+0.7740
+28.13
+0.7736
+28.17
+0.7791
+28.57
+0.7893
+28.65
+0.7922
+28.98
+0.8009
+29.23
+0.8079
+29.27
+0.8094
+29.32
+0.8093
+29.33
+0.8101
+29.34
+0.8106
+29.42
+0.8131
+29.48
+0.8142
+
+Urban100 [19]
+PSNR
+SSIM
+23.52
+0.6862
+25.84
+0.7856
+25.70
+0.7770
+25.71
+0.7842
+26.61
+0.8136
+26.77
+0.8154
+27.50
+0.8370
+28.46
+0.8582
+28.64
+0.8618
+28.81
+0.8647
+28.83
+0.8646
+28.99
+0.8676
+29.48
+0.8766
+29.72
+0.8795
+
+Manga109 [32]
+PSNR
+SSIM
+25.46
+0.8149
+29.64
+0.9003
+29.47
+0.8924
+29.37
+0.8985
+31.06
+0.9234
+31.15
+0.9245
+32.97
+0.9391
+33.97
+0.9465
+34.13
+0.9477
+34.38
+0.9483
+34.46
+0.9487
+34.56
+0.9494
+34.87
+0.9515
+35.21
+0.9530
+
+HR
+PSNR/SSIM
+
+HR
+PSNR/SSIM
+
+Bicubic
+24.25/0.3970
+
+Bicubic
+17.53/0.2550
+
+HSPAN(Ours)
+29.01/0.8731
+
+FSRCNN [8]
+18.41/0.4069
+
+EDSR [26]
+19.18/0.5841
+
+HAN [35]
+18.01/0.4003
+
+HSPAN(Ours)
+20.64/0.7618
+
+Fig. 12: Visual comparisons for ×3 SISR with blur-downscale degradation on the image ’barbara’ and ’img 047’ from Set14
+[50] and Urban100 [19], respectively. Best and second best results are highlighted and underlined. Please zoom in for best
+view.
+
+large margin on almost all scale factors and benchmarks.
+For example, compared with the recent state-of-the-art NLSN
+[33] in scale factor ×4, our HSPAN brings 0.23dB, 0.16dB,
+0.08dB, 0.40dB and 0.47dB improvement on Set5, Set14,
+B100, Urban100 and Manga109 datasets, respectively. It is
+worth mentioning that the HSPAN is designed to utilize
+self-similarity information. Thus, the proposed HSPAN can
+achieve impressive reconstruction results especially for more
+challenging datasets Urban100 and Manga109, which contain
+a large amount of self-similarity information.
+On Urban100 dataset (×3), which is specially designed to
+test self-similarity-based SISR methods, we can see that recent
+deep SISR methods have very limited improvements on this
+dataset. For example, compared with CSNLN [34], NLSN [33]
+brings 0.12dB improvement. In contrast, our HSPAN brings
+0.54dB improvement on this dataset compared to CSNLN.
+The impressive improvement obtained by the HSPAN on Urban100 dataset is consistent with our motivation to design the
+HSAP, which aims to explore the self-similarity information
+
+efficiently.
+Qualitative Evaluations. Visual comparisons on the challenging datasets Urban100 and Mange109 (×4) are shown in
+Fig. 11, from which we can see that the proposed HSPAN
+can repair the severely damaged textures when there are
+informative self-similarity textures in the input LR image.
+By comparing the reconstructed textures of image ’img 045’
+in Fig. 11, we can observe that the generated textures of
+our HSPAN are similar to the HR textures, but other very
+competitive deep SISR models without non-local attention,
+such as RDN [55] and RCAN [54], cannot repair such severely
+damaged regions. Furthermore, compared with other deep
+SISR models based on non-local attention such as SwinIR
+[25] and ENLCN [46], our HSPAN still achieves better reconstruction performance with more accurate image details.
+These comparisons indicate that our HSPAN is more efficient
+in repairing severely damaged regions by fusing the selfsimilarity information with the proposed HSPA.
+By comparing the generated textures of image ’GOOD-
+
+12
+
+KISSVer2’ in Fig. 11, we can see that our HSPAN is the only
+method that can accurately restore the texture of the word
+”ball” in HR, and the restoration results of other methods are
+inconsistent with the textures in HR. Furthermore, in image
+’GOODKISSVer2’, our HSPAN outperforms the competitive
+SwinIR by 2.29dB. These visual comparisons demonstrate that
+our HSPAN not only outperforms other deep SISR models
+in quantitative metrics, but also significantly improves reconstructed textures perceptually.
+2) Blur-downscale degradation:
+In the blur-downscale degradation SISR tasks, the SR
+performance is verified at scale factor ×3 and the gaussian
+standard deviation is set to 1.6 as previous works [52], [54].
+Our HSPAN are compared with 11 state-of-the-art methods:
+SPMSR [36], SRCNN [6], FSRCNN [8], VDSR [20], IRCNN
+[51], EDSR [26], SRMDNF [52], RDN [55], RCAN [54],
+SAN [5] and HAN [35].
+Quantitative Evaluations. We compare the quantitative results with the blur-downscale degradation at scale factor ×3.
+As shown in Table III, we can see that the proposed HSPAN
+achieves best results on all benchmark datasets. On natural
+image datasets Set5, Set14, and B100, our HSPAN achieves
+a satisfactory reconstruction performance. Furthermore, our
+HSPAN can still bring a large performance improvement
+on the challenging datasets Urban100 and Manga109. In
+particular, compared with the competitive HAN [35], our
+HSPAN brings 0.49dB and 0.31dB improvement on Urban100
+and Manga109 datasets, respectively. This is consistent with
+previous experiment on bicubic-downscale degradation. These
+results indicate that our HSPAN is not limited to the degradation type and can still achieve very impressive SR performance
+on the SISR task with blur-downscale degradation.
+Qualitative Evaluations. Visual comparisons on datasets Set5
+and Urban100 with blur-downscale degradation are shown in
+Fig. 12, from which we can see that our HSPAN reconstructs
+the most visual pleasing results with more accurate textures.
+By observing the results of Bicubic interpolation we can find
+that the textures in the input LR image has been completely
+damaged. Thus, it is impossible to accurately recover the
+desired textures with only local information. This means that
+the reconstruction results of each method presented in Fig. 12
+can be used to evaluate the ability of each method in exploring
+self-similarity information. The reconstructed textures of our
+HSPAN is very close to the HR image, while the competitive
+HAN [35] cannot restore textures that are severely damaged by
+blur-downscale degradation. For example, in image ’img 047’
+from Fig. 12, HAN cannot generate satisfactory textures, even
+though the selected region has valuable repeated structured
+architectural textures in the input image. These visual comparisons demonstrate that our HSPAN is indeed effective in
+the blur-downscale SISR task.
+V. C ONCLUSIONS
+In this paper, we provided new insights into the NLA used
+in SISR problems and found that the softmax transformation, a
+key component of the NLA, is not suitable for exploring longrange information. To overcome this drawback, we designed a
+
+flexible high-similarity-pass attention (HSPA) that enables our
+deep high-similarity-pass attention network (HSPAN) to focus
+on more valuable non-local textures while removing irrelevant
+ones. Furthermore, we explored some key properties of the
+proposed soft thresholding (ST) operation to train our HSPA
+in an end-to-end manner. To the best of our knowledge, this
+is the first attempt to analyze and address the limitations of
+utilizing the softmax transformation for long-range sequence
+modeling in low-level vision problems. In addition, extensive
+experiments demonstrate that our HSPA and ST operation can
+be integrated as efficient general building units in existing deep
+SISR models.
+R EFERENCES
+[1] S. Anwar and N. Barnes, “Densely residual laplacian super-resolution,”
+IEEE Transactions on Pattern Analysis & Machine Intelligence, vol. 44,
+no. 03, pp. 1192–1204, 2022. 9
+[2] M. Bevilacqua, A. Roumy, C. Guillemot, and M. L. Alberi-Morel, “Lowcomplexity single-image super-resolution based on nonnegative neighbor
+embedding,” 2012. 6, 9, 11
+[3] E. J. Candès et al., “Compressive sampling,” in Proceedings of the
+international congress of mathematicians, vol. 3. Citeseer, 2006, pp.
+1433–1452. 3
+[4] V. Cherukuri, T. Guo, S. J. Schiff, and V. Monga, “Deep mr brain image
+super-resolution using spatio-structural priors,” IEEE Transactions on
+Image Processing, vol. 29, pp. 1368–1383, 2019. 1
+[5] T. Dai, J. Cai, Y. Zhang, S.-T. Xia, and L. Zhang, “Second-order
+attention network for single image super-resolution,” in Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2019, pp. 11 065–11 074. 1, 2, 3, 4, 6, 7, 8, 9, 11, 12
+[6] C. Dong, C. C. Loy, K. He, and X. Tang, “Learning a deep convolutional network for image super-resolution,” in European Conference on
+Computer Vision, Zurich, Switzerland, September 2014, pp. 184–199.
+11, 12
+[7] ——, “Image super-resolution using deep convolutional networks,”
+IEEE transactions on pattern analysis and machine intelligence, vol. 38,
+no. 2, pp. 295–307, 2015. 3
+[8] C. Dong, C. C. Loy, and X. Tang, “Accelerating the super-resolution
+convolutional neural network,” in European conference on computer
+vision. Springer, 2016, pp. 391–407. 7, 8, 9, 11, 12
+[9] D. L. Donoho, “Compressed sensing,” IEEE Transactions on information
+theory, vol. 52, no. 4, pp. 1289–1306, 2006. 3
+[10] J. Duchi, S. Shalev-Shwartz, Y. Singer, and T. Chandra, “Efficient projections onto the l1-ball for learning in high dimensions.” Association
+for Computing Machinery, 2008, pp. 272–279. 5
+[11] M. Ebrahimi and E. R. Vrscay, “Solving the inverse problem of image
+zooming using “self-examples”,” in International Conference Image
+Analysis and Recognition. Springer, 2007, pp. 117–130. 3
+[12] M. Elad and M. Aharon, “Image denoising via sparse and redundant
+representations over learned dictionaries,” IEEE Transactions on Image
+processing, vol. 15, no. 12, pp. 3736–3745, 2006. 3
+[13] Y. Fan, J. Yu, Y. Mei, Y. Zhang, Y. Fu, D. Liu, and T. S. Huang,
+“Neural sparse representation for image restoration,” Advances in Neural
+Information Processing Systems, vol. 33, pp. 15 394–15 404, 2020. 3
+[14] G. Freedman and R. Fattal, “Image and video upscaling from local selfexamples,” ACM Transactions on Graphics (TOG), vol. 30, no. 2, pp.
+1–11, 2011. 3
+[15] A. Gionis, P. Indyk, R. Motwani et al., “Similarity search in high
+dimensions via hashing,” in Vldb, vol. 99, no. 6, 1999, pp. 518–529.
+2
+[16] D. Glasner, S. Bagon, and M. Irani, “Super-resolution from a single
+image,” in 2009 IEEE 12th international conference on computer vision.
+IEEE, 2009, pp. 349–356. 1, 3
+[17] M. Haris, G. Shakhnarovich, and N. Ukita, “Deep back-projection
+networks for super-resolution,” in Proceedings of the IEEE conference
+on computer vision and pattern recognition, 2018, pp. 1664–1673. 8, 9
+[18] X. He, Z. Mo, P. Wang, Y. Liu, M. Yang, and J. Cheng, “Ode-inspired
+network design for single image super-resolution,” in Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2019, pp. 1732–1741. 9
+
+13
+
+[19] J.-B. Huang, A. Singh, and N. Ahuja, “Single image super-resolution
+from transformed self-exemplars,” in Proceedings of the IEEE conference on computer vision and pattern recognition, 2015, pp. 5197–5206.
+3, 6, 7, 9, 10, 11
+[20] J. Kim, J. K. Lee, and K. M. Lee, “Accurate image super-resolution
+using very deep convolutional networks,” in Proceedings of the IEEE
+conference on computer vision and pattern recognition, 2016, pp. 1646–
+1654. 4, 9, 10, 11, 12
+[21] K. I. Kim and Y. Kwon, “Single-image super-resolution using sparse
+regression and natural image prior,” IEEE transactions on pattern
+analysis and machine intelligence, vol. 32, no. 6, pp. 1127–1133, 2010.
+3
+[22] A. KingaD, “A method for stochastic optimization,” Anon. InternationalConferenceon Learning Representations. SanDego: ICLR, 2015. 6
+[23] W.-S. Lai, J.-B. Huang, N. Ahuja, and M.-H. Yang, “Fast and accurate
+image super-resolution with deep laplacian pyramid networks,” IEEE
+transactions on pattern analysis and machine intelligence, vol. 41,
+no. 11, pp. 2599–2613, 2018. 9, 10
+[24] P. Li, L. Prieto, D. Mery, and P. J. Flynn, “On low-resolution face
+recognition in the wild: Comparisons and new techniques,” IEEE Trans.
+Inf. Forensics Security, vol. 14, no. 8, pp. 2000–2012, 2019. 1
+[25] J. Liang, J. Cao, G. Sun, K. Zhang, L. Van Gool, and R. Timofte,
+“Swinir: Image restoration using swin transformer,” in Proceedings of
+the IEEE/CVF International Conference on Computer Vision, 2021, pp.
+1833–1844. 9, 10, 11
+[26] B. Lim, S. Son, H. Kim, S. Nah, and K. Mu Lee, “Enhanced deep
+residual networks for single image super-resolution,” in Proceedings
+of the IEEE conference on computer vision and pattern recognition
+workshops, 2017, pp. 136–144. 7, 8, 9, 10, 11, 12
+[27] D. Liu, B. Wen, Y. Fan, C. C. Loy, and T. S. Huang, “Non-local recurrent network for image restoration,” Advances in Neural Information
+Processing Systems, vol. 2018, pp. 1673–1682, 2018. 1, 3
+[28] J. Luo, L. Zhao, L. Zhu, and W. Tao, “Multi-scale receptive field fusion
+network for lightweight image super-resolution,” Neurocomputing, vol.
+493, pp. 314–326, 2022. 3
+[29] Q. Lyu, H. Shan, C. Steber, C. Helis, C. Whitlow, M. Chan, and
+G. Wang, “Multi-contrast super-resolution mri through a progressive
+network,” IEEE transactions on medical imaging, vol. 39, no. 9, pp.
+2738–2749, 2020. 1
+[30] D. Martin, C. Fowlkes, D. Tal, and J. Malik, “A database of human
+segmented natural images and its application to evaluating segmentation
+algorithms and measuring ecological statistics,” in Proceedings Eighth
+IEEE International Conference on Computer Vision. ICCV 2001, vol. 2.
+IEEE, 2001, pp. 416–423. 6, 7, 9, 11
+[31] A. Martins and R. Astudillo, “From softmax to sparsemax: A sparse
+model of attention and multi-label classification,” in International conference on machine learning. PMLR, 2016, pp. 1614–1623. 5
+[32] Y. Matsui, K. Ito, Y. Aramaki, A. Fujimoto, T. Ogawa, T. Yamasaki,
+and K. Aizawa, “Sketch-based manga retrieval using manga109 dataset,”
+Multimedia Tools and Applications, vol. 76, no. 20, pp. 21 811–21 838,
+2017. 6, 9, 10, 11
+[33] Y. Mei, Y. Fan, and Y. Zhou, “Image super-resolution with non-local
+sparse attention,” in Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 2021, pp. 3517–3526. 1,
+2, 3, 6, 7, 8, 9, 10, 11
+[34] Y. Mei, Y. Fan, Y. Zhou, L. Huang, T. S. Huang, and H. Shi, “Image
+super-resolution with cross-scale non-local attention and exhaustive selfexemplars mining,” in Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 2020, pp. 5690–5699. 1,
+2, 3, 7, 9, 11
+[35] B. Niu, W. Wen, W. Ren, X. Zhang, L. Yang, S. Wang, K. Zhang, X. Cao,
+and H. Shen, “Single image super-resolution via a holistic attention
+network,” in European conference on computer vision. Springer, 2020,
+pp. 191–207. 9, 11, 12
+[36] T. Peleg and M. Elad, “A statistical prediction model based on sparse
+representations for single image super-resolution,” IEEE transactions on
+image processing, vol. 23, no. 6, pp. 2569–2582, 2014. 3, 11, 12
+[37] M. Protter, M. Elad, H. Takeda, and P. Milanfar, “Generalizing the
+nonlocal-means to super-resolution reconstruction,” IEEE Transactions
+on image processing, vol. 18, no. 1, pp. 36–51, 2008. 3
+[38] W. Shi, J. Caballero, F. Huszár, J. Totz, A. P. Aitken, R. Bishop,
+D. Rueckert, and Z. Wang, “Real-time single image and video superresolution using an efficient sub-pixel convolutional neural network,”
+in IEEE Conference on Computer Vision and Pattern Recognition, Las
+Vegas, America, June 2016, pp. 1874–1883. 4
+
+[39] J.-N. Su, M. Gan, G.-Y. Chen, J.-L. Yin, and C. P. Chen, “Global
+learnable attention for single image super-resolution,” IEEE Transactions
+on Pattern Analysis and Machine Intelligence, 2022. 3
+[40] Y. Tai, J. Yang, X. Liu, and C. Xu, “Memnet: A persistent memory
+network for image restoration,” in IEEE International Conference on
+Computer Vision, Venice, Italy, October 2017, pp. 4539–4547. 9
+[41] C. Tian, Y. Xu, Z. Li, W. Zuo, L. Fei, and H. Liu, “Attention-guided cnn
+for image denoising,” Neural Networks, vol. 124, pp. 117–129, 2020. 3
+[42] R. Timofte, E. Agustsson, L. Van Gool, M.-H. Yang, and L. Zhang,
+“Ntire 2017 challenge on single image super-resolution: Methods and
+results,” in Proceedings of the IEEE conference on computer vision and
+pattern recognition workshops, 2017, pp. 114–125. 6
+[43] X. Wang, R. Girshick, A. Gupta, and K. He, “Non-local neural networks,” in Proceedings of the IEEE conference on computer vision and
+pattern recognition, 2018, pp. 7794–7803. 1, 2, 3, 6, 7
+[44] Z. Wang, D. Liu, J. Yang, W. Han, and T. Huang, “Deep networks for
+image super-resolution with sparse prior,” in Proceedings of the IEEE
+international conference on computer vision, 2015, pp. 370–378. 3
+[45] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli, “Image
+quality assessment: from error visibility to structural similarity,” IEEE
+transactions on image processing, vol. 13, no. 4, pp. 600–612, 2004. 6
+[46] B. Xia, Y. Hang, Y. Tian, W. Yang, Q. Liao, and J. Zhou, “Efficient nonlocal contrastive attention for image super-resolution,” in Proceedings
+of the AAAI Conference on Artificial Intelligence, vol. 36, no. 3, 2022,
+pp. 2759–2767. 2, 8, 9, 10, 11
+[47] J. Yang, Z. Lin, and S. Cohen, “Fast image super-resolution based on
+in-place example regression,” in Proceedings of the IEEE conference on
+computer vision and pattern recognition, 2013, pp. 1059–1066. 3
+[48] J. Yang, Z. Wang, Z. Lin, S. Cohen, and T. Huang, “Coupled dictionary training for image super-resolution,” IEEE transactions on image
+processing, vol. 21, no. 8, pp. 3467–3478, 2012. 3
+[49] J. Yang, J. Wright, T. S. Huang, and Y. Ma, “Image super-resolution via
+sparse representation,” IEEE transactions on image processing, vol. 19,
+no. 11, pp. 2861–2873, 2010. 3
+[50] R. Zeyde, M. Elad, and M. Protter, “On single image scale-up using
+sparse-representations,” in International conference on curves and surfaces. Springer, 2010, pp. 711–730. 6, 7, 9, 11
+[51] K. Zhang, W. Zuo, S. Gu, and L. Zhang, “Learning deep cnn denoiser
+prior for image restoration,” in Proceedings of the IEEE conference on
+computer vision and pattern recognition, 2017, pp. 3929–3938. 11, 12
+[52] K. Zhang, W. Zuo, and L. Zhang, “Learning a single convolutional superresolution network for multiple degradations,” in Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recognition, 2018,
+pp. 3262–3271. 9, 11, 12
+[53] Y. Zhang, K. Li, B. Zhong, and Y. Fu, “Residual non-local attention networks for image restoration,” in International Conference on Learning
+Representations, 2019. 1, 4, 8
+[54] Y. Zhang, K. Li, K. Li, L. Wang, B. Zhong, and Y. Fu, “Image superresolution using very deep residual channel attention networks,” in
+European Conference on Computer Vision (ECCV), Munich, Germany,
+September 2018, pp. 286–301. 3, 4, 6, 7, 8, 9, 10, 11, 12
+[55] Y. Zhang, Y. Tian, Y. Kong, B. Zhong, and Y. Fu, “Residual dense
+network for image super-resolution,” in IEEE Conference on Computer
+Vision and Pattern Recognition, Salt Lake City, Utah, June 2018, pp.
+2472–2481. 8, 9, 11, 12
+[56] S. Zhou, J. Zhang, W. Zuo, and C. C. Loy, “Cross-scale internal
+graph neural network for image super-resolution,” Advances in neural
+information processing systems, vol. 33, pp. 3499–3509, 2020. 9
+[57] M. Zontak and M. Irani, “Internal statistics of a single natural image,”
+in CVPR 2011. IEEE, 2011, pp. 977–984. 3
+
+

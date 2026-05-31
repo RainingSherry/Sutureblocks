@@ -1,0 +1,880 @@
+1
+
+Plug-and-Play Linear Attention for Pre-trained Image
+and Video Restoration Models
+
+arXiv:2506.08520v1 [eess.IV] 10 Jun 2025
+
+Srinivasan Kidambi, and Pravin Nair, Member, IEEE
+
+a frame [5]. In particular, the time and storage complexity
+for computing (1) is O(N 2 d) and O(N 2 + N d), respectively,
+dominated by storing and computing the large attention matrices
+A and S. Currently, most vision models employ Multi-Head
+Self-Attention (MHSA) [5], an extension of self-attention.
+In MHSA, the embedding dimension d is divided into h
+attention heads, each of dimension dh , such that d = hdh . For
+each head, self-attention outputs are independently computed,
+concatenated, and linearly projected to form MHSA output.
+The time and storage complexity of MHSA is quadratic in N ,
+similar to self-attention. This computational bottleneck makes
+transformers less suitable for real-time or resource-constrained
+settings, where convolutional networks are still often preferred
+due to their computational efficiency [6], [7].
+Several approaches approximate self-attention via lowrank [8], [9], [10] or sparse [11] representations to reduce
+Index Terms—Attention, Image and video restoration, Training- quadratic complexity, but these methods require retraining.
+Linformer [8] projects keys/values into lower-dimensional
+free, Plug-and-Play, Nyström approximation.
+subspaces via learned linear maps, achieving linear complexity
+in N . Performer [9] replaces the softmax kernel with random
+I. I NTRODUCTION
+feature approximation, resulting in linear complexity and
+Transformers have recently demonstrated strong performance unbiased attention estimates. Nyströmformer [10] heuristically
+across a range of low-level vision tasks, including image reconstructs attention using landmark-based sampling. Axial
+denoising, deblurring [1], super-resolution [2], and video Attention [12] factorizes 2D attention into 1D along spatial
+restoration [3], [4]. These models rely on a self-attention mech- axes, reducing cost from H 2 W 2 to HW (H + W ), where
+anism that captures long-range dependencies by computing the number of tokens is N = HW . FlashAttention [13] and
+pairwise similarity between features corresponding to image Triton [14] preserve exact attention while optimizing execution
+or video patches. Let X ∈ RN ×di be the input feature map through custom fused GPU kernels but are hardware-specific
+corresponding to N tokens (e.g., pixels or patches), where each and difficult to integrate into pre-trained models.
+token is represented by a di -dimensional feature vector. To
+Interestingly, research on low-rank attention has seen reduced
+compute self-attention [5], the input X is first projected into momentum since 2022, with the focus shifting to hardwarequery, key, and value representations:
+aware accelerations. In this work, we revisit classical low-rank
+approximations that can act as a plug-and-play replacement
+Q = XWQ , K = XWK , V = XWV ,
+for attention modules in transformer-based vision models.
+where WQ , WK ∈ Rdi ×d , WV ∈ Rdi ×dv are learned Specifically, we propose PnP-Nystra, a training-free, plugprojection matrices. Then, the attention matrix A ∈ RN ×N , its and-play approximation of self-attention using the Generalized
+row-normalized form S ∈ RN ×N , and the self-attention output Nyström approximation [15], [16], [17]. The core contributions
+O ∈ RN ×dv are computed as:
+of our method are summarized as follows:
+1)
+Linear attention framework: Unlike MHSA, which incurs
+⊤
+QK
+A= √ ,
+S = softmax(A),
+O = SV, (1) quadratic time and memory complexity in the number of tokens
+d
+N , PnP-Nystra achieves linear scaling in both time and memory.
+where softmax(A) denotes independently applying softmax 2) Significant acceleration: PnP-Nystra can replace standard
+to each row of A.
+attention layers in existing window-attention-based transformer
+However, the attention operation in (1) incurs a quadratic models for image and video restoration, yielding substantial
+complexity in the number of input tokens N , which corresponds speed-ups. For example, in a video super-resolution setting
+to the number of pixels or patches within a subregion of with an upscaling factor of 2, we observe up to 4× speed-up
+on GPU compared to the original pre-trained model.
+The authors are with Department of Electrical Engineering, Indian Institute
+of Technology, Madras 600036, India (e-mail: ee21b139@smail.iitm.ac.in, 3) Robust performance without retraining: Despite signifipravinnair@iitm.ac.in).
+cant acceleration, the reduction in restoration quality is minimal.
+Abstract—Multi-head self-attention (MHSA) has become a
+core component in modern computer vision models. However,
+its quadratic complexity with respect to input length poses a
+significant computational bottleneck in real-time and resourceconstrained environments. We propose PnP-Nystra, a Nyströmbased linear approximation of self-attention, developed as a plugand-play (PnP) module that can be integrated into the pre-trained
+image and video restoration models without retraining. As a
+drop-in replacement for MHSA, PnP-Nystra enables efficient
+acceleration in various window-based transformer architectures,
+including SwinIR, Uformer, and RVRT. Our experiments across
+diverse image and video restoration tasks, including denoising,
+deblurring, and super-resolution, demonstrate that PnP-Nystra
+achieves a 2–4× speed-up on an NVIDIA RTX 4090 GPU and a
+2–5× speed-up on CPU inference. Despite these significant gains,
+the method incurs a maximum PSNR drop of only 1.5 dB across
+all evaluated tasks. To the best of our knowledge, we are the first
+to demonstrate a linear attention functioning as a training-free
+substitute for MHSA in restoration models.
+
+2
+
+For instance, in image denoising, PnP-Nystra achieves up to where G†A denotes the Moore-Penrose pseudoinverse. Substi3.5× speed-up on CPU with < 1.3 dB PSNR reduction.
+tuting (6) into (2), the attention output is approximated as:
+
+ 
+
+To the best of our knowledge, this is the first approach
+b = GV
+b
+b N .
+O
+⊘
+G1
+(7)
+to enable inference-time replacement of self-attention in pretrained transformers without any fine-tuning. This is especially We refer to the approximation in (7) as PnP-Nystra, our
+valuable for real-time settings where retraining is impractical. method for approximating self-attention. The complete steps
+for computing PnP-Nystra are summarized in Algorithm 1.
+II. P ROPOSED M ETHOD
+In (1), by letting G = exp(A) denote the element-wise Algorithm 1 PnP-Nystra in (7): Self-Attention Approximation
+exponential of the attention matrix A, the self-attention output Require: Queries Q ∈ RN ×d , Keys K ∈ RN ×d , Values V ∈
+O ∈ RN ×dv can be reformulated as
+RN ×dv , number of landmarks m
+O = (GV) ⊘ (G1N ) ,
+
+(2)
+
+where 1N ∈ RN is the all-ones column vector, and ⊘ denotes
+row-wise element-wise division: that is, the i-th row of GV is
+divided by the scalar (G1N )i . Thus, the attention output O ∈
+RN ×dv can be expressed in the kernel-based form from (2).
+Specifically, let the query matrix Q ∈ RN ×d and key matrix
+K ∈ RN ×d be viewed as stacks of row vectors {q i }N
+i=1 and
+{kj }N
+,
+respectively.
+Then,
+the
+kernel
+matrix
+G
+in
+(2) is
+j=1
+defined element-wise, using an exponential kernel, as
+ ⊤ 
+q i kj
+Gij = exp √
+.
+d
+We propose to leverage the low-rank structure of the kernel
+matrix G via a generalized Nyström method adapted for nonsymmetric matrices. Originally developed for approximating
+solutions to functional eigenvalue problems [18], [19], the
+Nyström method was later extended to efficiently estimate
+eigenvectors and construct low-rank matrix approximations
+[20], [21], [22]. To apply the Nyström approximation, we first
+select m ≪ N landmark query and key vectors, denoted by
+m
+m×d
+{q̄ i }m
+and K̄ ∈ Rm×d denote
+i=1 and {k̄i }i=1 . Let Q̄ ∈ R
+the matrices formed by stacking these landmark vectors. We
+define the extended query and key matrices:
+ 
+ 
+e = Q̄ ,
+e = K̄ .
+Q
+K
+Q
+K
+e
+We then define the extended kernel matrix G
+∈
+(m+N )×(m+N )
+R
+as:
+! 
+
+eK
+e⊤
+Q
+GA GU
+e
+√
+G = exp
+=
+,
+(3)
+GL G
+d
+where, the core matrix GA ∈ Rm×m captures similarities
+between landmark queries and keys:
+
+
+Q̄K̄⊤
+√
+GA = exp
+.
+(4)
+d
+The cross-similarity matrices are defined as GL ∈ RN ×m
+(queries with landmark keys) and GU ∈ Rm×N (landmark
+queries with keys):
+
+
+
+
+QK̄⊤
+Q̄K⊤
+√
+√
+GL = exp
+, GU = exp
+.
+(5)
+d
+d
+e
+Applying Nyström approximation to the extended matrix G,
+the original kernel matrix G is approximated as:
+b = GL G† GU ,
+G
+A
+
+(6)
+
+(Step 1) Select m landmark query and key vectors to form
+landmark matrices Q̄ ∈ Rm×d , K̄ ∈ Rm×d
+(Step 2) Compute core matrix GA ∈ Rm×m in (4)
+(Step 3) Compute cross-similarity matrices GL ∈ RN ×m
+and GU ∈ Rm×N in (5)
+(Step 4) Compute pseudoinverse G†A ∈ Rm×m
+(Step 5) Compute premultiplier P ∈ RN ×m as GL G†A
+(Step 6) Compute numerator ON = P (GU V) ∈ RN ×dv
+and compute denominator OD = P (GU 1N ) ∈ RN ×1
+b = ON ⊘ OD
+(Step 7) Normalize O
+(row-wise division)
+b ∈ RN ×dv
+return Output O
+Note that, while the Nyströmformer [10] also employs the
+Nyström method, it applies the Nyström method directly to the
+softmax-normalized attention matrix S. Specifically, following
+the structure in Eq. 3, the authors define:
+!
+eK
+e⊤
+Q
+e = softmax
+√
+S
+.
+d
+e in our formulation, S
+e cannot
+Unlike the kernel matrix G
+be block-partitioned due to row-wise normalization, which
+induces global coupling among elements. Consequently, a direct
+Nyström factorization is not applicable. Instead, [10] proposes
+a heuristic approximation:
+
+
+
+†
+
+
+QK̄⊤
+Q̄K̄⊤
+Q̄K⊤
+S ≈ softmax √
+softmax √
+softmax √
+d
+d
+d
+While computationally efficient, this construction lacks theoretical approximation guarantees such as those in Lemma 2.1,
+in contrast to our PnP-Nystra, which is grounded in provable
+low-rank kernel approximations.
+A. Computational Details
+Standard self-attention incurs a time complexity of O(N 2 d)
+and memory usage of O(N 2 + N d). In contrast, our proposed method reduces both significantly by avoiding full
+N × N attention matrix computation. The per-step complexity
+is summarized in Table I. The overall time complexity is
+reduced to O(N m(d + dv )) and memory usage is reduced to
+O(m2 +N (m+dv )) which is significantly lower than standard
+attention when m ≪ N .
+In Step 1 of Algorithm 1, we construct landmark queries
+and keys by averaging feature tokens over non-overlapping
+spatial windows [23]. This approach is computationally efficient
+and well-aligned with the local image statistics. In Step 4,
+
+3
+
+TABLE I: Per-Step Time and Space Complexity of PnP-Nystra
+Complexity
+
+Step 2
+
+Step 3
+
+Step 4
+
+Step 5
+
+Step 6
+
+Step 7
+
+Time
+Space
+
+O(m2 d)
+O(m2 )
+
+O(N md)
+O(N m)
+
+O(m3 )
+O(m2 )
+
+O(N m2 )
+O(N m)
+
+O(N m(dv + 1))
+O(N (dv + 1))
+
+O(N dv )
+in-place
+
+we observed that the built-in PyTorch pseudoinverse function
+produces numerically unstable results in practice. To address
+this, we adopt the robust pseudoinverse computation technique
+from [24], an iterative algorithm. Additionally, to avoid
+overflow during kernel computation in Steps 2 and 3, we
+replace large exponentials beyond a threshold with linear
+approximations to ensure numerical stability.
+
+(a) SwinIR [2]
+
+(b) Uformer-B [1]
+
+Fig. 1: Variation of the top 50 singular values of attention maps
+(N = 322 ) from SwinIR and Uformer, averaged over all heads
+and layers. The steep decay within the first 20 singular values
+highlights the low-rank structure of the attention matrices.
+
+B. Approximation error
+
+A. PnP-Nystra for restoration
+
+We analyze the spectral norm error of the Nyström-based
+kernel approximation used in PnP-Nystra, where the original
+b = GL G† GU .
+matrix G is approximated as G
+A
+Lemma 2.1 (Spectral norm error bound): Assume GA is
+nonsingular. Then,
+
+In this section, we evaluate PnP-Nystra as a drop-in replacement for self-attention layers in three state-of-the-art
+restoration models: SwinIR [2], Uformer-B [1], and RVRT [4].
+All projection weights (WQ , WK , WV ) are retained (no
+fine-tuning performed) in the pre-trained models. Landmark
+count m ∈ {16, 32} and pseudoinverse iterations (2-6) are
+selected to optimize performance across all experiments. We
+emphasize that our evaluations are restricted to the original pretrained models, which already deliver state-of-the-art restoration
+performance. Our goal is not exhaustive benchmarking for
+restoration but to assess drop-in approximation within highperforming baselines.
+
+∥G − GL G†A GU ∥2 ≤ C
+
+e
+σm+1 (G)
+,
+σm (GA )
+
+where σk (·) denotes the k-th singular value, and the constant
+e
+C depends quadratically on σ1 (G).
+The proof follows from Lemma 5.10 in [15], along with the fact
+b is upper bounded
+that the spectral norm error between G and G
+e
+b instead
+by that between G and its Nyström approximation (G
+of G in (3)). The error bound in Lemma 2.1 indicates that the
+e
+approximation error decreases when the singular values of G
+decay rapidly. In particular, if the number of landmark points
+e → 0, leading to
+e then σm+1 (G)
+m approaches the rank of G,
+tighter approximations. The following result formalizes this
+by guaranteeing perfect reconstruction when the number of
+landmark points equals the rank of the extended kernel matrix.
+e = m, then
+Corollary 2.2 (Exact recovery): If rank(G)
+e
+σm+1 (G) = 0, and the Nyström approximation becomes exact,
+i.e., G = GL G†A GU .
+We next empirically validate the low-rank property of the
+kernel matrix in pre-trained vision models, which is indeed
+the assumption underlying Lemma (2.1) and Corollary (2.2).
+Fig. 1 illustrates the singular value spectrum of the attention
+matrices from two distinct pre-trained models. In both cases,
+the rapid singular value decay confirms the low-rank structure
+of the attention matrices.
+III. E XPERIMENTS
+
+We evaluate drop-in replacement capabilities of PnP-Nystra
+in existing restoration models, followed by an ablation study
+(a) Input
+(b) Original Model
+(c) PnP-Nystra
+of its algorithmic parameters. PSNR and SSIM metrics for the
+experiments are reported, alongside runtime and speed-up on Fig. 2: Comparison of three image patches from Uformer-B
+both GPU and CPU platforms. All timings are averaged over and its PnP-Nystra variant for image denoising.
+multiple inference runs on a single input sample per test dataset.
+Experiments are conducted using PyTorch 2.7 with CUDA
+1) Image denoising: Table II presents results for Uformer-B
+12.2, with GPU and CPU benchmarks performed on NVIDIA with PnP-Nystra on SIDD and BSDS200 denoising benchmarks,
+RTX 4090 and Intel Xeon Gold processors, respectively. The where the window size is 64, i.e., number of tokens N = 642 .
+implementation is available at: https://github.com/Srinivas-512/ Across two input resolutions, our method achieves 2–2.7×
+PnP Nystra.
+GPU and 3.6–5.2× CPU speed-up, with PSNR drop under
+
+4
+
+(a) Bicubic
+
+(b) Orig. (26.66, 0.7989)
+
+(c) PnP-Nystra (26.65, 0.7966)
+
+(d) Error: Orig. - GT
+
+(e) Error: PnP-Nystra - GT
+
+Fig. 3: 2× super-resolution with SwinIR: PnP-Nystra closely matches the original pre-trained model in PSNR (in dB), SSIM,
+and visual quality. Error maps (scaled to [0-255]) show pixel-level differences from ground-truth, confirming visual fidelity.
+
+1.3 dB and SSIM loss below 0.04. Also shown in Fig. 2
+is an additional representative result, highlighting that PnPNystra maintains visual fidelity comparable to the original
+pre-trained model across diverse image patches and structures.
+These results demonstrate significant efficiency gains with
+minimal degradation.
+
+Our method achieves a GPU speed-up of 1.76× and a CPU
+speed-up of 1.87× compared to the original model, with no
+degradation in performance (negligible change in PSNR and
+SSIM values). This shows that there exist cases where PnPNystra provides near-to-exact reconstruction as the original
+pre-trained models.
+
+TABLE II: Comparison of Uformer-B and Its PnP-Nystra
+Variant for Image Denoising
+
+TABLE IV: Comparison of Uformer-B and Its PnP-Nystra
+Variant for Image Deblurring
+
+Timing Analysis (GPU / CPU, in ms)
+
+Timing Analysis (GPU/ CPU, in ms )
+
+Resolution
+
+Original
+
+PnP-Nystra
+
+Speedup
+
+Resolution
+
+Original
+
+PnP-Nystra
+
+Speedup
+
+512 × 512
+256 × 256
+
+219.33 / 5760
+88.77 / 2310
+
+81.96 / 1580
+42.41 / 440
+
+2.67× / 3.65×
+2.09× / 5.25×
+
+768 × 768
+
+305.16 / 7920
+
+173.41 / 4220
+
+1.76× / 1.87×
+
+Accuracy Analysis (PSNR in dB/ SSIM)
+
+Accuracy Analysis (PSNR / SSIM)
+Dataset
+
+Dataset
+
+Original
+
+PnP-Nystra
+
+Drop
+
+SIDD
+BSDS200
+
+38.89 / 0.8950
+28.05 / 0.8067
+
+37.73 / 0.8836
+26.81 / 0.7748
+
+1.16 / 0.0114
+1.24 / 0.0319
+
+TABLE III: Comparison of SwinIR and Its PnP-Nystra Variant
+for Image Super-resolution for different scale factors
+Timing Analysis (GPU / CPU in ms)
+Resolution
+
+Scale
+
+Original
+
+PnP-Nystra
+
+Speedup
+
+288 × 288
+160 × 160
+96 × 96
+
+2
+4
+8
+
+557.32 / 15330
+165.33 / 4380
+60.02 / 1810
+
+240.80 / 6902
+62.64 / 1460
+28.28 / 570
+
+2.31× / 2.22×
+2.64× / 3.00×
+2.12× / 3.17×
+
+Dataset
+
+Scale
+
+Original
+
+PnP-Nystra
+
+Drop
+
+Set5
+
+2
+4
+8
+
+36.05 / 0.9450
+30.71 / 0.8701
+25.60 / 0.7403
+
+35.30 / 0.9412
+29.13 / 0.8449
+24.40 / 0.6868
+
+0.75 / 0.0038
+1.58 / 0.0252
+1.20 / 0.0535
+
+BSDS100
+
+2
+4
+8
+
+30.98 / 0.8922
+26.43 / 0.7183
+23.61 / 0.5680
+
+30.27 / 0.8830
+25.67 / 0.6946
+23.04 / 0.5441
+
+0.71 / 0.0092
+0.76 / 0.0237
+0.57 / 0.0239
+
+Accuracy Analysis (PSNR in dB / SSIM)
+
+RealBlur R
+
+Original
+
+PnP-Nystra
+
+Accuracy Drop
+
+33.98 / 0.9404
+
+34.00 / 0.9404
+
+−0.02 dB / 0.0000
+
+4) Video super-resolution: Table V shows the runtime and
+accuracy of PnP-Nystra when integrated into RVRT for 4×
+video super-resolution, where N is 642 , i.e., the window size
+is 64. Compared to the original model, our method achieves
+over 4× inference time reduction on REDS4 and Vid4 datasets,
+with minimal degradation of 1.3-1.9 dB in PSNR and 0.040.05 in SSIM. Thus PnP-Nystra is an effective accelerating
+strategy for high-resolution video restoration. Due to hardwarespecific compilation issues, we could not execute RVRT and
+its PnP-Nystra variant in the CPU.
+TABLE V: Compariason of RVRT and its PnP-Nystra variant
+for ×4 Video Super-Resolution
+Timing Analysis (GPU, in ms)
+
+Accuracy Analysis (PSNR / SSIM)
+
+Dataset
+
+Original
+
+PnP-Nystra
+
+Speedup
+
+Original
+
+PnP-Nystra
+
+Drop
+
+REDS4
+Vid4
+
+849.53
+850.43
+
+207.77
+208.44
+
+4.09
+4.08
+
+30.83 / 0.8745
+26.22 / 0.8292
+
+28.95 / 0.8338
+24.84 / 0.7835
+
+1.88 / 0.0407
+1.38 / 0.0457
+
+2) Image super-resolution: Table III compares SwinIR and
+its PnP-Nystra variant on Set5 and BSDS100 across different
+B. Ablation Study of PnP-Nystra
+scales for a window size of 32 i.e. N = 322 . PnP-Nystra
+In this section, we present an ablation study of PnP-Nystra,
+consistently achieves 2 − 3× speed-up on both GPU and CPU,
+with better runtime benefits at lower resolutions. The accuracy with emphasis on the internal hyper-parameters.
+drop, measured in PSNR and SSIM, is low considering the Approximation Error: We compute the approximation error
+speed-up obtained. We also demonstrate in Fig. 3 that PnP- between the attention matrix S of the original model and its
+Nystra achieves super-resolution results visually on par with PnP-Nystra variant, averaged over heads and layers. Note that
+S is not explicitly computed during our inference. The average
+the original SwinIR, with negligible perceptual difference.
+3) Image deblurring: Table IV reports the performance of mean square error between the normalized attention matrix S
+PnP-Nystra on the RealBlur R dataset using Uformer-B for from the original model and PnP-Nystra are recorded in Table
+image deblurring, where window-size is 32, i.e., N = 322 . VI. Note that elements in the matrix are in the range 0 to 1.
+
+（点击查看）论文解读
+
+5
+
+TABLE VI: Attention Matrix MSE Errors for Window Attention
+Approximation via PnP-Nystra
+Application
+
+Dataset
+Set5
+
+SwinIR image super-resolution
+BSDS100
+Uformer image denoising
+Uformer image deblurring
+RVRT video super-resolution
+
+SIDD
+BSDS200
+RealBlur R
+REDS4
+Vid4
+
+Scale
+×2
+×4
+×8
+×2
+×4
+×8
+
+MSE Error
+1.19 × 10−5
+1.05 × 10−5
+1.24 × 10−5
+1.14 × 10−5
+1.04 × 10−5
+1.32 × 10−5
+3.78 × 10−5
+2.00 × 10−5
+6.11 × 10−6
+3.89 × 10−5
+3.00 × 10−3
+
+PnP-Nystra achieves consistently low approximation errors in
+the range 10−5 - 10−6 , across various restoration models.
+Attention map comparison: Since PnP-Nystra approximates
+the kernel matrix G, it implicitly approximates the attention
+map S. Fig. 4 shows that PnP-Nystra yields attention patterns
+closely matching those of the original models.
+
+(a) Linear scale
+
+(b) Logarithmic scale
+
+Fig. 5: Inference time vs. token count N : Unlike MHSA which
+grows quadratically with N , PnP-Nystra scales linearly.
+
+for the PnP-Nystra variant of Uformer-B for denoising on
+the SIDD dataset. As expected from Nyström approximation,
+the approximation performance tends to the original with an
+increase in number of landmarks. Additionally, a better estimate
+of the pseudoinverse leads to improved approximation.
+TABLE VII: Impact of Number of Landmarks and Pseudoinverse Iterations on Approximation Accuracy
+Varying # Landmarks (at 6 Iterations)
+
+Varying Iterations (at 32 Landmarks)
+
+# Landmarks
+
+PSNR Drop
+
+SSIM Drop
+
+Iterations
+
+PSNR Drop
+
+SSIM Drop
+
+8
+16
+32
+
+1.43
+1.23
+1.16
+
+0.0127
+0.0119
+0.0114
+
+1
+3
+6
+
+2.38
+1.57
+1.16
+
+0.0164
+0.0137
+0.0114
+
+IV. C ONCLUSION AND F UTURE W ORK
+We presented PnP-Nystra, a plug-and-play Nyström approximation for self-attention that enables efficient inference
+in window-based transformer models for image and video
+restoration. Experiments show that PnP-Nystra acts as a
+fast, training-free replacement for self-attention in pre-trained
+models, offering a viable solution for resource-constrained
+deployment. Future work includes improving the speed-up of
+PnP-Nystra and extending the framework to global attention
+in vision transformers and diffusion transformers.
+R EFERENCES
+
+(a) Original Model
+
+(b) PnP-Nystra
+
+Fig. 4: Comparison of attention maps for original model and
+PnP-Nystra for SwinIR (top) and Uformer-B (bottom).
+Scaling of Inference Time with N : Fig. 5 presents the CPU
+inference runtime of the original MHSA module versus PnPNystra (averaged over repeated runs), plotted in both linear
+and logarithmic scales with respect to the token count N . In
+line with the complexity analysis, PnP-Nystra exhibits linear
+scaling with an increasing number of tokens.
+Landmarks and Pseudoinverse iterations: We evaluate the
+effect of varying the number of landmarks m and the number
+of iterations used for pseudoinverse computation in Step 4
+of Algorithm 1. Table VII reports PSNR and SSIM drop
+
+[1] Z. Wang, X. Cun, J. Bao, W. Zhou, J. Liu, and H. Li, “Uformer: A general
+u-shaped transformer for image restoration,” Proc. IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pp. 17 683–17 693, 2022.
+[2] J. Liang, J. Cao, G. Sun, K. Zhang, L. Van Gool, and R. Timofte, “Swinir:
+Image restoration using swin transformer,” Proc. IEEE/CVF International
+Conference on Computer Vision, pp. 1833–1844, 2021.
+[3] J. Liang, J. Cao, Y. Fan, K. Zhang, R. Ranjan, Y. Li, R. Timofte, and
+L. Van Gool, “Vrt: A video restoration transformer,” IEEE Transactions
+on Image Processing, vol. 33, pp. 2171–2182, 2024.
+[4] J. Liang, Y. Fan, X. Xiang, R. Ranjan, E. Ilg, S. Green, J. Cao, K. Zhang,
+R. Timofte, and L. V. Gool, “Recurrent video restoration transformer
+with guided deformable attention,” Proc. Advances in Neural Information
+Processing Systems, vol. 35, pp. 378–393, 2022.
+[5] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez,
+Ł. Kaiser, and I. Polosukhin, “Attention is all you need,” Proc. Advances
+in neural information processing systems, vol. 30, 2017.
+[6] Z. Liu, H. Mao, C.-Y. Wu, C. Feichtenhofer, T. Darrell, and S. Xie, “A
+convnet for the 2020s,” Proc. IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pp. 11 976–11 986, 2022.
+[7] B. Ren, Y. Li, N. Mehta, R. Timofte, H. Yu, C. Wan, Y. Hong, B. Han,
+Z. Wu, Y. Zou et al., “The ninth NTIRE 2024 efficient super-resolution
+challenge report,” Proc. IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pp. 6595–6631, 2024.
+[8] S. Wang, B. Z. Li, M. Khabsa, H. Fang, and H. Ma, “Linformer: Selfattention with linear complexity,” arXiv preprint arXiv:2006.04768, 2020.
+
+6
+
+[9] K. Choromanski, V. Likhosherstov, D. Dohan, X. Song, A. Gane,
+T. Sarlos, P. Hawkins, J. Davis, A. Mohiuddin, L. Kaiser et al.,
+“Rethinking attention with performers,” Proc. International Conference
+on Learning Representations, 2021.
+[10] Y. Xiong, Z. Zeng, R. Chakraborty, M. Tan, G. Fung, Y. Li, and V. Singh,
+“Nyströmformer: A nyström-based algorithm for approximating selfattention,” Proc. AAAI Conference on Artificial Intelligence, vol. 35,
+no. 16, pp. 14 138–14 148, 2021.
+[11] Z. Gao, Z. Tong, L. Wang, and M. Z. Shou, “Sparseformer: Sparse visual
+recognition via limited latent tokens,” Proc. International Conference on
+Learning Representations, 2024.
+[12] J. Ho, N. Kalchbrenner, D. Weissenborn, and T. Salimans, “Axial attention
+in multidimensional transformers,” arXiv preprint arXiv:1912.12180,
+2019.
+[13] T. Dao, D. Fu, S. Ermon, A. Rudra, and C. Ré, “Flashattention: Fast and
+memory-efficient exact attention with io-awareness,” Proc. Advances in
+neural information processing systems, vol. 35, pp. 16 344–16 359, 2022.
+[14] P. Tillet, H.-T. Kung, and D. Cox, “Triton: An intermediate language
+and compiler for tiled neural network computations,” Proc. ACM SIGPLAN International Workshop on Machine Learning and Programming
+Languages, pp. 10–19, 2019.
+[15] A. A. A. Nemtsov and A. Schclar, “Matrix compression using the
+Nyström method,” Intelligent Data Analysis, vol. 20, no. 5, pp. 997–
+1019, 2016.
+[16] M. W. Mahoney and P. Drineas, “CUR matrix decompositions for
+improved data analysis,” Proc. National Academy of Sciences, vol. 106,
+no. 3, pp. 697–702, 2009.
+[17] S. Wang and Z. Zhang, “Improving CUR matrix decomposition and the
+Nyström approximation via adaptive sampling,” The Journal of Machine
+Learning Research, vol. 14, no. 1, pp. 2729–2769, 2013.
+[18] E. J. Nyström, “Über die praktische auflösung von integralgleichungen
+mit anwendungen auf randwertaufgaben,” Acta Mathematica, vol. 54,
+no. 1, pp. 185–204, 1930.
+[19] C. T. Baker, The Numerical Treatment of Integral Equations. Clarendon
+Press, 1977.
+[20] H. Talebi and P. Milanfar, “Global image denoising,” IEEE Transactions
+on Image Processing, vol. 23, no. 2, pp. 755–768, 2014.
+[21] C. Williams and M. Seeger, “Using the Nyström method to speed up
+kernel machines,” Proc. Advances in neural information processing
+systems, vol. 13, 2000.
+[22] C. Fowlkes, S. Belongie, F. Chung, and J. Malik, “Spectral grouping
+using the Nyström method,” IEEE Transactions on Pattern Analysis and
+Machine Intelligence, vol. 26, no. 2, pp. 214–225, 2004.
+[23] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and B. Guo, “Swin
+transformer: Hierarchical vision transformer using shifted windows,” Proc.
+IEEE/CVF International Conference on Computer Vision, pp. 10 012–
+10 022, 2021.
+[24] M. K. Razavi, A. Kerayechian, M. Gachpazan, and S. Shateyi, “A new
+iterative method for finding approximate inverses of complex matrices,”
+Abstract and Applied Analysis, vol. 2014, no. 1, p. 563787, 2014.
+
+

@@ -1,0 +1,2378 @@
+MaIR: A Locality- and Continuity-Preserving Mamba for Image Restoration
+
+arXiv:2412.20066v2 [cs.CV] 22 Mar 2025
+
+Boyun Li1 , Haiyu Zhao1 , Wenxin Wang1 , Peng Hu1 , Yuanbiao Gou1∗ , Xi Peng1,2 *
+1
+College of Computer Science, Sichuan University, China.
+2
+National Key Laboratory of Fundamental Algorithms and Models for Engineering
+Numerical Simulation, Sichuan University, China.
+{liboyun.gm, haiyuzhao.gm, wangwenxin.gm, penghu.ml, gouyuanbiao, pengx.gm}@gmail.com
+
+Abstract
+Recent advancements in Mamba have shown promising results in image restoration. These methods typically flatten
+2D images into multiple distinct 1D sequences along rows
+and columns, process each sequence independently using
+selective scan operation, and recombine them to form the
+outputs. However, such a paradigm overlooks two vital aspects: i) the local relationships and spatial continuity inherent in natural images, and ii) the discrepancies among
+sequences unfolded through totally different ways. To overcome the drawbacks, we explore two problems in Mambabased restoration methods: i) how to design a scanning
+strategy preserving both locality and continuity while facilitating restoration, and ii) how to aggregate the distinct sequences unfolded in totally different ways. To address these problems, we propose a novel Mamba-based
+Image Restoration model (MaIR), which consists of Nested
+S-shaped Scanning strategy (NSS) and Sequence Shuffle
+Attention block (SSA). Specifically, NSS preserves locality
+and continuity of the input images through the stripe-based
+scanning region and the S-shaped scanning path, respectively. SSA aggregates sequences through calculating attention weights within the corresponding channels of different sequences. Thanks to NSS and SSA, MaIR surpasses
+40 baselines across 14 challenging datasets, achieving
+state-of-the-art performance on the tasks of image superresolution, denoising, deblurring and dehazing. The code
+is available at https://github.com/XLearningSCU/2025-CVPR-MaIR.
+
+(a) Vmamba/Vim
+
+(b) Zigma
+
+(c) LocalMamba
+
+(d) MaIR (Ours)
+
+Figure 1. The scanning strategies in existing Mamba-based methods and our proposed method. (a) Vmamba/Vim uses Z-shaped
+scan path to flatten 2D image into 1D sequences, in which both
+the locality and continuity of 2D image are disrupted. (b) Zigma
+utilizes S-shaped path to maintain spatial continuity, while ignores
+the locality. (c) LocalMamba leverages window-based scanning
+region to preserve locality. However, the Z-shaped scanning path
+within and across the windows disrupts the spatial continuity. In
+contrast, (d) MaIR divides images into multiple non-overlapping
+stripes, and adopts S-shaped scanning path within and across the
+stripes, thus simultaneously preserves both locality and continuity.
+
+Transformers have significantly advanced image restoration by effectively capturing locality (i.e., fine-grained patterns and correlations in small regions) and continuity (i.e.,
+smooth, gradual transitions across larger areas) inherent in
+2D natural images. To be specific, CNNs capture locality
+and continuity through the elaborately designed small kernels and sliding strides, respectively. Transformers capture
+them through local window partitions and adjacent window
+communications (e.g., window shifts and window expansions). However, like a coin with two sides, the success of
+
+1. Introduction
+Image restoration aims to recover visually appealing highquality images from given degraded correspondences, e.g.,
+noisy, blurry, and hazy images. In recent years, the methods based on Convolutional Neural Networks (CNNs) and
+* Corresponding authors
+
+1
+
+CNNs and Transformers in preserving locality and continuity comes at the cost of their ability to capture long-range
+dependencies. Both of them only consider a limited region
+of the input image at a time due to their localized kernels or
+windows, making them challenging to model relationships
+that span across larger sections of the image. Therefore, it is
+highly expected to develop a method that is able to capture
+long-range dependencies while well preserving locality and
+continuity inherent in 2D natural images.
+Mamba [11, 15], a novel selective State Space
+Model [16], has garnered significant attention due to its
+promising performance in long sequence modeling while
+maintaining nearly linear complexity. As Mamba’s core
+algorithm, Selective Scan Operation (SSO), is inherently
+designed for 1D sequences, it can not be directly applicable to processing 2D images. To address the problem,
+Mamba-based restoration methods typically involve a 3step pipeline: i) flattening 2D image into multiple 1D sequences along rows and columns; ii) processing each sequence independently using SSO; and iii) aggregating the
+processed sequences to form the output 2D image. However, such a paradigm still faces two demerits when processing images. First, when transforming image into sequences,
+it disrupts the locality and continuity inherent in image, as
+illustrated in Fig. 1(a)-(c). Second, it generally aggregates
+processed sequences via pixel-wise summation, overlooking the distinct contexts among sequences unfolded through
+totally different ways.
+In this work, we present a novel locality- and continuitypreserving Mamba for Image Restoration (MaIR), which
+consists of Nested S-shaped Scanning strategy (NSS) and
+Sequence Shuffle Attention block (SSA). Specifically, NSS
+preserves the locality through stripe-based scanning region,
+and the continuity via the S-shaped scanning path with shiftstripe mechanism. SSA aggregates the processed sequences
+by calculating attention weights within corresponding channels of sequences. Thanks to corporation of NSS and SSA,
+MaIR enjoys the following merits. Firstly, MaIR involves a
+cost-free solution to preserve the locality and continuity inherent in natural images, ensuring structural coherence and
+avoiding computational overhead. Secondly, MaIR captures
+complex dependencies across distinct sequences, facilitating to leverage complementary information from both forward and reversed rows and columns.
+To summarize, the contributions and innovations of this
+work are as below:
+• In this work, we present MaIR, an approach that efficiently captures long-range dependencies while preserving the locality and continuity inherent in natural images.
+• For Mamba, we introduce NSS, a cost-free solution to
+preserve locality and continuity, and SSA, a module to
+capture dependencies across distinct sequences.
+• MaIR obtains state-of-the-art performance on four tasks
+
+across 14 benchmarks comparing with 40 baselines.
+
+2. Related Works
+In this section, we will briefly review related works in image
+restoration and vision Mamba.
+
+2.1. Image Restoration
+According to the focus of this paper, existing methods can
+be classified into three categories, i.e., CNN-, Transformerand Mamba-based methods. We will introduce the first two
+categories here, while the last one is detailed in Sec. 2.2.
+CNN-based Method: Benefiting from the ability of capturing locality and continuity in natural images, CNN-based
+methods have achieved promising results in various tasks of
+image restoration, such as image super-resolution [10, 26,
+28, 40, 64], image denoising [14, 25, 44, 57, 65] and image
+deblurring [39, 39, 48, 60]. However, since their localized
+receptive fields, CNNs are inherently limited in capturing
+long-range dependencies.
+Transformer-based Method: Transformers are theoretically capable of capturing the global dependencies [53, 66].
+However, to avoid impractical quadratic complexity on images, existing methods [7, 27, 32] tend to partition the local
+regions of input image into different windows, and calculate attentions within or across the windows. For instance,
+SwinIR [27] computes attentions within local windows and
+shifts these windows between layers. HAT [7] divides images into overlapping windows to enhance the interaction
+between neighbor windows. Although these methods have
+ensured structural coherence (i.e., locality and continuity)
+of natural images and avoided computational overhead, they
+fell into another dilemma of failing to fully capture longrange dependencies due to their limited window sizes.
+
+2.2. Vision Mamba
+Due to Mamba’s demonstrated superiority in long-sequence
+modeling [9, 16, 46], some studies have introduced it into
+high- [21, 31, 70] and low-level [12, 18, 67] vision tasks. To
+enable SSO to process images, these methods [31, 70] tend
+to flatten 2D images into multiple 1D sequences along the
+different directions. For instance, Vmamba [31] proposes
+cross-scan strategy which flattens input images along rows
+and columns. However, existing scanning strategies disrupt
+structure coherence which is essential for image restoration.
+Recently, some Mamba-based restoration methods have begun to recognize the importance of structure coherence, and
+tend to introduce extra coherence-preserving modules. For
+instance, MambaIR [18] and UVM-Net [67] enhances locality through additional CNN layers, but introduces extra
+computational costs. Although some other studies [19, 21]
+devote to designing scanning strategy to preserve locality
+and continuity, most of them can only preserve one of them.
+2
+
+Reconstruction
+
+RMG
+DWConv
+
+Conv
+
+…
+
+Linear
+
+Conv
+
+RMB
+
+RMB
+
+RMG
+
+Extraction
+
+…
+
+Residual Mamba Group (RMG)
+
+(b) Residual Mamba Block (RMB)
+
+LayerNorm
+SiLU
+
+Linear
+
+MaIRM
+Linear
+
+MLP
+
+LayerNorm
+
+scale
+
+VMM
+
+LayerNorm
+
+scale
+
+SiLU
+
+(a) Overall architecture of the MaIR
+
+(c) Visual Mamba Module (VMM)
+
+Figure 2. Illustrations of MaIR. (a) The overall architecture of MaIR, highlighting its core component, Residual Mamba Group (RMG).
+RMG is primarily composed of (b) Residual Mamba Block (RMB), in which (c) Visual Mamba Module (VMM) plays a pivotal role.
+
+Module i
+
+(a) Nested S-shaped Scanning
+
+Module i+1
+
+eral Residual Mamba Blocks (RMBs). Within each RMB,
+a Visual Mamba Module (VMM) is introduced to capture
+long-range dependencies, which is further composed of our
+proposed MaIRM. Finally, we reconstruct the high-quality
+image based on FS and FD . Specifically, for image superresolution, we introduce a pixel-shuffle layer Ups (·) and a
+3 × 3 convolution layer Φ3×3 (·) to reconstruct the highresolution image y ′ = Φ3×3 (Ups (FS +FD )). For tasks that
+do not require upsampling (e.g., denoising, deblurring and
+dehazing), we employ single convolution layer with residual connection to construct high-quality result, which can
+be formulated as y ′ = Φ3×3 (FS + FD ) + x.
+Loss Function: For image super-resolution, we use L1
+loss to optimize the network following [18, 27, 69], which
+can be formulated as
+
+(b) Shift-stripe mechanism
+
+Figure 3. Illustrations of (a) Nested S-shaped Scanning strategy
+(NSS) and (b) shift-stripe mechanism.
+
+In contrast, MaIR provides a cost-free solution to preserve
+both locality and continuity.
+
+3. Methods
+In this section, we first introduce the overall architecture of
+our MaIR, and then elaborate on NSS and SSA assembled
+in MaIR Module (MaIRM).
+
+L = ∥y − y ′ ∥1 ,
+
+3.1. Overall Architecture
+
+where y is the target image. For image denoising, deblurring and dehazing, we adopt Charbonnier loss, i.e.,
+p
+L = ∥y − y ′ ∥2 + ϵ2 ,
+
+Network Structure: Following previous works [18, 27],
+MaIR is built up with three stages, namely, shallow feature
+extraction stage, deep feature extraction stage and reconstruction stage. Specifically, in the shallow feature extraction stage, for a given degraded image x ∈ R3×H×W , we
+first employ a convolution layer to extract shallow feature
+FS ∈ RC×H×W , where H and W represent the height and
+width of x, and C is the number of channels. After that,
+FS is fed to the deep feature extraction stage to produce
+deep feature FD ∈ RC×H×W . As illustrated in Fig. 2, the
+deep feature extraction stage is stacked by multiple Residual
+Mamba Groups (RMGs), where each RMG consists of sev-
+
+where ϵ is a hyper-parameter and set to 10−3 empirically.
+
+3.2. MaIR Module
+As elaborated above, MaIRM serves as the core module of
+MaIR, which involves a three-step pipeline. To be specific,
+MaIRM first flattens 2D features into four 1D sequences
+through NSS along four distinct directions following [31].
+Then, MaIRM employs SSO to capture long-range dependencies. Finally, MaIRM aggregates processed sequences
+3
+
+Group
+
+Pooling
+
+Shuffle
+
+Concat
+
+Group Conv.
+Group
+
+Chunk
+Weighted
+Summation
+
+Unshuffle
+
+Group
+
+Input Features
+
+Pooled Sequences
+
+Shuffled Sequences
+
+Unshuffled weights
+
+Attention Weights
+
+Output Feature
+
+D×H×W
+Figure 4. Illustration of the Sequence Shuffle Attention (SSA). The input features {X i }K
+are first pooled and concatenated
+i=1 ∈ R
+L
+to form X̃ ∈ R , where L = K × D. This sequence undergoes the sequence shuffle operation and results in shuffled sequences X̂ ∈ RL ,
+whose channels are split by D group. Then, group convolution and sequence unshuffle operation are applied, producing unshuffled weights
+D
+D×H×W
+W̃ ∈ RL , which are further chunked and reshaped into attention weights {W i }K
+is
+i=1 ∈ R . Finally, the output feature Y ∈ R
+computed by performing a weighted summation of the input features using the attention weights.
+
+through SSA to form outputs. Mathematically, for input
+M
+feature Fi,j , output feature Fi,j
+can be formulated as
+
+then concatenate as
+X̃ = Φcat (ΦAP ({X i }4i=1 ))
+= [x11 , · · · , x1D , x21 , · · · , x2D , x31 , · · · , x3D , x41 , · · · , x4D ],
+
+M
+Fi,j
+= Mi,j (Fi,j ),
+SSO
+N SS
+= ΦSSA
+i,j (Φi,j (Φi,j (Fi,j ))),
+
+where xkd is the pooled feature in d-th channel of k-th sequence, and D is the number of channel in MaIRM. Then,
+we employ sequence shuffle operation Φss (·) to rearrange
+features into
+
+SS
+SSO
+SSA
+where Mi,j (·), ΦN
+i,j (·), Φi,j (·) and Φi,j (·) are
+MaIRM, NSS, SSO and SSA in the j-th RMB of the i-th
+RMG, respectively.
+NSS: NSS is designed to extract locality- and continuitypreserving sequences from input features. Motivated by the
+observation illustrated in Fig. 1, one could find that i) LocalMamba [21] preserves locality through restricted scanning
+region, and ii) Zigma [19] preserves continuity through Sshaped scanning path. Thus, as shown in Fig. 3(a), we design the nested S-shaped scanning strategy, which divides
+features into multiple non-overlapping stripes and uses Sshaped scanning path within and across stripes to maintain
+both locality and continuity. To better leverage spatial information, we extract sequences with four different scanning
+directions: top-left to bottom-right, bottom-right to top-left,
+top-right to bottom-left, and bottom-left to top-right, following previous works [18, 31].
+Besides, NSS includes shift-stipe mechanism to preserve
+locality and continuity on the boundary regions between adjacent stripes. As depicted in Fig. 3(b), for two successive
+modules, the first module partitions features into multiple
+non-overlapping stripes with stripe width ws . For the second module, we employ the shift-stripe operation, and set
+the first and last stripe widths as w2s and others’ width as ws .
+Consequently, the boundary regions in the previous module
+will be fully covered by a single stripe in this module.
+SSA: SSA aggregates the processed sequences by calculating attentions within corresponding channels. This design enables it to capture complex dependencies across distinct sequences, thus better leveraging complementary information from different scanning directions. As shown
+in Fig. 4, supposing sequence number K = 4, for SSOprocessed sequences {X i }4i=1 , we first apply spatial average pooling ΦAP (·) to reduce the computational cost, and
+
+X̂ = Φss (X)
+= [x11 , x21 , x31 , x41 , x12 , x22 , x32 , x42 , · · · , x1D , x2D , x3D , x4D ].
+After that, we employ group convolution Φg (·) with group
+size four to obtain the channel-wise attention weights and
+unshuffle the weights back to their original order, i.e.,
+W̃ = Φsu (Φg (X̂))
+1
+2
+3
+4
+= [w11 , · · · , wD
+, w12 , · · · , wD
+, w13 , · · · , wD
+, w14 , · · · , wD
+],
+
+where Φsu (·) is sequence unshuffle operation. The unshuffled weights W̃ are chunked as {W i }4i=1 = Φchunk (W̃ ),
+where Φchunk (·) refers to the chunk operation. Finally, we
+adopt weight summation based on {W i }4i=1 to generate the
+output, which can be formulated as:
+Y =
+
+K=4
+X
+
+W i ∗ X i,
+
+i=1
+
+and Y is the output sequence of SSA.
+
+4. Experiments
+In this section, we evaluate our MaIR on four representative
+image restoration tasks, i.e., image super-resolution, image
+denoising, image deblurring, and image dehazing. In the
+following, we will first show quantitative results, and then
+conduct analysis studies to verify the reasonability. Experimental settings will be presented in the supplementary materials.
+4
+
+Table 1. Quantitative results on classic image super-resolution. The best and second best results are in red and blue.
+
+Methods
+
+Scale
+
+Set5
+PSNR SSIM
+
+Set14
+PSNR SSIM
+
+B100
+PSNR SSIM
+
+Urban100
+PSNR SSIM
+
+Manga109
+PSNR SSIM
+
+SAN [10]
+HAN [40]
+IGNN [68]
+NLSA [37]
+ELAN [63]
+IPT [4]
+SwinIR [27]
+SRFormer [69]
+MambaIR [18]
+MaIR
+MaIR+
+
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+
+38.31
+38.27
+38.24
+38.34
+38.36
+38.37
+38.42
+38.51
+38.57
+38.56
+38.62
+
+0.9620
+0.9614
+0.9613
+0.9618
+0.9620
+0.9623
+0.9627
+0.9627
+0.9628
+0.9630
+
+34.07
+34.16
+34.07
+34.08
+34.20
+34.43
+34.46
+34.44
+34.67
+34.75
+34.82
+
+0.9213
+0.9217
+0.9217
+0.9231
+0.9228
+0.9250
+0.9253
+0.9261
+0.9268
+0.9272
+
+32.42
+32.41
+32.41
+32.43
+32.45
+32.48
+32.53
+32.57
+32.58
+32.59
+32.62
+
+0.9028
+0.9027
+0.9025
+0.9027
+0.9030
+0.9041
+0.9046
+0.9048
+0.9049
+0.9053
+
+33.10
+33.35
+33.23
+33.42
+33.44
+33.76
+33.81
+34.09
+34.15
+34.19
+34.38
+
+0.9370
+0.9385
+0.9383
+0.9394
+0.9391
+0.9427
+0.9449
+0.9446
+0.9451
+0.9462
+
+39.32
+39.46
+39.35
+39.59
+39.62
+39.92
+40.07
+40.28
+40.30
+40.48
+
+0.9792
+0.9785
+0.9786
+0.9789
+0.9793
+0.9797
+0.9802
+0.9806
+0.9807
+0.9811
+
+SAN [10]
+HAN [40]
+IGNN [68]
+NLSA [37]
+ELAN [63]
+IPT [4]
+SwinIR [27]
+SRFormer [69]
+MambaIR [18]
+MaIR
+MaIR+
+
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+
+34.75
+34.75
+34.72
+34.85
+34.90
+34.81
+34.97
+35.02
+35.08
+35.10
+35.15
+
+0.9300
+0.9299
+0.9298
+0.9306
+0.9313
+0.9318
+0.9323
+0.9323
+0.9324
+0.9328
+
+30.59
+30.67
+30.66
+30.70
+30.80
+30.85
+30.93
+30.94
+30.99
+31.05
+31.12
+
+0.8476
+0.8483
+0.8484
+0.8485
+0.8504
+0.8534
+0.8540
+0.8536
+0.8541
+0.8550
+
+29.33
+29.32
+29.31
+29.34
+29.38
+29.38
+29.46
+29.48
+29.51
+29.51
+29.56
+
+0.8112
+0.8110
+0.8105
+0.8117
+0.8124
+0.8145
+0.8156
+0.8157
+0.8160
+0.8167
+
+28.93
+29.10
+29.03
+29.25
+29.32
+29.49
+29.45
+30.04
+29.93
+30.05
+30.24
+
+0.8671
+0.8705
+0.8696
+0.8726
+0.8745
+0.8826
+0.8865
+0.8841
+0.8863
+0.8881
+
+34.30
+34.48
+34.39
+34.57
+34.73
+35.12
+35.26
+35.43
+35.44
+35.67
+
+0.9494
+0.9500
+0.9496
+0.9508
+0.9517
+0.9537
+0.9543
+0.9546
+0.9547
+0.9556
+
+SAN [10]
+HAN [40]
+IGNN [68]
+NLSA [37]
+ELAN [63]
+IPT [4]
+SwinIR [27]
+SRFormer [69]
+MambaIR [18]
+MaIR
+MaIR+
+
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+
+32.64
+32.64
+32.57
+32.59
+32.75
+32.64
+32.92
+32.93
+33.03
+32.93
+33.14
+
+0.9003
+0.9002
+0.8998
+0.9000
+0.9022
+0.9044
+0.9041
+0.9046
+0.9045
+0.9058
+
+28.92
+28.90
+28.85
+28.87
+28.96
+29.01
+29.09
+29.08
+29.20
+29.20
+29.28
+
+0.7888
+0.7890
+0.7891
+0.7891
+0.7914
+0.7950
+0.7953
+0.7961
+0.7958
+0.7974
+
+27.78
+27.80
+27.77
+27.78
+27.83
+27.82
+27.92
+27.94
+27.98
+27.98
+28.02
+
+0.7436
+0.7442
+0.7434
+0.7444
+0.7459
+0.7489
+0.7502
+0.7503
+0.7507
+0.7516
+
+26.79
+26.85
+26.84
+26.96
+27.13
+27.26
+27.45
+27.68
+27.68
+27.71
+27.89
+
+0.8068
+0.8094
+0.8090
+0.8109
+0.8167
+0.8254
+0.8311
+0.8287
+0.8305
+0.8336
+
+31.18
+31.42
+31.28
+31.27
+31.68
+32.03
+32.21
+32.32
+32.46
+32.66
+
+0.9169
+0.9177
+0.9182
+0.9184
+0.9226
+0.9260
+0.9271
+0.9272
+0.9284
+0.9297
+
+HR Image
+
+Bicubic
+
+SAN
+
+HAN
+
+IGNN
+
+NLSA
+
+SwinIR
+
+SRFormer
+
+MambaIR
+
+MaIR
+
+GT
+
+Figure 5. Visual comparison of ×4 image super-resolution results on the Manga109 dataset. MaIR demonstrates superior visual quality,
+particularly in preserving fine details and textures.
+
+5
+
+Table 2. Quantitative results on lightweight image super-resolution. The best and second best results are in red and blue.
+Methods
+
+Scale
+
+Params
+
+MACs
+
+Set5
+PSNR
+SSIM
+
+Set14
+PSNR
+SSIM
+
+B100
+PSNR
+SSIM
+
+Urban100
+PSNR
+SSIM
+
+Manga109
+PSNR
+SSIM
+
+CARN [2]
+IMDN [22]
+LAPAR-A [26]
+LatticeNet [33]
+SwinIR [27]
+MambaIR-Tiny [18]
+MaIR-Tiny
+MambaIR-Small [18]
+MaIR-Small
+
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+×2
+
+1,592K
+694K
+548K
+756K
+910K
+905K
+878K
+1,363K
+1,355K
+
+222.8G
+158.8G
+171.0G
+169.5G
+122.2G
+167.1G
+207.8G
+567.5G
+542.0G
+
+37.76
+38.00
+38.01
+38.15
+38.14
+38.13
+38.18
+38.16
+38.20
+
+0.9590
+0.9605
+0.9605
+0.9610
+0.9611
+0.9610
+0.9610
+0.9610
+0.9611
+
+33.52
+33.63
+33.62
+33.78
+33.86
+33.95
+33.89
+34.00
+33.91
+
+0.9166
+0.9177
+0.9183
+0.9193
+0.9206
+0.9208
+0.9209
+0.9212
+0.9209
+
+32.09
+32.19
+32.19
+32.25
+32.31
+32.31
+32.31
+32.34
+32.34
+
+0.8978
+0.8996
+0.8999
+0.9005
+0.9012
+0.9013
+0.9013
+0.9017
+0.9016
+
+31.92
+32.17
+32.10
+32.43
+32.76
+32.85
+32.89
+32.92
+32.97
+
+0.9256
+0.9283
+0.9283
+0.9302
+0.9340
+0.9349
+0.9346
+0.9356
+0.9359
+
+38.36
+38.88
+38.67
+39.12
+39.20
+39.22
+39.31
+39.32
+
+0.9765
+0.9774
+0.9772
+0.9783
+0.9782
+0.9778
+0.9779
+0.9779
+
+CARN [2]
+IMDN [22]
+LAPAR-A [26]
+LatticeNet [33]
+SwinIR [27]
+MambaIR-Tiny [18]
+MaIR-Tiny
+MambaIR-Small [18]
+MaIR-Small
+
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+×3
+
+1,592K
+703K
+544K
+765K
+918K
+913K
+886K
+1,371K
+1,363K
+
+111.8G
+71.5G
+144.0G
+76.3G
+55.4G
+74.5G
+93.0G
+252.7G
+241.4G
+
+34.29
+34.36
+34.36
+34.53
+34.62
+34.63
+34.68
+34.72
+34.75
+
+0.9255
+0.9270
+0.9267
+0.9281
+0.9289
+0.9288
+0.9292
+0.9296
+0.9300
+
+30.29
+30.32
+30.34
+30.39
+30.54
+30.54
+30.54
+30.63
+30.63
+
+0.8407
+0.8417
+0.8421
+0.8424
+0.8463
+0.8459
+0.8461
+0.8475
+0.8479
+
+29.06
+29.09
+29.11
+29.15
+29.20
+29.23
+29.25
+29.29
+29.29
+
+0.8034
+0.8046
+0.8054
+0.8059
+0.8082
+0.8084
+0.8088
+0.8099
+0.8103
+
+28.06
+28.17
+28.15
+28.33
+28.66
+28.70
+28.83
+29.00
+28.92
+
+0.8493
+0.8519
+0.8523
+0.8538
+0.8624
+0.8631
+0.8651
+0.8689
+0.8676
+
+33.50
+33.61
+33.51
+33.98
+34.12
+34.21
+34.39
+34.46
+
+0.9440
+0.9445
+0.9441
+0.9478
+0.9479
+0.9484
+0.9495
+0.9497
+
+CARN [2]
+IMDN [22]
+LAPAR-A [26]
+LatticeNet [33]
+SwinIR [27]
+MambaIR-Tiny [18]
+MaIR-Tiny
+MambaIR-Small [18]
+MaIR-Small
+
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+×4
+
+1,592K
+715K
+659K
+777K
+930K
+924K
+897K
+1,383K
+1,374K
+
+90.9G
+40.9G
+94.0G
+43.6G
+31.8G
+42.3G
+53.1G
+143.0G
+136.6G
+
+32.13
+32.21
+32.15
+32.30
+32.44
+32.42
+32.48
+32.51
+32.62
+
+0.8937
+0.8948
+0.8944
+0.8962
+0.8976
+0.8977
+0.8985
+0.8993
+0.8998
+
+28.60
+28.58
+28.61
+28.68
+28.77
+28.74
+28.81
+28.85
+28.90
+
+0.7806
+0.7811
+0.7818
+0.7830
+0.7858
+0.7847
+0.7864
+0.7876
+0.7882
+
+27.58
+27.56
+27.61
+27.62
+27.69
+27.68
+27.71
+27.75
+27.77
+
+0.7349
+0.7353
+0.7366
+0.7367
+0.7406
+0.7400
+0.7414
+0.7423
+0.7431
+
+26.07
+26.04
+26.14
+26.25
+26.48
+26.52
+26.60
+26.75
+26.73
+
+0.7837
+0.7838
+0.7871
+0.7873
+0.7980
+0.7983
+0.8013
+0.8051
+0.8049
+
+30.47
+30.45
+30.42
+30.92
+30.94
+31.13
+31.26
+31.34
+
+0.9084
+0.9075
+0.9074
+0.9151
+0.9135
+0.9161
+0.9175
+0.9183
+
+4.1. Results on Image Super-Resolution
+
+MaIR-Tiny and MaIR-Small.
+Results: For classic super-resolution, as shown in Tab. 1
+and Fig. 5, one could observe that MaIR achieves the best
+result in almost all quantitative comparisons. For instance,
+our method surpasses MambaIR [18] with 0.03dB∼0.12dB
+in terms of PSNR on Urban100, and SRFormer with at most
+0.04dB, 0.10dB and 0.25dB in terms of PSNR on B100, Urban100, and Manga109, respectively, which demonstrates
+the superiority of MaIR. For light-weight SR, MaIR also
+exhibits its advancement compared to baselines as reported
+in Tab. 2. Taking ×4 scale as examples, MaIR-Small surpasses MambaIR-Small by 0.08dB in terms of PSNR on
+Manga109 with fewer parameters and MACs. MaIR-Tiny
+outperforms MambaIR-Tiny and SwinIR by 0.08dB and
+0.12dB in terms of PSNR on Urban100 with fewer parameters, which verifies both the efficiency and effectiveness of
+our proposed method.
+
+In this section, we conduct experiments on both classic and
+lightweight image super-resolution.
+Datasets: Following previous works [18, 27], we employ DF2K (DIV2K [49]+Flickr2K [29]) as the training
+set for classic image super-resolution, and DIV2K as training set for lightweight image super-resolution. For evaluation, we employ the following five datasets as test sets,
+i.e., Set5 [3], Set14 [54], B100 [35], Urban100 [20] and
+Manga109 [36]. Following existing works [10, 40, 58, 64],
+the low-resolution images are downsampled from the corresponding high-resolution images via bicubic interpolation.
+Baselines: We compare our method with 15 competitive
+baselines. Specifically, we adopt four CNN-based methods
+(i.e., SAN [10], HAN [40], IGNN [68], and NLSA [37]),
+four transformer-based methods (i.e., ELAN [63], IPT [4],
+SwinIR [27] and SRFormer [69]) and one Mamba-based
+method (i.e., MambaIR [18]) as the baselines for classic super-resolution. For lightweight super-resolution, four
+CNN-based methods (i.e., CARN [2], IMDN [22], LAPAR [26], LatticeNet [33]), two transformer-based methods
+(i.e., SwinIR [27] and SRFormer [69]) and one Mambabased method (i.e., MambaIR [18]) are introduced into
+both quantitative and qualitative comparisons. Similar to
+MambaIR, which offers two versions for lightweight superresolution, MaIR is also available in two configurations:
+
+4.2. Results on Image Denoising
+In this section, we evaluate MaIR on both synthetic Gaussian noise and real-world noise.
+Datasets: For synthetic noise removal, we train MaIR
+on DFWB, which consists of DIV2K, Flickr2K, Waterloo Exploration Dataset (WED) [34] and BSD400 [35].
+For evaluation, we utilize BSD68 [35], Kodak24, McMaster [62], and Urban100 as test set. Following [27, 57–59],
+we generate noisy images by manually adding white Gaus6
+
+Table 3. Quantitative results on gaussian color image denoising. The best and second best results are in red and blue.
+
+Methods
+IRCNN [58]
+FFDNet [59]
+DnCNN [57]
+DRUNet [61]
+SwinIR [27]
+Restormer [53]
+CODE [66]
+ART [56]
+MambaIR [18]
+MaIR
+MaIR+
+
+σ=15
+
+BSD68
+σ=25 σ=50
+
+σ=15
+
+Kodak24
+σ=25 σ=50
+
+σ=15
+
+33.86
+33.87
+33.90
+34.30
+34.42
+34.40
+34.33
+34.46
+34.43
+34.48
+34.50
+
+31.16
+31.21
+31.24
+31.69
+31.78
+31.79
+31.69
+31.84
+31.80
+31.86
+31.88
+
+34.69
+34.63
+34.60
+35.31
+35.34
+35.47
+35.32
+35.39
+35.34
+35.53
+35.56
+
+32.18
+32.13
+32.14
+32.89
+32.89
+33.04
+32.88
+32.95
+32.91
+33.09
+33.13
+
+34.58
+34.66
+33.45
+35.40
+35.61
+35.61
+35.38
+35.68
+35.62
+35.71
+35.74
+
+27.86
+27.96
+27.95
+28.51
+28.56
+28.60
+28.47
+28.63
+28.61
+28.66
+28.69
+
+28.93
+28.98
+28.95
+29.86
+29.79
+30.01
+29.82
+29.87
+29.85
+30.04
+30.08
+
+McMaster
+σ=25 σ=50
+32.18
+32.35
+31.52
+33.14
+33.20
+33.34
+33.11
+33.41
+33.35
+33.44
+33.48
+
+28.91
+29.18
+28.62
+30.08
+30.22
+30.30
+30.03
+30.31
+30.31
+30.35
+30.39
+
+σ=15
+33.78
+33.83
+32.98
+34.81
+35.13
+35.13
+35.29
+35.17
+35.35
+35.42
+
+Urban100
+σ=25 σ=50
+31.20
+31.40
+30.81
+32.60
+32.90
+32.96
+33.14
+32.99
+33.22
+33.30
+
+27.70
+28.05
+27.59
+29.61
+29.82
+30.02
+30.19
+30.07
+30.30
+30.41
+
+Table 4. Quantitative results on real image denoising. The best and second best results are in red and blue.
+
+PSNR
+SSIM
+
+DeamNet [43]
+
+MPRNet [52]
+
+NBNet [8]
+
+DAGL [38]
+
+Uformer [50]
+
+MambaIR [18]
+
+MaIR
+
+39.47
+0.957
+
+39.71
+0.958
+
+39.75
+0.959
+
+38.94
+0.953
+
+39.89
+0.960
+
+39.89
+0.960
+
+39.92
+0.960
+
+Noisy
+
+FFDNet
+
+DnCNN
+
+DRUNet
+
+CODE
+
+SwinIR
+
+Restormer
+
+ART
+
+MaIR
+
+GT
+
+Noisy Image
+
+Figure 6. Visual comparison of image denoising results on the Urban100 dataset. MaIR effectively removes noise in the images and
+produces detailed textures that closely match the ground truth.
+
+sian noise to the clean images with three distinct noise levels, i.e., σ = 15, 25, 50. For real-world image denoising,
+our model is trained and tested on the SIDD-Medium [1]
+dataset, which provides 320 high-resolution noisy-clean image pairs for training and additional 40 image pairs for test.
+
+Restormer [53]) and one Mamba-based method (i.e., MambaIR [18]) are introduced for comparisons.
+Results: As depicted in the Tab. 3-4, MaIR demonstrates
+superior performance on both synthetic and real-world image denoising compared to baselines. Taking results on Urban100 as examples, MaIR averagely outperforms MambaIR by 0.21dB in terms of PSNR, indicates its superiority
+on image denoising. Similar results can be derived from the
+qualitative comparisons shown in Fig. 6, MaIR could keep
+more detailed textures on the restored images, which are
+more closely to the ground truth.
+
+Baselines: We compare our MaIR with 14 representative methods. To be specific, we adopt four CNN-based
+methods (i.e., IRCNN [58], FFDNet [59], DnCNN [57]
+and DRUNet [61]), four transformer-based methods (i.e.,
+SwinIR [27], Restormer [53], CODE [66] and ART [56])
+and one Mamba-based method (i.e., MambaIR [18]) as
+the baselines for synthetic noise removal. For real-world
+image denoising, four CNN-based methods (i.e., DeamNet [43], MPRNet [52], NBNet [8] and DAGL [38]),
+two transformer-based methods (i.e., Uformer [50] and
+
+4.3. Results on Image Deblurring
+In this section, we evaluate MaIR on motion deblurring to
+verify the effectiveness of our proposed method.
+7
+
+Blurry Image
+
+Input
+
+MT-RNN
+
+DMPHN
+
+CODE
+
+MIMO+
+
+MPRNet
+
+Restormer
+
+NAFNet
+
+MaIR
+
+GT
+
+Figure 7. Visual comparison of motion deblurring results on the GoPro dataset. MaIR demonstrates superior performance in effectively
+removing motion blur while preserving precise fine details and textures, closely matching the ground truth.
+
+Table 5. Quantitative results on image motion deblurring. The best
+and second best results are in red and blue. MACs in this table are
+evaluated on 128×128 patches followed [66].
+
+demonstrates its ability on handling heavily degraded areas,
+i.e., MaIR could effectively remove blur and restore details
+around the wheels.
+
+Method
+
+Params
+
+MACs
+
+GoPro
+
+HIDE
+
+4.4. Results on Image Dehazing
+
+SRN [48]
+DBGAN [60]
+MT-RNN [41]
+DMPHN [55]
+CODE [66]
+MIMO+ [9]
+MPRNet [52]
+Restormer [53]
+Uformer [50]
+CU-Mamba [12]
+NAFNet [6]
+MaIR
+
+3.76M
+11.59M
+2.64M
+86.80M
+12.18M
+16.10M
+20.13M
+26.13M
+50.88M
+19.7M
+67.89M
+26.29M
+
+35.87G
+379.92G
+13.72G
+22.52G
+38.64G
+194.42G
+35.31G
+22.36G
+15.85G
+49.29G
+
+30.26
+31.10
+31.15
+31.20
+31.94
+32.45
+32.66
+32.92
+33.06
+33.53
+33.69
+33.69
+
+28.36
+28.94
+29.15
+29.09
+29.67
+29.99
+30.96
+31.22
+30.90
+31.47
+31.32
+31.57
+
+In this section, we evaluate MaIR on image dehazing to verify the effectiveness of MaIR.
+Datasets: Following existing works [47], we employ
+RESIDE dataset [24] for training and testing. For indoor
+scenes, we train MaIR on Indoor Training Set (ITS) which
+consists of 13,990 hazy-clean pairs, and test it on indoor
+synthetic objective testing set (SOTS-Indoor) involving 500
+pairs. For outdoor scenes, we train MaIR on Outdoor Training Set (OTS), which contains 313,950 image pairs, and
+evaluate it on outdoor synthetic objective testing set (SOTSOutdoor) involving 500 images. In addition, to verify MaIR
+on more general cases, we also train the model on RESIDE6K and test it on the SOTS-mix, which mix both indoor and
+outdoor images.
+Baselines: We adopt eight competitive methods as baselines. Specifically, we adopt five CNN-based image dehazing methods (i.e., AODNet [23], GDN [30], MSBDN [13],
+FFANet [42] and AECRNet [51]), two transformer-based
+methods (i.e., Dehamer [17], Dehazeformer [47]) and one
+Mamba-based method (i.e., UVM-Net [67]) as baselines.
+Results: As shown in Tab. 6 and Fig. 8, our MaIR
+surpasses most baselines on both quantitative and qualitative comparisons. Taking quantitative results as examples,
+MaIR significantly outperforms DehazeFormer and UVMNet by 2.67dB and 2.04dB in terms of PSNR on the outdoor
+scenes. Although UVM-Net is slightly higher on PSNR in
+the indoor scenes, MaIR only takes 0.3% and 4.8% params
+and MACs of the UVM-Net, which verifies both effectiveness and efficiency.
+
+Datasets: Following previous works [52, 53], we employ GoPro dataset [39] for training which consists of 2,103
+blurry-clean image pairs. For evaluation, we use two common datasets, i.e., GoPro test set and HIDE [45], which consist of 1,111 and 2,025 blurry-clean pairs, respectively.
+Baselines: We adopt 11 competitive image deblurring baselines for comparisons. In detail, we adopt
+six CNN-based deblurring methods (i.e., SRN [48], DBGAN [60], DMPHN [55], MIMO [9], MPRNet [52],
+and NAFNet [6]), three transformer-based methods (i.e.,
+CODE [66], Restormer [53] and Uformer [50]), one RNNbased method (i.e., MT-RNN [41]) and one Mamba-based
+method (i.e., CU-Mamba [12]) as the baselines.
+Results: As shown in Tab. 5, proposed MaIR surpasses
+other baselines by PSNR on both GoPro and HIDE. In detail, MaIR outperforms Restormer [53] by 0.77dB on the
+GoPro dataset and by 0.35dB on the HIDE dataset in terms
+of PSNR. Although NAFNet achieves similar quantitative
+results on GoPro, MaIR surpasses NAFNet on HIDE dataset
+by 0.25dB in terms of PSNR. As illustrated in Fig. 7, MaIR
+
+4.5. Analysis Experiments
+In this section, we first conduct ablation studies to verify the
+effectiveness of the NSS and SSA. Then, we introduce analysis experiments to verify the observations and investigate
+8
+
+Table 6. Quantitative results on image dehazing. The best and second best results are in red and blue. MACs in this table are evaluated on
+256×256 patches followed [47, 67].
+
+Method
+
+AODNet
+[23]
+
+GDN
+[30]
+
+MSBDN
+[13]
+
+FFANet
+[42]
+
+AECRNet
+[51]
+
+Dehamer
+[17]
+
+DehazeFormer
+[47]
+
+UVM-Net
+[67]
+
+MaIR
+(Ours)
+
+Params
+MACs
+
+0.002M
+0.115G
+
+0.96M
+21.49G
+
+31.35M
+41.54G
+
+4.46M
+287.8G
+
+2.61M
+52.20G
+
+132.45M
+48.93G
+
+4.63M
+48.64G
+
+1,003.94M
+501.91G
+
+3.40M
+24.03G
+
+SOTSIndoor
+
+PSNR
+SSIM
+
+20.51
+0.816
+
+32.16
+0.984
+
+33.67
+0.985
+
+36.39
+0.989
+
+37.17
+0.990
+
+36.63
+0.988
+
+38.46
+0.994
+
+40.17
+0.996
+
+39.45
+0.997
+
+SOTSOutdoor
+
+PSNR
+SSIM
+
+24.14
+0.920
+
+30.86
+0.982
+
+33.48
+0.982
+
+33.57
+0.984
+
+-
+
+35.18
+0.986
+
+34.29
+0.983
+
+34.92
+0.984
+
+36.96
+0.991
+
+SOTSMix
+
+PSNR
+SSIM
+
+20.27
+0.855
+
+25.86
+0.944
+
+28.56
+0.966
+
+29.96
+0.973
+
+28.52
+0.964
+
+-
+
+30.89
+0.977
+
+31.92
+0.982
+
+31.52
+0.980
+
+Hazy Image
+
+Input
+
+AODNet
+
+GDN
+
+FFANet
+
+Dehamer DehazeFormer
+
+MSBDN
+
+AECRNet
+
+MaIR
+
+GT
+
+Figure 8. Visual comparison of image dehazing results on the SOTS dataset. MaIR can effectively remove haze and restore content with
+colors that closely match the ground truth.
+Table 7. Ablation study on NSS, tested on lightweight superresolution with scale factor ×2. The results on the Urban100
+dataset are presented, which demonstrates the effectiveness of the
+NSS.
+
+PSNR
+SSIM
+
+Baseline
+
+w/o NSS
+
+w/o SS
+
+LM
+
+ZigMa
+
+PH
+
+32.97
+0.9359
+
+32.94
+0.9355
+
+32.93
+0.9351
+
+32.93
+0.9357
+
+32.88
+0.9354
+
+32.95
+0.9356
+
+Table 8. Ablation study on SSA for lightweight super-resolution
+with scale factor ×2. The results on Urban100 dataset demonstrate
+the effectiveness of SSA.
+
+PSNR
+SSIM
+
+PSNR
+SSIM
+
+the impact of stripe width on the overall performance.
+4.5.1. Ablation Studies
+
+MaIR
+
+w/o SSA
+
+UVM
+
+SeqGat
+
+32.97
+0.9359
+
+32.90
+0.9350
+
+32.59
+0.9324
+
+32.92
+0.9352
+
+CAGat
+
+FPixGat
+
+DWPixGat
+
+-
+
+32.71
+0.9335
+
+31.90
+0.9250
+
+32.74
+0.9342
+
+-
+
+addition (termed as w/o SSA), ii) SSM [67] (termed as
+UVM), iii) sequence-wise gating [5] (termed as SeqGat), iv)
+channel-wise gating (termed as CAGat), v) pixel-wise gating through fully connected convolution (termed as FPixGat). vi) pixel-wise gating through depth-wise convolution
+(termed as DWPixGat). It is worth noting that we keep the
+size of different models to be similar for fair comparisons.
+As shown in Tab. 8, SSA is more effective than others.
+
+We first conduct ablation study to analyze the effectiveness
+of NSS. In detail, five configurations are conducted, i) replacing NSS with Z-shaped scanning strategy (denoted as
+w/o NSS), ii) removing shift stripe (denoted as w/o SS),
+iii) replacing NSS with the scanning strategy in LocalMamba [21] (denoted as LM), iv) replacing NSS by the
+scanning strategy in ZigMa [19] (denoted as ZigMa) and
+v) replacing NSS by the Peano-Hilbert curve (denoted as
+PH). As illustrated in Tab. 7, NSS is important to improve
+the performance of MaIR.
+To investigate the effectiveness of SSA, we remove
+SSA and aggregate sequences through: i) sequences-wise
+
+4.5.2. Verification of Observations
+To verify observations shown in Fig. 1, we conduct visual
+comparisons among different scanning strategies. As shown
+in Fig. 9, proposed methods can maintain both locality and
+9
+
+MambaIR
+(Z-shaped)
+
+Input
+
+LocalMamba
+(Window-based)
+
+ZigMa
+(S-shaped)
+
+MaIR
+(Nested S-shaped)
+
+HR
+
+Figure 9. Visual comparisons of different scanning strategies, illustrating that i) windows-based scanning path overlooks the continuity
+between different regions (e.g., relationship between different layers of the scarf), resulting in wrong textures, ii) S-shaped scanning path
+leads to distortion in local regions, causing the scarf’s texture to appear warped. iii) Z-shaped scanning path suffers from both of them. In
+contrast, MaIR avoids aforementioned problems and achieves visually appealing results.
+Table 9. Analyses on stripe widths. Experiment was conducted on
+the Urban100 dataset with a scale factor ×2 for lightweight superresolution tasks, which illustrates how changes in stripe width affect the restored image quality.
+
+PSNR
+SSIM
+
+2
+
+4
+
+8
+
+16
+
+32
+
+32.95
+0.9356
+
+32.97
+0.9359
+
+32.97
+0.9355
+
+32.97
+0.9357
+
+32.92
+0.9355
+
+Acknowledgments
+This work was supported in part by NSFC under Grant
+62176171, U21B2040, 62472295; in part by the Fundamental Research Funds for the Central Universities under Grant
+CJ202303; and in part by Sichuan Science and Technology
+Planning Project under Grant 24NSFTD0130.
+
+References
+[1] Abdelrahman Abdelhamed, Stephen Lin, and Michael S
+Brown. A high-quality denoising dataset for smartphone
+cameras. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages 1692–1700,
+2018. 7
+[2] Namhyuk Ahn, Byungkon Kang, and Kyung-Ah Sohn. Fast,
+accurate, and lightweight super-resolution with cascading
+residual network. In Proceedings of the European conference on computer vision (ECCV), pages 252–268, 2018. 6
+[3] Marco Bevilacqua, Aline Roumy, Christine Guillemot, and
+Marie Line Alberi-Morel. Low-complexity single-image
+super-resolution based on nonnegative neighbor embedding.
+2012. 6
+[4] Hanting Chen, Yunhe Wang, Tianyu Guo, Chang Xu, Yiping
+Deng, Zhenhua Liu, Siwei Ma, Chunjing Xu, Chao Xu, and
+Wen Gao. Pre-Trained Image Processing Transformer. In
+IEEE Conference on Computer Vision and Pattern Recognition, pages 12299–12310, Virtual, 2021. 5, 6
+[5] Keyan Chen, Bowen Chen, Chenyang Liu, Wenyuan Li,
+Zhengxia Zou, and Zhenwei Shi. Rsmamba: Remote sensing image classification with state space model. IEEE Geoscience and Remote Sensing Letters, 2024. 9
+[6] Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, and Jian Sun.
+Simple baselines for image restoration. In European conference on computer vision, pages 17–33. Springer, 2022. 8
+[7] Xiangyu Chen, Xintao Wang, Jiantao Zhou, Yu Qiao,
+and Chao Dong. Activating more pixels in image superresolution transformer. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages
+22367–22377, 2023. 2
+[8] Shen Cheng, Yuzhi Wang, Haibin Huang, Donghao Liu,
+Haoqiang Fan, and Shuaicheng Liu. Nbnet: Noise basis
+learning for image denoising with subspace projection. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 4896–4906, 2021. 7
+
+continuity and produce more visual pleasant results.
+4.5.3. Results on different stripe width
+To investigate influence of stripe width, we train lightweight
+SR model with stripe width ws = {2, 4, 8, 16, 32} and evaluate them on Urban100 dataset. As presented in Tab. 9,
+the PSNR and SSIM values are quite similar under different
+settings, except for the cases with the largest and the smallest stripe widths. It indicates that the proposed method exhibits robustness against changes in stripe width, maintaining high-quality image restoration across a range of stripe
+widths.
+
+5. Conclusion
+In this paper, we propose MaIR, a novel state space model
+for image restoration that can preserve both local dependencies and spatial continuity of input images. To this end,
+we propose two designs: Nested S-shaped Scanning strategy (NSS) and Sequences Shuffle Attention (SSA). NSS is
+designed to extract locality- and continuity-preserving sequences from images, and SSA adaptively aggregates these
+sequences. Thanks to their cooperation, MaIR not only addresses the limitations of existing Mamba-based restoration
+methods but also improves image quality without introducing extra computations. Extensive experiments across four
+tasks on 14 benchmarks comparing with 40 baselines validate the superiority of MaIR, demonstrating its robustness
+and effectiveness in various image restoration tasks.
+10
+
+[23] Boyi Li, Xiulian Peng, Zhangyang Wang, Jizheng Xu, and
+Dan Feng. AOD-Net: All-in-One Dehazing Network. In
+IEEE International Conference on Computer Vision, pages
+4780–4788, Venice, Italy, 2017. 8, 9
+[24] Boyi Li, Wenqi Ren, Dengpan Fu, Dacheng Tao, Dan Feng,
+Wenjun Zeng, and Zhangyang Wang. Benchmarking Single
+Image Dehazing and Beyond. IEEE Transactions on Image
+Processing, 28(1):492–505, 2019. 8
+[25] Boyun Li, Xiao Liu, Peng Hu, Zhongqin Wu, Jiancheng Lv,
+and Xi Peng. All-In-One Image Restoration for Unknown
+Corruption. In IEEE Conference on Computer Vision and
+Pattern Recognition, pages 17431–17441, New Orleans, LA,
+2022. 2
+[26] Wenbo Li, Kun Zhou, Lu Qi, Nianjuan Jiang, Jiangbo Lu,
+and Jiaya Jia. Lapar: Linearly-assembled pixel-adaptive regression network for single image super-resolution and beyond. Advances in Neural Information Processing Systems,
+33:20343–20355, 2020. 2, 6
+[27] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc
+Van Gool, and Radu Timofte. SwinIR: Image Restoration
+Using Swin Transformer. In International Conference on
+Computer Vision Workshops, Virtual, 2021. 2, 3, 5, 6, 7
+[28] Bee Lim, Sanghyun Son, Heewon Kim, Seungjun Nah,
+and Kyoung Mu Lee. Enhanced deep residual networks
+for single image super-resolution. In IEEE Conference on
+Computer Vision and Pattern Recognition WorkShop, pages
+1132–1140, 2017. 2
+[29] Bee Lim, Sanghyun Son, Heewon Kim, Seungjun Nah, and
+Kyoung Mu Lee. Enhanced deep residual networks for single
+image super-resolution. In Proceedings of the IEEE conference on computer vision and pattern recognition workshops,
+pages 136–144, 2017. 6
+[30] Xiaohong Liu, Yongrui Ma, Zhihao Shi, and Jun Chen. GridDehazeNet: Attention-Based Multi-Scale Network for Image Dehazing. In International Conference on Computer Vision, pages 7313–7322, Seoul, Korea, 2019. 8, 9
+[31] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi
+Xie, Yaowei Wang, Qixiang Ye, and Yunfan Liu. Vmamba:
+Visual state space model. arXiv preprint arXiv:2401.10166,
+2024. 2, 3, 4
+[32] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF international conference on
+computer vision, pages 10012–10022, 2021. 2
+[33] Xiaotong Luo, Yuan Xie, Yulun Zhang, Yanyun Qu, Cuihua Li, and Yun Fu. Latticenet: Towards lightweight image
+super-resolution with lattice block. In European Conference
+on Computer Vision, pages 272–289, 2020. 6
+[34] Kede Ma, Zhengfang Duanmu, Qingbo Wu, Zhou Wang,
+Hongwei Yong, Hongliang Li, and Lei Zhang. Waterloo Exploration Database: New Challenges for Image Quality Assessment Models. IEEE Transactions on Image Processing,
+26(2):1004–1016, 2017. 6
+[35] David Martin, Charless Fowlkes, Doron Tal, and Jitendra
+Malik. A Database of Human Segmented Natural Images and
+its Application to Evaluating Segmentation Algorithms and
+
+[9] Sung-Jin Cho, Seo-Won Ji, Jun-Pyo Hong, Seung-Won Jung,
+and Sung-Jea Ko. Rethinking coarse-to-fine approach in single image deblurring. In Proceedings of the IEEE/CVF international conference on computer vision, pages 4641–4650,
+2021. 2, 8
+[10] Tao Dai, Jianrui Cai, Yongbing Zhang, Shu-Tao Xia, and
+Lei Zhang. Second-order attention network for single image
+super-resolution. In IEEE Conference on Computer Vision
+and Pattern Recognition, pages 11065–11074, 2019. 2, 5, 6
+[11] Tri Dao and Albert Gu. Transformers are SSMs: Generalized models and efficient algorithms through structured
+state space duality. In International Conference on Machine
+Learning (ICML), 2024. 2
+[12] Rui Deng and Tianpei Gu. Cu-mamba: Selective state space
+models with channel learning for image restoration. arXiv
+preprint arXiv:2404.11778, 2024. 2, 8
+[13] Hang Dong, Jinshan Pan, Lei Xiang, Zhe Hu, Xinyi Zhang,
+Fei Wang, and Ming-Hsuan Yang. Multi-Scale Boosted Dehazing Network with Dense Feature Fusion. In IEEE Conference on Computer Vision and Pattern Recognition, pages
+2154–2164, Seattle, WA, 2020. 8, 9
+[14] Yuanbiao Gou, Boyun Li, Zitao Liu, Songfan Yang, and Xi
+Peng. Clearer: Multi-scale neural architecture search for image restoration. Advances in Neural Information Processing
+Systems, 33, 2020. 2
+[15] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+modeling with selective state spaces.
+arXiv preprint
+arXiv:2312.00752, 2023. 2
+[16] Albert Gu, Karan Goel, and Christopher Ré. Efficiently
+modeling long sequences with structured state spaces. arXiv
+preprint arXiv:2111.00396, 2021. 2
+[17] Chun-Le Guo, Qixin Yan, Saeed Anwar, Runmin Cong,
+Wenqi Ren, and Li Chongyi. Image dehazing transformer
+with transmission-aware 3d position embedding. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2022. 8, 9
+[18] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong
+Ren, and Shu-Tao Xia. Mambair: A simple baseline for
+image restoration with state-space model. arXiv preprint
+arXiv:2402.15648, 2024. 2, 3, 4, 5, 6, 7
+[19] Vincent Tao Hu, Stefan Andreas Baumann, Ming Gui, Olga
+Grebenkova, Pingchuan Ma, Johannes S Fischer, and Björn
+Ommer. Zigma: A dit-style zigzag mamba diffusion model.
+arXiv preprint arXiv:2403.13802, 2024. 2, 4, 9
+[20] Jia-Bin Huang, Abhishek Singh, and Narendra Ahuja. Single
+image super-resolution from transformed self-exemplars. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 5197–5206, 2015. 6
+[21] Tao Huang, Xiaohuan Pei, Shan You, Fei Wang, Chen Qian,
+and Chang Xu. Localmamba: Visual state space model with
+windowed selective scan. arXiv preprint arXiv:2403.09338,
+2024. 2, 4, 9
+[22] Zheng Hui, Xinbo Gao, Yunchu Yang, and Xiumei Wang.
+Lightweight image super-resolution with information multidistillation network. In Proceedings of the 27th acm international conference on multimedia, pages 2024–2032, 2019.
+6
+
+11
+
+[49] Radu Timofte, Eirikur Agustsson, Luc Van Gool, MingHsuan Yang, and Lei Zhang. Ntire 2017 challenge on single
+image super-resolution: Methods and results. In Proceedings of the IEEE conference on computer vision and pattern
+recognition workshops, pages 114–125, 2017. 6
+[50] Zhendong Wang, Xiaodong Cun, Jianmin Bao, Wengang
+Zhou, Jianzhuang Liu, and Houqiang Li. Uformer: A general
+u-shaped transformer for image restoration. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 17683–17693, 2022. 7, 8
+[51] Haiyan Wu, Yanyun Qu, Shaohui Lin, Jian Zhou, Ruizhi
+Qiao, Zhizhong Zhang, Yuan Xie, and Lizhuang Ma. Contrastive Learning for Compact Single Image Dehazing. In
+IEEE Conference on Computer Vision and Pattern Recognition, pages 10551–10560, Virtual, 2021. 8, 9
+[52] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar
+Hayat, Fahad Shahbaz Khan, Ming-Hsuan Yang, and Ling
+Shao. Multi-Stage Progressive Image Restoration. In IEEE
+Conference on Computer Vision and Pattern Recognition,
+pages 14821–14831, Virtual, 2021. 7, 8
+[53] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+Restormer: Efficient Transformer for High-Resolution Image Restoration. In IEEE Conference on Computer Vision
+and Pattern Recognition, pages 5718–5729, New Orleans,
+LA, 2022. 2, 7, 8
+[54] Roman Zeyde, Michael Elad, and Matan Protter. On single
+image scale-up using sparse-representations. In Curves and
+Surfaces: 7th International Conference, Avignon, France,
+June 24-30, 2010, Revised Selected Papers 7, pages 711–
+730. Springer, 2012. 6
+[55] Hongguang Zhang, Yuchao Dai, Hongdong Li, and Piotr Koniusz. Deep stacked hierarchical multi-patch network for
+image deblurring. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages
+5978–5986, 2019. 8
+[56] Jiale Zhang, Yulun Zhang, Jinjin Gu, Yongbing Zhang,
+Linghe Kong, and Xin Yuan. Accurate image restoration
+with attention retractable transformer. In ICLR, 2023. 7
+[57] Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and
+Lei Zhang. Beyond a Gaussian Denoiser: Residual Learning
+of Deep CNN for Image Denoising. IEEE Transactions on
+Image Processing, 26(7):3142–3155, 2017. 2, 6, 7
+[58] Kai Zhang, Wangmeng Zuo, Shuhang Gu, and Lei Zhang.
+Learning deep cnn denoiser prior for image restoration. In
+IEEE Conference on Computer Vision and Pattern Recognition, pages 3929–3938, 2017. 6, 7
+[59] Kai Zhang, Wangmeng Zuo, and Lei Zhang. Ffdnet: Toward
+a fast and flexible solution for CNN based image denoising.
+IEEE Transactions on Image Processing, 2018. 6, 7
+[60] Kaihao Zhang, Wenhan Luo, Yiran Zhong, Lin Ma, Bjorn
+Stenger, Wei Liu, and Hongdong Li. Deblurring by realistic
+blurring. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 2737–2746,
+2020. 2, 8
+[61] Kai Zhang, Yawei Li, Wangmeng Zuo, Lei Zhang, Luc
+Van Gool, and Radu Timofte. Plug-and-play image restora-
+
+Measuring Ecological Statistics. In International Conference
+on Computer Vision, pages 416–425, Vancouver, Canada,
+2001. 6
+[36] Yusuke Matsui, Kota Ito, Yuji Aramaki, Azuma Fujimoto,
+Toru Ogawa, Toshihiko Yamasaki, and Kiyoharu Aizawa.
+Sketch-based manga retrieval using manga109 dataset. Multimedia tools and applications, 76:21811–21838, 2017. 6
+[37] Yiqun Mei, Yuchen Fan, and Yuqian Zhou. Image superresolution with non-local sparse attention. In IEEE Conference on Computer Vision and Pattern Recognition, pages
+3517–3526, 2021. 5, 6
+[38] Chong Mou, Jian Zhang, and Zhuoyuan Wu. Dynamic attentive graph learning for image restoration. In IEEE International Conference on Computer Vision, 2021. 7
+[39] Seungjun Nah, Tae Hyun Kim, and Kyoung Mu Lee. Deep
+Multi-scale Convolutional Neural Network for Dynamic
+Scene Deblurring. In IEEE Conference on Computer Vision and Pattern Recognition, pages 257–265, Honolulu, HI,
+2017. 2, 8
+[40] Ben Niu, Weiwei Wen, Wenqi Ren, Xiangde Zhang, Lianping Yang, Shuzhen Wang, Kaihao Zhang, Xiaochun Cao,
+and Haifeng Shen. Single image super-resolution via a holistic attention network. In European Conference on Computer
+Vision, pages 191–207, 2020. 2, 5, 6
+[41] Dongwon Park, Dong Un Kang, Jisoo Kim, and Se Young
+Chun. Multi-temporal recurrent neural networks for progressive non-uniform single image deblurring with incremental
+temporal training. In European Conference on Computer Vision, pages 327–343. Springer, 2020. 8
+[42] Xu Qin, Zhilin Wang, Yuanchao Bai, Xiaodong Xie, and
+Huizhu Jia. FFA-Net: Feature Fusion Attention Network for
+Single Image Dehazing. In AAAI Conference on Artificial
+Intelligence, pages 11908–11915, New York, NY, 2020. 8, 9
+[43] Chao Ren, Xiaohai He, Chuncheng Wang, and Zhibo Zhao.
+Adaptive consistency prior based deep network for image
+denoising. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 8596–8606,
+2021. 7
+[44] Christos Sakaridis, Dengxin Dai, and Luc Van Gool. Semantic foggy scene understanding with synthetic data. International Journal of Computer Vision, 126(9):973–992, 2018.
+2
+[45] Ziyi Shen, Wenguan Wang, Xiankai Lu, Jianbing Shen,
+Haibin Ling, Tingfa Xu, and Ling Shao. Human-aware
+motion deblurring. In Proceedings of the IEEE/CVF international conference on computer vision, pages 5572–5581,
+2019. 8
+[46] Jimmy TH Smith, Andrew Warrington, and Scott Linderman. Simplified state space layers for sequence modeling.
+In The Eleventh International Conference on Learning Representations, 2022. 2
+[47] Yuda Song, Zhuqing He, Hui Qian, and Xin Du. Vision
+transformers for single image dehazing. IEEE Transactions
+on Image Processing, 32:1927–1941, 2023. 8, 9
+[48] Xin Tao, Hongyun Gao, Xiaoyong Shen, Jue Wang, and Jiaya Jia. Scale-recurrent network for deep image deblurring.
+In Proceedings of the IEEE conference on computer vision
+and pattern recognition, pages 8174–8182, 2018. 2, 8
+
+12
+
+tion with deep denoiser prior. IEEE Transactions on Pattern Analysis and Machine Intelligence, 44(10):6360–6376,
+2021. 7
+[62] Lei Zhang, Xiaolin Wu, Antoni Buades, and Xin Li. Color
+demosaicking by local directional interpolation and nonlocal
+adaptive thresholding. Journal of Electronic imaging, 20(2):
+023016–023016, 2011. 6
+[63] Xindong Zhang, Hui Zeng, Shi Guo, and Lei Zhang.
+Efficient long-range attention network for image superresolution. In European Conference on Computer Vision,
+pages 649–667. Springer, 2022. 5, 6
+[64] Yulun Zhang, Kunpeng Li, Kai Li, Lichen Wang, Bineng
+Zhong, and Yun Fu. Image super-resolution using very deep
+residual channel attention networks. In European Conference on Computer Vision, pages 294–310, 2018. To appear
+in ECCV 2018. 2, 6
+[65] Yulun Zhang, Yapeng Tian, Yu Kong, Bineng Zhong, and
+Yun Fu. Residual Dense Network for Image Restoration.
+IEEE Transactions on Pattern Analysis and Machine Intelligence, 43(7):2480–2495, 2018. 2
+[66] Haiyu Zhao, Yuanbiao Gou, Boyun Li, Dezhong Peng,
+Jiancheng Lv, and Xi Peng. Comprehensive and delicate:
+An efficient transformer for image restoration. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 14122–14132, 2023. 2, 7, 8
+[67] Zhuoran Zheng and Chen Wu. U-shaped vision mamba for
+single image dehazing. arXiv preprint arXiv:2402.04139,
+2024. 2, 8, 9
+[68] Shangchen Zhou, Jiawei Zhang, Wangmeng Zuo, and
+Chen Change Loy. Cross-scale internal graph neural network
+for image super-resolution. In Neural Information Processing Systems, 2020. NeurIPS 2020. 5, 6
+[69] Yupeng Zhou, Zhen Li, Chun-Le Guo, Song Bai, Ming-Ming
+Cheng, and Qibin Hou. Srformer: Permuted self-attention
+for single image super-resolution. In IEEE Conference on
+Computer Vision and Pattern Recognition, pages 12780–
+12791, 2023. 3, 5, 6
+[70] Lianghui Zhu, Bencheng Liao, Qian Zhang, Xinlong Wang,
+Wenyu Liu, and Xinggang Wang. Vision mamba: Efficient
+visual representation learning with bidirectional state space
+model. arXiv preprint arXiv:2401.09417, 2024. 2
+
+13
+
+

@@ -1,0 +1,1647 @@
+MixerCSeg: An Efficient Mixer Architecture for Crack Segmentation
+via Decoupled Mamba Attention
+Zilong Zhao1 , Zhengming Ding2 , Pei Niu1 , Wenhao Sun1 , Feng Guo1, *
+1
+
+School of Qilu Transportation, Shandong University, China
+Department of Computer Science, Tulane University, USA
+
+arXiv:2603.01361v1 [cs.CV] 2 Mar 2026
+
+2
+
+Abstract
+Feature encoders play a key role in pixel-level crack segmentation by shaping the representation of fine textures and
+thin structures. Existing CNN-, Transformer-, and Mambabased models each capture only part of the required spatial or structural information, leaving clear gaps in modeling complex crack patterns. To address this, we present
+MixerCSeg, a mixer architecture designed like a coordinated team of specialists, where CNN-like pathways focus
+on local textures, Transformer-style paths capture global
+dependencies, and Mamba-inspired flows model sequential context within a single encoder. At the core of MixerCSeg is the TransMixer, which explores Mamba’s latent
+attention behavior while establishing dedicated pathways
+that naturally express both locality and global awareness.
+To further enhance structural fidelity, we introduce a spatial block processing strategy and a Direction-guided Edge
+Gated Convolution (DEGConv) that strengthens edge sensitivity under irregular crack geometries with minimal computational overhead. A Spatial Refinement Multi-Level Fusion (SRF) module is then employed to refine multi-scale
+details without increasing complexity. Extensive experiments on multiple crack segmentation benchmarks show
+that MixerCSeg achieves state-of-the-art performance with
+only 2.05 GFLOPs and 2.54 M parameters, demonstrating both efficiency and strong representational capability. The code is available at https://github.com/
+spiderforest/MixerCSeg.
+
+Input
+
+Global Channel
+
+Local Channel
+
+Figure 1. Visualization results of heatmaps and attention maps
+in VMamba [18]. Benefiting from the multi-directional scanning
+mechanism, tokens in global channels can achieve a receptive field
+that covers the entire scope, rather than being limited to historical
+context. In contrast, local channels focus on the field of view of
+neighboring regions.
+
+achieving high-precision pixel-level crack segmentation remains a significant challenge due to the considerable morphological diversity, uneven texture distribution, and low
+contrast between cracks and their background [9]. To address this challenge, existing crack segmentation models are
+mainly based on three architectures: Convolutional Neural
+Networks (CNNs), Transformers [24], and Mamba [6].
+Due to the strong capability in extracting local features
+and computational efficiency advantages, researchers have
+proposed various CNN-based crack segmentation models
+[14, 20, 23]. However, their limited receptive fields make
+it difficult to effectively model long-range pixel dependencies, resulting in suboptimal performance when dealing
+with cracks of complex morphology. Vision Transformer
+[5, 19] successfully introduced the Transformer architecture into the field of vision tasks. By leveraging attention
+mechanisms to explicitly model long-range dependencies
+between pixels, it has enabled crack segmentation models
+such as Crackmer [25] and DTrCNet [26] that outperform
+CNN-based approaches. However, this also results in increased computational complexity and reduced inference
+
+1. Introduction
+As infrastructure such as roads and bridges ages and deteriorates over time, the issue of cracks has become increasingly prominent. As a key technology for monitoring and
+maintaining road health, road crack segmentation enables
+the timely detection of potential crack threats. However,
+* Corresponding author
+
+1
+
+efficiency. In recent years, the Mamba [6] architecture has
+been introduced as a global attention mechanism with linear
+computational complexity. SCSegamba [16] has designed a
+Structure-Aware Scanning Strategy to enhance crack segmentation performance. Nevertheless, this progressive data
+processing mechanism limits its ability to capture and utilize global context in a single forward pass [12].
+Recently, hybrid models with diverse architectures have
+been receiving increasing attention. MambaVision [12]
+adapts the Mamba structure and, for the first time, proposes
+a hybrid Mamba-Transformer architecture for visual tasks.
+VAMBA [22], targeting long-video understanding, constructs a hybrid model by integrating self-attention, crossattention, and Mamba modules. RestorMixer [7] improves
+upon Mamba and Self-Attention [24] by proposing a hybrid model that combines CNN, Transformer, and Mamba
+to enhance image restoration performance. Although these
+approaches demonstrate the potential for performance improvement, they simply stack these components in a sequential or parallel manner without thoroughly considering
+the inherent relationships and differences among the architectures. As a result, the full advantages of the diverse architectural designs are not fully leveraged [7, 12].
+To address this challenge, we explored the potential attention mechanism of Mamba and proposed a novel hybrid
+architecture model called MixerCSeg for road crack segmentation. Specifically, we designed a Mixer architecture
+named TransMixer. It decouples tokens along the channel dimension into global tokens and local tokens based on
+the inherent attention characteristics of Mamba (as shown
+in Figure 1). For the global tokens, self-attention is introduced to further model long-range dependencies. For the
+local tokens, a Local Refinement Module is designed to enhance fine-grained feature details through convolutional operations. Additionally, to achieve pixel-level crack segmentation, we designed a Direction-guided Edge Gated Convolution (DEGConv). It employs spatial block processing and
+utilizes directional priors to enhance edge sensitivity under
+irregular crack geometries while minimizing computational
+overhead. Finally, the Spatial Refinement multi-level feature fusion (SRF) module provides global contextual guidance for low-resolution features through cross-scale semantic interactions, generating high-precision segmentation results without incurring additional computational overhead.
+In summary, our main contributions are as follows:
+• We introduce TransMixer, a newly designed feature encoding structure that assigns CNN, Transformer, and
+Mamba pathways distinct roles in capturing local textures, modeling global dependencies, and expressing contextual flow, forming a coordinated architecture rather
+than a stacked mixture of modules.
+• We develop MixerCSeg, a crack segmentation model built
+on this encoder. It incorporates DEGConv to enhance
+
+direction-aware edge modeling and SRF to refine multiscale spatial details with minimal computational cost.
+• We conduct extensive experiments on multiple crack
+segmentation benchmarks and show that MixerCSeg
+achieves state-of-the-art performance with an efficient design of 2.05 GFLOPs and 2.54 M parameters.
+
+2. Related Work
+2.1. Road Crack Segmentation
+Current deep learning-based road crack segmentation methods can be primarily categorized into three types: CNNbased, Transformer-based, and Mamba-based approaches.
+Among CNN-based methods, DeepCrack [17] established
+a crack segmentation dataset and a benchmark segmentation model. SDDNet [4] employs separable convolutions
+to achieve efficient real-time crack segmentation. SFIAN
+[3] enhances segmentation accuracy by designing a selective fusion and irregularity-aware network. BARNet [10]
+introduces gradient priors and develops a crack segmentation model that integrates image features with gradient information. However, due to the limitations of CNNs in capturing global receptive fields, they struggle to effectively
+model long-range dependencies, which restricts further performance improvements in pixel-level crack segmentation.
+ViT [5] successfully introduced the attention [24] mechanism into visual tasks. Leveraging the advantage of attention mechanisms in long-range dependency modeling,
+STA [8] utilized Swin-Transformer [19] to extract slender
+crack features; Crackmer [25] designed a parallel segmentation architecture combining convolution and transformer
+to enhance the characterization of crack details; CrackFormer [15]proposed a scaling-attention block to suppress
+non-semantic features and sharpen semantic cracks. Despite these advancements, the quadratic computational complexity introduces new computational efficiency challenges.
+The Mamba [6] model, leveraging its advantage of linear computational complexity, has been successfully introduced into the visual domain by studies such as ViM
+[32] and VMamba [18], providing new perspectives for
+road crack segmentation. MambaCrackNet [11] incorporates residual Mamba blocks to reduce background interference and improve the detection rate of fine cracks. CrackMamba [33] and SCSegamba [16] designed serpentine and
+structure-aware scanning strategies, respectively, enhancing
+the model’s ability to characterize complex crack features.
+
+2.2. Hybrid Architecture Model
+Currently, common visual downstream tasks often adopt
+architectures such as Mamba-CNN or Transformer-CNN,
+while the Mamba-Transformer-CNN hybrid architecture remains in the exploratory stage. In the field of visual tasks,
+MambaVision [12] is the first to propose a backbone net2
+
+Stem
+Input
+
+DEGConv
+
+Upsample
+
+Conv1×1
+
+Concat
+
+DownSample
+
+SegHead
+
+SRF Module
+TransMixer
+Block
+
+Output
+
+TransMixer
+Block
+
+DEGConv
+
+Upsample
+
+Upsample
+
+(a) The Architecture of MixerCSeg
+
+x.mean()
+dy
+
+cellh, cellw
+
+W
+cellw
+
+Conv1×1
+
+Direction
+Embedding
+
+H
+cellh
+
+EdgeConv
+GNorm
+
+arctan
+
+Conv1×1
+
+EdgeConv
+
+nbins
+
+Convk×1
+
+Conv1×k
+
+EdgeConv
+
+C
+
+ReLU
+dx
+
+Conv1×1
+
+Conv3×3
+
+AvgPooling
+
+GNorm
+
+(b) The Design of DEGConv Module
+
+Figure 2. Overview of the proposed method. (a) illustrates the overall architecture of MixerCSeg. TransMixer blocks and downsampling
+operators are connected in series to extract multi-scale features. Before decoding, the DEGConv module is employed to enhance crack
+texture details. (b) demonstrates the design of the DEGConv, which integrates a spatial block strategy and directional prior knowledge.
+
+where σ1 is the SiLU activation function, Linear represents
+a regular linear projection, ⊙ denotes element-wise multiplication, and O ∈ RL×d is the output sequence. The discrete state transition equation and observation equation of
+the SSM are formulated as:
+
+work based on a hybrid architecture, achieving performance
+surpassing that of ViT [5] and VMamba [18]. RestorMixer
+[7] is the first to introduce a hybrid model for image restoration tasks, aiming to leverage the strengths of different architectures. MambaFormer [28] sequentially stacks Mamba
+and attention mechanisms to design a model for time series
+forecasting. VAMBA [22] integrates cross-attention, selfattention, and Mamba to enhance performance in long video
+understanding tasks.
+However, existing hybrid models often simply stack
+Mamba and Transformer modules without a refined design
+for the collaborative mechanism between different architectures. Based on an in-depth analysis of the hidden attention within Mamba, we propose a novel hybrid architecture.
+This architecture aims to leverage the unique advantages of
+each module at appropriate stages, thereby effectively enhancing the capability of crack feature extraction.
+
+ht = Āt ht−1 + B̄t xt ;
+
+∆t = Softplus(xt );
+
+Y =SSM(X);
+
+(2)
+(3)
+
+B̄t = Bt ∆t ,
+
+(5)
+(6)
+
+where A is a negative learnable matrix, ∆t is a positive factor, ensuring the decay factor of the hidden state always satisfies 0 < Āt < 1 [30]. By expanding the recurrent computation steps in Eq. 4, we quantify the contribution of the
+j-th token xj to the i-th token xi as:
+
+hi = Σij=1 Πik=j+1 Āk ⊙ B̄j ⊙ xj ;
+(7)
+
+yi = CiT Σij=1 Πik=j+1 Āk ⊙ B̄j ⊙ xj
+(8)
+
+Given an input sequence I = (x1 , x2 , ..., xL ) ∈ RL×d ,
+where L denotes the token length and d denotes the number
+of channels, the computation process of the Mamba block
+can be expressed as:
+
+O = Linear(Y ⊙ Z),
+
+Bt , Ct = LinearB/C (xt );
+
+Āt = exp(A∆t );
+
+3.1. Preliminary: Hidden Attention of Mamba
+
+(1)
+
+(4)
+
+where xt is the input at time step t, ht is the hidden state,
+and Āt , B̄t and Ct represent the decay factor of the hidden
+state, the update matrix controlling the hidden state, and
+the projection matrix for the output, respectively. They are
+computed as:
+
+3. Methodology
+
+Z = σ1 (Linear(I)); X = Conv1D(Linear(I));
+
+yt = Ct ht ,
+
+= Σij=1 αi,j ⊙ xj ,
+(9)
+
+
+where αi,j = CiT Πik=j+1 Āk ⊙ B̄j is a weighting factor
+representing the contribution of the j-th token to the output of the i-th token, analogous to the attention scores in
+3
+
+2
+
+Self-Attention
+
+Linear
+
+C
+
+N
+
+Linear
+
+SelfAttention
+
+Maxpooling
+LocalRefinement
+
+YG
+1
+
+Compute indices
+
+Y
+
+Self-Attention
+
+GNorm
+
+YR
+
+N
+
+SSM
+B C A
+
+plement each other’s advantages. Figure 3 (a) illustrates
+the two main implementation forms of current Transformer
+and Mamba hybrid models [12, 22], which integrate Mamba
+and the attention mechanism through parallel computation
+or sequential execution. However, both approaches share
+the same limitation: they merely stack modules in a simplistic manner without conducting an in-depth analysis of
+their core internal interaction logic, thereby restricting the
+full potential of hybrid architectures.
+To address the limitations mentioned above, we conducted an in-depth analysis of the attention mechanism
+within the Mamba module and accordingly proposed the
+TransMixer module to more effectively capture visual features. The overall design of this module is illustrated in
+Figure 3 (b). According to Eq. 10, ∆t determines the influence of historical tokens on the current token. Based on
+this, we sort ∆t along the channel dimension, selecting the
+top dg = d · γ tokens as global tokens and the remaining
+dl = d·(1 − γ) tokens as local tokens, with the corresponding index sets denoted as g and l.
+After the SSM execution is completed, we obtain the output Y ∈ RL×d . Subsequently, using the indices g and l, it
+is decomposed into a global representation YG ∈ RL×dg
+and a local representation YL ∈ RL×dl . For the global representation YG , we feed it into a self-attention module to
+enhance the correlations among global tokens, resulting in
+the enhanced representation YG′ . For the local representation YL we designed a simple Local Refinement module for
+processing, and its computational procedure is as follows:
+
+Conv2d
+
+YL
+Y
+SSM
+B C A
+
+Conv2d
+Conv
+Linear
+
+Conv
+Linear
+
+Linear
+
+(a) Existing methods
+
+Linear
+
+(b) Our TransMixer
+
+Figure 3. The difference between TransMixer and existing methods. (a) illustrates two common patterns in existing methods that
+hybridize Mamba blocks and Transformer blocks. (b) shows the
+design details of the TransMixer module, which decomposes features into global and local representations, enhancing them with
+Self-Attention and Local Refinement, respectively.
+
+Transformers [1, 2, 30]. Figure 1 presents the channel-wise
+visualization of this attention score. To investigate the fundamental factors influencing the attention score, we further
+expand the hidden state transition equation in Eq. 4:
+ht = Āt ht−1 + B̄t xt = eA∆t ht−1 + ∆t Bt xt ,
+
+(10)
+
+When ∆t → 0, the current token is discarded and the token
+from time step t−1 is retained; when ∆t > 0, the attenuated
+result of the token at time t − 1 is added to the token at the
+current time step t. Therefore, ∆t determines which tokens
+will influence future tokens [2].
+
+3.2. Overview of Architecture
+Figure 2 illustrates our proposed MixerCSeg model, which
+consists of three core components: the TransMixer Block,
+DEGConv module, and the SRF module. The TransMixer Block is designed to extract pixel-level crack features, DEGConv captures texture and topological cues of
+cracks, and SRF enables efficient multi-level feature fusion.
+First, for an input image P ∈ R3×H×W , it is projected
+into visual features through a stem layer and processed by
+the TransMixer Block to obtain multi-scale feature maps
+{F1 , F2 , F3 , F4 }. These features are then fed into the DEGConv module, where a spatial block processing strategy is
+applied to introduce directional prior embeddings into the
+feature map, thereby enhancing the model’s perception of
+texture and semantic features of cracks with diverse morphologies. Finally, the SRF module integrates the multiscale feature maps, and the segmentation head outputs a
+pixel-level crack segmentation result r ∈ R1×H×W .
+
+FL ∈ Rdl ×H×W = Norm(Reshape(YL ));
+
+(11)
+
+FL′ = σ2 (Conv1×1 (maxpool2d(Fl ))) ⊙ FL ;
+Yl′ = Flatten(FL′ ),
+
+(12)
+(13)
+
+where Norm denotes normalization operation, and σ2 is the
+sigmoid activation function.
+Overall, the complete computational workflow of the
+TransMixer module is as follows: first, perform the operations described in Eq. 1 - Eq. 2 to obtain the output Y, and
+then execute:
+g, l = findex (∆t );
+
+(14)
+
+YG , YL = Y [:, g] , Y [:, l] ;
+
+(15)
+
+Y [:, g] , Y [:, l] = fself-att (YG ), frefine (YL ),
+
+(16)
+
+Finally, Eq. 3 is executed to complete the subsequent calculations, obtaining the feature map Fi ∈ RCi ×Hi ×Wi .
+
+3.4. Direction-guided Edge Gated Convolution
+Compared to common convolution that processes information passively, gated convolution can dynamically regulate
+the information flow, thereby more effectively preserving
+important features. In practical scenarios, cracks frequently
+
+3.3. The Design of TransMixer
+The design intention of hybrid models is to combine the
+strengths of different architectures, enabling them to com4
+
+Edge Convolution. To enhance the model’s perception of crack texture features, we designed a lightweight
+edge convolution. First, we employ point-wise convolution
+to map the features into a low-dimensional space, thereby
+decreasing computational complexity. Subsequently, strip
+convolutions with kernel sizes of 1 × k and k × 1 are used
+to extract the directional features of cracks along the horizontal and vertical dimensions, respectively. Finally, the
+features from both directions are concatenated along the
+channel dimension, and the output result is obtained using
+depth-wise convolution.
+Gating mechanism. As shown in Figure 2 (b), we first
+add the directional embedding features to the original feature maps, use EdgeConv and a sigmoid function to generate gating weights, and simultaneously apply EdgeConv to
+the original features, then combine them through elementwise multiplication:
+
+
+g = σ2 EdgeConv(Fij + ϵ) ;
+(22)
+
+extend into branches in multiple directions, posing significant challenges for models to accurately trace these intersecting and overlapping paths. To address this, we have designed a Direction-guided Edge Gated Convolution (DEGConv) module. This module integrates multi-perspective
+processing strategies with directional priors to precisely
+model complex crack structures, and its processing flow is
+illustrated in Figure 2 (b).
+Rearrange. For the feature map Fi ∈ RCi ×Hi ×Wi at
+the i-th layer, we partition it into N non-overlapping views
+of size hi × wi , denoted as Fi = {Fi1 , Fi2 , ..., FiN }, where
+j
+Wi
+Ci ×hi ×wi
+i
+represents the j-th local
+N = H
+hi × wi . Fi ∈ R
+view feature map.
+Direction Embedding Generation. We first average
+the input Fij along the channel dimension to obtain F̃ij ∈
+R1×hi ×wi . Subsequently, the horizontal and vertical gradients dx and dy of this view are computed using the Sobel
+operator. Then, the radian value for each pixel is calculated
+d
+via the arctangent function θ = arctan( dxy ) ∈ R1×hi ×wi ,
+and the result is constrained to the interval [0, π].
+To obtain a more compact feature representation and reduce interference from individual anomalous pixels, we further divide the view into cells of size (cellh , cellw ) and uniformly partition the radian interval [0, π] into n bins. For
+hi
+wi
+each cell Ca,b (a = 1, ..., cell
+), we cal; b = 1, ..., cell
+w
+h
+culate the bin index corresponding to the radian direction
+of each pixel, count the number of pixels within each bin,
+and weight them using the central angle value of the bin
+to obtain the orientation histogram feature of the cell. This
+process can be expressed as:
+
+
+θ(u, v)
+indexbin (u, v) =
+(17)
+π/n
+X
+hista,b (k) =
+I[indexbin (u, v) = k]
+(18)
+
+′
+
+Fij = g ⊙ EdgeConv(Fij )
+
+Finally, the independent features from different spatial
+blocks are rearranged to restore the original spatial structure
+of the image. To further mitigate potential boundary misalignment issues introduced by the rearrangement, we introduce an additional EdgeConv layer for post-processing, ultimately obtaining the optimized feature representation Fi′ .
+
+3.5. Spatial Refinement Multi-Level Feature Fusion
+Directly upsampling and fusing multi-level features not
+only causes misalignment of segmentation boundaries due
+to spatial inconsistency, but also fails to fully utilize the
+fine-grained spatial information present in high-resolution
+features. To address this, we designed a Spatial Refinement
+Multi-level Feature Fusion module (SRF). Guided by the
+rich spatial details of the high-resolution feature F1′ , this
+module progressively upsamples and fuses the lower-level
+features {F2′ , F3′ , F4′ }, thereby injecting fine-grained information into the semantic features and improving the accuracy of segmentation boundaries.
+To leverage the detailed information from F1′ for guiding the fusion process, we first generate a spatial attention map from it. Meanwhile, the low-resolution features
+{F2′ , F3′ , F4′ } are upsampled to the same spatial dimensions
+as F1′ . Subsequently, the attention map is used to perform
+a spatially weighted refinement on each upsampled feature,
+formulated as:
+
+(u,v)∈Ca,b
+
+pa,b,k = ck ·
+
+hista,b (k)
+|Ca,b |
+
+(19)
+
+where θ(u, v) ∈ [0, π] represents the directional radian
+value at position (u, v), n is the number of bins, and k =
+0, ..., n − 1 is the bin index. I [·] denotes the indicator funcπ
++ k · nπ is the central radian value of the
+tion. ck = 2n
+k-th bin, and |Ca,b | = cellh × cellw is the total number of pixels in the cell. Finally, we aggregate the features of all cells to obtain the spatial direction prior vector
+nbins×
+
+hi
+
+×
+
+wi
+
+cellh
+cellw
+p ∈ R
+, which is then transformed into a
+one-dimensional direction embedding vector:
+
+fp = Conv3×3 (Conv1×1 (p)) ;
+
+(20)
+
+ϵ = avgpool(Norm(ReLU(fp ))) ∈ RCi
+
+(21)
+
+(23)
+
+α = σ2 (Conv1×1 (Fi′ )) ;
+Fiup = Upsample (Fi′ , (H1 , W1 )) ;
+Fi′′ = α ⊙ Fiup ,
+
+(24)
+(25)
+(26)
+
+where α denotes the spatial attention map, and i ∈ {2, 3, 4}.
+Next, we upsample all feature maps to the input image size,
+
+Here, avgpool denotes the adaptive average pooling operation, and ϵ is the resulting directional embedding vector.
+5
+
+Table 1. Performance comparison on four crack datasets. The best result for each metric is in bold.
+Method
+U-Net
+CarNet
+RINDNet
+DTrCNet
+SCSegamba
+RestorMixer
+MambaVision
+MixerCSeg (Ours)
+
+mIoU
+0.8987
+0.8875
+0.8391
+0.8661
+0.9022
+0.9008
+0.8991
+0.9151
+
+DeepCrack
+ODS
+OIS
+0.8868 0.8940
+0.8688 0.8702
+0.8087 0.8267
+0.8473 0.8512
+0.8938 0.8990
+0.8889 0.8957
+0.8851 0.9047
+0.9094 0.9197
+
+F1
+0.8999
+0.8939
+0.8377
+0.8566
+0.9110
+0.9051
+0.8799
+0.9205
+
+mIoU
+0.8372
+0.8257
+0.8137
+0.8150
+0.8268
+0.8356
+0.8146
+0.8409
+
+CamCrack789
+ODS
+OIS
+0.7991 0.8066
+0.7830 0.7853
+0.7628 0.7728
+0.7719 0.7749
+0.7919 0.7939
+0.7965 0.8018
+0.7603 0.7626
+0.8115 0.8202
+
+obtaining {F1up ; F2up ; F3up ; F4up }. These features are then
+concatenated along the channel dimension and fed into the
+segmentation head to predict pixel-level crack segmentation
+results. This process can be expressed as:
+r = µ ([F1up ; F2up ; F3up ; F4up ]) ∈ R1×H×W ,
+
+F1
+0.7353
+0.7251
+0.6050
+0.7836
+0.7876
+0.7392
+0.7076
+0.8244
+
+mIoU
+0.7983
+0.7568
+0.7425
+0.7812
+0.8094
+0.7887
+0.7737
+0.8123
+
+CrackMap
+ODS
+OIS
+0.7540 0.7865
+0.6840 0.7117
+0.6745 0.6943
+0.7328 0.7413
+0.7741 0.7766
+0.7414 0.7844
+0.7162 0.7657
+0.7781 0.7806
+
+F1
+0.7363
+0.6400
+0.6699
+0.7276
+0.7678
+0.6631
+0.6862
+0.7817
+
+mIoU
+0.7105
+0.6428
+0.7381
+0.7627
+0.7778
+0.7425
+0.7015
+0.7824
+
+Crack500
+ODS
+OIS
+0.6238 0.6610
+0.5487 0.5921
+0.6469 0.6483
+0.7012 0.7241
+0.7244 0.7370
+0.6637 0.6821
+0.6304 0.6480
+0.7281 0.7483
+
+F1
+0.5410
+0.3636
+0.7119
+0.7357
+0.7553
+0.6962
+0.4603
+0.7755
+
+Table 2. Comparison of computational cost.
+Method
+U-Net
+CarNet
+RINDNet
+DTrCNet
+SCSegamba
+RestorMixer
+MambaVision
+MixerCSeg (Ours)
+
+(27)
+
+where µ represents the segmentation head, which consists
+of a 1 × 1 convolution and an MLP.
+
+3.6. Loss Function
+Following [16], we employ a mixed loss function combining Binary Cross-Entropy (BCE) and Dice loss, with the
+ratio set to 1:5.
+
+FLOPs (G)
+204.38
+19.00
+695.77
+122.55
+18.16
+98.71
+642.86
+2.05
+
+Params (M)
+28.99
+4.89
+59.39
+63.83
+2.80
+3.19
+13.57
+2.54
+
+Memory (MiB)
+4394
+1824
+5392
+4952
+2206
+10384
+5222
+1190
+
+in interference from high background noise and the cracks
+exhibit smooth curvature and large width, n is set to 36.
+
+4. Experiments
+
+4.3. Comparison with the State-of-the-arts
+
+4.1. Datasets and Metrics.
+
+Quantitative Evaluation. In Table 1, we compare the proposed MixerCSeg model with 7 SOTA models for image
+and crack segmentation tasks, including UNet [23], CarNet [14], RINDNet [20], DTrCNet [26], RestorMixer [7],
+SCSegamba [16], and MambaVision [12]. All comparative models were trained for 50 epochs with an input size
+of 512 × 512 to ensure experimental fairness. As shown
+in the table, our MixerCSeg achieves superior performance
+metrics across multiple datasets compared to existing advanced methods. Taking the DeepCrack [17] dataset as an
+example, MixerCSeg outperforms the second-best model
+SCSegamba [16] by 1.43% in mIoU and 1.04% in F1score, while achieving improvements of 1.78% in mIoU
+and 4.61% in F1-score compared to the hybrid architecture
+model MambaVision. These results fully demonstrate the
+effectiveness and superiority of our proposed method.
+Furthermore, Table 2 presents a comparison of computational efficiency between our proposed method and existing
+SOTA models. Our approach requires 2.54 M parameters
+and 2.05 GFLOPs, with a training memory usage of 1190
+MiB. Compared to SCSegMamba, which is specifically designed for lightweight applications, our method reduces parameter count and computational cost by 9.3% and 88.7%
+respectively, while achieving a substantial memory reduction of 1016 MiB. Moreover, when compared to existing
+
+Datasets. Our experiments were conducted on four crack
+benchmark datasets: DeepCrack [17], Crack500 [29], CamCrack789 [31], and CrackMap [13], containing 537, 3368,
+789, and 120 crack images, respectively. These datasets encompass cracks in various scenarios, including walls, asphalt pavements, and cement surfaces, with diverse morphologies and scales. During the data processing stage, all
+images were resized to 512 × 512 pixels and randomly split
+into training, validation, and test sets in a 7:1:2 ratio.
+Metrics. To evaluate the model performance, we adopted
+widely-used evaluation metrics, including the F1 score, Optimal Dataset Scale (ODS), Optimal Image Scale (OIS), and
+mean Intersection over Union (mIoU).
+
+4.2. Implementation Details.
+All experiments are conducted on a single NVIDIA A100
+GPU. The model is trained for 50 epochs with a batch size
+of 1, optimized using the AdamW optimizer with an initial
+learning rate of 5e-4. For parameter settings, the hyperparameter γ in the TransMixer block is set to 0.5 by default,
+and the cell size in DEGConv is configured to 8 × 8. Specifically, the number of intervals n is set to 180 for the DeepCrack, CrackMap, and CamCrack789 datasets. In contrast,
+for the Crack500 dataset, where the primary challenge lies
+6
+
+Image
+
+UNet
+
+RINDNet
+
+CarNet
+
+DTrCNet
+
+RestorMixer
+
+MambaVision
+
+SCSegamba
+
+Ours
+
+GT
+
+Figure 4. Visualization results of MixerCSeg versus state-of-the-art methods in various environments.
+
+resentations. They work synergistically to achieve SOTA
+crack segmentation performance.
+In addition, after integrating the DEGConv module, the
+model only incurs an increase of 0.08 GFLOPs in computational complexity and 0.14 M in parameters. When replacing the decoder of SegFormer with the SRF module,
+the computational complexity and GPU memory usage decrease significantly, and the parameters are also reduced by
+0.1 M. These results fully demonstrate the lightweight advantages of the DEGConv and SRF modules.
+Effect of TransMixer. To validate the effectiveness of our
+hybrid architecture, we employed MambaVision [12] and
+RestorMixer [7] as encoders to extract multi-scale features,
+while keeping the other structures unchanged. The experimental results, as shown in Table 3, demonstrate that TransMixer achieves superior segmentation performance, thereby
+verifying the effectiveness of our proposed method.
+The ratio γ of global channels. By observing the attention weights in the channel dimension of the final layer of
+the Mamba module, we found that the number of channels
+with global attention is similar to that with only local attention. Therefore, we set γ to 0.5 by default. To validate
+the rationality of this setting, we conducted comparative experiments by setting γ to 0.3, 0.7, and 0.9. The results, as
+
+hybrid architectures MambaVision [12] and RestorMixer
+[7], MixerCSeg demonstrates significantly lower computational resource requirements. These results fully validate
+the high efficiency and considerable potential of MixerCSeg for practical applications.
+Qualitative Evaluation. To intuitively demonstrate the
+pixel-level segmentation results of MixerCSeg, we selected
+crack images from various complex environments in the
+test set for visualization, as shown in Figure 4. When facing challenging scenarios with variable sizes, diverse morphologies, and background noise interference, MixerCSeg
+can effectively capture crack regions.
+
+4.4. Ablation Study
+Ablation study of components. We use VMamba [18]
+as the encoder and integrate the Segformer [27] decoder
+as the baseline model. The results of the ablation experiments are shown in Table 3. We sequentially introduce the
+TransMixer, DEGConv, and SRF modules, and the crack
+segmentation performance is improved to varying degrees.
+This indicates that the TransMixer module can effectively
+extract image features, the DEGConv module helps capture
+the texture and morphological features of cracks, and the
+SRF module can generate accurate pixel-level crack rep7
+
+Table 3. Component ablation experiments on the DeepCrack and CamCrack789 datasets.
+TransMixer
+
+DEGConv
+
+✓
+✓
+✓
+
+✓
+✓
+
+SRF
+
+FLOPs (G)
+
+Params (M)
+
+Memory (MiB)
+
+✓
+
+17.74
+19.10
+19.18
+2.05
+
+0.76
+2.50
+2.64
+2.54
+
+1986
+3594
+3626
+1190
+
+Table 4. Ablation experiments of different hybrid blocks on the
+DeepCrack and CamCrack789 datasets.
+Encoder
+MambaVision
+RestorMixer
+TransMixer (Ours)
+
+mIoU
+0.9020
+0.9087
+0.9151
+
+DeepCrack
+ODS
+OIS
+0.8936 0.8979
+0.9022 0.9122
+0.9094 0.9197
+
+F1
+0.9081
+0.9142
+0.9205
+
+mIoU
+0.8307
+0.8373
+0.8409
+
+CamCrack789
+ODS
+OIS
+0.7964 0.8132
+0.8063 0.8206
+0.8115 0.8202
+
+mIoU
+0.8826
+0.9016
+0.9097
+0.9151
+
+DeepCrack
+ODS
+OIS
+0.8696 0.8753
+0.8931 0.9045
+0.9032 0.9127
+0.9094 0.9197
+
+F1
+0.8867
+0.9092
+0.9107
+0.9205
+
+mIoU
+0.8283
+0.8359
+0.8381
+0.8409
+
+CamCrack789
+ODS
+OIS
+0.7928 0.8007
+0.8041 0.8164
+0.8073 0.8147
+0.8115 0.8202
+
+F1
+0.8051
+0.8163
+0.8211
+0.8244
+
+Table 6. Results of direction embeddings generated based on
+ARConv-predicted angles and those generated by the proposed
+method on the DeepCrack dataset.
+
+F1
+0.8131
+0.8215
+0.8244
+
+Method
+ARConv [21]
+Ours
+
+mIoU
+0.9106
+0.9151
+
+ODS
+0.9043
+0.9094
+
+OIS
+0.9093
+0.9197
+
+F1
+0.9170
+0.9205
+
+Table 5. Analysis of Hyperparameter Experiments of the MixerCSeg Model on the DeepCrack and CamCrack789 Datasets.
+Value
+
+mIoU
+
+-
+
+0.9151
+
+0.3
+0.7
+0.9
+
+0.9098
+0.9133
+0.9084
+
+(2, 2)
+(4, 4)
+
+0.9104
+0.9141
+
+9
+36
+90
+360
+
+0.9067
+0.9125
+0.9136
+0.9077
+
+DeepCrack
+ODS
+OIS
+
+F1
+
+mIoU
+
+CamCrack789
+ODS
+OIS
+
+γ = 0.5, cell size is (8, 8) and n = 180
+0.9094 0.9197 0.9205 0.8409 0.8115 0.8202
+The ratio γ of global channels
+0.9035 0.9117 0.9172 0.8375 0.8065 0.8240
+0.9073 0.9182 0.9114 0.8379 0.8072 0.8171
+0.9018 0.9112 0.9135 0.8344 0.8026 0.8105
+The cell size in the DEGConv module
+0.9040 0.9080 0.9187 0.8374 0.8062 0.8213
+0.9081 0.9201 0.9151 0.8370 0.8059 0.8131
+The number of bins n in the DEGConv module
+0.8998 0.9106 0.9141 0.8360 0.8042 0.8117
+0.9065 0.9173 0.9182 0.8389 0.8088 0.8185
+0.9076 0.9191 0.9165 0.8401 0.8102 0.8198
+0.9005 0.9044 0.9152 0.8383 0.8072 0.8134
+
+indicate that as the number of bins increases, model performance shows a slow upward trend, but when the number of
+bins becomes excessively large, performance declines instead. This is because overly fine-grained interval partitioning causes each bin to contain only a single value, which
+contradicts the original intention of this parameter setting.
+
+F1
+0.8244
+0.8243
+0.8231
+0.8166
+
+Effect of directional embeddings in the DEGConv module. The method of directly predicting angles and then computing directional embeddings [21] is constrained by the
+lack of supervision, making it difficult to ensure the reliability of the directional embeddings. In contrast, we leverage directional priors to construct the embeddings directly,
+endowing the model with more reasonable geometric interpretability. The results in Table 6 confirm the effectiveness
+of this design.
+
+0.8230
+0.8210
+0.8175
+0.8217
+0.8240
+0.8220
+
+shown in rows 6 - 8 of Table 5, demonstrate that when γ
+deviates from 0.5, the model performance declines to varying degrees, indicating that the default value of γ = 0.5 is a
+reasonable configuration.
+The cell size in the DEGConv module. In crack images,
+the proportion of actual effective crack regions is low and
+background interference is significant. Smaller cell sizes
+are highly sensitive to noise, so we set the default cell size
+to 8 × 8. To verify the rationality of this setting, we additionally designed comparative experiments with two other
+cell sizes (2 × 2 and 4 × 4). As shown in rows 10 - 11 of
+Table 5, smaller cell sizes correspond to the lowest segmentation performance, which fully validates the rationality of
+our default setting.
+The number of bins n in the DEGConv module. The
+number of bins directly affects the granularity of directional
+embedding, with its default set to 180. To validate the rationality of this configuration, we conducted a comparative
+experiment as shown in rows 13 - 16 of Table 5. The results
+
+5. Conclusion
+In this paper, we propose a hybrid model called MixerCSeg for crack segmentation, which comprises three key
+components. First, the TransMixer module fully leverages
+the strengths of Mamba, Transformer, and CNN. It utilizes
+the implicit attention mechanism in Mamba to divide tokens into local and global tokens, naturally combining the
+Transformer and CNN frameworks to capture multi-scale
+crack features efficiently. Secondly, DEGConv enhances
+the representation of crack texture details and morphological characteristics at minimal cost through directional priors
+and a gating mechanism. Finally, the SRF module refines
+low-resolution features using high-resolution information to
+achieve pixel-level crack segmentation. Extensive experimental validation on crack datasets demonstrates that MixerCSeg achieves SOTA performance in crack segmentation
+while requiring lower computational resources.
+8
+
+6. Acknowledgements
+
+Computer Vision and Pattern Recognition Conference, pages
+25261–25270, 2025. 2, 4, 6, 7
+[13] Iason Katsamenis, Eftychios Protopapadakis, Nikolaos
+Bakalos, Andreas Varvarigos, Anastasios Doulamis, Nikolaos Doulamis, and Athanasios Voulodimos. A few-shot attention recurrent residual u-net for crack segmentation. In
+International Symposium on Visual Computing, pages 199–
+209. Springer, 2023. 6
+[14] Kai Li, Jie Yang, Siwei Ma, Bo Wang, Shanshe Wang,
+Yingjie Tian, and Zhiquan Qi. Rethinking lightweight convolutional neural networks for efficient and high-quality pavement crack detection. IEEE Transactions on Intelligent
+Transportation Systems, 25(1):237–250, 2024. 1, 6
+[15] Huajun Liu, Xiangyu Miao, Christoph Mertz, Chengzhong
+Xu, and Hui Kong. Crackformer: Transformer network
+for fine-grained crack detection. In Proceedings of the
+IEEE/CVF international conference on computer vision,
+pages 3783–3792, 2021. 2
+[16] Hui Liu, Chen Jia, Fan Shi, Xu Cheng, and Shengyong Chen.
+Scsegamba: lightweight structure-aware vision mamba for
+crack segmentation in structures. In Proceedings of the
+Computer Vision and Pattern Recognition Conference, pages
+29406–29416, 2025. 2, 6
+[17] Yahui Liu, Jian Yao, Xiaohu Lu, Renping Xie, and Li Li.
+Deepcrack: A deep hierarchical feature learning architecture for crack segmentation. Neurocomputing, 338:139–153,
+2019. 2, 6, 11, 12
+[18] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi
+Xie, Yaowei Wang, Qixiang Ye, Jianbin Jiao, and Yunfan
+Liu. Vmamba: Visual state space model. Advances in neural
+information processing systems, 37:103031–103063, 2024.
+1, 2, 3, 7
+[19] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF international conference on
+computer vision, pages 10012–10022, 2021. 1, 2
+[20] Mengyang Pu, Yaping Huang, Qingji Guan, and Haibin
+Ling. Rindnet: Edge detection for discontinuity in reflectance, illumination, normal and depth. In Proceedings
+of the IEEE/CVF International Conference on Computer Vision (ICCV), pages 6879–6888, 2021. 1, 6
+[21] Yifan Pu, Yiru Wang, Zhuofan Xia, Yizeng Han, Yulin
+Wang, Weihao Gan, Zidong Wang, Shiji Song, and Gao
+Huang. Adaptive rotated convolution for rotated object detection. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), 2023. 8
+[22] Weiming Ren, Wentao Ma, Huan Yang, Cong Wei, Ge
+Zhang, and Wenhu Chen. Vamba: Understanding hourlong videos with hybrid mamba-transformers. arXiv preprint
+arXiv:2503.11579, 2025. 2, 3, 4
+[23] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. Unet: Convolutional networks for biomedical image segmentation. In International Conference on Medical image computing and computer-assisted intervention, pages 234–241.
+Springer, 2015. 1, 6
+[24] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+
+This work is partially supported by the Natural Science
+Foundation of China (Grant Number: 52308457), the Natural Science Foundation of Shandong Province (Grant Number: ZR2023QE220), and the China Postdoctoral Science
+Foundation (Grant Number: 2024M761811).
+
+References
+[1] Ameen Ali Ali, Itamar Zimerman, and Lior Wolf. The hidden attention of mamba models. In Proceedings of the 63rd
+Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 1516–1534, 2025.
+4
+[2] Assaf Ben-Kish, Itamar Zimerman, Shady Abu-Hussein, Nadav Cohen, Amir Globerson, Lior Wolf, and Raja Giryes.
+Decimamba: Exploring the length extrapolation potential of
+mamba. arXiv preprint arXiv:2406.14528, 2024. 4
+[3] Xu Cheng, Tian He, Fan Shi, Meng Zhao, Xiufeng Liu, and
+Shengyong Chen. Selective feature fusion and irregularaware network for pavement crack detection. IEEE Transactions on Intelligent Transportation Systems, 25(5):3445–
+3456, 2023. 2
+[4] Wooram Choi and Young-Jin Cha. Sddnet: Real-time crack
+segmentation. IEEE Transactions on Industrial Electronics,
+67(9):8016–8025, 2019. 2
+[5] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint
+arXiv:2010.11929, 2020. 1, 2, 3
+[6] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. In First conference on language modeling, 2024. 1, 2
+[7] Yubin Gu, Yuan Meng, Kaihang Zheng, Xiaoshuai Sun, Jiayi
+Ji, Weijian Ruan, Liujuan Cao, and Rongrong Ji. An efficient
+and mixed heterogeneous model for image restoration. arXiv
+preprint arXiv:2504.10967, 2025. 2, 3, 6, 7
+[8] Feng Guo, Jian Liu, Chengshun Lv, and Huayang Yu. A
+novel transformer-based network with attention mechanism
+for automatic pavement crack detection. Construction and
+Building Materials, 391:131852, 2023. 2
+[9] Feng Guo, Yu Qian, Jian Liu, and Huayang Yu. Pavement
+crack detection based on transformer network. Automation
+in Construction, 145:104646, 2023. 1
+[10] Jing-Ming Guo, Herleeyandi Markoni, and Jiann-Der Lee.
+Barnet: Boundary aware refinement network for crack detection. IEEE Transactions on Intelligent Transportation Systems, 23(7):7343–7358, 2021. 2
+[11] Chengjia Han, Handuo Yang, and Yaowen Yang. Enhancing pixel-level crack segmentation with visual mamba and
+convolutional networks. Automation in Construction, 168:
+105770, 2024. 2
+[12] Ali Hatamizadeh and Jan Kautz. Mambavision: A hybrid
+mamba-transformer vision backbone. In Proceedings of the
+
+9
+
+Polosukhin. Attention is all you need. Advances in neural
+information processing systems, 30, 2017. 1, 2
+[25] Jin Wang, Zhigao Zeng, Pradip Kumar Sharma, Osama Alfarraj, Amr Tolba, Jianming Zhang, and Lei Wang. Dualpath network combining cnn and transformer for pavement crack segmentation. Automation in Construction, 158:
+105217, 2024. 1, 2
+[26] Chao Xiang, Jingjing Guo, Ran Cao, and Lu Deng. A
+crack-segmentation algorithm fusing transformers and convolutional neural networks for complex detection scenarios.
+Automation in Construction, 152:104894, 2023. 1, 6
+[27] Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar,
+Jose M Alvarez, and Ping Luo. Segformer: Simple and
+efficient design for semantic segmentation with transformers. Advances in neural information processing systems, 34:
+12077–12090, 2021. 7, 12
+[28] Xiongxiao Xu, Yueqing Liang, Baixiang Huang, Zhiling
+Lan, and Kai Shu. Integrating mamba and transformer for
+long-short range time series forecasting. CoRR, 2024. 3
+[29] Fan Yang, Lei Zhang, Sijia Yu, Danil Prokhorov, Xue Mei,
+and Haibin Ling. Feature pyramid and hierarchical boosting
+network for pavement crack detection. IEEE Transactions on
+Intelligent Transportation Systems, 21(4):1525–1535, 2019.
+6, 12
+[30] Zhifan Ye, Kejing Xia, Yonggan Fu, Xin Dong, Jihoon Hong,
+Xiangchi Yuan, Shizhe Diao, Jan Kautz, Pavlo Molchanov,
+and Yingyan Celine Lin. Longmamba: Enhancing mamba’s
+long context capabilities via training-free receptive field enlargement. arXiv preprint arXiv:2504.16053, 2025. 3, 4
+[31] Guijie Zhu, Jiacheng Liu, Zhun Fan, Duan Yuan, Peili Ma,
+Meihua Wang, Weihua Sheng, and Kelvin C. P. Wang. A
+lightweight encoder–decoder network for automatic pavement crack detection. Computer-Aided Civil and Infrastructure Engineering, 39(12):1743–1765, 2024. 6, 11, 12
+[32] Lianghui Zhu, Bencheng Liao, Qian Zhang, Xinlong Wang,
+Wenyu Liu, and Xinggang Wang. Vision mamba: Efficient
+visual representation learning with bidirectional state space
+model. arXiv preprint arXiv:2401.09417, 2024. 2
+[33] Xin Zuo, Yu Sheng, Jifeng Shen, and Yongwei Shan.
+Topology-aware mamba for crack segmentation in structures. Automation in Construction, 168:105845, 2024. 2
+
+10
+
+MixerCSeg: An Efficient Mixer Architecture for Crack Segmentation
+via Decoupled Mamba Attention
+Supplementary Material
+7. Additional Ablation Experiments
+
+we conducted the experiments shown in Table 9. The results demonstrate that each component contributes to the
+improvement of segmentation performance. In particular,
+the DEG operation leads to notable performance gains,
+achieving an mIoU increase of 0.36% and 0.46% on the
+DeepCrack [17] and CamCrack789 [31] datasets, respectively. Although the Rearrange operation alone yields relatively modest improvements, with mIoU gains of 0.24%
+and 0.05% on the two datasets, respectively, it plays a critical role by optimizing the spatial arrangement of features
+through a spatial block approach. This results in a more
+structured feature input, which serves as a solid foundation for the subsequent DEG and Edge Convolution steps,
+thereby contributing to the overall performance enhancement of the module.
+
+7.1. Ablation studies of the TransMixer Module
+To thoroughly investigate the effectiveness of the TransMixer module, we conducted comprehensive ablation experiments focusing on this component. Specifically, we
+evaluated the model performance under three conditions:
+removing the TransMixer module, removing global tokens,
+and removing local tokens. As shown in Table 7, when
+the TransMixer module is removed, the model performance
+decreases by 0.76% and 0.49% on the DeepCrack [17]
+and CamCrack789 [31] datasets, respectively. Similarly,
+models with either the local tokens or the global tokens
+removed also exhibit varying degrees of performance decline. These experimental results validate the effectiveness
+of the TransMixer module, demonstrating that each subcomponent plays a specific and meaningful role.
+Furthermore, we replaced the maxpooling with avgpooling in the Local Refinement module. As shown in Table
+8, compared to avgpooling, maxpooling is more effective in
+enhancing the most critical and salient crack features within
+local regions.
+
+Table 9. The ablation experiment results of DEGConv on the
+DeepCrack and CamCrack789 datasets, including the Rearrange,
+DEG, Edge Convolution, and Gating operations.
+
+Table 7. Experimental results of decoding global tokens and local tokens in the TransMixer module on the DeepCrack and CamCrack789 datasets.
+Local
+
+Global
+
+✓
+✓
+
+✓
+✓
+
+mIoU
+0.9082
+0.9120
+0.9136
+0.9151
+
+DeepCrack
+ODS
+OIS
+0.9009 0.9054
+0.9057 0.9138
+0.9079 0.9169
+0.9094 0.9197
+
+F1
+0.9155
+0.9206
+0.9204
+0.9205
+
+mIoU
+0.8368
+0.8382
+0.8384
+0.8409
+
+CamCrack789
+ODS
+OIS
+0.8057 0.8158
+0.8081 0.8179
+0.8076 0.8200
+0.8115 0.8202
+
+Avgpooling
+Maxpooling
+
+mIoU
+0.9147
+0.9151
+
+DeepCrack
+ODS
+OIS
+0.9089 0.9192
+0.9094 0.9197
+
+F1
+0.9140
+0.9205
+
+mIoU
+0.8399
+0.8409
+
+CamCrack789
+ODS
+OIS
+0.8100 0.8227
+0.8115 0.8202
+
+DEG
+
+EdgeConv
+
+Gating
+
+✓
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+✓
+
+✓
+
+mIoU
+0.9052
+0.9074
+0.9107
+0.9132
+0.9151
+
+DeepCrack
+ODS
+OIS
+0.8980 0.9042
+0.9004 0.9127
+0.9044 0.9143
+0.9072 0.9125
+0.9094 0.9197
+
+F1
+0.9052
+0.9130
+0.9174
+0.9205
+0.9205
+
+mIoU
+0.8334
+0.8338
+0.8376
+0.8398
+0.8409
+
+CamCrack789
+ODS
+OIS
+0.8008 0.8122
+0.8009 0.8079
+0.8065 0.8237
+0.8092 0.8193
+0.8115 0.8202
+
+F1
+0.8114
+0.8162
+0.8252
+0.8254
+0.8244
+
+7.3. Impact of Layer Depth
+In the design of the MixerCSeg network architecture, the
+depth of each TransMixer block is set to 1 to balance computational resources and performance. We quantitatively
+analyzed the impact of block depth on model performance
+through controlled experiments in Table 10. While keeping
+other parameters constant, we tested configuration schemes
+with TransMixer block depths of 2, 4, and 6 layers, respectively. The experimental results show that when the depth of
+each layer is set to 1, the model demonstrates optimal segmentation performance with lower computational resource
+consumption. In comparison, when the network depth is
+increased to 2 layers, the model’s computational load is
+3.51 GFLOPs, the number of parameters is 4.76 M, and the
+memory usage is 1550 MiB. These values represent an increase of 71.2% in computation, 87.4% in parameters, and
+30.2% in memory usage. However, since crack segmentation tasks are highly dependent on local fine-grained features such as pixel-level crack morphology and topological
+continuity, the finer details in deeper networks may gradually become blurred through multiple layers of propagation.
+This can lead to issues such as over-smoothing at edges.
+
+F1
+0.8252
+0.8247
+0.8275
+0.8244
+
+Table 8. Experimental results of different pooling operations in the
+Local Refinement Module on the DeepCrack and CamCrack789
+Datasets.
+Methods
+
+Rearrange
+
+F1
+0.8273
+0.8244
+
+7.2. Ablation studies of the DEGConv Module
+In Section 3.4, the DEGConv module consists of four components: Rearrange, DEG (Directional Embedding Generation), Edge Convolution, and Gating. To systematically
+evaluate the necessity and contribution of each component,
+11
+
+Table 10. Experiments on different layer depths on the DeepCrack and CamCrack789 Datasets.
+
+Depth
+
+FLOPs (G)
+
+Params (M)
+
+Memory (MiB)
+
+1
+2
+4
+6
+
+2.05
+3.51
+6.42
+9.33
+
+2.54
+4.76
+9.20
+13.63
+
+1190
+1550
+2080
+3818
+
+mIoU
+0.9151
+0.9141
+0.9126
+0.9073
+
+DeepCrack
+ODS
+OIS
+0.9094 0.9197
+0.9084 0.9213
+0.9065 0.9166
+0.9004 0.9127
+
+F1
+0.9205
+0.9071
+0.9173
+0.9130
+
+mIoU
+0.8409
+0.8381
+0.8375
+0.8336
+
+CamCrack789
+ODS
+OIS
+0.8115 0.8202
+0.8069 0.8222
+0.8065 0.8237
+0.8005 0.8134
+
+F1
+0.8244
+0.8208
+0.8252
+0.8203
+
+In addition, the difficulty of parameter optimization significantly increases, resulting in degraded performance. Therefore, setting the depth of each TransMixer block to 1 not
+only ensures the accuracy of crack segmentation but also
+effectively controls model complexity, providing feasibility
+for deployment on edge devices.
+
+7.4. Impact of the number of bins on the Crack500
+
+Figure 5. Representative crack images from the Crack500 dataset.
+
+In Section 4.2 of the experimental part, we mentioned that
+the number of bins n was set to 36 rather than 180 on the
+Crack500 dataset. To systematically investigate the influence of this parameter, we conducted detailed ablation experiments on the Crack500 [29] dataset, as shown in Table
+11, evaluating the model performance with nset to 9, 18, 36,
+90, and 180, respectively. The experimental results indicate
+that the model achieves the best performance when n = 36.
+
+8. Qualitative Analysis of SRF Module
+In the component ablation experiments presented in Table
+3, after replacing the decoder of SegFormer [27] with the
+SRF module, the model’s computational cost decreased by
+89.3%, the number of parameters was reduced by 33.8%,
+and GPU memory usage dropped by 67.2%. Meanwhile,
+on two crack segmentation benchmark datasets, DeepCrack
+[17] and CamCrack789 [31], the mIoU achieved improvements of 0.59% and 0.32%, respectively.
+To gain a deeper insight into the underlying mechanism
+of this performance gain, we conducted visual analyses
+on both the original and SRF-processed multi-scale feature maps. As illustrated in Figure 6, after being processed
+by the SRF module, the semantic discriminability between
+crack regions and background in feature maps across various scales was significantly enhanced. The raw F4′ only exhibited weak texture responses; however, after refinement
+by F1′ , the activation values in crack regions were substantially strengthened, forming clearer semantic boundaries.
+This improvement provides more discriminative cues for
+the segmentation head. Additionally, the alignment capability of the optimized features with high-resolution details
+was enhanced, effectively alleviating the issue of insufficient fusion between high-level semantics and low-level details in the decoder. Ultimately, these enhancements contributed to the improvement in segmentation accuracy.
+
+To further explore the intrinsic causes of this phenomenon, we conducted a detailed observation of the crack
+morphologies in the Crack500 dataset. As shown in Figure 5, most cracks are characterized by large width and
+small curvature with significant background noise interference, while a few cracks (the last one) face the challenge
+of complex topological structures, and the ratio of the two
+types is close to 15:1. This observation is consistent with
+the phenomenon that the optimal performance is achieved
+when n = 36. A moderate n can not only effectively capture the features of cracks with gentle curvature but also
+maintain good representation ability for wide cracks, and is
+also capable of handling a small proportion of morphologically complex cracks.
+Table 11. Ablation studies of the number of bins n on the
+Crack500 dataset.
+
+n
+9
+18
+36
+90
+180
+
+mIoU
+0.7805
+0.7814
+0.7824
+0.7813
+0.7774
+
+ODS
+0.7269
+0.7273
+0.7281
+0.7264
+0.7212
+
+OIS
+0.7467
+0.7441
+0.7483
+0.7455
+0.7409
+
+F1
+0.7575
+0.7631
+0.7755
+0.7692
+0.7592
+
+12
+
+Layer 3
+
+Layer 4
+
+Layer 2
+
+Layer 3
+
+Layer 4
+
+SRF
+
+Original
+
+SRF
+
+Original
+
+SRF
+
+Original
+
+SRF
+
+Original
+
+Layer 2
+
+Figure 6. Visual comparison results of multi-scale features before and after SRF module processing. The distinction between cracks and
+the background is more prominent, and more notably, the crack features in the layer 4 have been significantly enhanced.
+
+13
+
+

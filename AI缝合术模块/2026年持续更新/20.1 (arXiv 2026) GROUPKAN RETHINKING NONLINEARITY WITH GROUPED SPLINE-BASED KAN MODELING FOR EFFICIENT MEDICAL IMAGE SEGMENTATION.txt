@@ -1,0 +1,1016 @@
+G ROUP KAN: R ETHINKING N ONLINEARITY WITH G ROUPED
+S PLINE - BASED KAN M ODELING FOR E FFICIENT M EDICAL
+I MAGE S EGMENTATION
+
+arXiv:2511.05477v1 [cs.CV] 7 Nov 2025
+
+Guojie Li
+School of Robotics, Xi’an Jiaotong-Liverpool University
+Suzhou, Jiangsu 215000, China
+Department of Computer Science, University of Liverpool, Liverpool L69 3BX, UK
+Anwar P.P. Abdul Majeed
+School of Robotics, Xi’an Jiaotong-Liverpool University, Suzhou, Jiangsu 215000, China
+Faculty of Engineering and Technology, Sunway University, Selangor Darul Ehsan 47500, Malaysia
+Muhammad Ateeq
+School of Internet of Things, Xi’an Jiaotong-Liverpool University
+Suzhou, Jiangsu 215000, China
+Anh Nguyen
+Department of Computer Science, University of Liverpool
+Liverpool L69 3BX, United Kingdom
+Fan Zhang∗
+School of Robotics, Xi’an Jiaotong-Liverpool University
+Suzhou, Jiangsu 215000, China
+
+A BSTRACT
+Medical image segmentation requires models that are accurate, lightweight, and interpretable. Convolutional architectures lack adaptive nonlinearity and transparent decision-making, whereas Transformer architectures are hindered by quadratic complexity and opaque attention mechanisms. U-KAN
+addresses these challenges using Kolmogorov-Arnold Networks, achieving higher accuracy than
+both convolutional and attention-based methods, fewer parameters than Transformer variants, and
+improved interpretability compared to conventional approaches. However, its O(C 2 ) complexity
+due to full-channel transformations limits its scalability as the number of channels increases. To
+overcome this, we introduce GroupKAN, a lightweight segmentation network that incorporates two
+novel, structured functional modules: (1) Grouped KAN Transform, which partitions channels into
+G groups for multivariate spline mappings, reducing complexity to O(C 2 /G), and (2) Grouped
+KAN Activation, which applies shared spline-based mappings within each channel group for efficient, token-wise nonlinearity. Evaluated on three medical benchmarks (BUSI, GlaS, and CVC),
+GroupKAN achieves an average IoU of 79.80%, surpassing U-KAN by +1.11% while requiring only
+47.6% of the parameters (3.02M vs 6.35M), and shows improved interpretability. Code available at:
+https://github.com/liguojie09/GroupKAN
+Keywords Computer Vision · Medical Image Segmentation · Kolmogorov-Arnold Networks ·
+∗
+
+Corresponding author: Fan.Zhang@xjtlu.edu.cn
+
+Running Title for Header
+
+#Param, IoU
+U-KAN
+
+78
+
+Average IoU (%)
+
+Efficiency Frontier
+
+GroupKAN (Ours)
+
+80
+
+76
+
+Models
+U-Net
+Att-Unet
+U-Net++
+U-NeXt
+Rolling-UNet
+U-Mamba
+U-KAN
+GroupKAN (Ours)
+
+74
+
+72
+1
+
+10
+
+Number of Parameters (M)
+
+100
+
+Figure 1: Accuracy–complexity trade-off in medical segmentation: IoU (%) vs. number of parameters (M) among
+common backbone models. Marker size reflects each model’s computational cost, with areas proportional to their
+GFLOPs. The dashed line indicates the efficiency frontier. Our GroupKAN (red circle) improves IoU by 1.11% over
+U-KAN, with 47.6% of U-KAN’s parameters.
+
+1
+
+Introduction
+
+Medical image segmentation is critical for clinical diagnosis and treatment planning [1, 2], yet existing deep learning
+models struggle to balance accuracy, compactness, and interpretability under real-world clinical constraints [3, 4, 5].
+Although existing methods yield accurate segmentation results, their high computational cost and opaque decision
+processes hinder deployment in real-world, resource-limited medical environments.
+Convolutional neural networks, such as U-Net [6], have long served as the backbone of medical image segmentation
+systems due to their strong inductive biases, which help generalization in data-limited regimes. However, their limited
+expressiveness and lack of adaptive nonlinearity hinder their ability to model complex structures, motivating the need
+for more flexible and interpretable alternatives [7, 8]. In contrast, Transformer-based methods abandon local inductive
+biases in favor of global self-attention, enabling long-range context modeling but suffering from quadratic complexity
+and data inefficiency [9, 10, 11]. More recent models such as Mamba [12] leverage state-space formulations to model
+long-range dependencies with linear-time complexity. However, their architectural complexity and limited application
+to dense prediction tasks restrict their effectiveness in segmentation scenarios.
+To enhance interpretability, U-KAN [13] integrates Kolmogorov-Arnold Networks (KANs) [14] via full-channel spline
+transformations applied across feature dimensions. While improving segmentation accuracy and interpretability, this
+design incurs a parameter complexity of O(C 2 ), resulting in quadratic growth in model size as the channel dimension
+increases, which poses challenges for scalability and deployment in resource-limited settings.
+To address these limitations, we propose GroupKAN, a lightweight architecture consisting of two key innovations: (1)
+Grouped KAN Transform (GKT), which partitions channels into G independent groups and applies group-specific spline
+operators within each group to model channel-wise interactions. This structured design reduces the transformation’s
+parameter complexity from O(C 2 ) to O(C 2 /G), significantly lowering model size while preserving representational
+capacity; (2) Grouped KAN Activation (GKA), a novel spline-based pointwise nonlinearity where all channels in the
+same group share the same spline function. This promotes interpretability by enabling structured per-token activations
+while maintaining functional diversity across groups.
+GroupKAN revisits functional modeling by integrating group-aware spline operations into a lightweight architecture, achieving simultaneous improvements in interpretability, lightweight design, and accuracy for medical image
+segmentation. (see Fig. 1). Specifically, our contributions are:
+2
+
+Running Title for Header
+
+• We propose GroupKAN, a lightweight backbone for medical image segmentation that integrates group-aware
+spline modeling. GroupKAN employs Kolmogorov–Arnold Networks to jointly model token-level activations
+and channel-wise transformations, unifying these processes in an interpretable and compact framework.
+• We propose Grouped KAN Transform (GKT), a computationally efficient operator that performs multivariate
+spline mappings within channel groups. This reduces parameter complexity from O(C 2 ) to O(C 2 /G), while
+maintaining the ability to model rich inter-channel dependencies.
+• We propose Grouped KAN Activation (GKA), a spline-based nonlinearity that applies shared univariate
+functions within channel groups after patch embedding. This design enables parameter-efficient token-wise
+activations.
+• We validate GroupKAN on three medical segmentation benchmarks (BUSI, GlaS, and CVC), where it achieves
+an average IoU improvement of 1.11% over U-KAN with only 3.02M parameters, delivering both quantitative
+and qualitative gains as well as more interpretable predictions.
+
+2
+
+Related Work
+
+2.1
+
+Architectures for Medical Segmentation
+
+U-shaped architectures, exemplified by U-Net [6], are widely used as backbones for medical image segmentation due to
+their symmetric encoder-decoder structure and skip connections that support multi-scale feature fusion. Numerous
+extensions have since improved upon this design by enhancing skip pathways [15, 16], incorporating attention
+mechanisms [17, 18, 19], and updating convolutional components [20].
+More recently, lightweight architectures such as Rolling U-Net [21] combine convolutional encoders with MLPinspired modules to improve long-range dependency modeling while maintaining efficiency. In parallel, models like
+U-Mamba [22] incorporate Mamba-style sequence modeling to enhance global representation learning. However,
+most existing efforts concentrate on architectural modifications, leaving nonlinear transformation design relatively
+underexplored.
+2.2
+
+Kolmogorov Arnold Networks and Functional Modeling
+
+KANs [14] approximate functions via learnable spline compositions, offering strong interpretability and expressivity
+with fewer parameters. U-KAN [13] introduces functional activations into U-shaped networks by inserting splinebased KAN modules, achieving strong results in both segmentation and generation. However, its global channel-wise
+mappings incur high parameter and compute cost, especially as channel dimensions grow. This highlights the need for
+more efficient functional modeling.
+Recent works have explored convolutional KANs [23, 24], replacing linear convolution kernels with spline-based
+nonlinear filters to improve representational capacity and accuracy. However, these approaches often introduce
+substantial parameter and compute overhead and lack structured group-wise design. Consequently, the potential of
+group-aware spline transformations for parameter-efficient segmentation remains underexplored.
+2.3
+
+Nonlinear Activations
+
+Standard activation functions such as ReLU [25] and GELU [26] are computationally efficient but fixed, which may
+limit the nonlinear modeling capacity of deep networks. To improve flexibility, recent works have introduced learnable
+alternatives. Truncated Ensemble Linear Unit (TeLU) [27] formulates activations as trainable combinations of truncated
+ReLUs, enabling bounded and smooth transitions. Gompertz Linear Unit (GoLU) [28] introduces an asymmetric
+activation based on the Gompertz function, defined as f (x) = x Gompertz(x), which enhances gradient flow for
+positive inputs while smoothly suppressing negatives. GoLU leverages this inherent asymmetry to improve learning
+dynamics and convergence stability in deep networks. In parallel, architectural studies suggest that inserting nonlinear
+activations immediately after patch embedding enhances early-stage representational capacity. Notably, CvT [29]
+and PVTv2 [30] empirically demonstrate that post-projection activations (e.g., GELU) benefit dense prediction tasks.
+However, these activations are applied independently per neuron and lack awareness of spatial or channel-level structure.
+
+3
+
+Method
+
+Fig. 2 presents the overall architecture of GroupKAN, a lightweight network tailored for medical image segmentation.
+The design adopts a symmetric encoder-decoder structure, where the encoder comprises three convolutional stages
+3
+
+Conv
+H W
+  C1
+8 8
+
+Conv
+
+H W C1
+ 
+4 4 4
+
+Conv
+
+H W C1
+ 
+2 2 8
+
+Conv
+
+H  W  C0
+
+Conv
+
+Conv
+
+Running Title for Header
+
+Group
+ToK-KAN
+H W
+  C2
+16 16
+
+Group
+ToK-KAN
+
+Group
+ToK-KAN
+
+Group
+ToK-KAN
+
+H W
+  C3
+32 32
+
+H W
+  C3
+32 32
+
+H W
+  C2
+16 16
+
+H W C1
+ 
+2 2 8
+
+H  W  C0
+
+H W C1
+ 
+4 4 4
+
+H W
+  C1
+8 8
+
+Down / Up sample
+Skip Connection
+
+Figure 2: Overview of the GroupKAN pipeline. The encoder extracts features through convolutional blocks. In the
+bottleneck, each Group ToK-KAN block applies patch embedding and Grouped KAN Activation, followed by N
+repeated Grouped KAN Transforms with pointwise and depthwise convolutions. The decoder mirrors the encoder with
+upsampling and skip connections to produce the final segmentation map.
+
+with output channel dimensions of C1 /8, C1 /4, and C1 . Each stage progressively halves the spatial resolution while
+capturing increasingly abstract features.
+Following the convolutional encoder, feature maps are processed by a series of Grouped Tokenized KAN (Group
+ToK-KAN) blocks. Each block begins with a patch embedding that reshapes the spatial feature maps into B × N × C
+tokens, where C denotes the channel dimension. A Grouped KAN Activation is then applied by splitting the C
+channels into G groups and applying shared spline-based univariate activations within each group, enabling learnable
+and efficient token-level nonlinearities. This is followed by a Grouped KAN Transform, iterated for N steps, where
+each iteration uses group-wise fully connected KAN layers to transform intra-group channel features, alongside
+pointwise and depthwise convolutions to support cross-group communication and spatial interaction. Two ToK-KAN
+blocks are used in the bottleneck stage, operating at intermediate channel dimensions C2 and C3 .
+The decoder mirrors the encoder structure, progressively upsampling and refining features through convolutional
+blocks. Skip connections from the encoder facilitate multi-scale information fusion. Decoding stages operate on
+channel dimensions C3 , C2 , C1 , C1 /4, and C1 /8, and the final output is projected to the segmentation map via a 1 × 1
+convolution.
+3.1
+
+KAN as Interpretable Functional Modules
+
+Kolmogorov–Arnold Networks (KANs) [14] reformulate neural computation by replacing fixed-weight projections
+and static activations with learnable univariate spline functions. This design is inspired by the Kolmogorov–Arnold
+representation theorem [31], which states that any multivariate function can be decomposed into a finite sum of
+univariate functions and addition. By decoupling transformation and nonlinearity, KANs provide a unified functional
+modeling paradigm with enhanced expressivity and interpretability.
+Each KAN layer applies a matrix of trainable spline-based operators Φk to the input:
+Zk+1 = Φk Zk ,
+
+(1)
+
+where each ϕq,p : R → R is a learnable univariate spline. This formulation enables compact and interpretable
+representations with strong functional fidelity, offering a compelling alternative to traditional MLPs, particularly for
+dense prediction tasks such as medical image segmentation.
+In our framework, KAN fulfills two complementary roles: (1) Grouped KAN Transform (GKT), where structured
+spline mappings are applied within channel groups to model inter-channel dependencies; and (2) Grouped KAN
+Activation (GKA), where grouped univariate spline functions modulate patch embeddings to enhance token-wise
+representation. These roles reflect our architectural strategy and enable GroupKAN to effectively replace MLP and
+attention modules within segmentation networks, yielding both interpretability and a lightweight design.
+4
+
+Running Title for Header
+
+…
+
+Group G
+
+}
+
+…
+
+Flatten
+
+Group 3 Reshape
+
+} } }
+
+Split
+
+ ( g ) (1 1)
+
+Stack
+
+Reshape
+
+Token-wise
+Activation
+
+Group 2
+
+Concat
+
+Group 1
+
+T   B N C
+
+T (g)  
+
+B N Cg
+
+( B N )Cg
+T ( g )  
+
+t (j g )   ( B N )1
+
+t j( g )   g , j (t (j g ) )
+
+( B  N )C g
+T ( g )  
+
+T ( g )  
+
+B N C g
+
+T    B N C
+
+Figure 3: Illustration of Grouped KAN Activation. Given token embeddings T ∈ RB×N ×C , we split the channel
+dimension into G groups, each reshaped to (B · N ) × Cg . A 1D KAN function Φ(g) is then applied independently to
+each scalar dimension in every group. The outputs are reshaped and concatenated to yield the activated representation
+T ′ ∈ RB×N ×C .
+
+… Group G
+
+}
+
+…
+ ( g ) (C g  C g )
+
+Group 3 Reshape
+
+} } }
+
+Split
+
+Concat
+
+Reshape
+
+Channel-wise
+Transformation
+
+Group 2
+Group 1
+
+X 
+
+B N C
+
+X
+
+(g)
+
+
+
+B N Cg
+
+( B N )Cg
+X ( g )  
+
+( B N )C g
+X ( g )  
+
+X ( g )  
+
+B N C g
+
+Z   B N C
+
+Figure 4: Illustration of Grouped KAN Transform. The input feature X ∈ RB×N ×C is divided into G groups along
+the channel dimension. Each group is reshaped to (B · N ) × Cg and passed through a nonlinear transformation Φ(g)
+with learnable mappings of size Cg × Cg . The transformed outputs are reshaped and concatenated to form the output
+Z ∈ RB×N ×C .
+
+3.2
+
+Group Tokenized KAN
+
+To initiate the Group Tokenized KAN phase, we first convert 2D feature maps into a sequence of patch tokens. A 3×3
+′
+′
+convolution with stride 2 is applied to the input X ∈ RB×C0 ×H×W , yielding intermediate features F ∈ RB×C×H ×W .
+B×N ×C
+′
+′
+These are reshaped into a token sequence T ∈ R
+, where N = H · W . We retain the convolution-based
+embedding strategy from U-KAN [13], which encodes local and positional priors via receptive fields, and demonstrates
+greater robustness to input resolution variations compared to flatten-then-project alternatives.
+
+3.2.1
+
+Grouped KAN Activation (GKA).
+
+To enhance token-level expressiveness, we introduce a GKA module after patch embedding (see Fig. 3). Given the
+input sequence T ∈ RB×N ×C , we divide the channel dimension into G groups of size Cg = C/G, yielding group-wise
+features T (g) ∈ RB×N ×Cg .
+Each group is reshaped to a 2D matrix T̃ (g) ∈ R(B·N )×Cg . Then, as shown in the Flatten step, we extract each
+(g)
+scalar feature as a column vector tj ∈ R(B·N )×1 , and apply a token-wise 1D spline function ϕg,j (·) to obtain
+′(g)
+
+tj
+
+(g)
+
+= ϕg,j (tj ).
+
+This operation corresponds to a diagonal variant of Eq. 1, where each Φ(g) comprises Cg independent (1 × 1) operators.
+The Stack operation then reconstructs the group as T̃ ′(g) ∈ R(B·N )×Cg , which is reshaped to T ′(g) ∈ RB×N ×Cg . All
+group outputs are finally concatenated to yield the activated sequence T ′ ∈ RB×N ×C .
+In contrast to conventional activations (e.g., ReLU or GELU) applied after early convolutions, our token-wise spline
+nonlinearity allows structured, group-aware transformation at the embedding level, improving token-level flexibility
+and expressiveness.
+5
+
+Running Title for Header
+
+Methods
+
+BUSI [32]
+
+U-Net (Ronneberger et al. 2015)
+Att-Unet [17]
+U-Net++ [15]
+U-NeXt [20]
+Rolling-UNet [21]
+U-Mamba [22]
+U-KAN [13]
+GroupKAN (Ours)
+
+GlaS [33]
+
+CVC [34]
+
+IoU↑
+
+F1↑
+
+IoU↑
+
+F1↑
+
+IoU↑
+
+F1↑
+
+57.36±4.61
+57.62±3.93
+58.25±3.58
+58.27±1.56
+60.23±1.23
+61.79±3.54
+63.41±2.67
+65.18±2.73
+
+72.41±3.37
+72.77±3.14
+73.23±2.76
+73.38±1.77
+75.05±1.65
+76.13±3.27
+76.51±2.88
+78.22±2.72
+
+86.51±1.13
+86.67±1.25
+87.13±0.82
+83.64±1.02
+86.53±0.87
+87.08±0.52
+87.51±0.39
+87.91±0.36
+
+92.68±0.82
+92.77±0.77
+93.02±0.47
+90.98±0.52
+92.50±0.74
+93.11±0.37
+93.29±0.18
+93.66±0.19
+
+83.66±1.03
+84.39±0.68
+84.57±1.33
+75.62±1.08
+83.12±1.38
+84.88±0.63
+85.14±0.67
+86.31±0.73
+
+91.02±0.87
+91.52±0.34
+91.66±0.97
+86.21±0.87
+90.79±1.12
+91.74±0.44
+91.99±0.36
+92.35±0.64
+
+Table 1: Quantitative segmentation results on BUSI, GlaS, and CVC-ClinicDB. GroupKAN consistently achieves the
+best IoU and F1 scores, outperforming convolution-based, attention-based, and function-based baselines.
+3.2.2
+
+Grouped KAN Transform (GKT).
+
+GKT extends the design of Grouped KAN Activation (GKA) from 1×1 token-wise activation to structured Cg →Cg
+channel transformations. While both modules adopt a group-wise spline framework (see Fig. 3 and Fig. 4), GKT
+enables richer intra-group modeling by applying full spline matrices within each group.
+Given input X ∈ RB×N ×C , we divide the channel dimension into G groups of size Cg = C/G, yielding X (g) ∈
+RB×N ×Cg . Each group is reshaped into X̃ (g) ∈ R(B·N )×Cg and passed through a learnable nonlinear mapping:
+X̃ ′(g) = Φ(g) (X̃ (g) ),
+
+(g)
+
+(g)
+
+Φ(g) = [ϕ1 , . . . , ϕCg ],
+
+(2)
+
+(g)
+
+where each ϕj : R → R is a spline-based function, forming a Cg → Cg transformation per group. The outputs are
+′(g)
+reshaped to X ′(g) ∈ RB×N ×Cg and concatenated as Z = ConcatG
+∈ RB×N ×C .
+g=1 X
+To facilitate cross-group communication and spatial interaction, we apply a pointwise convolution followed by
+nonlinearity and depthwise convolution:
+Y = DWConv(σ(PWConv(Z))).
+
+(3)
+
+This process is repeated N times within each Group ToK-KAN block to progressively enrich channel-wise features.
+Compared to a standard full-channel KAN with O(C 2 ) complexity, the grouped variant reduces the cost to O(C 2 /G)
+while maintaining expressive power within groups.
+To stabilize optimization and retain identity mapping, we apply a residual connection and LayerNorm:
+Ŷ = Y + X,
+
+Output = LayerNorm(Ŷ ).
+
+(4)
+
+The resulting output is forwarded to the next transformation stage.
+
+4
+
+Experiments
+
+4.1
+
+Datasets
+
+To ensure fair comparison with prior work, we evaluate GroupKAN on the same datasets used in U-KAN [13], including
+BUSI, GlaS, and CVC-ClinicDB. These benchmarks span diverse medical imaging modalities, covering ultrasound,
+histopathology, and colonoscopy segmentation tasks.
+BUSI [32] contains 780 breast ultrasound images annotated for tumor segmentation across benign, malignant, and
+normal cases. The dataset exhibits strong speckle noise and low contrast. All images are resized to 256 × 256.
+GlaS [33] consists of 245 histology images for colorectal gland segmentation. It features high glandular variability and
+structural deformation, particularly between benign and malignant samples. Images are resized to 512 × 512.
+CVC-ClinicDB [34] contains 612 colonoscopy frames with pixel-level polyp annotations. It involves significant
+illumination changes and scale variation. Images are resized to 256 × 256.
+6
+
+Running Title for Header
+
+Methods
+
+U-Net [6]
+Att-Unet [17]
+U-Net++ [15]
+U-NeXt [20]
+Rolling-UNet [21]
+U-Mamba [22]
+U-KAN [13]
+GroupKAN (Ours)
+
+Average Seg.
+IoU↑
+
+F1↑
+
+75.84±2.26
+76.23±1.95
+76.65±1.91
+72.51±1.22
+76.63±1.16
+77.92±1.56
+78.69±1.24
+79.80±1.27
+
+85.37±1.69
+85.69±1.42
+85.97±1.40
+83.52±1.05
+86.11±1.17
+87.00±1.36
+87.26±1.14
+88.07±1.19
+
+Efficiency
+Gflops Params (M)
+436.94
+531.78
+1109
+4.58
+16.82
+2087
+14.02
+7.72
+
+31.04
+34.9
+36.6
+1.47
+1.78
+86.3
+6.35
+3.02
+
+Table 2: Average segmentation performance and model complexity on BUSI, GlaS, and CVC-ClinicDB. GroupKAN
+achieves higher IoU and F1 than established backbone models while maintaining a notably lower parameter count and
+FLOPs to U-KAN.
+4.2
+
+Implementation Details
+
+All experiments were conducted using PyTorch on a single NVIDIA RTX 3090 GPU. To ensure fair comparisons, we
+followed the same experimental settings as U-KAN [13], including random seed initialization and evaluation protocol.
+For all datasets, the model was trained for 400 epochs with a batch size of 8 using the Adam optimizer, initialized
+at a learning rate of 1 × 10−4 and scheduled by cosine annealing to 1 × 10−5 . The loss function combines binary
+cross-entropy (BCE) and Dice loss to balance pixel-wise accuracy and region overlap. Standard data augmentations,
+including random rotation and flipping, were applied during training. Each dataset was randomly split into 80% training
+and 20% validation. To ensure robustness, Tab.1 and Tab.2 report results averaged over three independent runs with
+different random seeds (including data splits), while Tab.3–Tab.8 present single-run results obtained under a fixed seed
+to isolate the effect of each ablation. All FLOPs were measured on an input resolution of 512 × 512 to ensure consistent
+computational efficiency comparison across models. All experiments were conducted under this unified configuration.
+4.3
+
+Comparison with Common Segmentation Backbones
+
+Tab. 1 compares GroupKAN with several established segmentation backbones on three benchmark datasets. We
+evaluate against convolution-based models (U-Net [6], U-Net++ [15]), attention-based approaches (Att-Unet [17],
+U-Mamba [22]), and MLP-style architectures (U-NeXt [20], Rolling-UNet [21]). U-KAN [13] is included as our
+primary baseline. GroupKAN achieves the highest performance in terms of both Intersection over Union (IoU) and
+F1 score across all datasets, demonstrating superior segmentation accuracy. As shown in Tab. 2, it also maintains a
+lightweight structure with fewer parameters and lower FLOPs than U-KAN (3.02M vs. 6.35M; 7.72 vs. 14.02 GFLOPs),
+while achieving a +1.11% improvement in IoU.
+Qualitative results in Fig. 5 highlight GroupKAN’s ability to produce precise segmentation boundaries and preserve
+fine structural details. Compared to U-KAN and other baselines, GroupKAN more effectively handles both overand under-segmentation, delivering improved delineation of complex anatomical regions. These visual results further
+reinforce GroupKAN’s effectiveness, demonstrating that GroupKAN serves as a strong backbone for medical image
+segmentation with a balanced trade-off between accuracy and efficiency.
+To further validate the reliability of the observed performance gains, we conducted a one-sided Wilcoxon signed-rank
+test [35] over three independent runs across the BUSI, GlaS, and CVC datasets (n = 9 pairs). GroupKAN achieved
+significantly higher Intersection-over-Union (IoU) (W = 39.0, p = 0.027) and F1-score (W = 45.0, p = 0.002) than
+U-KAN, confirming that the improvements are statistically significant at the p < 0.05 level. This analysis further
+substantiates that GroupKAN’s performance gains are consistent and not due to random initialization or data split
+variations.
+4.4
+4.4.1
+
+Ablation Studies
+The Number of GKT Layer.
+
+We assess the impact of GKT layer depth on segmentation performance. As shown in Tab. 3, the 3-layer configuration
+yields the highest IoU and F1, surpassing deeper variants. While increasing the number of GKT layers adds parameters
+7
+
+Running Title for Header
+
+Figure 5: Qualitative comparison of segmentation results on BUSI, GlaS, and CVC-ClinicDB. GroupKAN produces
+more accurate and consistent masks across heterogeneous medical imaging modalities, closely aligning with the ground
+truth.
+(up to 3.47M for 5 layers), it does not translate into better accuracy, likely due to overfitting or optimization instability.
+The 3-layer setup, with 3.02M parameters, achieves the best trade-off between accuracy and model complexity.
+#GKT
+
+IoU↑
+
+F1↑
+
+Params(M)
+
+1 Layer 60.63 75.28
+2.56
+2 Layer 63.13 77.12
+2.79
+3 Layer 67.66 80.52
+3.02
+4 Layer 65.99 79.60
+3.24
+3.47
+5 Layer 65.95 79.51
+Table 3: Ablation study on the number of GKT layers in GroupKAN. The 3-layer variant achieves the highest IoU and
+F1 scores with moderate parameter overhead.
+
+4.4.2
+
+Impact of GKT vs. MLP.
+
+We compare GKT- and MLP-based configurations, as shown in Table 4. The 3-layer GKT variant yields the highest IoU
+and F1 scores with moderate parameter count. Mixed configurations (e.g., MLP+GKT+GKT and GKT+MLP+GKT)
+exhibit slight drops in accuracy but still outperform the pure MLP baseline. Notably, the MLP×3 setup performs worst
+despite having more parameters. These results underscore the importance of GKT layers in enhancing segmentation
+accuracy while preserving model efficiency.
+Model
+
+IoU↑
+
+F1↑
+
+Params(M)
+
+GKT×3
+67.66 80.52
+3.02
+MLP+GKT+GKT 66.12 78.93
+3.08
+GKT+MLP+GKT 65.81 78.58
+3.08
+GKT+GKT+MLP 65.94 78.62
+3.08
+MLP×3
+63.96 77.55
+3.17
+Table 4: Ablation study on the performance comparison between GKT and MLP models.
+
+4.4.3
+
+Hyperparameter Configurations.
+
+We explore how IoU varies with parameter count under different hyperparameter settings, defined by GGKA (groups in
+Grouped KAN Activation) and GGKT (groups in Grouped KAN Transform), as shown in Fig. 6. The 3D plot visualizes
+each configuration using bubble size (parameters) and color (IoU), with dashed lines projecting points to the base plane
+at Z = 62. Among all combinations, the 16 × 16 setting, marked with a red star, achieves the highest IoU (67.66),
+8
+
+Running Title for Header
+
+Figure 6: 3D visualization of IoU and parameter count across GGKA and GGKT configurations. Bubble size indicates
+model size (M), color represents IoU, and the red star marks the optimal setting.
+balancing segmentation accuracy and model complexity. Notably, overly coarse or overly fine groupings degrade
+performance, indicating the necessity of tuning group granularity. These results highlight the sensitivity of grouped
+configurations and their central role in optimizing model design.
+4.4.4
+
+Model Scaling.
+
+We investigate model scaling by varying the channel dimensions C1 , C2 , and C3 in GroupKAN (see Table 5). Larger
+models consistently yield higher IoU and F1, at the cost of increased parameters and computation. The default
+GroupKAN configuration achieves a strong balance between performance and efficiency, while GroupKAN-S provides
+a lightweight alternative with only minor accuracy trade-offs.
+Model
+
+C1
+
+C2
+
+C3
+
+IoU↑
+
+F1↑
+
+Params
+
+G-KAN-S
+64
+96 128 65.89 79.29
+0.87
+G-KAN
+128 160 256 67.66 80.52
+3.02
+G-KAN-L 256 320 512 68.36 80.95
+12.00
+Table 5: Ablation on model scaling via encoder channels (C1 , C2 , C3 ) in GroupKAN. “G-KAN” refers to the base
+GroupKAN model; G-KAN-S and G-KAN-L are its small and large variants.
+
+4.4.5
+
+Effect of GKA.
+
+Compared to both fixed (ReLU [25], GELU [26]) and learnable (TeLU [27], GoLU [28]) activations, our GKA
+consistently yields superior results, particularly in F1-score, which reflects better delineation of fine structures. We
+further observe that inserting activations after patch embedding improves all variants, with the greatest gains seen
+in our method. These findings highlight the benefit of structured, group-aware activations in dense medical image
+segmentation.
+Effect of GKT
+We ablate the Grouped KAN Transform (GKT) and its convolutional components to analyze their effects. Removing
+the 1×1 pointwise convolution reduces performance (IoU 0.6552, Dice 0.7890) and decreases parameters to 2.61M.
+Removing the 3×3 depthwise convolution further degrades accuracy (IoU 0.6246, Dice 0.7666, 2.99M). Excluding GKT
+entirely gives the lowest scores (IoU 0.6015, Dice 0.7483, 2.77M). The complete configuration with both convolutions
+9
+
+Running Title for Header
+
+Activation Function
+
+IoU↑
+
+F1↑
+
+None
+66.10 78.22
+ReLU [25]
+66.63 79.24
+GELU [26]
+66.45 79.46
+GoLU [28]
+66.84 79.82
+TeLU [36]
+66.44 79.22
+GKA (Ours)
+67.66 80.52
+Table 6: Comparison of activation functions after patch embedding. GKA (ours) outperforms fixed (ReLU, GELU) and
+learnable (TeLU, DyT) variants in IoU and F1.
+
+IoU
+Dice
+Params (M)
+No 1×1 PWConv
+0.6552 0.7890
+2.61
+No 3×3 DWConv
+0.6246 0.7666
+2.99
+No GKT
+0.6015 0.7483
+2.77
+GKT (with PW+DW) 0.6766 0.8052
+3.02
+Table 7: Ablation on the effect of GKT and associated convolutions. GKT provides the main functional transformation,
+while PWConv and DWConv enhance inter-group and spatial interactions.
+Configuration
+
+achieves the best performance (IoU 0.6766, Dice 0.8052, 3.02M). These results confirm that GKT is essential for
+accurate feature transformation, while PWConv and DWConv support cross-group and spatial interactions, respectively.
+These results demonstrate that GKT improves segmentation accuracy with minimal parameter overhead, reflecting its
+parameter efficiency.
+4.4.6
+
+Explainability Analysis.
+
+We further evaluate the interpretability of GroupKAN by analyzing activation patterns (Fig. 7). The top-left image
+(U-KAN) fails to localize the region of interest, with a plausibility IoU of 0.41. The top-right variant (GroupKAN
+w/o GKT) performs worse (0.28), indicating degraded focus without GKT. Incorporating GKT (bottom-left) improves
+alignment with the ground truth, achieving a plausibility IoU of 0.52. The bottom-right shows the GT mask.
+To further validate these findings, we report average Plausibility IoU across the test set (Tab. 8). U-KAN achieves 0.465,
+GroupKAN without GKT drops to 0.281, while GroupKAN with GKT reaches 0.517. These results confirm that GKT
+enhances activation-ground truth consistency and improves interpretability in segmentation.
+Method
+Average Plausibility IoU
+U-KAN
+0.465
+Ours w/o GKT
+0.281
+Ours w/ GKT
+0.517
+Table 8: Average Plausibility IoU comparison on the test set. GKT improves activation alignment and interpretability.
+
+5
+
+Conclusion
+
+In this work, we propose GroupKAN, a lightweight segmentation network leveraging group-structured spline modeling
+for medical image segmentation. It incorporates Grouped KAN Activation to model token-wise nonlinearity and Grouped
+KAN Transform for efficient group-wise channel interaction, reducing the complexity of the KAN layer in U-KAN
+from O(C 2 ) to O(C 2 /G). On BUSI, GlaS, and CVC benchmarks, GroupKAN serves as a strong backbone, achieving
+79.80% average IoU while using only 47.6% of U-KAN’s parameters (3.02 M vs. 6.35 M). In addition, plausibility
+IoU evaluations show improved alignment between activation maps and ground truth, supporting the interpretability
+of GroupKAN in clinical segmentation. This establishes a new paradigm for lightweight and interpretable clinical
+segmentation.
+10
+
+Running Title for Header
+
+Figure 7: Channel activation maps for explainability comparison. GroupKAN with GKT (bottom-left) shows the best
+alignment with the GT mask (bottom-right), achieving the highest plausibility IoU (0.52). U-KAN and GroupKAN w/o
+GKT yield lower alignment, highlighting GKT’s role in improving interpretability.
+
+References
+[1] Risheng Wang, Tao Lei, Ruixia Cui, Bingtao Zhang, Hongying Meng, and Asoke K Nandi. Medical image
+segmentation using deep learning: A survey. IET image processing, 16(5):1243–1267, 2022.
+[2] KKD Ramesh, G Kiran Kumar, K Swapna, Debabrata Datta, and S Suman Rajest. A review of medical image
+segmentation algorithms. EAI Endorsed Transactions on Pervasive Health & Technology, 7(27), 2021.
+[3] Sohaib Asif, Yi Wenhui, Saif ur Rehman, Qurrat ul ain, Kamran Amjad, Yi Yueyang, Si Jinhai, and Muhammad
+Awais. Advancements and prospects of machine learning in medical diagnostics: unveiling the future of diagnostic
+precision. Archives of Computational Methods in Engineering, 32(2):853–883, 2025.
+[4] Yuhan Zhang, Xiao Ma, Mingchao Li, Kun Huang, Jie Zhu, Miao Wang, Xi Wang, Menglin Wu, and Pheng-Ann
+Heng. Generalist medical foundation model improves prostate cancer segmentation from multimodal mri images.
+npj Digital Medicine, 8(1):372, 2025.
+[5] Enerst Edozie, Aliyu Nuhu Shuaibu, Ukagwu Kelechi John, and Bashir Olaniyi Sadiq. Comprehensive review of
+recent developments in visual object detection based on deep learning. Artificial Intelligence Review, 58(9):277,
+2025.
+[6] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image
+segmentation. In International Conference on Medical image computing and computer-assisted intervention,
+pages 234–241. Springer, 2015.
+[7] Md Maruf Hossain Shuvo, Syed Kamrul Islam, Jianlin Cheng, and Bashir I Morshed. Efficient acceleration of
+deep learning inference on resource-constrained edge devices: A review. Proceedings of the IEEE, 111(1):42–91,
+2022.
+11
+
+Running Title for Header
+
+[8] Abolfazl Younesi, Mohsen Ansari, Mohammadamin Fazli, Alireza Ejlali, Muhammad Shafique, and Jörg Henkel.
+A comprehensive survey of convolutions in deep learning: Applications, challenges, and future trends. IEEE
+Access, 12:41180–41218, 2024.
+[9] Weizhe Hua, Zihang Dai, Hanxiao Liu, and Quoc Le. Transformer quality in linear time. In International
+conference on machine learning, pages 9099–9117. PMLR, 2022.
+[10] Quentin Fournier, Gaétan Marceau Caron, and Daniel Aloise. A practical survey on faster and lighter transformers.
+ACM Computing Surveys, 55(14s):1–40, 2023.
+[11] Yehjin Shin, Jeongwhan Choi, Hyowon Wi, and Noseong Park. An attentive inductive bias for sequential
+recommendation beyond the self-attention. In Proceedings of the AAAI conference on artificial intelligence,
+volume 38, pages 8984–8992, 2024.
+[12] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint
+arXiv:2312.00752, 2023.
+[13] Chenxin Li, Xinyu Liu, Wuyang Li, Cheng Wang, Hengyu Liu, Yifan Liu, Zhen Chen, and Yixuan Yuan. U-kan
+makes strong backbone for medical image segmentation and generation. In Proceedings of the AAAI Conference
+on Artificial Intelligence, volume 39, pages 4652–4660, 2025.
+[14] Ziming Liu, Yixuan Wang, Sachin Vaidya, Fabian Ruehle, James Halverson, Marin Soljačić, Thomas Y Hou, and
+Max Tegmark. Kan: Kolmogorov-arnold networks. arXiv preprint arXiv:2404.19756, 2024.
+[15] Zongwei Zhou, Md Mahfuzur Rahman Siddiquee, Nima Tajbakhsh, and Jianming Liang. Unet++: A nested
+u-net architecture for medical image segmentation. In International workshop on deep learning in medical image
+analysis, pages 3–11. Springer, 2018.
+[16] Zichen Luo, Xinshan Zhu, Lan Zhang, and Biao Sun. Rethinking u-net: Task-adaptive mixture of skip connections
+for enhanced medical image segmentation. In Proceedings of the AAAI Conference on Artificial Intelligence,
+volume 39, pages 5874–5882, 2025.
+[17] Ozan Oktay, Jo Schlemper, Loic Le Folgoc, Matthew Lee, Mattias Heinrich, Kazunari Misawa, Kensaku Mori,
+Steven McDonagh, Nils Y Hammerla, Bernhard Kainz, et al. Attention u-net: Learning where to look for the
+pancreas. arXiv preprint arXiv:1804.03999, 2018.
+[18] Yanfeng Zhou, Lingrui Li, Le Lu, and Minfeng Xu. nnwnet: Rethinking the use of transformers in biomedical
+image segmentation and calling for a unified evaluation benchmark. In Proceedings of the Computer Vision and
+Pattern Recognition Conference, pages 20852–20862, 2025.
+[19] Fuchen Zheng, Xuhang Chen, Weihuang Liu, Haolun Li, Yingtie Lei, Jiahui He, Chi-Man Pun, and Shoujun Zhou.
+Smaformer: Synergistic multi-attention transformer for medical image segmentation. In 2024 IEEE International
+Conference on Bioinformatics and Biomedicine (BIBM), pages 4048–4053. IEEE, 2024.
+[20] Jeya Maria Jose Valanarasu and Vishal M Patel. Unext: Mlp-based rapid medical image segmentation network. In
+International conference on medical image computing and computer-assisted intervention, pages 23–33. Springer,
+2022.
+[21] Yutong Liu, Haijiang Zhu, Mengting Liu, Huaiyuan Yu, Zihan Chen, and Jie Gao. Rolling-unet: Revitalizing
+mlp’s ability to efficiently extract long-distance dependencies for medical image segmentation. In Proceedings of
+the AAAI conference on artificial intelligence, volume 38, pages 3819–3827, 2024.
+[22] Jun Ma, Feifei Li, and Bo Wang. U-mamba: Enhancing long-range dependency for biomedical image segmentation.
+arXiv preprint arXiv:2401.04722, 2024.
+[23] Alexander Dylan Bodner, Antonio Santiago Tepsich, Jack Natan Spolski, and Santiago Pourteau. Convolutional
+kolmogorov-arnold networks. arXiv preprint arXiv:2406.13155, 2024.
+[24] Ivan Drokin. Kolmogorov-arnold convolutions: Design principles and empirical studies. arXiv preprint
+arXiv:2407.01092, 2024.
+[25] Vinod Nair and Geoffrey E Hinton. Rectified linear units improve restricted boltzmann machines. In Proceedings
+of the 27th international conference on machine learning (ICML-10), pages 807–814, 2010.
+[26] Dan Hendrycks and Kevin Gimpel. Gaussian error linear units (gelus). arXiv preprint arXiv:1606.08415, 2016.
+[27] Alfredo Fernandez. Telu activation function for fast and stable deep learning. Master’s thesis, University of South
+Florida, 2024.
+[28] Anirban Das, Siddharth Rao, and Tirthankar Bhattacharya. Gompertz linear units: Leveraging asymmetry for
+enhanced learning dynamics. arXiv preprint arXiv:2502.03654, 2025.
+12
+
+Running Title for Header
+
+[29] Haiping Wu, Bin Xiao, Noel Codella, Mengchen Liu, Xiyang Dai, Lu Yuan, and Lei Zhang. Cvt: Introducing
+convolutions to vision transformers. In Proceedings of the IEEE/CVF international conference on computer vision,
+pages 22–31, 2021.
+[30] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao.
+Pvt v2: Improved baselines with pyramid vision transformer. Computational visual media, 8(3):415–424, 2022.
+[31] Andrei Nikolaevich Kolmogorov. On the representations of continuous functions of many variables by superposition of continuous functions of one variable and addition. In Dokl. Akad. Nauk USSR, volume 114, pages
+953–956, 1957.
+[32] Walid Al-Dhabyani, Mohammed Gomaa, Hussien Khaled, and Aly Fahmy. Dataset of breast ultrasound images.
+Data in brief, 28:104863, 2020.
+[33] Korsuk Sirinukunwattana, Josien PW Pluim, Hao Chen, Xiaojuan Qi, Pheng-Ann Heng, Yun Bo Guo, Li Yang
+Wang, Bogdan J Matuszewski, Elia Bruni, Urko Sanchez, et al. Gland segmentation in colon histology images:
+The glas challenge contest. Medical image analysis, 35:489–502, 2017.
+[34] Jorge Bernal, F Javier Sánchez, Gloria Fernández-Esparrach, Debora Gil, Cristina Rodríguez, and Fernando
+Vilariño. Wm-dova maps for accurate polyp highlighting in colonoscopy: Validation vs. saliency maps from
+physicians. Computerized medical imaging and graphics, 43:99–111, 2015.
+[35] Frank Wilcoxon. Individual comparisons by ranking methods. biometrics bulletin, 1 (6), 80-83, 1945.
+[36] Jiachen Zhu, Xinlei Chen, Kaiming He, Yann LeCun, and Zhuang Liu. Transformers without normalization. In
+Proceedings of the Computer Vision and Pattern Recognition Conference, pages 14901–14911, 2025.
+
+13
+
+

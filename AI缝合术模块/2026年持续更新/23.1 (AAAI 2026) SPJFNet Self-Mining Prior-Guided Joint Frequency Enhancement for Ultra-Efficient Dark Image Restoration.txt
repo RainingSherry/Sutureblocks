@@ -1,0 +1,1496 @@
+SPJFNet: Self-Mining Prior-Guided Joint Frequency Enhancement for
+Ultra-Efficient Dark Image Restoration
+Tongshun Zhang1,2 , Pingping Liu1,2 * , Zijian Zhang1,2 , Qiuzhan Zhou3
+1
+
+arXiv:2508.04041v1 [cs.CV] 6 Aug 2025
+
+2
+
+College of Computer Science and Technology, Jilin University
+Key Laboratory of Symbolic Computation and Knowledge Engineering of Ministry of Education, Jilin University
+3
+College of Communication Engineering, Jilin University
+tszhang23@mails.jlu.edu.cn,{liupp, zhangzijian, zhouqz}@jlu.edu.cn
+Abstract
+
+Current dark image restoration methods suffer from severe
+efficiency bottlenecks, primarily stemming from: (1) computational burden and error correction costs associated with
+reliance on external priors (manual or cross-modal); (2)
+redundant operations in complex multi-stage enhancement
+pipelines; and (3) indiscriminate processing across frequency
+components in frequency-domain methods, leading to excessive global computational demands. To address these challenges, we propose an Efficient Self-Mining Prior-Guided
+Joint Frequency Enhancement Network (SPJFNet). Specifically, we first introduce a Self-Mining Guidance Module
+(SMGM) that generates lightweight endogenous guidance directly from the network, eliminating dependence on external
+priors and thereby bypassing error correction overhead while
+improving inference speed. Second, through meticulous analysis of different frequency domain characteristics, we reconstruct and compress multi-level operation chains into a single efficient operation via lossless wavelet decomposition and
+joint Fourier-based advantageous frequency enhancement,
+significantly reducing parameters. Building upon this foundation, we propose a Dual-Frequency Guidance Framework
+(DFGF) that strategically deploys specialized high/low frequency branches (wavelet-domain high-frequency enhancement and Fourier-domain low-frequency restoration), decoupling frequency processing to substantially reduce computational complexity. Rigorous evaluation across multiple
+benchmarks demonstrates that SPJFNet not only surpasses
+state-of-the-art performance but also achieves significant efficiency improvements, substantially reducing model complexity and computational overhead. Code is available at
+https://github.com/bywlzts/SPJFNet.
+
+Introduction
+Images taken in dark conditions often suffer from insufficient illumination, degrading visual quality and hindering downstream vision applications like autonomous driving and object detection (Du, Shi, and Deng 2024; Li et al.
+2024). With the rise of deep learning, learning-based methods (Cai et al. 2023; Zhang et al. 2025; Gu et al. 2025) have
+surpassed traditional approaches but often come with high
+computational complexity. Given the limited cues in extremely dark images, many methods (Wu et al. 2023; Zhang
+et al. 2024; Zou et al. 2024b) introduce pre-trained models
+* Corresponding author
+
+Figure 1: SSIM vs. Computation overhead. Our method
+achieves superior performance with minimal computational
+cost on the LSRW-Huawei dataset.
+or additional prediction networks to generate modal priors.
+However, pretrained models and the predictive network are
+likely to suffer from generalization issues, resulting in accumulated errors and high computational overhead.
+Recently, Fourier-based methods (Huang et al. 2022; Li
+et al. 2023; Zhang et al. 2024; Feijoo et al. 2025) have gained
+significant attention due to their efficiency in image restoration tasks. FourLLIE (Wang, Wu, and Zhi 2023) demonstrated that Fourier domain processing can handle global information as effectively as transformer while significantly
+reducing parameter overhead by replacing transformer layers in SNR-Aware (Xu et al. 2022). However, the global
+nature of the Fourier transform (where spatial locality is
+not preserved) means that downsampling critically damages
+high-frequency details essential for restoration. This compels Fourier-based methods to maintain full spatial resolution, inevitably forcing a sacrifice in channel dimensions
+to contain model complexity, thereby restricting the expressive capacity of the model’s feature space. Wavelet transform (Zou et al. 2024a; Jiang et al. 2023; Zhang et al. 2025)
+represents another common frequency domain transformation in LLIE, capable of effectively separating content from
+noise. However, the low-frequency subbands retain tightly
+coupled spatial and frequency information, particularly containing both the dominant image content and low-frequency
+distortions/noise. This residual complexity, akin to a de-
+
+Infrared Map
+
+Depth Map
+
+High similarity
+
+Low-band
+
+Bilinear
+Sampling
+
+Pre-trained
+Model
+
+SSIM: 0.8503
+PSNR: 26.47dB
+
+Wavelet
+Transform
+
+Poor
+Generalization
+Extra
+Overhead
+
+Convolutional
+Sampling
+
+SSIM: 0.7870
+PSNR: 24.77dB
+
+Efficient
+
+Fourier
+Transform
+
+Wavelet
+Sampling
+
+Amplitude
+
+Compact
+Network
+
+SSIM: 1.00
+PSNR:
+
+Accurate
+
+(a)
+
+Deep Network
+
+Phase
+
+Gradient Map
+
+Self-mining
+Prediction
+
+Diffusion
+High-bands
+
+Canny Map
+
+Prediction
+Model
+
+Transformer
+
+(b)
+
+(c)
+
+Figure 2: Motivation analysis.(a) Three approaches for prior generation: introducing pre-trained models to generate modal
+priors, adding prediction networks to predict modal priors, and self-mining priors from the image itself; (b) SSIM and PSNR
+computed between images after three rounds of down-and-up sampling and the original image, showing that wavelet sampling
+achieves lossless sampling; (c) Low-frequency information from wavelet transform requires sophisticated model processing,
+while amplitude and phase in the Fourier domain can be efficiently processed through compact structures.
+graded version of the original image, necessitates sophisticated processing modules to effectively decouple content
+from corruption, offsetting the efficiency gains from wavelet
+decomposition.
+Based on the limitations, we present our motivations:
+First, as shown in Fig. 2(a), there are two primary approaches for introducing prior clues in dark image restoration. The first approach utilizes pre-trained models to generate modal priors, where DMFourLLIE (Zhang et al. 2024)
+leverages pre-trained models to generate infrared and depth
+map modal priors for enhanced guidance of phase component recovery, but neglects the generalization error issues
+introduced by pre-trained models. The second approach introduces prediction modules to generate priors, where SMGLLE (Xu, Wang, and Lu 2023) designs a dedicated module
+to generate structural priors, but the predicted results are imprecise and introduce substantial additional overhead. This
+raises the question: How can we efficiently and accurately
+mine high-quality endogenous priors?
+Second, as shown in Fig. 2(b), compared to conventional
+sampling, wavelet sampling possesses the advantage of lossless sampling. However, as shown in Fig. 2(c), the lowfrequency subbands of wavelets retain tightly coupled spatial and frequency information that closely resembles the
+original image (Jiang et al. 2023), still necessitating complex
+network architectures. In contrast, the Fourier domain can
+effectively handle these low-frequency components through
+compact structures, such as simple convolutional activations (Wang, Wu, and Zhi 2023). Therefore, the question
+arises: How can we combine Fourier and wavelet transforms to leverage their respective advantages?
+Motivated by the aforementioned questions, we propose an efficient Self-Mining Prior-Guided Joint Frequency
+Enhancement Network (SPJFNet). First, we utilize lossless wavelet downsampling to reduce images to a lowerresolution space, thereby reducing computational overhead.
+In this lower-resolution space, we develop a Self-Mining
+Guidance Module (SMGM), which consists of a lightweight
+gamma enhancement network that mines the image’s intrinsic gradient information to generate high-quality endogenous priors. Subsequently, we introduce a Dual Frequency Guidance Framework (DFGF) that strategically exploits the complementary strengths of wavelet and Fourier
+
+domains through a dual-branch architecture. The key innovation lies in our frequency-adaptive processing strategy:
+wavelet low-frequency components are transformed into the
+Fourier domain where compact structures can efficiently
+handle global illumination recovery through precise amplitude and phase reconstruction guided by self-mined priors.
+Meanwhile, wavelet high-frequency components remain in
+their native domain, where they are adaptively enhanced
+through a gradient-prior-guided gating mechanism that preserves fine-grained textural details. This dual-domain approach maximizes the inherent advantages of each transform
+while mitigating their respective limitations, achieving superior reconstruction efficiency and quality.
+Overall, our contributions are summarized as follows:
+• We introduce SMGM, which extracts endogenous priors
+directly from dark images, eliminating external dependencies. Our DFGF enables frequency-adaptive enhancement through prior guidance, ensuring robust reconstruction without added computational burden.
+• We propose SPJFNet, a novel dual-domain architecture
+that leverages the strengths of wavelet and Fourier transforms: efficiently modeling low-frequency components
+in the Fourier domain while preserving high-frequency
+details in the wavelet domain, thus achieving superior
+restoration with reduced complexity.
+• Extensive experiments validate our state-of-the-art performance across multiple benchmarks, demonstrating
+significantly reduced model complexity, as shown in
+Fig. 1. Our plug-and-play framework seamlessly integrates into existing frequency-domain methods, delivering both performance gains and computational efficiency.
+
+Related Work
+Dark Image Restoration. Dark image restoration methods
+including histogram equalization (Pizer 1990) and gamma
+correction (Rahman et al. 2016). While traditional methods are computationally efficient, they struggle with limited
+dynamic range modeling and significant noise amplification under extreme conditions. Recent deep learning methods (Cai et al. 2023; Wu et al. 2023), particularly Mambabased techniques (Bai, Yin, and He 2024; Weng et al. 2025;
+Guo et al. 2025), have shown promising results in Low Light
+
+CA
+
+iFFT
+
+FFT
+
+V
+C
+
+Q
+
+Softmax
+
+K
+
+Dark Image Input
+
+C
+
+Output
+iDWT×3
+
+MLP
+
+AvgPool
+
+DWT×3
+
+SMGM
+
+Spatial Enhancement
+
+S
+C
+
+Multi-scale Conv
+
+DFGF: Wavelet Low Frequency Branch
+
+S
+
+S
+
+DWConv
+
+S
+DWConv
+
+: Conv
+
+C
+
+: LeakyRELU C : Concat S : Sigmoid
+
+: Gradient Extraction
+FFT
+
+DFGF: Wavelet High Frequency Branch
+
+CA
+
+: Channel Attention
+
+: Fast Fourier Transform
+
+iFFT
+
+: Prior
+Gudiance
+
+: inverse FFT
+
+DWT : Discrete Wavelet Transform iDWT : inverse DWT
+
+Figure 3: Overall framework of SPJFNet. SPJFNet employs 3-level DWT decomposition and consists of three main modules:
+SMGM, DFGF low-frequency branch, and DFGF high-frequency branch.
+Image Enhancement (LLIE). A key limitation in these approaches is the reliance on prior guidance strategies. For
+example, SMG-LLE (Xu, Wang, and Lu 2023) uses modules to predict structural priors, while SKF (Wu et al. 2023)
+and DMFourLLIE (Zhang et al. 2024) depend on pre-trained
+models for semantic or infrared modal priors. However,
+these methods face significant challenges due to imprecise
+predicted priors and substantial computational overhead.
+Frequency-Domain Dark Image Restoration. Recently,
+frequency-domain methods (Wang, Wu, and Zhi 2023; Feijoo et al. 2025) have become prominent for their ability to separate enhancement from noise suppression. FECNet (Huang et al. 2022) and UHDFour (Li et al. 2023) utilize
+amplitude-phase decomposition for brightness and structural enhancement, while DMFourLLIE (Zhang et al. 2024)
+employs pre-trained infrared priors for phase correction. Additionally, wavelet-based methods like Wave-Mamba (Zou
+et al. 2024a) and DiffLL (Jiang et al. 2023) leverage lossless downsampling and noise-content separation for texture
+preservation, but they require complex modules to effectively manage intricate wavelet components. A fundamental limitation of existing frequency-domain approaches is
+their single-domain processing: Fourier methods excel in
+global illumination modeling but struggle with fine details,
+while wavelet methods maintain local textures but necessitate complex architectures for low-frequency enhancement.
+
+Method
+Overall Framework
+The overall framework of SPJFNet is illustrated in Fig.3.
+Given an input image I ∈ RH×W ×C , we use the 2D Discrete Wavelet Transform (2D-DWT) to decompose it into
+hierarchical frequency sub-bands:
+{Li , HLi , LHi , HHi } = 2D-DWTi (I),
+H
+
+W
+
+(1)
+
+where Li , HLi , LHi , HHi ∈ R 2i × 2i ×C represent the lowfrequency and high-frequency components at the i-th decomposition level. 2D-DWT enables efficient processing
+
+in a lower-dimensional space while preserving comprehensive frequency information. First, the Self-Mining Guidance Module (SMGM) processes the low-frequency component through a lightweight gamma enhancement network
+to extract endogenous structure prior Si and gradient priors Gi , serving as guidance for both frequency branches.
+In the Dual Frequency Guidance Framework (DFGF), the
+low-frequency component Li is transformed into the Fourier
+domain for global illumination recovery using amplitude
+and phase enhancement guided by structure prior Si . The
+enhanced components are spatially refined after inverse
+Fourier transform. Meanwhile, the high-frequency components {HLi , LHi , HHi } are processed in their native
+wavelet domain and enhanced through gradient-prior-guided
+gating mechanisms to preserve fine details. The enhanced
+frequency components are progressively reconstructed using multi-scale inverse wavelet transforms, benefiting from
+dual-domain guidance to yield a restored output image with
+superior quality and computational efficiency.
+
+Self-Mining Guidance Module (SMGM)
+As illustrated in Fig.2(a), our self-mining prediction approach demonstrates that gradient maps predicted through
+Gamma transformation of dark images exhibit clear structural details. This endogenous self-mining strategy is both
+precise and efficient, avoiding the error propagation and
+computational burden associated with handcrafted or complex prediction modules. Specifically, SMGM operates on
+the low-frequency component Li to extract dual complementary priors: the enhanced structural prior Si and gradient prior Gi , which serve as endogenous guidance for
+the dual-frequency enhancement framework. Li is first processed through convolutional layers to extract feature representations, followed by global average pooling to obtain
+the global feature vector Fa , providing channel-wise global
+representation. Fa is then fed into a multi-layer perceptron
+(MLP) followed by a Sigmoid activation function to produce
+the adaptive Gamma mapping Γ:
+
+Methods
+
+Venue
+
+LOL-v1
+LSRW-Huawei
+LSRW-Nikon
+#Param #FLOPs
+PSNR ↑ SSIM ↑ LPIPS ↓ PSNR ↑ SSIM ↑ LPIPS ↓ PSNR ↑ SSIM ↑ LPIPS ↓ (M)
+(G)
+
+NPE (Wang et al. 2013)
+TIP’13
+LIME (Guo, Li, and Ling 2016)
+TIP’16
+SRIE (Fu et al. 2016)
+ICCV’16
+Kind (Zhang, Zhang, and Guo 2019)
+MM’19
+MIRNet (Zamir et al. 2020)
+ECCV’20
+IJCV’21
+Kind++ (Zhang et al. 2021)
+SNR-Aware (Xu et al. 2022)
+CVPR’22
+FourLLIE (Wang, Wu, and Zhi 2023) MM’23
+UHDFour (Li et al. 2023)
+ICLR’23
+Retinexformer (Cai et al. 2023)
+ICCV’23
+Wave-Mamba (Zou et al. 2024a)
+MM’24
+UHDFormer (Wang et al. 2024)
+AAAI’24
+DMFourLLIE (Zhang et al. 2024)
+MM’24
+Retinexmamba (Bai, Yin, and He 2024) ICONIP’24
+ICCV’25
+CWNet (Zhang et al. 2025)
+CIDNet (Yan et al. 2025)
+CVPR’25
+
+16.97
+16.75
+11.80
+20.87
+24.14
+18.97
+23.93
+20.99
+22.89
+22.71
+22.76
+22.88
+22.98
+23.15
+23.60
+23.81
+
+0.5928
+0.4440
+0.5000
+0.7995
+0.8305
+0.8042
+0.8460
+0.8071
+0.8147
+0.8177
+0.8419
+0.837
+0.8273
+0.8210
+0.8496
+0.8574
+
+0.2060
+0.1862
+0.2071
+0.2502
+0.1756
+0.0813
+0.0952
+0.0934
+0.0922
+0.0791
+0.1390
+0.0792
+0.0876
+0.0648
+0.0856
+
+17.08
+17.00
+13.42
+16.58
+19.98
+15.43
+20.67
+21.11
+19.39
+21.23
+21.19
+20.64
+21.47
+20.88
+21.50
+20.30
+
+0.3905
+0.3816
+0.4282
+0.5690
+0.6085
+0.5695
+0.5911
+0.6256
+0.6006
+0.6309
+0.6391
+0.6244
+0.6331
+0.6298
+0.6397
+0.6054
+
+0.2303
+0.2069
+0.2166
+0.2259
+0.2154
+0.2366
+0.1923
+0.1825
+0.2466
+0.1699
+0.1818
+0.1812
+0.1781
+0.1689
+0.1562
+0.3500
+
+14.86
+13.53
+13.26
+11.52
+17.10
+14.79
+17.54
+17.82
+17.94
+17.64
+17.34
+17.01
+17.04
+17.59
+17.38
+17.16
+
+0.3738
+0.3321
+0.3963
+0.3827
+0.5022
+0.4749
+0.4822
+0.5036
+0.5195
+0.5082
+0.5192
+0.5186
+0.5274
+0.5133
+0.5119
+0.4975
+
+0.1464
+0.1272
+0.1396
+0.1860
+0.2170
+0.2111
+0.0982
+0.2150
+0.2546
+0.2784
+0.2294
+0.2793
+0.2178
+0.2534
+0.2575
+0.2816
+
+8.02
+31.79
+8.27
+39.12
+0.12
+17.54
+1.61
+1.26
+0.34
+0.75
+3.59
+1.23
+1.88
+
+34.99
+785.1
+26.35
+4.07
+4.78
+15.57
+7.22
+3.24
+5.81
+34.76
+11.3
+7.57
+
+SPJFNet
+
+24.16
+
+0.8531 0.0694
+
+21.71
+
+0.6547 0.1558
+
+17.98
+
+0.5289 0.2047
+
+0.21
+
+2.43
+
+Ours
+
+Table 1: Quantitative comparison on LOL-v1, LSRW-Huawei and LSRW-Nikon datasets without using ground truth mean. The
+best results are highlighted in bold and the second-best results are underlined.
+
+Γ = σ(MLP(Fa )),
+
+Γ ∈ R1×1×C ,
+
+(2)
+
+where σ denotes the Sigmoid activation function that constrains output values to (0, 1). The Gamma mapping is applied to generate the enhanced structural prior Si , from
+which the gradient prior Gi is extracted using the Sobel operator (Kanopoulos, Vasanthavada, and Baker 1988):
+Si = LΓi ,
+
+Gi = ∇(Si ).
+
+(3)
+
+The key insight lies in the dual-guidance mechanism: Si
+serves as the illumination-enhanced prior that guides the
+DFGF wavelet low-frequency branch for global brightness
+recovery, while Gi provides structural gradient information that guides the DFGF wavelet high-frequency branch
+for detail preservation. This complementary design ensures
+that when the gradient prior Gi achieves high accuracy
+through our supervised learning objective, the corresponding Gamma-enhanced structural prior Si inherently possesses reliable illumination guidance capabilities, as both
+priors originate from the same adaptive Gamma transformation. To ensure the accuracy of Gi , the learning objective
+of SMGM incorporates two complementary losses: gradient
+fidelity loss and structural consistency loss:
+gt
+Ls = λ1 ·∥Gi −Ggt
+i ∥1 +λ2 ·CE(Edge(Si ), Edge(Si )), (4)
+
+where λ1 = 1.0 and λ2 = 0.1 are weighting coefficients,
+CE represents cross-entropy loss for edge maps, and Edge(·)
+extracts edge information. Ls ensures that both the gradient prior Gi and structural prior Si maintain high fidelity to
+ground truth, establishing a robust foundation for the subsequent dual-frequency enhancement process.
+
+Dual-Frequency Guidance Framework (DFGF)
+Wavelet Low Frequency Branch. While wavelet decomposition provides efficient multi-scale downsampling, its
+
+low-frequency subband inherently retains coupled spatialfrequency information, including residual high-frequency
+components that impede pure frequency analysis. To leverage both the structural preservation of lossless, we strategically transform wavelet low-frequency components into the
+Fourier domain.
+As illustrated in Fig.3, the low-frequency component Li
+is transformed into the Fourier domain using Fast Fourier
+Transform (FFT), yielding amplitude A and phase P :
+A, P = FFT(Li ). Simultaneously, the structural prior Si
+encoding precise brightness and structural information is
+transformed into amplitude prior As and phase prior Ps :
+As , Ps = FFT(Si ).
+Since prior work (Wang, Wu, and Zhi 2023) indicates that
+brightness information is mainly encoded in the amplitude
+component, we propose a dual-branch architecture to leverage this. We first concatenate the amplitude prior As with the
+original amplitude A to form enriched features, Aconcat =
+Concat(A, As ), which are then processed through complementary branches. The first branch modulates the original
+amplitude component using channel attention mechanisms
+to highlight salient features, while the second branch employs gating mechanisms for precise mapping of the amplitude components. This dual-path processing synergistically
+enhances global illumination recovery. This process can be
+formulated as:
+B1 = CA(Aconcat ),
+
+B2 = σ(Conv(Aconcat )) · A, (5)
+
+where CA(·) denotes channel attention, and σ is the Sigmoid activation function. B1 applies channel attention to
+the concatenated features and modulates the original amplitude, enabling adaptive amplitude adjustment based on both
+original and prior information. B2 processes the amplitude
+prior through convolution and Sigmoid activation to extract
+refined prior features with values constrained to (0, 1) for
+stable enhancement. The enhanced amplitude is obtained
+through element-wise addition: Ã = B1 + B2 , where the
+
+Methods
+
+UHD-LL
+PSNR ↑ SSIM ↑ LPIPS ↓
+
+LLFormer (Jie et al. 2023)
+FourLLIE (Wang, Wu, and Zhi 2023)
+UHDFour (Li et al. 2023)
+WaveMamba (Zou et al. 2024a)
+UHDFormer (Wang et al. 2024)
+RetinexMamba (Bai, Yin, and He 2024)
+DMFourLLIE (Zhang et al. 2024)
+CWNet (Zhang et al. 2025)
+
+22.79
+23.96
+26.22
+25.82
+23.98
+24.39
+24.76
+24.27
+
+0.8530
+0.8826
+0.900
+0.9221
+0.9017
+0.9078
+0.9174
+0.9024
+
+0.2640
+0.1261
+0.239
+0.1092
+0.0934
+0.1372
+0.1145
+0.057
+
+Ours
+
+25.98
+
+0.9223
+
+0.052
+
+Methods
+
+DICM
+
+LIME
+
+MEF
+
+NPE
+
+VV
+
+Kind (Zhang, Zhang, and Guo 2019)
+MIRNet (Zamir et al. 2020)
+SGM (Yang et al. 2021)
+FECNet (Huang et al. 2022)
+HDMNet (Liang et al. 2022)
+Bread (Guo and Hu 2023)
+Retinexformer (Cai et al. 2023)
+UHDFormer (Wang et al. 2024)
+Wave-Mamba (Zou et al. 2024a)
+CWNet (Zhang et al. 2025)
+
+3.61
+4.04
+4.73
+4.14
+4.77
+4.18
+4.01
+4.42
+4.56
+3.92
+
+4.77
+6.45
+5.45
+6.04
+6.40
+4.72
+3.44
+4.35
+4.45
+3.58
+
+4.82
+5.50
+5.75
+4.71
+5.99
+5.37
+3.73
+4.74
+4.76
+3.66
+
+4.18
+5.24
+5.21
+4.50
+5.11
+4.16
+3.89
+4.40
+4.54
+3.61
+
+3.84
+4.74
+4.88
+3.75
+4.46
+3.30
+3.71
+4.28
+4.71
+3.74
+
+Ours
+
+3.85
+
+3.38
+
+3.69
+
+3.52
+
+3.62
+
+Table 3: NIQE scores on DICM, LIME, MEF, NPE, and VV
+datasets. All methods are pre-trained on LSRW-Huawei.
+
+Table 2: Quantitative comparison on the UHD-LL dataset.
+addition operation preserves the original amplitude characteristics while incorporating prior-guided enhancements.
+Phase components contain crucial high-frequency structural details that require careful preservation during enhancement. Unlike amplitude components that primarily encode global illumination, phase components capture local
+structural information that benefits from attention-based refinement. The phase prior Ps provides structural guidance
+for enhancing the original phase P through a self-attention
+framework:
+Q, K = Conv(Concat(Ps , P )),
+⊤
+
+P̃ = Softmax(Q · K ) · V,
+
+V = Conv(P ),
+
+(6)
+
+where the query Q and key K are generated from the concatenated phase and phase prior to capture correlations between structural patterns, while the value V is derived from
+the original phase to preserve authentic structural information. The self-attention mechanism selectively enhances
+phase components based on structural similarity, ensuring
+coherent phase reconstruction. The enhanced amplitude Ã
+and phase P̃ are then merged and transformed back to the
+spatial domain via inverse FFT.
+Following the two-stage processing paradigm of current
+Fourier-based methods, we employ a Spatial Enhancement
+Module to further refine local spatial details. The core component consists of two complementary convolution modules
+with different receptive field characteristics: dilated convolution (Yu and Koltun 2015) with dilation rate 4 for expanded receptive field coverage, and wavelet transform convolution (WTConv) (Finder et al. 2025) with 3 decomposition levels for multi-scale feature representation. The dilated convolution captures long-range spatial dependencies
+through enlarged receptive fields, while the WTConv leverages wavelet decomposition to extract multi-resolution features across different frequency bands. This dual-branch
+design achieves comprehensive spatial detail enhancement
+while maintaining computational efficiency, effectively recovering fine-grained spatial information.
+Wavelet High Frequency Branch. High-frequency components primarily encode image edges, textures, and finegrained details that require precise local enhancement to preserve structural integrity while avoiding noise amplification.
+
+Our gradient-guided enhancement strategy leverages the extracted gradient prior Gi to provide structural guidance for
+adaptive high-frequency enhancement.
+As illustrated in Fig.3, we first fuse the gradient prior Gi
+with the high-frequency components through element-wise
+addition to create structurally-informed features: Fhf =
+(HLi + LHi + HHi ) + Gi . Simultaneously, Gi is processed
+through depthwise separable convolution to extract efficient
+spatial features: Fdw = DWConv(Gi ).
+To generate precise enhancement weights, the extracted
+gradient features are transformed into a spatial gating map
+through 1×1 convolution and Sigmoid activation:
+Ms = σ(Conv1×1 (Fdw )),
+
+(7)
+
+where Ms ∈ (0, 1) serves as a gradient-guided gating map
+that indicates enhancement confidence at each spatial location. Regions with strong gradient responses receive higher
+enhancement weights, while smooth regions are preserved
+with minimal modification.
+The high-frequency components {HLi , LHi , HHi } are
+concatenated and processed through depthwise separable convolution to extract spatial features: Fspatial =
+DWConv(Concat(HLi , LHi , HHi )). The gradient-guided
+gating mechanism is applied for selective enhancement:
+Fenhanced = Fspatial ⊙ Ms + Fspatial , where the residual
+connection preserves original information while enabling
+adaptive enhancement. Finally, the enhanced features are
+processed through convolution and residual blocks, then
+decomposed back into refined high-frequency components
+ˆ i , LH
+ˆ i , HH
+ˆ i } through learned projection layers, en{HL
+suring structurally-consistent detail enhancement for subsequent wavelet reconstruction.
+
+Experiments
+Datasets and Experimental Details
+Datasets. We train and evaluate our method on four widely
+recognized dark image datasets: LOL (Yang et al. 2021),
+LSRW-Huawei (Hai et al. 2023), LSRW-Nikon (Hai et al.
+2023), and UHD-LL (Li et al. 2023). The LOL dataset
+includes 485 training pairs and 15 testing pairs. LSRWHuawei contains 3,150 training pairs and 20 testing pairs,
+while LSRW-Nikon provides 2,450 training pairs and 30
+testing pairs. UHD-LL (Li et al. 2023) is a high-resolution
+
+Input
+
+Ground Truth
+
+Ours
+
+Uformer
+Retinexformer
+（CVPR, 22） （ICCV, 23）
+
+UHDFour
+(ICLR, 23)
+
+Retinexmamba DMFourLLIE
+(ICONIP, 24) (ACMMM, 24)
+
+UHDFormer
+(AAAI, 24)
+
+CIDNet
+(CVPR, 25)
+
+CWNet
+(ICCV, 25)
+
+Figure 4: Visual comparison with state-of-the-art methods across three datasets. From top to bottom: three groups of comparisons are conducted on LSRW-Huawei, LSRW-Nikon, and LOL-v1 datasets, respectively.
+
+Input
+
+FourLLIE
+
+UHDFour（UHD）
+
+Ground Truth
+
+Wave-Mamba（UHD）
+
+Ours
+
+Figure 5: Visual comparison on UHD-LL dataset. (UHD) is
+a designed for UHD images.
+
+dataset with 2,000 training pairs and 115 testing pairs. Additionally, we evaluate on three unpaired datasets: NPE (Wang
+et al. 2013), DICM (Lee, Lee, and Kim 2012), LIME (Guo,
+Li, and Ling 2016), MEF (Ma, Zeng, and Wang 2015) and
+VV (Vonikakis, Kouskouridas, and Gasteratos 2018).
+Implementation Details. Our method is implemented in
+PyTorch and trained end-to-end. Images are randomly
+cropped to 256 × 256 and augmented with random flipping.
+We use the ADAM optimizer with an initial learning rate of
+4.0×10−4 and a multi-step scheduler. Training is conducted
+for 1.5×105 iterations with a batch size of 8 on two NVIDIA
+4090 GPUs. Loss function utilizes L1 loss for training.
+Evaluation. Our network performance is primarily evaluated using peak signal-to-noise ratio (PSNR (Hore and Ziou
+2010)), structural similarity index (SSIM (Wang et al. 2004))
+and LPIPS (Zhang et al. 2018). We conduct comprehensive
+comparisons with 16 state-of-the-art dark image restoration
+methods, including traditional approaches (NPE (Wang et al.
+2013), LIME (Guo, Li, and Ling 2016), SRIE (Fu et al.
+2016)), deep learning-based methods (Kind (Zhang, Zhang,
+and Guo 2019), MIRNet (Zamir et al. 2020), Kind++ (Zhang
+
+Input
+
+Retinexformer
+
+Wave-Mamba
+
+UHDFormer
+
+Ours
+
+Figure 6: Visual comparison on no-reference datasets.
+
+et al. 2021), SNR-Aware (Xu et al. 2022), FourLLIE (Wang,
+Wu, and Zhi 2023), UHDFour (Li et al. 2023),Retinexformer (Cai et al. 2023), Wave-Mamba (Zou et al. 2024a),
+UHDFormer (Wang et al. 2024), DMFourLLIE (Zhang
+et al. 2024), Retinexmamba (Bai, Yin, and He 2024),
+CWNet (Zhang et al. 2025) and CIDNet (Yan et al. 2025)).
+
+Comparisons with State-of-the-Art Methods
+Quantitative comparison on LOL-V1, LSRW-Huawei
+and LSRW-Nikon datasets. The quantitative results are
+presented in Tab. 1. On the LOL-V1 dataset, our method
+achieves the best PSNR while maintaining competitive
+SSIM (0.8531) and LPIPS (0.0694) scores. For the LSRWHuawei dataset, our method obtains the highest PSNR
+(21.71 dB) and SSIM (0.6547), with the best LPIPS
+score (0.1558). Similarly, on the LSRW-Nikon dataset, our
+method achieves the best performance across all metrics.
+Notably, our method excels in computational efficiency
+while maintaining superior performance. With only 0.21M
+parameters and 2.43G FLOPs, our approach is significantly
+more lightweight compared to competing methods.
+Quantitative Comparison on UHD-LL Dataset. The
+
+Method DWTi Ls SMGM D-L D-H PSNR↑ SSIM↑
+A
+B
+
+2
+4
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+21.13
+21.73
+
+0.64
+0.6535
+
+C
+
+3
+
+×
+
+✓
+
+✓
+
+✓
+
+N an
+
+N an
+
+D
+E
+F
+G
+H
+I
+
+3
+3
+3
+3
+3
+3
+
+✓
+✓
+✓
+✓
+✓
+✓
+
+×
+✓
+✓
+×
+✓
+×
+
+✓
+×
+✓
+✓
+×
+×
+
+✓
+✓
+×
+×
+×
+✓
+
+20.98
+20.84
+21.30
+20.65
+20.47
+20.82
+
+0.6384
+0.6371
+0.6523
+0.6346
+0.6331
+0.6405
+
+J
+
+3
+
+✓
+
+✓
+
+✓
+
+✓
+
+21.71
+
+0.6547
+
+Table 4: Ablation study on core architectural components.
+✓indicates the component is used, × indicates it is not used.
+
+D-L
+
+D-H
+
+Ls
+
+M-s
+
+Amp P ha Spa Ms Fhf Fs WTC DC λ1
+
+Metrics
+λ2 PSNR↑ SSIM↑
+
+×
+✓
+✓
+
+✓
+×
+✓
+
+✓
+✓
+×
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+1.0 0.1
+1.0 0.1
+1.0 0.1
+
+21.23
+21.58
+21.28
+
+0.6497
+0.6532
+0.6488
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+×
+✓
+✓
+
+✓
+×
+✓
+
+✓
+✓
+×
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+1.0 0.1
+1.0 0.1
+1.0 0.1
+
+21.42
+21.54
+21.42
+
+0.6527
+0.6543
+0.6527
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+×
+✓
+
+✓
+×
+
+1.0 0.1
+1.0 0.1
+
+21.30
+21.41
+
+0.6495
+0.6502
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+0.8 0.1
+1.0 0.2
+
+21.69
+21.64
+
+0.6539
+0.6528
+
+✓
+
+✓
+
+✓
+
+✓
+
+✓
+
+✓
+
+✓
+
+✓
+
+1.0 0.1
+
+21.71
+
+0.6547
+
+Table 5: Ablation study on fine-grained components.
+
+quantitative results on the ultra-high-definition low-light
+dataset are presented in Tab. 2. Our method demonstrates
+exceptional performance across multiple evaluation metrics
+when compared with 8 state-of-the-art methods.
+Quantitative Comparison on No-reference Datasets. As
+shown in Tab.3, our method obtains the best NIQE scores
+on three out of five datasets (LIME, MEF, NPE) and ranks
+second on the remaining two datasets (DICM, VV), consistently outperforming existing state-of-the-art methods.
+Visual Comparisons. To demonstrate the effectiveness of
+our approach, we present visual comparisons with state-ofthe-art methods across three challenging datasets in Fig. 4.
+The results clearly illustrate the superior enhancement quality achieved by our method in various challenging scenarios.
+Fig. 5 shows the visual comparisons on the UHD-LL dataset.
+Compared to other methods, our approach produces results
+that are closer to the ground truth in terms of brightness, image quality, and detail preservation. Fig. 6 shows visual comparisons on the unpaired DICM and LIME datasets, which
+demonstrates our method’s superior performance in detail
+preservation and exposure control.
+
+Methods
+
+PSNR ↑ SSIM ↑ LPIPS ↓
+
+FourLLIE (Baseline)
+FourLLIE + SMGM
+FourLLIE + SMGM + DFGF
+
+21.11
+21.37
+21.49
+
+0.6256
+0.6401
+0.6448
+
+0.1825
+0.1688
+0.1632
+
+DMFourLLIE (Baseline)
+DMFourLLIE + SMGM
+DMFourLLIE + SMGM + DFGF
+
+21.47
+21.52
+21.70
+
+0.6331
+0.6429
+0.6457
+
+0.1781
+0.1597
+0.1601
+
+Table 6: Plug-and-play validation on Fourier-based methods.
+
+Ablation Study
+Core Component Analysis. Tab. 4 presents the ablation
+study on core architectural components. We investigate the
+optimal wavelet decomposition levels (rows A-B) and validate the necessity of loss Ls (row C), whose removal causes
+training instability (NaN values). Individual module analysis (rows D-I) shows SMGM contributes 0.73 dB PSNR improvement, while DFGF low-frequency and high-frequency
+(D-L, D-H) branches provide 0.87 dB and 0.41 dB improvements respectively. The combination analysis (rows G-I)
+confirms their synergistic effect.
+Fine-grained Component Analysis. Tab. 5 analyzes subcomponents within each module. In the DFGF lowfrequency branch (D-L), amplitude guidance contributes
+most significantly (0.48 dB), followed by spatial enhancement (0.43 dB) and phase guidance (0.13 dB). For the highfrequency branch (D-H), gradient map guidance (Ms ) provides 0.29 dB improvement, while feature processing components Fhf and Fs contribute 0.17 dB and 0.29 dB respectively. In the multi-scale module, WTConv and dilated
+convolution contribute 0.41 dB and 0.30 dB respectively,
+demonstrating their complementary roles. Additionally, we
+conducted an ablation study to verify the weight of Ls .
+Plug-and-Play Validation. To further demonstrate the generalizability and effectiveness of our proposed modules,
+we conduct plug-and-play experiments by integrating our
+components into existing Fourier-based low-light enhancement methods, specifically FourLLIE and DMFourLLIE. As
+shown in Tab. 6, both methods achieve consistent performance improvements with our modules.
+
+Limitation and Conclusion
+Limitation. While our method demonstrates superior performance in exposure control and detail preservation, there
+are certain limitations. As illustrated in the second row of
+Fig. 6, our method occasionally exhibits color distortion
+where the restored image shows slight color shifts compared to natural appearance. This limitation stems from
+our frequency-domain processing strategy, which emphasizes amplitude and phase information while color consistency constraints could be strengthened. The gradientguided enhancement, though effective for spatial detail recovery, may prioritize structural information over color accuracy in challenging scenarios, suggesting room for improvement in color fidelity preservation, particularly in complex lighting conditions.
+
+Conclusion. In this paper, we present SPJFNet, an efficient
+self-mining prior-guided joint frequency enhancement network. By introducing the SMGM to eliminate dependence
+on external priors and the DFGF to decouple frequency processing, our method achieves significant efficiency improvements while surpassing state-of-the-art performance. In the
+future, we will focus our research efforts on how to efficiently combine frequency domain processing with ensuring
+color consistency in dark image restoration.
+
+References
+Bai, J.; Yin, Y.; and He, Q. 2024. Retinexmamba: Retinexbased Mamba for Low-light Image Enhancement. arXiv
+preprint arXiv:2405.03349.
+Cai, Y.; Bian, H.; Lin, J.; Wang, H.; Timofte, R.; and Zhang,
+Y. 2023. Retinexformer: One-stage Retinex-based Transformer for Low-light Image Enhancement. In ICCV.
+Du, Z.; Shi, M.; and Deng, J. 2024. Boosting Object Detection with Zero-Shot Day-Night Domain Adaptation. In
+ICCV, 12666–12676.
+Feijoo, D.; Benito, J. C.; Garcia, A.; and Conde, M. V.
+2025. Darkir: Robust low-light image restoration. In CVPR,
+10879–10889.
+Finder, S. E.; Amoyal, R.; Treister, E.; and Freifeld, O. 2025.
+Wavelet Convolutions for Large Receptive Fields. In ECCV,
+363–380. Springer.
+Fu, X.; Zeng, D.; Huang, Y.; Zhang, X.-P.; and Ding, X.
+2016. A weighted variational model for simultaneous reflectance and illumination estimation. In CVPR, 2782–2790.
+Gu, Y.; Wang, H.; Ling, P.; Wei, Z.; Chen, H.; Jin, Y.; and
+Chen, E. 2025. Improving Visual and Downstream Performance of Low-Light Enhancer with Vision Foundation
+Models Collaboration. In CVPR, 16071–16080.
+Guo, H.; Li, J.; Dai, T.; Ouyang, Z.; Ren, X.; and Xia, S.T. 2025. Mambair: A simple baseline for image restoration
+with state-space model. In ECCV, 222–241. Springer.
+Guo, X.; and Hu, Q. 2023. Low-light image enhancement
+via breaking down the darkness. IJCV, 131(1): 48–66.
+Guo, X.; Li, Y.; and Ling, H. 2016. LIME: Low-light image
+enhancement via illumination map estimation. IEEE TIP,
+26(2): 982–993.
+Hai, J.; Xuan, Z.; Yang, R.; Hao, Y.; Zou, F.; Lin, F.; and
+Han, S. 2023. R2rnet: Low-light image enhancement via
+real-low to real-normal network. Journal of Visual Communication and Image Representation, 90: 103712.
+Hore, A.; and Ziou, D. 2010. Image quality metrics: PSNR
+vs. SSIM. In 2010 20th international conference on pattern
+recognition, 2366–2369. IEEE.
+Huang, J.; Liu, Y.; Zhao, F.; Yan, K.; Zhang, J.; Huang, Y.;
+Zhou, M.; and Xiong, Z. 2022. Deep fourier-based exposure correction network with spatial-frequency interaction.
+In ECCV, 163–180. Springer.
+Jiang, H.; Luo, A.; Fan, H.; Han, S.; and Liu, S. 2023. Lowlight image enhancement with wavelet-based diffusion models. ACM Transactions on Graphics (TOG), 42(6): 1–14.
+
+Jie, H.; Zuo, X.; Gao, J.; Liu, W.; Hu, J.; and Cheng, S.
+2023. Llformer: An efficient and real-time lidar lane detection method based on transformer. In AAAI, 18–23.
+Kanopoulos, N.; Vasanthavada, N.; and Baker, R. L. 1988.
+Design of an image edge detection filter using the Sobel operator. IEEE Journal of solid-state circuits, 23(2): 358–367.
+Lee, C.; Lee, C.; and Kim, C.-S. 2012. Contrast enhancement based on layered difference representation. In ICIP,
+965–968. IEEE.
+Li, C.; Guo, C.-L.; Zhou, M.; Liang, Z.; Zhou, S.; Feng, R.;
+and Loy, C. C. 2023. EmbeddingFourier for Ultra-HighDefinition Low-Light Image Enhancement. In ICLR.
+Li, J.; Li, B.; Tu, Z.; Liu, X.; Guo, Q.; Juefei-Xu, F.; Xu, R.;
+and Yu, H. 2024. Light the Night: A Multi-Condition Diffusion Framework for Unpaired Low-Light Enhancement in
+Autonomous Driving. In ICCV, 15205–15215.
+Liang, Y.; Wang, B.; Ren, W.; Liu, J.; Wang, W.; and Zuo,
+W. 2022. Learning hierarchical dynamics with spatial adjacency for image enhancement. In ACM MM, 2767–2776.
+Ma, K.; Zeng, K.; and Wang, Z. 2015. Perceptual quality assessment for multi-exposure image fusion. IEEE TIP,
+24(11): 3345–3356.
+Pizer, S. M. 1990. Contrast-limited adaptive histogram
+equalization: Speed and effectiveness. In Proceedings of the
+first conference on visualization in biomedical computing,
+Atlanta, Georgia, volume 337, 2.
+Rahman, S.; Rahman, M. M.; Abdullah-Al-Wadud, M.; AlQuaderi, G. D.; and Shoyaib, M. 2016. An adaptive gamma
+correction for image enhancement. EURASIP Journal on
+Image and Video Processing, 2016: 1–13.
+Vonikakis, V.; Kouskouridas, R.; and Gasteratos, A. 2018.
+On the evaluation of illumination compensation algorithms.
+Multimedia Tools and Applications, 77(8): 9211–9231.
+Wang, C.; Pan, J.; Wang, W.; Fu, G.; Liang, S.; Wang, M.;
+Wu, X.-M.; and Liu, J. 2024. Correlation Matching Transformation Transformers for UHD Image Restoration. In
+AAAI, 5336–5344.
+Wang, C.; Wu, H.; and Zhi, J. 2023. FourLLIE: Boosting
+Low-Light Image Enhancement by Fourier Frequency Information. In ACM MM.
+Wang, S.; Zheng, J.; Hu, H.-M.; and Li, B. 2013. Naturalness preserved enhancement algorithm for non-uniform
+illumination images. IEEE TIP, 22(9): 3538–3548.
+Wang, Z.; Bovik, A. C.; Sheikh, H. R.; and Simoncelli, E. P.
+2004. Image quality assessment: from error visibility to
+structural similarity. IEEE TIP, 13(4): 600–612.
+Weng, J.; Yan, Z.; Tai, Y.; Qian, J.; Yang, J.; and Li, J. 2025.
+Mamballie: Implicit retinex-aware low light enhancement
+with global-then-local state space. NeurIPS, 37: 27440–
+27462.
+Wu, Y.; Pan, C.; Wang, G.; Yang, Y.; Wei, J.; Li, C.; and
+Shen, H. T. 2023. Learning Semantic-Aware Knowledge
+Guidance for Low-Light Image Enhancement. In CVPR,
+1662–1671.
+Xu, X.; Wang, R.; Fu, C.-W.; and Jia, J. 2022. SNR-aware
+low-light image enhancement. In CVPR, 17714–17724.
+
+Xu, X.; Wang, R.; and Lu, J. 2023. Low-light image enhancement via structure modeling and guidance. In CVPR,
+9893–9903.
+Yan, Q.; Feng, Y.; Zhang, C.; Pang, G.; Shi, K.; Wu, P.;
+Dong, W.; Sun, J.; and Zhang, Y. 2025. Hvi: A new color
+space for low-light image enhancement. In CVPR, 5678–
+5687.
+Yang, W.; Wang, W.; Huang, H.; Wang, S.; and Liu, J. 2021.
+Sparse gradient regularized deep retinex network for robust
+low-light image enhancement. IEEE TIP, 30: 2072–2086.
+Yu, F.; and Koltun, V. 2015. Multi-scale context aggregation
+by dilated convolutions. arXiv preprint arXiv:1511.07122.
+Zamir, S. W.; Arora, A.; Khan, S.; Hayat, M.; Khan, F. S.;
+Yang, M.-H.; and Shao, L. 2020. Learning enriched features
+for real image restoration and enhancement. In ECCV, 492–
+511. Springer.
+Zhang, R.; Isola, P.; Efros, A. A.; Shechtman, E.; and Wang,
+O. 2018. The unreasonable effectiveness of deep features as
+a perceptual metric. In CVPR, 586–595.
+Zhang, T.; Liu, P.; Lu, Y.; Cai, M.; Zhang, Z.; Zhang,
+Z.; and Zhou, Q. 2025. CWNet: Causal Wavelet Network for Low-Light Image Enhancement. arXiv preprint
+arXiv:2507.10689.
+Zhang, T.; Liu, P.; Zhao, M.; and Lv, H. 2024. DMFourLLIE: Dual-Stage and Multi-Branch Fourier Network
+for Low-Light Image Enhancement. In ACM MM, 7434–
+7443.
+Zhang, Y.; Guo, X.; Ma, J.; Liu, W.; and Zhang, J. 2021. Beyond brightening low-light images. IJCV, 129: 1013–1037.
+Zhang, Y.; Zhang, J.; and Guo, X. 2019. Kindling the darkness: A practical low-light image enhancer. In ACM MM,
+1632–1640.
+Zou, W.; Gao, H.; Yang, W.; and Liu, T. 2024a. WaveMamba: Wavelet State Space Model for Ultra-HighDefinition Low-Light Image Enhancement. In ACM MM,
+1534–1543.
+Zou, W.; Gao, H.; Ye, T.; Chen, L.; Yang, W.; Huang, S.;
+Chen, H.; and Chen, S. 2024b. VQCNIR: Clearer Night Image Restoration with Vector-Quantized Codebook. In AAAI,
+7873–7881.
+
+Supplementary Material
+Visualization of Intermediate Processes and
+Comparative Analysis
+Visualization of Intermediate Processes
+In Fig.1 and Fig.2, we present a comparative visualization of endogenous priors and intermediate results. The first
+row includes the input images, while the second and fourth
+columns showcase the endogenous prior S3 and its gradient
+prior G3 , extracted via SMGM after three-wavelet downsampling at the resolution H/8 × W/8 × C. In contrast,
+GT-L3 is derived from ground truth (GT) wavelet downsampling. Notably, S3 captures a significantly richer content prior compared to GT-L3 , and the gradient prior G3 exhibits precise high-frequency contour details, which allows
+for more accurate edge representation and texture recovery.
+Subsequent visual comparisons following the second and
+first layer wavelet sampling reveal that our method closely
+aligns with ground truth (GT) images in terms of brightness,
+color fidelity, and texture details, showcasing its effectiveness in dark conditions. The ability to visualize these components allows for a better understanding of the restoration
+dynamics.
+
+Additional Visual Comparisons
+In Fig. 3, we provide further visual comparisons using an
+unpaired dataset captured in natural scenes. This figure emphasizes our algorithm’s capability to restore intricate details, color accuracy, and brightness levels, outperforming
+other methods significantly. The detailed comparisons illustrate the robustness of our approach in various lighting conditions, affirming its effectiveness in real-world applications.
+
+Input
+
+Figure 1: Visualization of endogenous priors and intermediate results on the UHD-LL dataset. The second and fourth columns
+highlight the self-mined endogenous prior S3 and its gradient prior G3 , showcasing superior content representation and edge
+detail recovery compared to the GT-L3 baseline.
+
+Input
+
+Figure 2: Visualization of endogenous priors and intermediate results on the LSRW-Huawei dataset.
+
+Input
+
+SNR-SKF
+
+WaveMamba
+
+Retinexformer
+
+UHDFormer
+
+Figure 3: Visual comparison on no-reference datasets.
+
+Ours
+
+

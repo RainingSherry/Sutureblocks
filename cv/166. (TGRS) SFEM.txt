@@ -1,0 +1,1317 @@
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+5401315
+
+A Cross-Modality Feature Adaptive Interaction
+Approach for RGB-Infrared Object Detection
+in Aerial Imagery
+Chushi Yu , Graduate Student Member, IEEE, and Yoan Shin , Senior Member, IEEE
+
+Abstract—Object detection in aerial imagery, particularly from
+unmanned aerial vehicles (UAVs) and remote sensing platforms,
+is crucial but faces significant challenges such as modality
+misalignment, feature fusion degradation, and high computational complexity. To address these issues, this article introduces
+cross-modality feature adaptive detection (CMFADet), a novel
+framework for robust RGB-infrared (IR) object detection across
+diverse aerial scenarios. CMFADet improves feature learning
+through its innovative spatial–frequency feature enhancement
+module (SFEM) and IR adaptive feature aggregation block
+(IR-AFAB). It also integrates a channel interaction fusion
+(CIF) module for dynamic weight allocation, ensuring truly
+complementary information integration and avoiding mutual
+interference. This allocation is governed by the specific characteristics of the target and the inherent strengths of each
+modality. Detection accuracy is further refined via an adaptive
+task-aware alignment head (ATAH) that learns the joint features.
+Extensive experiments on the DroneVehicle, vehicle detection
+in aerial imagery (VEDAI), and OGSOD-1.0 datasets demonstrate CMFADet’s superior performance, consistently surpassing
+state-of-the-art algorithms, and effectively addressing the aforementioned challenges. The source code for this work is publicly
+available at https://github.com/Yooyoo95/CMFADet
+Index Terms—Channel interaction fusion (CIF), crossmodality, feature extraction, RGB-infrared (IR) object detection.
+
+I. I NTRODUCTION
+
+O
+
+BJECT detection is a foundational task in computer
+vision, underpinning a broad spectrum of real-world
+applications such as autonomous navigation, robotic perception, surveillance systems, and medical image interpretation
+[1], [2]. The advent of aerial platforms, including unmanned
+aerial vehicles (UAVs) and satellites, has revolutionized data
+acquisition and analysis across diverse domains, offering an
+unparalleled ability to rapidly identify and track targets. Object
+detection from these aerial perspectives is pivotal for critical
+Received 10 November 2025; revised 3 January 2026; accepted 17 January 2026. Date of publication 23 January 2026; date of current
+version 11 February 2026. This work was supported in part by
+the National Research Foundation (NRF) of Korea funded by Korean
+Government [Ministry of Science and ICT (MSIT)] under Grant
+RS-2025-02214082; and in part by MSIT, South Korea, through the Information Technology Research Center (ITRC) Support Program supervised by
+the Institute for Information and Communications Technology Planning and
+Evaluation (IITP) under Grant IITP-2026-RS-2023-00258639. (Corresponding author: Yoan Shin.)
+The authors are with the School of Electronic Engineering, Soongsil University, Seoul 06978, Korea (e-mail: csyu@soongsil.ac.kr; yashin@ssu.ac.kr).
+Digital Object Identifier 10.1109/TGRS.2026.3657379
+
+tasks ranging from military defense, natural disaster relief,
+urban surveillance, and intelligent transportation systems.
+However, aerial object detection, whether from low-altitude
+UAVs or high-altitude remote sensing platforms, presents
+inherent and significant challenges. These include the pervasive issue of small-object sizes, where targets often occupy
+only a few pixels, leading to severe information loss during
+feature extraction [3]. Furthermore, dynamic backgrounds,
+motion blur (especially from UAVs), varying illumination
+conditions, occlusions, and background clutter collectively
+complicate accurate and robust detection [4], [5].
+Traditional object detection algorithms, even with recent
+advances in deep learning (DL) such as faster region-based
+convolutional neural network (faster R-CNN) [6], you only
+look once (YOLO) [7], and detection transformer (DETR) [8],
+primarily rely on single-modality data (e.g., RGB images).
+While RGB images offer rich texture, color information,
+and fine spatial details under optimal lighting, their performance significantly deteriorates in low-light conditions,
+adverse weather, or when objects are heavily occluded. In contrast, infrared (IR) imaging captures thermal radiation emitted
+by targets, enabling effective operation in low visibility environments and through occlusions like fog or smoke, providing
+crucial thermal signatures. However, IR images typically lack
+the texture and color details necessary for distinguishing small
+targets and mitigating false alarms. This inherent information
+bottleneck of single-modality data highlights the necessity for
+more comprehensive solutions.
+To overcome these limitations, multimodal object detection
+has been introduced as a key approach. By fusing data from
+different sensors like visible light, IR, and synthetic aperture
+radar (SAR), multimodal methods leverage the complementary information between modalities and improve detection
+accuracy and robustness in complex aerial environments.
+The DroneVehicle dataset is the first large-scale drone-based
+RGB-IR image dataset for vehicle detection in complex,
+full-time scenarios [9]. It provides valuable resources for
+multimodal research and serves as an important benchmark. Similarly, vehicle detection in aerial imagery (VEDAI)
+dataset [10] is a widely recognized benchmark for small
+vehicle detection in the remote sensing field. Both DroneVehicle and VEDAI represent typical scenes from low-altitude
+drone perspectives and high-altitude remote sensing platforms,
+respectively. The optical image guided SAR image object
+
+1558-0644 © 2026 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and
+similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission.
+See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+Fig. 1. Illustration of the limitations and challenges in multimodality object
+detection. The solid line bounding boxes represent RGB labels, and the dotted
+lines are IR labels on the DroneVehicle dataset. (a) Limitation of single mode
+in night environment. (b) Low visibility with occlusion. (c) Misalignment
+issue of fast moving targets. (d) Label category conflict of objects in images
+from different modalities.
+
+detection (OGSOD-1.0) [11] is the first SAR–optical benchmark dataset for multiobject detection.
+Despite promising advancements in multimodality fusion,
+several challenges persist. Fig. 1 illustrates these challenges
+using examples from the DroneVehicle dataset. First, due to
+differences in perspective, distance, and sensor characteristics,
+a weak misalignment challenge often exists between RGB and
+IR images, particularly for small targets. This misalignment
+requires careful consideration during fusion. Second, conventional multimodal fusion methods, primarily operating in the
+spatial domain, often miss valuable frequency-domain cues
+that could provide more robust representations, neglecting the
+distinct frequency characteristics of RGB and IR modalities.
+Additionally, existing object detector heads commonly employ
+independent classification and localization branches, which
+can lead to a lack of interaction and suboptimal joint feature
+learning between these two crucial tasks. Finally, the pursuit
+of performance often leads to computationally heavy models,
+hindering real-time deployment on aerial platforms.
+To address the aforementioned challenges and significantly
+boost detection accuracy across diverse aerial scenarios, this
+article proposes an innovative object detection framework for
+RGB-IR aerial images, named cross-modality feature adaptive detection (CMFADet). At its core, CMFADet leverages
+spatial- and frequency-domain decomposition through a dedicated spatial–frequency feature enhancement module (SFEM)
+to isolate global structural information from fine-grained
+local details, while an IR adaptive feature aggregation block
+(IR-AFAB) is specifically designed to enhance feature extraction for IR imagery. Instead of relying on simple feature-level
+summation, CMFADet employs more sophisticated strategies
+for dynamic weight allocation, expertly managed by a channel interaction fusion (CIF) module. Furthermore, it tackles
+the limitations of independent classification and localization
+branches by proposing an adaptive task-aware alignment head
+(ATAH), which learns to integrate task-specific features from
+various convolutional layers. The main contributions are summarized as follows.
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+1) We propose the CMFADet framework for multimodality
+object detection in aerial images with a two-stream
+backbone, which incorporates an SFEM to enhance RGB
+feature fidelity against variance and an IR-AFAB to
+prevent thermal feature degradation and reinforce sparse
+IR features.
+2) We introduce a CIF module to overcome static feature
+merging limitations. CIF facilitates adaptive aggregation
+by dynamically allocating fusion weights and promotes
+deep residual cross-modality feature exchange to mitigate mutual interference.
+3) We design the ATAH as a unique detection head that
+performs adaptive task-aware alignment on task-specific
+features by implicitly modeling inter-task coupling to
+maximize predictive performance.
+4) We conduct experiments on three representative multimodality object detection datasets, DroneVehicle,
+VEDAI, and OGSOD-1.0, demonstrating state-of-theart performance with favorable computational efficiency,
+validating its suitability for aerial deployment.
+The remainder of this article is organized as follows.
+Section II reviews related work on relevant DL object detection techniques and multimodal aerial object detection. In
+Section III, we describe the proposed architecture and mechanisms in detail. Section IV presents experimental results and
+analysis, including comparisons with state-of-the-art methods.
+Finally, we conclude this article in Section V.
+II. R ELATED W ORK
+A. Generic Object Detection
+Object detection is a core computer vision task focused
+on classifying and precisely localizing objects with bounding boxes. DL-based methods promote the development
+of this task, which can be broadly categorized into twoand single-stage detectors. Two-stage detectors such as the
+R-CNN family [6], [12], [13] first generate candidate regions
+and then classify and refine them, which achieves high accuracy but incurs substantial computational cost. In contrast,
+single-stage detectors, including single-shot multibox detector
+(SSD) [14], RetinaNet [15], and the YOLO series [16], [17],
+[18], directly predict object categories and locations in a single
+pass, providing superior speed. Improvements in backbone
+networks (e.g., residual neural network (ResNet) [19]), feature aggregation mechanisms in neck networks (e.g., feature
+pyramid network (FPN) [20] and path aggregation network
+(PANet) [21]), refined detection heads (e.g., dynamic head
+[22]), and optimized loss functions further enhance performance. Beyond these refinements, methods like deformable
+convolutional network (DCNv2) [23] enhance adaptability to
+object scale and shape variations, while task-aligned detectors
+like the task-aligned one-stage object detection (TOOD) [24]
+improve consistency between classification and localization
+by designing a task-aligned head and task alignment learning strategy. Building upon the real-time DETR (RT-DETR)
+[25], the MCG-RTDETR architecture enhances precise object
+detection in UAV imagery by integrating dual and deformable
+convolution modules, a cascaded group attention module,
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+and a context-guided feature fusion block [26]. Despite
+these advances, existing generic object detectors mainly focus
+on architectural optimization and task alignment between
+classification and localization, while cross-modality discrepancy and modality-specific feature degradation are not
+explicitly addressed.
+B. Oriented Object Detection
+Unlike generic object detection using horizontal bounding
+boxes (HBBs), oriented object detection employs oriented
+bounding boxes (OBBs) or quadrilaterals for precise localization of targets with arbitrary orientations. OBB overcomes
+limitations of HBB-based methods in dense scenes, complex
+backgrounds, or with high-aspect-ratio targets, especially in
+aerial and remote sensing imagery. The field has evolved from
+two-stage to single-stage architectures. RoI Transformer [27]
+pioneers spatial transformations and consists of the rotated
+region of interest (RRoI) Learner and RRoI Warping. Oriented
+R-CNN [28] later proposes an oriented region proposal network to generate high-quality oriented proposals. However,
+the computational cost of two-stage methods motivated the
+development of single-stage detectors. A single-shot alignment
+network (S2 A-Net) tackles feature misalignment with a feature
+alignment module (FAM) and an oriented detection module
+(ODM) [29]. ReDet [30] incorporates rotation-equivariant networks into the detector to extract rotation-equivariant features.
+Song et al. [31] introduce a rotation-invariant transformer plus
+model (RIFormer+) by designing a rotation-invariant crosspatch embedding (RICPE) module and a response-enhanced
+attention (REA) to enhance local and global feature learning.
+These developments highlight the importance of rotation modeling for oriented targets and provide valuable insights into
+how orientation-aware representations can facilitate effective
+detection under complex imaging conditions.
+C. Multimodal Object Detection
+Multimodal object detection integrates complementary cues
+from heterogeneous sensors (e.g., visible, IR, and depth) to
+improve robustness where single modalities are insufficient.
+The key challenge lies in effectively fusing diverse data
+and mitigating cross-modal discrepancies. Fusion strategies
+are categorized by processing stages. Some fusion methods combine raw data channels directly by concatenating
+multimodality images as a preprocessing process. In decision level, each modality is detected independently, and
+predictions are combined (e.g., weighted non-maximum suppression). Feature-level fusion is the most common approach,
+balancing interaction and modality-specific processing by integrating extracted features (e.g., via concatenation or attention
+mechanism [32]). In feature-level fusion, detectors prioritize
+alignment and conflict resolution. UA-CMDet [9] introduces
+an uncertainty-aware mechanism to evaluate the uncertainty
+weights of every target for RGB and IR modalities by calculating the cross-modal intersection over union (IoU) and the
+illumination value. The two-stream feature alignment detector
+(TSFADet) addresses misalignment challenge by calibrating
+feature maps via a translation-scale-rotation alignment (TSRA)
+
+5401315
+
+module [33]. In [34], a transformer-based calibrated and
+complementary method named C2 Former can simultaneously
+alleviate the modality miscalibration and fusion inaccuracy.
+The Dual-YOLO [35] is an IR object detector based on
+YOLOv7, which introduces the inception and SE modules
+into the attention fusion method to strengthen the characteristic complementarity. The cross-modal conflict-aware
+learning network (CALNet) [36] is a multispectral oriented
+object detector designed to tackle the semantic conflict problem. For illumination changes, Shang et al. [37] propose a
+cross-modality and cross-domain low-light detector (CCLDet)
+consisting of an illumination-aware module (OIAM), a visibility loss and cross-domain feature fusion module (CDFFM).
+Nie et al. [38] present a robust CNN–Transformer-based
+framework for cross-modal feature fusion in visual and IR
+imagery, focusing on the effective interaction between local
+and long-range features. Overall, existing multimodal object
+detectors typically rely on explicitly designed fusion or alignment modules to handle heterogeneous discrepancy, with
+cross-modal interactions governed by the predefined model
+structure.
+D. Related Multimodal Applications and Insights
+Related multimodal applications in computer vision and
+remote sensing offer complementary perspectives on handling
+heterogeneous modalities, with recent advances in tasks such
+as salient object detection (SOD) providing relevant references
+for multimodal detection. The CONTRINET [39] utilizes
+a divide-and-conquer strategy with a triple-flow network to
+handle modality-specific cues and enhance resilience to defective data. The transformer-based CATNet [40] and CPNet
+[41] tackle multiscale aggregation challenges. Specifically,
+CATNet uses a cascaded and aggregated decoder to mitigate
+information loss, while CPNet employs a progressive decoding
+strategy to refine predictions. Beyond SOD, GCViTDet [42]
+demonstrates that generalized vision transformers with masked
+token modeling can enhance semantic fusion.
+General multimodal remote sensing research focuses on
+robust low-level feature handling. The content-adaptive nonlocal convolution (CANConv) [43] shows the utility of spatially
+adaptive convolution and nonlocal self-similarity for effective
+image fusion. The co-occurrence filter-based matching work
+[44] confirms the importance of building feature representations robust to nonlinear radiation differences (NRDs) for
+accurate multimodal image registration. The anchor-guided
+fuzzy clustering study [45] shows the effectiveness of learning
+highly discriminative, low-dimensional multimodal features
+to enable robust high-level interpretation. In hyperspectral
+scene classification, the HRSS-C [46] employs a three-branch
+spectral–spatial fusion network to leverage diverse feature
+representations. These findings further motivate considering
+adaptive alignment and modality-specific feature modeling.
+From an application perspective, aerial person detection (APD)
+represents another relevant application domain. A recent
+survey [47] categorizes APD methods into object-aware,
+sample-oriented, fusion-based, and lightweight designs. For
+instance, a lightweight distillation network (APDNet) [48]
+validates an effective approach to balance detection speed and
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 2. (a) Overall architecture of the proposed method CMFADet. (b) RGB and IR backbone network in detail. (c) Structure of the Conv, C3K2, SPPF, and
+C2PSA blocks.
+
+accuracy for edge deployment through the teach-assistant distillation (TAD) and low-precision quantization (LPQ) modules.
+VTSaRNet [49], designed for visible–thermal search-andrescue scenarios, employs a union transformer network to
+fuse global features from visible and thermal modalities,
+improving detection of sparsely distributed person instances.
+These related multimodal applications demonstrate that effective handling of heterogeneous modalities has been explored
+across different vision tasks, providing useful references for
+multimodal object detection.
+III. P ROPOSED M ETHOD
+This section introduces the CMFADet approach engineered
+for enhanced RGB-IR object detection within drone and
+remote sensing imagery. This is achieved by integrating synergistic components into a cohesive end-to-end framework.
+As depicted in Fig. 2, the proposed architecture is composed
+of a backbone network, a neck network, and prediction
+heads. Initially, the multimodality backbone processes input
+RGB-IR paired images, extracting comprehensive information.
+This backbone then generates multiscale feature maps from
+three distinct stages (P3 –P5 ) through the synergistic operation
+of the CIF module and element-wise addition. Subsequently,
+these enriched feature maps are propagated to the neck network, where they undergo sophisticated feature fusion. Finally,
+
+the ATAH is employed to perform precise object localization
+and classification as the prediction head.
+A. Multimodality Backbone
+The backbone network comprises two parallel network
+structures, specifically designed to process RGB and IR
+images, respectively. Paired images are fed into their corresponding network branches. In the initial stage, we design
+dedicated modules to enhance feature extraction for the distinct characteristics of each image modality. Specifically, an
+SFEM is utilized in the RGB branch, while an IR-AFAB is
+proposed for the IR branch. Then, the method retains the crossstage partial with kernel size 2 (C3K2) block consisting of
+two cross stage partial (CSP) bottlenecks, the spatial pyramid
+pooling-fast (SPPF) block, and the convolutional block with
+parallel spatial attention (C2PSA) block from the original
+YOLOv11 version. Detailed explanations of these modules are
+provided in the following.
+1) Spatial–Frequency Feature Enhancement Module:
+The SFEM is designed to improve feature representations
+by synergistically integrating spatial- and frequency-domain
+information through two parallel branches as shown in Fig. 3.
+This decomposition mechanism is critical for RGB modality, as the frequency branch introduces frequency-domain
+feature transformations that facilitate global structural rep-
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+5401315
+
+Fig. 4. Architecture of the IR-AFAB.
+Fig. 3. Architecture of the SFEM.
+
+resentation, while the spatial branch extracts essential local
+boundary details. This separation ensures feature robustness
+under diverse aerial conditions.
+In the spatial branch, the ScharrConv operation is utilized
+for horizontal (G x ) and vertical (Gy ) gradient computation
+using predefined Scharr kernels [50]. The horizontal (K x ) and
+vertical (Ky ) Scharr kernels are defined as follows:
+3
+2
+3
+2
++3 +10 +3
++3
+0
+−3
+0
+0 5.
+K x = 4+10 0 −105 , Ky = 4 0
+−3 −10 −3
++3
+0
+−3
+(1)
+For an input feature map Finput , the operation first computes the horizontal gradient (G x = Finput ∗ K x ) and vertical
+(Gy = Finput ∗ Ky ) gradient, where ∗ denotes the convolution
+operation. The combined gradients (G x + Gy ) are then processed through two convolutional layers. The resulting feature
+map is subsequently added to the original input Finput via a
+residual connection to preserve low-level information, yielding
+the final spatial feature Fspatial .
+In the frequency branch, the input Finput is first transformed
+into the frequency domain via a 2-D fast Fourier transform
+(FFT2-D ). The transformed frequency features are then fed into
+a convolutional layer, which enables learnable feature transformation in the frequency domain. The processed frequency
+features are then transformed back to the spatial domain via a
+2-D inverse fast Fourier transform (IFFT2-D ) and subsequently
+passed through an additional convolutional layer. Finally, the
+output of the spatial branch (Fspatial ) and the frequency branch
+(Ffrequency ) are combined via an element-wise addition and then
+passed through a final convolutional layer to integrate local
+edge and texture information with global frequency patterns,
+producing the module’s final output Foutput . The process can
+be described as follows:
+
+
+Fspatial = Conv Conv G x + Gy + Finput
+(2)
+
+Ffrequency = Conv IFFT2-D Conv FFT2-D Finput
+(3)
+
+Foutput = Conv Fspatial + Ffrequency .
+(4)
+2) IR Adaptive Feature Aggregation Block: We propose the
+IR-AFAB to enhance the feature extraction for IR imagery.
+As shown in Fig. 4, the IR-AFAB operates by splitting the
+input into two pathways: a deep branch and a skip connection.
+The deep branch is processed by a sequence of cascaded
+adaptive mixer blocks (AMBs), while the skip connection
+is implemented to prevent thermal feature degradation in
+
+the deep path. These pathways are fused via concatenation
+followed by a 1 × 1 convolution. This design effectively
+integrates features from both shallow and deep processing
+streams to preserve sparse, low-level thermal features.
+Inspired by MetaFormer [51], the AMB employs a sequential combination of spatial and channel mixing pathways with
+residual connections. To stabilize the training and regularize
+the model, we incorporate a scale mechanism and a DropPath
+(DP) operation in each residual branch [52], [53]. The AMB
+processes features in two consecutive stages. The first stage,
+using an adaptive multi-kernel depthwise convolution (AMKDC), aggregates spatial information. The second stage, using a
+convolutional gated linear unit (ConvGLU), enhances channel
+discriminability. The output of each stage is added to its
+input through a residual connection. This sequential structure
+allows the AMB to first aggregate spatial information and then
+enhance channel discriminability, forming a powerful feature
+representation. The process can be formulated as follows:
+Y1 = Xin + DP (γ1 AMK-dc (BN (Xin )))
+Yout = Y1 + DP (γ2 ConvGLU (BN (Y1 )))
+
+(5)
+(6)
+
+where Xin is the input feature to the AMB module, BN is the
+batch normalization layer, and γ1 and γ2 are learnable layerscale parameters. DP(·) denotes the DP operation. AMK-dc(·)
+and ConvGLU(·) represent the spatial and channel mixing
+stages, respectively.
+The AMK-DC module splits the input channels into distinct
+groups. Each group is processed by an adaptive multi-kernel
+convolution (AMK-Conv) with varying kernel sizes (e.g., 3 × 3
+and 5 × 5). The outputs from these parallel streams are
+concatenated and fused through a 1×1 pointwise convolution.
+This design captures multiscale and multidirectional spatial
+features. The AMK-Conv generates dynamic weights for three
+heterogeneous kernels (square, horizontal, and vertical) based
+on the input’s global context. It uses adaptive average pooling
+and a lightweight 1 × 1 convolution to produce weighting
+coefficients. These coefficients are normalized by a Softmax
+function and applied element-wise to each depthwise convolution branch. The adaptive multikernel design is essential to
+reinforce sparse IR features by ensuring multiscale receptive
+fields and dynamically prioritizing kernels most responsive to
+small thermal targets. The final outputs are then summed. The
+process can be formulated as follows:
+
+α = Softmax Conv1×1 (AAP (X))
+(7)
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 5. Architecture of the proposed CIF module.
+
+Y = σ BN
+
+3
+X
+
+!!
+AMK-Convi (X)
+
+αi
+
+(8)
+
+i=1
+
+where X ∈ RC×H×W is the input feature map and AAP(·)
+and Conv1×1 (·) are used to extract global context for dynamic
+weight generation. The index i = 1, 2, 3 corresponds to
+the square, horizontal, and vertical depthwise convolution
+branches, respectively.
+denotes the element-wise multiplication and σ(·) is a sigmoid linear unit (SiLU) activation.
+The ConvGLU module, similar to that in TransNeXt [54],
+enhances inter-channel interactions. It uses a gating mechanism where two convolutional layers process the input, one
+acts as a gate and the other extracts features. Their elementwise multiplication yields a weighted feature tensor, which is
+added to the input via a residual connection. This mechanism
+improves feature discriminative power, which is crucial for
+information in IR images.
+B. CIF Module
+To effectively integrate the complementary information from
+the RGB and IR modalities, we propose a CIF module.
+This module is designed to enhance feature representation
+by learning inter-channel dependencies across modalities and
+facilitating a deeper exchange of crucial information. By
+generating channel-wise weights from global contextual information, the CIF module achieves dynamic adaptive fusion, a
+mechanism necessary for robust performance in heterogeneous
+aerial scenes.
+As illustrated in Fig. 5, the CIF module takes the RGB
+RGB
+feature map Xin
+∈ RB×CRGB ×H×W and the IR feature map
+IR
+B×CIR ×H×W
+Xin ∈ R
+as input, where B, H, and W represent the
+batch size, height, and width of the feature maps, respectively.
+These are first concatenated along the channel dimension to
+form a combined feature map X ∈ RB×Ctotal ×H×W , where
+Ctotal = CRGB + CIR . First, a global average pooling (GAP)
+operation is applied on the input feature map X to capture
+global contextual information for each channel. This operation
+reduces the spatial dimensions (H × W) to 1 × 1. Next, these
+pooled features are fed into an excitation block to generate
+channel-wise weights ωatt ∈ RB×Ctotal ×1×1 , which consists of
+two fully connected layers with activation layers (a ReLU and
+a sigmoid). Then, the attention-weighted feature Fatt is calculated by the weight ωatt and the original input feature map X
+through an element-wise multiplication . The cross-modality
+interaction mechanism with residual connection is the key
+innovation of the CIF module. Instead of simply feedback Fatt ,
+we facilitate a deeper communication of information between
+
+Fig. 6. Structure of the proposed ATAH.
+
+RGB and IR branches. We split the attention-weighted feature
+RGB
+IR
+into Fatt
+and Fatt
+and recombine these with input RGB and
+IR feature maps through a residual connection following the
+cross-modality mechanism. The outputs of the CIF module are
+described as follows.
+RGB
+RGB
+IR
+Xfused
+= Xin
++ Fatt
+
+(9)
+
+IR
+IR
+RGB
+Xfused
+= Xin
++ Fatt
+
+(10)
+
+RGB
+IR
+where Fatt = X ωatt and (Fatt
+, Fatt
+) = Split(Fatt ).
+By integrating channel attention with this unique crossmodality residual interaction, the CIF module not only ensures
+that the original feature information is preserved but also
+mitigates the detrimental effect of feature misalignment while
+facilitating smoother gradient flow during training. This adaptive fusion strategy provides a robust solution for effective
+cross-modality information exchange.
+
+C. Adaptive Task-Aware Alignment Head
+To address the inherent misalignment between generic
+feature representations and task-specific requirements, we
+propose the ATAH. This head module enhances detection
+performance by combining implicit inter-task feature coupling
+with dynamic, task-specific feature alignment. The ATAH’s
+overall structure is depicted in Fig. 6.
+Input feature maps, Finput , from different levels of the
+neck network are first processed through a block of two
+convolutional layers with group normalization (Conv-GN).
+This shared block contributes to the parameter-efficient nature
+of our CMFADet by promoting weight reuse across different
+scales and, critically, establishes a feature base for inter-task
+coupling through joint optimization. Subsequently, two parallel
+branches are constructed using two identical task-aware feature
+modulator (TAFM) modules to generate task-specific features.
+The multi-pooling component provides rich multiscale contextual information by obtaining GAP and global max pooling
+(GMP) features and then adding the results. These modules
+ta
+output two distinct representations: Fcls
+for classification and
+ta
+Freg for localization. This implicit feature coupling, driven by
+the shared Conv-GN weights and a unified multi-task loss,
+is the source of the inter-task interaction. Each branch then
+performs a specialized alignment operation. The classification
+branch employs a spatial alignment block. A spatial attention
+map is dynamically produced from the unified features through
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+a lightweight convolutional subnetwork. The map modulates
+ta
+Fcls
+through element-wise multiplication, yielding a spatially
+sa
+aligned representation, Fcls
+, with enhanced discriminability
+and focus by selectively amplifying features in key regions.
+Meanwhile, the regression branch utilizes a geometric alignta
+ment block. A DCNv2 is applied to Freg
+, with spatial sampling
+offsets and modulation masks dynamically predicted from the
+input feature maps. This produces a geometrically aligned
+ga
+representation, Freg , whose receptive field adaptively conforms
+to the irregular geometry and orientation of objects. Furthermore, this adaptive sampling mechanism allows DCNv2 to
+implicitly compensate for small spatial misalignment inherent
+in the fused RGB-IR features, serving a critical dual role in
+achieving both task-specific and inter-modality alignment.
+The classification branch outputs category confidence scores
+through a convolutional layer followed by a sigmoid activation
+function. The regression branch predicts the bounding box
+as a 4-tuple (x, y, w, h) using a distribution-based representation, with coordinates decoded via the distribution focal
+loss (DFL) [55]. For OBB, an additional regression head
+predicts a raw angle logit xθ , which is mapped to the angular
+range [−π/4, 3π/4] to resolve rotational ambiguity and ensure
+consistency with object alignment, as defined in the following:
+
+θ = sigmoid (xθ ) − 0.25 · π.
+(11)
+During inference, predictions from all pyramid levels are
+concatenated, and the final OBBs (x, y, w, h, θ) are constructed
+from the decoded outputs. The classification and regression
+prediction branches proceed in parallel to ensure task specificity and prevent mutual interference. However, the overall
+performance relies on the effective execution of task-aware
+alignment on the implicitly coupled features, driving superior
+joint prediction quality.
+D. Loss Function
+The overall training objective is a weighted sum of three
+distinct components: a classification loss (Lcls ), a regression
+loss (Lobb ), and a DFL (Ldfl ). The total loss L is defined as
+follows:
+L = λcls · Lcls + λobb · Lobb + λdfl · Ldfl
+
+(12)
+
+where λcls , λobb , and λdfl are hyperparameters that control the
+contribution of each loss component.
+The classification loss is calculated using a binary crossentropy (BCE) loss on the logits to correctly identify the object
+class for each predicted box
+
+1 X
+− yi log (ŷi ) + (1 − yi ) log (1 − ŷi )
+(13)
+Lcls =
+N i
+where yi and ŷi are the ground truth and predicted class
+probabilities, respectively, and N is the number of positive
+samples.
+For regression, we use the probabilistic IoU (ProbIoU) loss,
+which is specifically designed for rotated bounding boxes by
+treating each bounding box as a 2-D Gaussian distribution [56]
+Z p
+BC (p, q) =
+p (x) q (x)dx
+(14)
+
+p
+HD (p, q) = 1 − Bc (p, q)
+Lobb = HD (p, q) = 1 − ProbIoU (p, q) ∈ [0, 1]
+
+5401315
+
+(15)
+(16)
+
+where p(x) and q(x) are the probability density functions of
+predicted and ground truth bounding boxes, respectively.
+The DFL stabilizes and refines the regression of the bounding box coordinates (x, y, w, h), serving as an auxiliary signal
+to the ProbIoU loss
+
+
+Ldfl(S i ,S i+1 ) = − yi+1 − y log (S i ) + (y − yi ) log S i+1
+(17)
+where yi and yi+1 are the consecutive integer labels satisfying
+yi < y < yi+1 , and S i and S i+1 are the predicted probabilities
+from a Softmax layer, S i = (yi+1 − y)/(yi+1 − yi ) and S i+1 =
+(y − yi )/(yi+1 − yi ).
+IV. E XPERIMENTAL R ESULTS
+A. Datasets
+The DroneVehicle dataset [9] is a large-scale drone-based
+vehicle detection dataset, comprising 28 439 paired RGB-IR
+images across five categories: car, truck, bus, van, and freight
+car. In accordance with the original publication’s protocol, we
+partition the dataset into a training set with 17 990 pairs, a
+validation set with 1469 pairs, and a test set with 8980 pairs.
+We remove the white border with a width of 100 pixels in the
+original dataset image through preprocessing.
+The VEDAI dataset [10] is another RGB-IR aerial data set
+for small vehicle detection, consisting of 1246 paired images.
+The data are split into training and testing sets following the
+officially provided methodology. While VEDAI is available in
+both 1024 × 1024 and 512 × 512 resolutions, we utilize the
+512 × 512 images for our experiments. The dataset encompasses nine categories: car, truck, tractor, camping car, van,
+pickup, boat, plane, and others.
+The OGSOD-1.0 [11] is a recently released SAR-optical
+paired image dataset for multi-object detection in remote
+sensing. It contains 14 665 training pairs and 3666 test pairs,
+with an original resolution of 256 × 256 pixels. The dataset
+includes over 48 000 annotated instances across three static
+categories: bridges, harbors, and oil tanks.
+B. Implementation Details
+All experiments are conducted on an NVIDIA 4080 graphics processing unit (GPU), and the proposed model is
+implemented in PyTorch 2.1.0. For the DroneVehicle and
+VEDAI datasets, all input images are resized to a resolution of 640 × 640 pixels, and the model is trained for 300
+epochs with batch sizes of 8 and 4. For the OGSOD-1.0,
+the images are resized to 512 × 512 with a batch size of 8
+and trained for 100 epochs. The model is optimized using
+stochastic gradient descent (SGD) with an initial learning rate
+of 0.01, a momentum of 0.937, and a weight decay of 0.0005,
+following the default training configuration of YOLOv11 [18].
+The training retains the default data augmentation protocol,
+including Mosaic with 1.0 probability and random horizontal
+flip with 0.5 probability. This identical protocol is consistently
+applied to all models within our ablation study to ensure a fair
+internal comparative analysis.
+
+R2
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+TABLE I
+C OMPARISON OF THE P ROPOSED M ETHOD W ITH S TATE - OF - THE -A RT M ETHODS ON THE D RONE V EHICLE DATASET
+
+C. Evaluation Metrics
+The model’s performance is assessed using several standard
+metrics: precision (P), recall (R), F1-score, and mean average
+precision (mAP). For a comprehensive evaluation, we calculated mAP at different IoU thresholds, specifically reporting
+mAP@0.5 (IoU threshold of 0.5) and mAP@0.5:0.95 (averaged over IoU thresholds from 0.5 to 0.95 in steps of 0.05).
+Although the model is trained on all nine categories of the
+VEDAI dataset, the “plane” class is excluded from the mAP
+calculation due to its limited number of instances, which could
+otherwise skew the results.
+D. Comparison of Performance
+To rigorously assess the efficacy of our proposed CMFADet
+method, we conduct a comprehensive series of comparative
+experiments against state-of-the-art object detection algorithms. We evaluate both single-modality methods for RGB
+or IR images, including RetinaNet, Faster R-CNN, RoITransformer, S2 A-Net, YOLOv11-OBB, and multimodality methods such as UA-CMDet, C2 Former, CALNet, SLBAF-Net,
+YOLOrs, as well as recently developed methods, including
+CAGTDet, FMCFNet, DMM, DEPFusion, and LPANet.
+1) Quantitative Numerical Results: The comprehensive
+evaluation on the DroneVehicle and VEDAI datasets, presented in Tables I and II, showcases the performance of various
+object detectors across single (RGB or IR) and multimodality
+
+(RGB+IR) inputs. A clear and consistent trend observed on
+both datasets is the advantage of multimodal fusion over
+single-modality approaches.
+On the DroneVehicle dataset, single-modality evaluations
+reveal the superiority of the IR modality over RGB. For example, YOLOv11-OBB’s performance improved from a 70.60%
+mAP@0.5 on RGB to 79.90% on IR, highlighting the value
+of thermal information. By synergistically integrating both
+RGB and IR data, the proposed CMFADet method achieves
+an mAP@0.5 of 83.42%. This result not only substantially
+surpasses the best single-modality score but also outperforms
+all other multimodal methods. Notably, CMFADet exceeds the
+latest comparable methods, including LPANet (77.70%), DEPFusion (78.90%), FMCFNet (76.75%), FMPFNet (76.80%),
+and CAGTDet (74.57%). Specifically, CMFADet improves
+upon the next-best competitors, DMM with S2 A-Net (79.40%)
+and CCLDet (79.40%), by 4.02 percentage points. A detailed
+class-wise analysis further highlighted the model’s exceptional performance, including car (98.60%) and bus (96.20%),
+and strong performance in challenging categories like truck
+(82.90%) and van (67.80%).
+On the VEDAI dataset, the experimental results corroborate
+the superiority of our approach. Single-modality methods
+underperform relative to multimodal approaches, with the best
+RGB and IR modality (YOLOv8-OBB) achieving 69.65%
+and 61.40% mAP@0.5, respectively. Multimodal algorithms
+provide consistent benefits, where the CMFADet achieves
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+5401315
+
+TABLE II
+C OMPARISON OF THE P ROPOSED M ETHOD W ITH S TATE - OF - THE -A RT M ETHODS ON THE VEDAI DATASET
+
+76.28% mAP@0.5, surpassing the baseline (69.51%) and the
+oriented R-CNN with CMAFF (68.74%), by 6.77 and 7.54
+percentage points. Additionally, CMFADet performs better
+than these methods, including DMM with S2 A-Net (64.25%)
+and with oriented R-CNN (72.63%) and LPANet (73.69%).
+CMFADet also delivers top AP scores in most categories,
+such as truck (85.30%), van (77.10%), and others (61.40%),
+indicating strong generalization across diverse object types.
+To demonstrate the generality of CMFADet, we evaluate it
+on the optical. SAR OGSOD-1.0 dataset (Table III). Singlemodality results show that the YOLOv8-OBB achieved 81.0%
+mAP@0.5 on optical domain, while its performance dropped
+to 73.7% mAP@0.5 on SAR domain. Despite the large
+domain shift from RGB-IR, CMFADet outperforms the prior
+multimodal fusion and knowledge distillation methods with
+the best mAP@0.5 of 85.2%. The performance is particularly
+evident in the challenging oil tank category, where CMFADet
+achieves an AP of 80.3%, a drastic improvement over MO
+R-CNN (71.4% AP). CMFADet also exhibits highly competitive performance on harbor (92.7%). These results validate
+the strong feature adaptation capability of the CMFADet
+architecture across diverse sensor modalities.
+Overall, these results demonstrate that CMFADet consistently outperforms both conventional and recent state-of-theart multimodality detectors, highlighting the effectiveness of
+its cross-modality feature adaptive design.
+2) Qualitative Visualization Results: In addition to the
+quantitative analysis, a qualitative comparison of the detection
+performance on the DroneVehicle and VEDAI datasets is
+presented in Figs. 7 and 8. As shown in Fig. 7, CMFADet
+exhibits robust performance under challenging conditions,
+including low-light environments, dense vehicle distributions,
+
+TABLE III
+C OMPARISON OF THE P ROPOSED M ETHOD W ITH S TATE - OF - THE -A RT
+M ETHODS ON THE OGSOD-1.0 DATASET
+
+and occlusions by plants. Competing methods often suffer
+from missed detections or false alarms due to insufficient multimodal feature exploitation. For instance, in low-light scenes,
+CMFADet reduces false alarms and stabilizes detections. In
+cases of dense vehicle distribution, other methods show a
+certain degree of missed detections or incorrect merging,
+while the CMFADet accurately distinguishes and localizes
+each individual vehicle. The ability to robustly identify
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 7. Qualitative comparison of our proposed CMFADet with C2 Former, CALNet, and YOLOv11 on the DroneVehicle dataset. The displayed bounding
+boxes have an IoU greater than 0.5, and a corresponding color legend is provided at the bottom of the figure.
+
+partially visible targets in scenes with plant occlusion further
+demonstrates the superior capability of our method in handling
+such complex cases. On the VEDAI dataset, which features
+tiny vehicles with ambiguous visual features, other methods
+struggle with localization and recognition, frequently missing
+targets. The CMFADet method consistently delivers accurate
+bounding boxes and stable detections, confirming its advantage
+in fusing multimodality features and explaining its superior
+mAP-scores.
+3) Computational Efficiency Analysis: The computational
+efficiency of CMFADet is evaluated against recent multimodality object detectors on the DroneVehicle dataset in Table IV,
+comparing model parameters (Params), floating-point operations (FLOPs), inference speed (FPS), and detection accuracy
+(mAP@0.5). CMFADet achieves the superior tradeoff between
+accuracy and efficiency. CMFADet demonstrates ultralow
+complexity (3.64 M Params and 5.63 GFLOPs), making it
+comparable to the simplest Baseline model in terms of scale.
+Crucially, CMFADet attains an mAP@0.5 of 83.42%, effectively surpassing heavy-weight multimodality models such as
+FMCFNet (200.43 GFLOPs) and CCLDet (82.28 M Params
+and 293.35 GFLOPs). The model’s strong inference speed
+of 108.7 FPS confirms its suitability for real-time UAV
+applications. While CMFADet introduces a marginal increase
+
+TABLE IV
+P ERFORMANCE AND E FFICIENCY C OMPARISON OF R ECENT
+M ETHODS ON THE D RONE V EHICLE DATASET
+
+in computational cost over the Baseline detector (+0.82
+GFLOPs), this small investment yields a substantial gain
+of +3.72% in mAP@0.5.
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+5401315
+
+Fig. 7. (Continued.)Qualitative comparison of our proposed CMFADet with C2 Former, CALNet, and YOLOv11 on the DroneVehicle dataset. The displayed
+bounding boxes have an IoU greater than 0.5, and a corresponding color legend is provided at the bottom of the figure.
+TABLE V
+A BLATION E XPERIMENTS OF THE P ROPOSED M ODULES ON THE D RONE V EHICLE AND VEDAI DATASETS
+
+E. Ablation Study
+To systematically evaluate the contribution and generalizability of each proposed module, we conduct a series of
+ablation experiments on DroneVehicle and VEDAI datasets.
+The baseline model is built upon the YOLOv11-Nano
+(YOLOv11n [18]) architecture, serving as a robust and modern
+comparison reference. It adopts the default YOLOv11 training
+configuration and data augmentation settings to ensure a fair
+and rigorous comparison across all variants as detailed in
+Subsection IV-B. This setup allows us to isolate the performance gains brought by each module with high reliability.
+
+Table V summarizes the positive impact of each module, while
+Table VI provides a detailed breakdown of the internal configurations of the CIF module. The baseline model achieves an
+mAP50 of 79.7% and an mAP50:95 of 64.4% on DroneVehicle
+and an mAP50 of 69.5% and an mAP50:95 of 49.2% on VEDAI,
+establishing a high benchmark for subsequent modules.
+The DroneVehicle dataset features complex, dense traffic
+scenes. The ATAH module proves most effective in isolation,
+achieving an mAP50:95 of 67.5%, highlighting its capability in geometric alignment and refining localization quality
+for dense objects. The CIF module records a high mAP50
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 8. Qualitative comparison of the proposed CMFADet with C2 Former, YOLOv8, and YOLOv11 on the VEDAI dataset. The displayed bounding boxes
+have an IoU greater than 0.5, and a corresponding color legend is provided at the bottom of the figure.
+TABLE VI
+A BLATION E XPERIMENTS OF THE CIF M ODULE ON THE
+D RONE V EHICLE AND VEDAI DATASETS
+
+of 82.5% among the enhancement group, indicating multiscale feature aggregation. The SFEM and IR-AFAB modules
+both contribute to initial feature gains, pushing the mAP50
+past 80%. The proposed CMFADet, integrating these four
+
+modules, demonstrates powerful synergy. The final mAP50
+reaches 83.4% and mAP50:95 reaches an exceptional 69.1%,
+representing a significant 4.7 percentage gain over the competitive baseline (64.4%).
+The VEDAI dataset provides a different challenging profile,
+characterized by smaller object sizes and diverse aerial views.
+The SFEM, focusing on RGB feature stabilization, shows the
+substantial initial improvement in recall R from 59.0% to
+66.2%. The IR-AFAB module exhibits a minor tradeoff where
+R improves from 59.0% to 62.9% at the temporary cost of P
+and F1-score. The mAP50:95 increases from 49.2% to 49.6%,
+validating its role in refining IR feature representation and
+establishing a necessary foundation for the final architecture.
+The CIF module, achieving the highest R (69.0%), confirms
+the critical role of multiscale feature fusion in enhancing
+perception across different object sizes, reaching mAP50 of
+71.7% and mAP50:95 of 51.1%. The ATAH module focuses on
+refining detection precision and quality, achieving the highest
+P of 72.3% among all single modules, and also records the
+best mAP50 and mAP50:95 values at 72.3% and 51.3%. When
+submodules are integrated, the CMFADet achieves a P of
+78.7% and an F1-score of 69.7%, with metrics soaring to
+mAP50 of 76.3% and mAP50:95 of 54.9%. This indicates a
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+5401315
+
+Fig. 10. Visualization of CIF module on the DroneVehicle dataset.
+
+Fig. 9. Visualization of feature maps on the DroneVehicle dataset.
+
+powerful synergistic effect where the combination of SFEM,
+IR-AFAB, CIF, and ATAH modules leads to a substantial
+improvement across performance metrics.
+Table VI provides a detailed analysis of the internal configurations of the CIF module. The experiments comparing
+(c-2)–(c-4) reveal that applying the CIF module across all
+three feature stages (P3 –P5 ) is optimal. Limiting fusion to later
+stages, such as P4 and P5 (c-3), mAP50 drops to 68.5% on
+VEDAI, falling below the baseline. Further restricting fusion
+to only P5 (c-4) results in even greater performance degradation. This clearly demonstrates that fusing fine-grained features
+from the early P3 stage is crucial for accurate object detection.
+Furthermore, we assess various attention mechanisms. While
+the convolutional block attention module (CBAM) [73] has a
+slightly greater mAP50:95 of 51.4% on VEDAI, the SE attention
+[72] (c-2) is selected as the mechanism. This choice is justified by its consistently higher mAP50 on both DroneVehicle
+(82.5%) and VEDAI (71.7%), providing its optimal overall
+balance and a higher F1-score on DroneVehicle (79.3%). By
+comparing (c-2) with (c-1), the cross-sum operation is central
+to the CIF module’s performance for integrating features from
+different levels and ensuring an effective information flow.
+Fig. 9 intuitively visualizes the sample feature maps
+between the CMFADet and the baseline model on DroneVehicle. The heatmaps generated by the baseline model are often
+dispersed and blurred, failing to precisely focus on individual
+targets, especially when they are dense or small. In contrast,
+the feature maps from the CMFADet model exhibit much
+more concentrated and accurate activation regions. In the
+aerial traffic scene shown in the first row, CMFADet precisely
+identifies each vehicle, including both large buses and smaller
+cars. In the dense parking lot scenes of the second and
+third rows, while the baseline model produces large, indistinct
+areas of activation, CMFADet successfully highlights each
+vehicle individually. This demonstrates our method’s superior
+discrimination and localization capabilities when dealing with
+dense, small objects.
+In addition, Fig. 10 visualizes the effect of the CIF module
+through the fused feature heatmaps. The first two columns
+present the input RGB and IR features from the baseline
+model, which are the most dispersed and least focused. The
+subsequent columns compare the feature representation before
+
+and after the CIF module’s operations. The features in the
+third and fourth columns, which represent the results without
+cross-modality enhancement, are typically fragmented, widely
+distributed, and weak. The CIF fused results incorporate the
+CIF module’s cross-modality residual interaction, exhibiting
+activation that is more concentrated, stronger in intensity,
+and sharply bounded around the targets. This visualization
+confirms the CIF module’s role in actively mitigating the
+detrimental effect of feature misalignment and enhancing
+target-specific information during the fusion process.
+F. Discussion
+The superior performance of CMFADet stems from a
+systematic framework that effectively exploits multimodal
+information for vehicle detection. The method enhances
+modality-specific features prior to fusion and employs a
+dynamic fusion strategy. As quantitative and qualitative results
+confirm, CMFADet achieves a substantial performance advantage over state-of-the-art and baseline methods. Specifically,
+CMFADet records the highest mAP@0.5 of 83.42% on
+the DroneVehicle dataset, surpassing the second-best method
+by 4.02 percentage points. This superiority is confirmed
+across different challenge profiles, including VEDAI and
+the OGSOD-1.0 datasets, validating the architecture’s strong
+cross-modality generalization capability. The effectiveness of
+each component (SFEM, IR-AFAB, CIF, and ATAH) is confirmed through the ablation study presented in Table V.
+From a modeling perspective, SFEM is designed as a unified
+spatial–frequency feature enhancement module that complements conventional spatial feature learning. The ablation
+results demonstrate that incorporating frequency-domain feature transformations alongside spatial edge-aware information
+consistently improves detection performance across datasets,
+validating the effectiveness of the spatial–frequency design in
+complex aerial scenarios.
+Despite its strong performance in general scenarios,
+CMFADet still has room for improvement. For instance, while
+the model excels at detecting well-defined classes such as
+car and bus on the DroneVehicle dataset, its performance
+is relatively lower for fine-grained categories like truck and
+freight car. This confusion is mainly caused by the top-down
+aerial viewpoint, where discriminative structural differences
+are weakened by scale variation, limited spatial resolution,
+and partial occlusion. Our computational analysis (Table IV)
+confirms the model achieves a superior accuracy–efficiency
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+5401315
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+tradeoff compared to SOTA methods, validating its suitability
+for aerial deployment. While CMFADet is already highly efficient, future research will explore lightweight model variants
+or pruning techniques to further reduce computational cost.
+Further extensions will include vehicle tracking and videobased detection to broaden the framework’s applicability in
+real-world scenarios.
+V. C ONCLUSION
+In this article, we present CMFADet, a novel cross-modality
+detection framework tailored for aerial RGB-IR imagery
+under challenging conditions. To address modality imbalance and misalignment, we propose a multimodal backbone
+incorporating an SFEM and an IR-AFAB for dedicated feature extraction, a CIF module for adaptive cross-modality
+interaction, and an ATAH head for task-aware feature alignment. Extensive experiments on DroneVehicle, VEDAI, and
+OGSOD-1.0 demonstrate that CMFADet achieves consistent
+performance gains over state-of-the-art methods with favorable
+computational efficiency, particularly in low-light and smallobject scenarios. Overall, this work highlights the importance
+of maintaining modality-specific features and task-specific
+representations in multimodal detection. Future research may
+explore extending CMFADet to real-time or sequential aerial
+perception tasks.
+R EFERENCES
+[1]
+
+Z.-Q. Zhao, P. Zheng, S.-T. Xu, and X. Wu, “Object detection with deep
+learning: A review,” IEEE Trans. Neural Netw. Learn. Syst., vol. 30,
+no. 11, pp. 3212–3232, Nov. 2019.
+[2] Z. Zou, K. Chen, Z. Shi, Y. Guo, and J. Ye, “Object detection in 20
+years: A survey,” Proc. IEEE, vol. 111, no. 3, pp. 257–276, Mar. 2023.
+[3] S. Gui, S. Song, R. Qin, and Y. Tang, “Remote sensing object detection
+in the deep learning era—A review,” Remote Sens., vol. 16, no. 2,
+p. 327, Jan. 2024.
+[4] P. Zhu et al., “Detection and tracking meet drones challenge,” IEEE
+Trans. Pattern Anal. Mach. Intell., vol. 44, no. 11, pp. 7380–7399,
+Nov. 2022.
+[5] D. Du et al., “The unmanned aerial vehicle benchmark: Object detection and tracking,” in Proc. Eur. Conf. Comput. Vis. (ECCV), 2018,
+pp. 370–386.
+[6] S. Ren, K. He, R. Girshick, and J. Sun, “Faster R-CNN: Towards
+real-time object detection with region proposal networks,” IEEE Trans.
+Pattern Anal. Mach. Intell., vol. 39, no. 6, pp. 1137–1149, Jun. 2017.
+[7] J. Redmon, S. Divvala, R. Girshick, and A. Farhadi, “You only look
+once: Unified, real-time object detection,” in Proc. IEEE Conf. Comput.
+Vis. Pattern Recognit. (CVPR), Jun. 2016, pp. 779–788.
+[8] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, and
+S. Zagoruyko, “End-to-end object detection with transformers,” in
+Proc. Eur. Conf. Comput. Vis. Cham, Switzerland: Springer, 2020,
+pp. 213–229.
+[9] Y. Sun, B. Cao, P. Zhu, and Q. Hu, “Drone-based RGB-infrared crossmodality vehicle detection via uncertainty-aware learning,” IEEE Trans.
+Circuits Syst. Video Technol., vol. 32, no. 10, pp. 6700–6713, Oct. 2022.
+[10] S. Razakarivony and F. Jurie, “Vehicle detection in aerial imagery: A
+small target detection benchmark,” J. Vis. Commun. Image Represent.,
+vol. 34, pp. 187–203, Jan. 2016.
+[11] C. Wang, R. Ruan, Z. Zhao, C. Li, and J. Tang, “Category-oriented localization distillation for SAR object detection and a unified benchmark,”
+IEEE Trans. Geosci. Remote Sens., vol. 61, 2023, Art. no. 5211314, doi:
+10.1109/TGRS.2023.3291356.
+[12] R. Girshick, “Fast R-CNN,” in Proc. IEEE Int. Conf. Comput. Vis.
+(ICCV), Dec. 2015, pp. 1440–1448.
+[13] K. He, G. Gkioxari, P. Dollár, and R. Girshick, “Mask R-CNN,” in Proc.
+IEEE Int. Conf. Comput. Vis. (ICCV), Oct. 2017, pp. 2961–2969.
+[14] W. Liu et al., “SSD: Single shot multibox detector,” in Proc. 14th Eur.
+Conf. Comput. Vis. (ECCV). Amsterdam, The Netherlands: Springer,
+Oct. 2016, pp. 21–37.
+
+[15] T.-Y. Lin, P. Goyal, R. Girshick, K. He, and P. Dollár, “Focal loss for
+dense object detection,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 42,
+no. 2, pp. 318–327, Feb. 2020.
+[16] G. Jocher et al., “ultralytics/yolov5: v3.0,” 2020. [Online]. Available:
+https://github.com/ultralytics/yolov5/tree/v3.0
+[17] G. Jocher, A. Chaurasia, and J. Qiu. (2023). Ultralytics YOLO (Version
+8.0.0). [Online]. Available: https://github.com/ultralytics/ultralytics
+[18] R. Khanam and M. Hussain, “YOLOv11: An overview of the key
+architectural enhancements,” 2024, arXiv:2410.17725.
+[19] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for
+image recognition,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Jun. 2016, pp. 770–778.
+[20] T. Y. Lin, P. Dollàr, R. Girshick, K. He, B. Hariharan, and S. Belongie,
+“Feature pyramid networks for object detection,” in Proc. IEEE Conf.
+Comput. Vis. Pattern Recognit., Jul. 2017, pp. 2117–2125.
+[21] S. Liu, L. Qi, H. Qin, J. Shi, and J. Jia, “Path aggregation network for
+instance segmentation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit., Jun. 2018, pp. 8759–8768.
+[22] X. Dai et al., “Dynamic head: Unifying object detection heads with
+attentions,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.,
+Apr. 2021, pp. 7373–7382.
+[23] X. Zhu, H. Hu, S. Lin, and J. Dai, “Deformable ConvNets V2: More
+deformable, better results,” in Proc. IEEE/CVF Conf. Comput. Vis.
+Pattern Recognit. (CVPR), Jun. 2019, pp. 9308–9316.
+[24] C. Feng, Y. Zhong, Y. Gao, M. R. Scott, and W. Huang, “TOOD:
+Task-aligned one-stage object detection,” in Proc. IEEE/CVF Int. Conf.
+Comput. Vis. (ICCV), Oct. 2021, pp. 3490–3499.
+[25] Y. Zhao et al., “DETRs beat YOLOs on real-time object detection,”
+in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR),
+Vancouver, BC, Canada, Jun. 2024, pp. 16965–16974.
+[26] C. Yu and Y. Shin, “MCG-RTDETR: Multi-convolution and contextguided network with cascaded group attention for object detection
+in unmanned aerial vehicle imagery,” Remote Sens., vol. 16, no. 17,
+p. 3169, Aug. 2024.
+[27] J. Ding, N. Xue, Y. Long, G.-S. Xia, and Q. Lu, “Learning RoI
+transformer for oriented object detection in aerial images,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2019,
+pp. 2849–2858.
+[28] X. Xie, G. Cheng, J. Wang, X. Yao, and J. Han, “Oriented R-CNN for
+object detection,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV),
+Oct. 2021, pp. 3520–3529.
+[29] J. Han, J. Ding, J. Li, and G.-S. Xia, “Align deep features for oriented
+object detection,” IEEE Trans. Geosci. Remote Sens., vol. 60, 2022, Art.
+no. 5602511.
+[30] J. Han, J. Ding, N. Xue, and G. Xia, “ReDet: A rotation-equivariant
+detector for aerial object detection,” in Proc. IEEE/CVF Conf. Comput.
+Vis. Pattern Recognit. (CVPR), Jun. 2021, pp. 2786–2795.
+[31] C. Song, Y. Zhang, M. Ma, and S. Mei, “RIFormer+: Rethinking
+rotation-invariant feature learning in transformer,” IEEE Trans. Multimedia, vol. 27, pp. 8423–8435, 2025.
+[32] A. Vaswani et al., “Attention is all you need,” in Proc. Adv. Neural
+Inform. Process. Syst. (NIPS), 2017, pp. 5998–6008.
+[33] M. Yuan, Y. Wang, and X. Wei, “Translation, scale and rotation: Crossmodal alignment meets RGB-infrared vehicle detection,” in Proc. Eur.
+Conf. Comput. Vis., 2022, pp. 509–525.
+[34] M. Yuan and X. Wei, “C2 former: Calibrated and complementary transformer for RGB-infrared object detection,” IEEE Trans.
+Geosci. Remote Sens., vol. 62, 2024, Art. no. 5403712, doi: 10.1109/
+TGRS.2024.3376819.
+[35] C. Bao, J. Cao, Q. Hao, Y. Cheng, Y. Ning, and T. Zhao, “Dual-YOLO
+architecture from infrared and visible images for object detection,”
+Sensors, vol. 23, no. 6, p. 2934, Mar. 2023.
+[36] X. He, C. Tang, X. Zou, and W. Zhang, “Multispectral object detection
+via cross-modal conflict-aware learning,” in Proc. 31st ACM Int. Conf.
+Multimedia, Ottawa, ON, Canada, Oct. 2023, pp. 1465–1474.
+[37] X. Shang et al., “CCLDet: A cross-modality and cross-domain lowlight detector,” IEEE Trans. Intell. Transp. Syst., vol. 26, no. 3,
+pp. 3284–3294, Mar. 2025.
+[38] J. Nie, H. Sun, X. Sun, L. Ni, and L. Gao, “Cross-modal feature fusion
+and interaction strategy for CNN-transformer-based object detection in
+visual and infrared remote sensing imagery,” IEEE Geosci. Remote Sens.
+Lett., vol. 21, pp. 1–5, 2024.
+[39] H. Tang, Z. Li, D. Zhang, S. He, and J. Tang, “Divide-and-conquer:
+Confluent triple-flow network for RGB-T salient object detection,”
+IEEE Trans. Pattern Anal. Mach. Intell., vol. 47, no. 3, pp. 1958–1974,
+Mar. 2025.
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+YU AND SHIN: CROSS-MODALITY FEATURE ADAPTIVE INTERACTION APPROACH FOR OBJECT DETECTION
+
+[40] F. Sun, P. Ren, B. Yin, F. Wang, and H. Li, “CATNet: A cascaded and
+aggregated transformer network for RGB-D salient object detection,”
+IEEE Trans. Multimedia, vol. 26, pp. 2249–2262, 2024.
+[41] X. Hu, F. Sun, J. Sun, F. Wang, and H. Li, “Cross-modal fusion and
+progressive decoding network for RGB-D salient object detection,” Int.
+J. Comput. Vis., vol. 132, no. 8, pp. 3067–3085, Aug. 2024.
+[42] Y. Quan, D. Zhang, and J. Tang, “Generalized concordant vision transformer with masked image tokens for object detection,” IEEE Trans.
+Circuits Syst. Video Technol., vol. 35, no. 11, pp. 10616–10631, Nov.
+2025.
+[43] Y. Duan, X. Wu, H. Deng, and L.-J. Deng, “Content-adaptive
+non-local convolution for remote sensing pansharpening,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2024,
+pp. 27738–27747.
+[44] Y. Yao, Y. Zhang, Y. Wan, X. Liu, X. Yan, and J. Li, “Multi-modal
+remote sensing image matching considering co-occurrence filter,” IEEE
+Trans. Image Process., vol. 31, pp. 2584–2597, 2022.
+[45] Y. Zhang, S. Yan, L. Zhang, and B. Du, “Fast projected fuzzy clustering
+with anchor guidance for multimodal remote sensing imagery,” IEEE
+Trans. Image Process., vol. 33, pp. 4640–4653, 2024.
+[46] J. Zheng, Z. Li, P. Duan, X. Kang, and W. Fu, “Hyperspectral
+remote sensing scene classification with spectral–spatial convolutional
+network,” in Proc. IEEE Int. Geosci. Remote Sens. Symp., Athens,
+Greece, Jul. 2024, pp. 9464–9467.
+[47] X. Zhang, Y. Feng, N. Wang, G. Lu, and S. Mei, “Aerial person detection
+for search and rescue: Survey and benchmarks,” J. Remote Sens., vol. 5,
+p. 474, Jan. 2025.
+[48] X. Zhang, Y. Feng, S. Zhang, N. Wang, G. Lu, and S. Mei, “Robust
+aerial person detection with lightweight distillation network for edge
+deployment,” IEEE Trans. Geosci. Remote Sens., vol. 62, 2024, Art.
+no. 5630616.
+[49] X. Zhang, Y. Feng, N. Wang, G. Lu, and S. Mei, “Transformerbased person detection in paired RGB-T aerial images with VTSaR
+dataset,” IEEE J. Sel. Topics Appl. Earth Observ. Remote Sens., vol. 18,
+pp. 5082–5099, 2025.
+[50] B. Jähne, H. Haussecker, and P. Geissler, Handbook of Computer Vision
+and Applications. New York, NY, USA: Academic, 1999.
+[51] W. Yu et al., “MetaFormer is actually what you need for vision,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2022,
+pp. 10819–10829.
+[52] H. Touvron, M. Cord, A. Sablayrolles, G. Synnaeve, and H. Jégou,
+“Going deeper with image transformers,” in Proc. IEEE/CVF Int. Conf.
+Comput. Vis. (ICCV), Oct. 2021, pp. 32–42.
+[53] G. Huang, Y. Sun, Z. Liu, D. Sedra, and K. Q. Weinberger, “Deep
+networks with stochastic depth,” in Proc. Eur. Conf. Comput. Vis. Cham,
+Switzerland: Springer, 2016, pp. 646–661.
+[54] D. Shi, “TransNeXt: Robust foveal visual perception for vision
+transformers,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Seattle, WA, USA, Jun. 2024, pp. 17773–17783.
+[55] X. Li et al., “Generalized focal loss: Learning qualified and distributed
+bounding boxes for dense object detection,” in Proc. Annu. Conf. Neural
+Inf. Process. Syst. (NIPS), Dec. 2020, pp. 21002–21012.
+[56] J. M. Llerena, L. Felipe Zeni, L. N. Kristen, and C. Jung, “Gaussian
+bounding boxes and probabilistic intersection-over-union for object
+detection,” 2021, arXiv:2106.06072.
+[57] L. Zhang et al., “Cross-modality interactive attention network for
+multispectral pedestrian detection,” Inf. Fusion, vol. 50, pp. 20–29,
+Oct. 2019.
+[58] L. Zhang, X. Zhu, X. Chen, X. Yang, Z. Lei, and Z. Liu, “Weakly aligned
+cross-modal learning for multispectral pedestrian detection,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct. 2019, pp. 5127–5137.
+[59] X. Cheng, K. Geng, Z. Wang, J. Wang, Y. Sun, and P. Ding, “SLBAFNet: Super-lightweight bimodal adaptive fusion network for UAV
+detection in low recognition environment,” Multimedia Tools Appl.,
+vol. 82, no. 30, pp. 47773–47792, Dec. 2023.
+[60] M. Yuan, X. Shi, N. Wang, Y. Wang, and X. Wei, “Improving RGBinfrared object detection with cascade alignment-guided transformer,”
+Inf. Fusion, vol. 105, May 2024, Art. no. 102246.
+[61] Y. Liu and W. Jiang, “Frequency mining and complementary fusion
+network for RGB-infrared object detection,” IEEE Geosci. Remote Sens.
+Lett., vol. 21, pp. 1–5, 2024.
+[62] Z. Wang and Q. Zhang, “Real-time aerial multispectral object detection
+with dynamic modality-balanced pixel-level fusion,” Sensors, vol. 25,
+no. 10, p. 3039, May 2025.
+[63] M. Zhou et al., “DMM: Disparity-guided multispectral Mamba for
+oriented object detection in remote sensing,” IEEE Trans. Geosci.
+Remote Sens., vol. 63, 2025, Art. no. 5404913.
+
+5401315
+
+[64] S. Li, Z. Liu, Z. Hong, Z. Zhou, and X. Cao, “DEPFusion: Dual-domain
+enhancement and priority-guided mamba fusion for UAV multispectral
+object detection,” 2025, arXiv:2509.07327.
+[65] W. Wu, C. Li, X. Wang, B. Luo, and Q. Liu, “Large language
+model guided progressive feature alignment for multimodal UAV object
+detection,” 2025, arXiv:2503.06948.
+[66] M. Sharma et al., “YOLOrs: Object detection in multimodal remote
+sensing imagery,” IEEE J. Sel. Topics Appl. Earth Observ. Remote Sens.,
+vol. 14, pp. 1497–1508, 2021.
+[67] Q. Fang and Z. Wang, “Cross-modality attentive feature fusion for object
+detection in multispectral remote sensing imagery,” Pattern Recognit.,
+vol. 130, Oct. 2022, Art. no. 108786.
+[68] X. Yang, J. Yan, Z. Feng, and T. He, “R3Det: Refined single-stage
+detector with feature refinement for rotating object,” in Proc. AAAI Conf.
+Artif. Intell. (AAAI), 2021, vol. 35, no. 4, pp. 3163–3171.
+[69] X. Yang et al., “The KFIoU loss for rotated object detection,” 2022,
+arXiv:2201.12558.
+[70] W. Bao, M. Huang, J. Hu, and X. Xiang, “Dual-dynamic cross-modal
+interaction network for multimodal remote sensing object detection,”
+IEEE Trans. Geosci. Remote Sens., vol. 63, 2025, Art. no. 5401013,
+doi: 10.1109/TGRS.2025.3530085.
+[71] L. Wang et al., “MO R-CNN: Multispectral oriented R-CNN for object
+detection in remote sensing image,” 2025, arXiv:2509.16957.
+[72] J. Hu, L. Shen, and G. Sun, “Squeeze-and-excitation networks,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit., Salt Lake City, UT,
+USA, Jun. 2018, pp. 7132–7141.
+[73] S. Woo, J. Park, J. Lee, and I. S. Kweon, “CBAM: Convolutional block
+attention module,” in Proc. Eur. Conf. Comput. Vis. (ECCV), Munich,
+Germany, 2018, pp. 3–19.
+
+Chushi Yu (Graduate Student Member, IEEE)
+received the B.S. degree from Hangzhou Normal
+University, Hangzhou, China, in 2017, and the
+M.S. degree from Soongsil University, Seoul, South
+Korea, in 2022, where she is currently pursuing
+the Ph.D. degree with the School of Electronic
+Engineering.
+Her research interests include synthetic aperture
+radar, computer vision, and multimodal learning.
+Ms. Yu was a recipient of the 2025 ICT Express
+Best Paper Award from KICS.
+
+Yoan Shin (Senior Member, IEEE) received the B.S.
+and M.S. degrees in electronics engineering from
+Seoul National University, Seoul, South Korea, in
+1987 and 1989, respectively, and the Ph.D. degree
+in electrical and computer engineering from The
+University of Texas at Austin, Austin, TX, USA, in
+1992.
+From 1992 to 1994, he was a Member of the
+Technical Staff with Microelectronics and Computer Technology Corporation (MCC), Austin. Since
+1994, he has been with the School of Electronic
+Engineering, Soongsil University, Seoul, where he is currently a Professor.
+From 2009 to 2010, he was a Visiting Professor with the Department of
+Electrical and Computer Engineering, The University of British Columbia,
+Vancouver, BC, Canada. He was the Dean of the School of Electronic
+Engineering, the Vice Dean of the College of IT, the Dean of the Office
+of Research and the Office of Planning, and the Provost and the Senior Vice
+President for Academic Affairs of Soongsil University. His research interests
+include mobile communications and intelligent signal processing.
+Dr. Shin served as an Organizing/Technical Committee Member for various
+prominent international conferences, including IEEE VTC 2003-Spring, ISITA
+2006, IEEE ISPLC 2008, APCC 2008, IEEE ISIT 2009, APWCS 2009,
+APWCS 2010, APCC 2010, APWCS 2011, ISAP 2011, APWCS 2012, APCC
+2012, IEEE ICASSP 2018, and IEEE WCNC 2020. He was a recipient of
+the 2024 Journal of Communications and Networks Best Paper Award from
+KICS/IEEE ComSoc and the 2025 ICT Express Best Paper Award from KICS.
+In particular, he was the Technical Program Committee Chair of APWCS
+2013, the General Co-Chair of APWCS 2014 and APWCS 2015, and the
+General Vice Chair of IEEE ICC 2022 and APCC 2022. He was the President
+of Korean Institute of Communications and Information Sciences (KICS)
+in 2022.
+
+Authorized licensed use limited to: Xi'an Jiaotong-Liverpool University. Downloaded on April 19,2026 at 10:28:17 UTC from IEEE Xplore. Restrictions apply.
+
+

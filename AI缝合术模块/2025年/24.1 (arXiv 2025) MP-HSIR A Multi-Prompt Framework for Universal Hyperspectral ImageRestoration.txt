@@ -1,0 +1,3843 @@
+arXiv:2503.09131v1 [cs.CV] 12 Mar 2025
+
+MP-HSIR: A Multi-Prompt Framework for Universal Hyperspectral Image
+Restoration
+Zhehui Wu1 Yong Chen2 Naoto Yokoya3,4 Wei He1 *
+1
+LIESMARS, Wuhan University, Wuhan, China
+2
+School of Computer and Information Engineering, Jiangxi Normal University, Nanchang, China
+3
+Graduate School of Frontier Sciences, The University of Tokyo, Tokyo, Japan
+4
+RIKEN Center for Advanced Intelligence Project (AIP), Tokyo, Japan
+wuzhehui@whu.edu.cn, chenyong1872008@163.com
+yokoya@k.u-tokyo.ac.jp, weihe1990@whu.edu.cn
+
+Gaussian Deblurring
+
+Abstract
+Hyperspectral images (HSIs) often suffer from diverse
+and unknown degradations during imaging, leading to severe
+spectral and spatial distortions. Existing HSI restoration
+methods typically rely on specific degradation assumptions,
+limiting their effectiveness in complex scenarios. In this
+paper, we propose MP-HSIR, a novel multi-prompt framework that effectively integrates spectral, textual, and visual
+prompts to achieve universal HSI restoration across diverse
+degradation types and intensities. Specifically, we develop a
+prompt-guided spatial-spectral transformer, which incorporates spatial self-attention and a prompt-guided dual-branch
+spectral self-attention. Since degradations affect spectral features differently, we introduce spectral prompts in the local
+spectral branch to provide universal low-rank spectral patterns as prior knowledge for enhancing spectral reconstruction. Furthermore, the text-visual synergistic prompt fuses
+high-level semantic representations with fine-grained visual
+features to encode degradation information, thereby guiding
+the restoration process. Extensive experiments on 9 HSI
+restoration tasks, including all-in-one scenarios, generalization tests, and real-world cases, demonstrate that MP-HSIR
+not only consistently outperforms existing all-in-one methods
+but also surpasses state-of-the-art task-specific approaches
+across multiple tasks. The code and models will be released
+at https://github.com/ZhehuiWu/MP-HSIR.
+
+1. Introduction
+Hyperspectral images (HSIs) provide significantly higher
+spectral resolution than RGB images, as illustrated in Figure
+2 (a), making them essential for urban planning [22, 61],
+* Corresponding author: weihe1990@whu.edu.cn
+
+Super
+Resolution
+
+43.6
+
+Complex Denoising
+
+34.3
+43.1
+
+39.0
+
+33.8
+
+Inpainting
+
+37.0
+46.0
+
+33.3
+
+42.0
+
+42.6
+35.0
+
+38.0
+36.0
+
+38.0
+
+38.0
+
+40.0
+
+Gaussian
+Denoising
+
+34.0
+
+39.0
+
+41.0
+
+40.0
+
+37.7
+36.0
+
+Dehazing
+46.0
+38.7
+
+38.0
+
+Poisson Denoising
+
+51.0
+39.7
+
+Band Completion
+Motion Deblurring
+MPIR-HSI (Ours)
+
+PromptIR (NeurIPS23)
+
+InstructIR (ECCV24)
+
+LDERT (TPAMI24)
+
+MLWNet (CVPR24)
+
+SRFormer (ICCV23)
+
+NAFNet (ECCV22)
+
+MB-Taylor (ICCV23)
+
+MambaIR (ECCV24)
+
+Figure 1. PSNR comparison with the state-of-the-art all-in-one and
+task-specific methods across 9 tasks. Average results across all test
+datasets. Best viewed in color.
+
+agricultural production [42, 55], and environmental monitoring [2, 58]. However, due to various environmental factors
+and imaging limitations, HSIs are often affected by degradations during acquisition, compromising image quality and
+limiting subsequent analysis. Consequently, HSI restoration
+is a critical step in the image processing pipeline.
+Despite advancements in task-specific HSI restoration
+methods [9, 21, 35, 62, 68, 76], the diversity and complexity
+of degradations pose a significant challenge for a single
+model to handle multiple HSI restoration tasks. As illustrated
+in Figure 2 (b), different degradation types have distinct
+effects on the spectral features of HSIs. For instance, noise
+
+
+
+Visual Prompt：
+
+y R
+
+R ( )
+
+R ( )
+
+G
+
+
+
+Hyperspectral
+
+x
+
+Textual Prompt:
+Noise, Blur, Compression,
+Haze, Bandmiss, …
+
+B
+
+E
+
+
+
+D
+
+E
+
+D
+
+RGB
+
+(a) Differences Between HSIs and RGB Images
+Noise
+Position A
+
+(c) Model with Visual Prompt
+Textual Prompt:
+Noise, Blur, Compression,
+Haze, Bandmiss, …
+
+Compression
+
+E
+
+E
+
+Visual Prompt：
+
+Textual Prompt:
+Noise, Blur, Compression,
+Haze, Bandmiss, …
+
+E
+
+Position B
+
+Haze
+
+(d) Model with Textual Prompt
+
+D
+
+D
+
+Spectral Prompt：
+
+Position C
+
+E
+
+Pavia Center
+
+(b) Different Degradations on Spectral Features
+
+Feature
+
+Band
+
+(e) Model with Dual Prompts
+
+(f) Model with Tri-Modal Prompts
+
+Figure 2. Overview of HSI characteristics and prompt-based all-in-one restoration methods. (a) Differences between HSIs and RGB
+images. (b) Impacts of different degradations on spectral features. (c) Visual prompt-based models. (d) Textual prompt-based models. (e)
+Dual-modality prompt-based models. (f) The proposed model integrating spectral, textual, and visual prompts.
+
+increases spectral fluctuations, compression reduces spectral
+reflectance in certain bands, and haze shifts the spectral curve
+globally. These diverse impacts hinder the generalization
+capability of task-specific methods across different scenarios.
+Therefore, a universal framework is required to address the
+unique distortions caused by different degradations.
+In recent years, all-in-one image restoration methods have
+achieved significant progress in RGB images [26, 32, 64].
+Among these, prompt learning-based approaches [1, 12, 19,
+36, 44, 52] have garnered attention for their flexibility in
+task adaptation and efficient degradation perception. Based
+on prompt modality, these methods can be categorized into
+visual, textual, and dual prompts. As shown in Figure 2 (c),
+visual prompt-based models [36, 52] guide restoration by introducing additional prompt components but suffer from limited interpretability. Figure 2 (d) illustrates textual promptbased models [12, 19], which convert textual prompts into
+latent embeddings to assist restoration. Nevertheless, inconsistencies may arise when the semantic gap between text and
+images is too large. Figure 2 (e) depicts dual prompt-based
+models [1, 44], which leverage pre-trained vision-language
+models (VLMs) to extract deep representations from text
+instructions and degraded images, providing more precise
+degradation guidance. However, existing VLMs still exhibit limitations in modeling HSI degradation information.
+In specific, most all-in-one models fail to consider the
+unique spectral characteristics of HSIs, often resulting
+in spectral distortions in the restoration process.
+To address the challenges of all-in-one HSI restoration,
+we propose a universal multi-prompt framework, MP-HSIR,
+
+which integrates spectral, textual, and visual prompts, as illustrated in Figure 2 (f). In this framework, spectral prompts
+guide the spatial-spectral transformer for spectral recovery, while textual and visual prompts synergistically generate degradation-specific information to guide the global
+restoration. Specifically, the prompt-guided spatial-spectral
+transformer comprises two core components: spatial selfattention and dual-branch spectral self-attention. The spatial
+self-attention captures non-local spatial similarities, while
+the global spectral branch models long-range dependencies
+in the spectral domain. Meanwhile, the local spectral branch
+incorporates universal low-rank spectral patterns from the
+spectral prompts to enhance spectral feature reconstruction.
+Additionally, the text-visual synergistic prompt deeply fuses
+the semantic representations of textual prompts with the
+fine-grained features of visual prompts, enabling controlled
+restoration while embedding degradation information at the
+pixel level. As shown in Figure 1, our method outperforms
+existing all-in-one methods across 9 HSI restoration tasks
+and surpasses state-of-the-art task-specific methods in multiple tasks. Overall, our main contributions are as follows:
+• We propose a novel multi-prompt framework for all-in-one
+HSI restoration, integrating spectral, textual, and visual
+prompts. The spectral prompt provides universal low-rank
+spectral patterns to enhance spectral reconstruction.
+• We introduce a text-visual synergistic prompt that combines semantic representations from textual prompts with
+fine-grained features from visual prompts, enhancing the
+controllability, interpretability, and degradation adaptability of the HSI restoration process.
+
+• Extensive experiments on 9 HSI restoration tasks and realworld scenarios demonstrate that MP-HSIR significantly
+outperforms compared all-in-one methods and surpasses
+state-of-the-art task-specific approaches in multiple tasks.
+
+2. Related Work
+2.1. Hyperspectral Image Restoration
+Traditional HSI restoration methods mainly leverage prior
+knowledge, such as non-local similarity [46], low-rank structure [21, 39], and sparsity [67, 69], to constrain the solution
+space and employ optimization algorithms [10, 56] to solve
+the inverse problem. Deep learning-based HSI restoration
+methods directly learn the mapping between degraded and
+origin images through deep neural networks, including convolutional neural networks (CNNs) [62, 73], transformers
+[33, 34, 72], and generative models [35]. Although these
+methods have demonstrated strong restoration capabilities,
+they are typically designed for specific types of degradation,
+such as noise removal [6, 29, 66], super-resolution [63, 76],
+and dehazing [45, 68], lacking universality and adaptability
+in practical applications.
+Recent studies [28, 48, 50, 72] have explored using a
+single model for multiple HSI restoration tasks. DDS2M
+[48] designs a self-supervised diffusion model, while HIRDiff [50] projects HSI into RGB space to leverages a pretrained diffusion model for restoration. Nevertheless, these
+approaches frequently demand intricate hyperparameter tuning and exhibit slow inference speeds. Furthermore, they
+fail to adequately account for the distinct characteristics of
+different degradation types, limiting their effectiveness.
+
+2.2. All-in-One Image Restoration
+All-in-one image restoration [26, 44, 64] aims to establish
+a unified deep learning framework for restoring images
+with various degradations. However, developing an effective degradation-aware mechanism to distinguish different
+degradation remains challenging. AirNet [32] addresses this
+by employing contrastive learning to extract degradation
+representations, while HAIR [7] leverages a degradationawareness classifier to capture global information and adaptively generate parameters via a hyper-selection network.
+Recently, prompt learning [31, 43] has emerged as a
+promising paradigm for all-in-one image restoration due to
+its inherent flexibility and task-specific adaptability. PromptIR [52] integrates visual prompts for dynamic guidance,
+while PIP [36] refines them into degradation-aware and basic
+restoration prompts. To enable more controllable restoration, InstructIR [12] utilizes manually crafted instructions
+to guide the restoration process. Moreover, with the rise of
+VLMs, several studies [1, 44] have explored the use of pretrained VLMs to encode both textual and visual information
+for identifying degradation types. In the field of all-in-one
+
+HSI restoration, PromptHSI [30] introduces a text-to-feature
+modulation mechanism that applies textual prompts to composite degradation restoration in HSI, but it remains inherently limited to a single degradation mode. Overall, existing prompt-based all-in-one methods struggle to effectively
+characterize different degradation types in HSIs and lack
+guidance for spectral feature restoration.
+
+3. Method
+In this section, we present the multi-prompt framework for
+universal HSI restoration. First, we review the task of HSI
+restoration in 3.1. Then, we describe the overall architecture
+of the MP-HSIR framework in 3.2. Finally, we introduce the
+Spectral Self-Attention with Prompt Guidance module and
+the Text-Visual Synergistic Prompts module in 3.3 and 3.4.
+
+3.1. Preliminary: Hyperspectral Image Restoration
+HSI restoration aims to recover the clean image X from the
+degraded observation Y [15, 75], modeled as:
+Y = H(X ) + N ,
+
+(1)
+
+where H represents multiplicative degradation operations
+and N denotes additive degradation operators. For the denoising task, H is an identity operation. For the deblurring
+task, H represents the blurring operation. For the inpainting
+task, H denotes a binary mask. In practice, the specific degradation in HSI often involves a combination of unknown multiplicative and additive operators. Without prior knowledge
+of the degradation type, selecting and deploying a specific
+restoration method requires maintaining multiple specialized
+models, inevitably leading to high storage costs and complex
+model management.
+
+3.2. Overall Pipeline
+Given the degraded observation Y ∈ RH×W ×B , where
+H × W represents the spatial resolution and B denotes
+the number of spectral bands, MP-HSIR first applies a
+single-layer convolution to extract shallow features. As illustrated in Figure 3 (a), these features are processed through
+a three-level hierarchical encoder with downsampling operations. This process reduces spatial resolution while increasing channel capacity to obtain multi-scale deep features
+Fle ∈ RH×W ×C , where C is the number of channels. Each
+encoder-decoder pair consists of multiple Prompt-Guided
+Spatial-Spectral Transformer Blocks (PGSSTBs), with the
+number of blocks progressively increasing at deeper levels.
+To integrate degradation information into the decoding
+process, we introduce the Text-Visual Synergistic Prompt
+(TVSP) module at each skip connection between the encoder
+and decoder. The TVSP module leverages textual and visual
+prompts to incorporate semantic guidance and fine-grained
+details, effectively capturing degradation characteristics for
+
+B
+
+Qg
+
+W
+
+W
+
+H
+
+H
+
+reshape
+
+C C
+
+K g reshape
+
+softmax
+
+V g reshape
+C  HW
+
+reshape
+
+D
+
+Spectral Prompts PS
+
+L
+
+Conv
+
+Conv
+PGSSTB×L
+
+TVSP
+
+1
+
+C
+
+PGSSTB×L
+
+Conv
+
+Linear
+
+Up
+TVSP
+
+PGSSTB×L
+
+2
+
+C
+
+2
+
+Up
+
+PGSSTB×L
+
+3
+
+(a) Overall Pipeline of MP-HSIR
+
+Ql
+
+1 D
+
+D D
+
+C 1
+
+Kl
+
+Vl
+1 D
+
+B
+
+Text Prompt
+Gaussian Noise (G)
+Complex Noise (C)
+Blur (B)
+Low Resolution (L)
+Compression (P)
+Haze (H)
+Bandmiss (M)
+
+GMLP
+
+CLIP
+
+Norm
+
+PGSSA
+
+1 L
+
+reshape
+
+(c) Prompt-Guided Spectral Self-Attention Module (PGSSA)
+
+PGSSTB×L
+
+Conv
+
+Down
+
+SSA
+
+softmax
+
+1
+
+Down
+
+Norm
+
+GAP
+1 C M sj
+
+Linear
+
+HW
+ C  P2
+P2
+
+Linear
+
+B
+
+(b) Prompt-Guided Spatial-Spectral Transformer Block (PGSSTB)
+
+G C B L P H M
+
+Learnable
+Visual Prompts PV
+
+W
+H
+
+ResNet
+K
+
+Conv
+
+Cross
+Transformer
+
+Linear
+0 0 1 0 0 0 0
+
+V
+
+C
+
+Q
+
+PT
+
+Fl e
+
+(d) Text-Visual Synergistic Prompt Module (TVSP)
+
+Figure 3. (a) The architecture of the proposed MP-HSIR. (b) Prompt-Guided Spatial-Spectral Transformer Block (PGSSTB). (c) Design of
+the Prompt-Guided Spectral Self-Attention (PGSSA) Module. (d) Text-Visual Synergistic Prompt (TVSP) Module.
+
+restoration. Finally, the restored HSI is generated via a
+3 × 3 convolution layer followed by an image-level residual
+connection. The following sections detail the designs of the
+PGSSTB and TVSP modules.
+
+3.3. Prompt-Guided Spatial-Spectral Transformer
+The PGSSTB is the core component of MP-HSIR, integrating Spatial Self-Attention (SSA), Prompt-Guided Spectral
+Self-Attention (PGSSA), and a gated multi-layer perceptron
+(GMLP) [38]. To enhance training stability and convergence
+speed, layer normalization and skip connections [20] are
+incorporated, as shown in Figure 3 (b). SSA computes attention along the spatial dimension, capturing the non-local
+similarity in HSI. To improve computational efficiency while
+preserving the ability to model long-range dependencies, a
+sliding window [40] of size P × P is adopted.
+While SSA captures spatial dependencies, spectral selfattention models long-range correlations across spectral
+bands, which is crucial for exploiting HSI’s rich spectral
+information. To compute spectral similarity, the input features are transposed and reshaped into F in ∈ RC×HW and
+processed through two complementary branches: global
+spectral self-attention and prompt-guided local spectral selfattention. The outputs from both branches are then fused and
+
+selectively refined using a GMLP. The following sections
+detail the two branches of PGSSA.
+Global Spectral Self-Attention. Global spectral selfattention captures inter-channel dependencies across the entire HSI, as illustrated in the upper part of Figure 3 (c).
+Specifically, the input feature F in is first projected into
+the query Qg ∈ RC×HW , key K g ∈ RC×HW , and value
+V g ∈ RC×HW using 1 × 1 point-wise convolutions W P ,
+followed by 3 × 3 depth-wise convolutions W D :
+
+
+[Qg , K g , V g ] = W D W P F in , F in , F in .
+(2)
+To capture diverse spectral relationships across different bands, we further divide Qg , K g , and V g into multiple
+heads. Within each head, the global spectral attention map
+Ag ∈ RC×C is computed using the element-wise dot product between Qg and K g , formulated as:
+ g
+
+Q · Kg
+Ag = Softmax
+,
+ϵ
+(3)
+g
+g
+g
+P
+g g
+Attention (Q , K , V ) = W (A V ) ,
+where ϵ is a learnable scaling factor that normalizes the
+results of the dot product.
+Prompt-Guided Local Spectral Self-Attention. Unlike
+global spectral self-attention, local spectral self-attention
+
+models spectral channel dependencies within localized spatial regions, as illustrated in the lower part of Figure 3 (c).
+Specifically, the input feature F in is divided into HW
+P 2 nonoverlapping local patches {M1in , M2in , . . . , MJin }, where
+2
+each patch Mjin ∈ RC×P has the same spatial size as the
+spatial self-attention window. To extract representative spectral features Mjs ∈ R1×C from each patch, global average
+pooling is applied along the spatial dimension:
+⊤
+(4)
+Mjs = AvgPool Mjin
+.
+However, due to the susceptibility of spectral structures to
+various degradations, purely local modeling may lead to an
+overly dispersed attention distribution, preventing the model
+from focusing on the most informative spectral channels. To
+address this, a learnable spectral prompt, PS ∈ RL×D , is introduced to guide the attention mechanism toward essential
+spectral patterns, where L denotes the number of universal low-rank spectral patterns in PS , and D represents the
+dimension. Specifically, Mjs undergoes a linear transformation followed by Softmax normalization to produce weights.
+These weights are then used to compute a weighted sum of
+PS , which is subsequently projected to obtain the query Ql .
+Meanwhile, Mjs is projected into the same low-dimensional
+space and further transformed to generate the key K l and
+value V l , formulated as:
+
+Ql = Softmax Mjs W1l PS W3l ,
+(5)
+ l l
+K , V = Mjs W2l W3l ,
+where the linear layer weights W1l , W2l , and W3l have dimensions C × L, C × D, and D × D, respectively.
+The spectral prompt PS , learned during training, provides
+universally applicable low-rank spectral patterns for local
+spectral self-attention, enabling any local spectral feature
+to be represented as a linear combination of these patterns.
+This enhances the performance of local spectral modeling
+and facilitates spectral information recovery, thereby improving the model’s generalization across different datasets and
+degradation scenarios. Finally, the local spectral attention
+map Al ∈ RD×D can be obtained by:
+
+ l
+Q · Kl
+,
+Al = Softmax
+ϵ
+(6)
+
+
+l
+l
+l
+P
+l l
+Attention Q , K , V = W A V ,
+where W P remaps the low-dimensional spectral features to
+the original dimension Mjout ∈ RC×1 , which is then used to
+weight Mjin to obtain the final output.
+
+3.4. Text-Visual Synergistic Prompt
+The spectral prompt exhibits strong robustness to HSIs with
+varying degradations but lacks explicit guidance on the degradation type. To address this limitation, we introduce the
+
+TVSP module, as illustrated in Figure 3 (d), which integrates
+textual prompts and learnable visual prompts to provide
+degradation-specific information for the restoration network.
+First, we employ a degradation predictor Φ [11] to classify the degradation type of the input observation (details are
+provided in Section A of the supplementary material). Based
+on predefined textual descriptions Ttext corresponding to different degradation types, a frozen CLIP model [54] generates
+embeddings that serve as the textual prompt PT . To bridge
+the domain gap between RGB and HSI, these embeddings
+are transformed into learnable parameters, enabling the network to adapt and refine the textual prompts during training
+for improved alignment with HSI characteristics. The final
+textual prompt is selected based on the classification result:
+PT = Φ(X ) · Clip (Ttext ) .
+
+(7)
+
+However, textual prompt PT provides only global degradation information and lacks pixel-level precision. To address this, we introduce a learnable visual prompt PV and
+fuse it with the textual prompt via a cross-attention. This allows PT to regulate global degradation while PV refine local
+features, enabling degradation information to be effectively
+integrated and adjusted, formally expressed as:
+Flout = Concat (Fle , Attention (PT , PV )) ,
+
+(8)
+
+where the output Flout is finally passed to the decoder via
+a skip connection. Compared to VLM-based dual prompts,
+TVSP is more flexible and adaptive, enabling prompt adjustments for different HSI domains.
+
+4. Experiments
+4.1. Experimental setup
+Datasets. We employ 13 hyperspectral datasets for training
+and testing, comprising two natural scene HSI datasets and
+11 remote sensing HSI datasets. The natural scene datasets
+include ICVL [3] and ARAD [4], while the remote sensing
+datasets consist of Xiong’an [70], WDC [79], Pavia City and
+Pavia University [24], Houston [65], Chikusei [71], Eagle
+[51], Berlin [49], APEX [25], Urban [5], and 10 EO-1 Hyperion scenes collected in this study. For the natural scene HSI
+datasets, 1,000 images are cropped into 64×64×31 patches
+for training, while an additional 100 non-overlapping images
+are reserved for testing. For the first eight remote sensing
+datasets, 80% of each image is cropped into 64×64×100
+patches for training, with the remaining regions used for
+testing. The last three remote sensing datasets are designated
+for real-world experiments. Due to the substantial domain
+differences between natural scene and remote sensing data,
+we train models separately on each dataset category. To
+ensure a comprehensive evaluation, multiple test datasets are
+randomly assigned to each task, ensuring that both natural
+
+Type
+
+Task Specific
+
+All in One
+
+Type
+
+Task Specific
+
+All in One
+
+Method
+NAFNet [8]
+Restormer [74]
+DDS2M [48]
+HIR-Diff [50]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Method
+QRNN3D [62]
+SST [33]
+SERT [34]
+LDERT [35]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+Method
+Stripformer [57]
+FFTformer [27]
+LoFormer [47]
+MLWNet [14]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Gaussian Denoising (Sigma = 30, 50, 70)
+ICVL [3]
+ARAD [4]
+Xiong’an [70]
+PSNR / SSIM ↑
+PSNR / SSIM ↑
+PSNR / SSIM ↑
+39.99 / 0.947
+39.18 / 0.932
+36.06 / 0.829
+41.31 / 0.959
+40.86 / 0.955
+37.53 / 0.850
+41.55 / 0.967
+41.09 / 0.959
+37.83 / 0.859
+41.92 / 0.969
+41.47 / 0.965
+38.14 / 0.865
+39.76 / 0.943
+39.19 / 0.920
+31.94 / 0.668
+40.25 / 0.953
+39.69 / 0.945
+32.99 / 0.684
+40.87 / 0.958
+40.25 / 0.952
+32.64 / 0.674
+40.51 / 0.956
+39.91 / 0.949
+32.54 / 0.679
+41.02 / 0.960
+40.32 / 0.954
+31.74 / 0.666
+40.65 / 0.960
+40.04 / 0.956
+38.07 / 0.881
+41.62 / 0.964
+41.09 / 0.960
+38.81 / 0.897
+Gaussian Deblurring (Radius = 9, 15, 21 & 7, 11, 15)
+ICVL [3]
+PaviaC [24]
+Eagle [51]
+PSNR / SSIM ↑
+PSNR / SSIM ↑
+PSNR / SSIM ↑
+46.03 / 0.988
+37.13 / 0.913
+41.96 / 0.958
+46.65 / 0.988
+37.96 / 0.921
+42.76 / 0.962
+47.15 / 0.989
+37.72 / 0.917
+42.59 / 0.962
+47.66 / 0.990
+39.01 / 0.928
+44.04 / 0.969
+47.21 / 0.989
+37.76 / 0.918
+42.42 / 0.963
+47.67 / 0.990
+38.72 / 0.927
+43.74 / 0.968
+47.52 / 0.990
+38.52 / 0.924
+43.17 / 0.967
+46.45 / 0.988
+37.93 / 0.919
+42.77 / 0.964
+34.05 / 0.798
+27.03 / 0.602
+32.68 / 0.766
+32.52 / 0.817
+36.73 / 0.912
+39.75 / 0.954
+48.07 / 0.990
+39.00 / 0.927
+43.72 / 0.968
+
+Inpainting (Mask Rate = 0.7, 0.8, 0.9)
+ICVL [3]
+Chikusei [71]
+PSNR / SSIM ↑
+PSNR / SSIM ↑
+44.39 / 0.987
+39.82 / 0.953
+45.79 / 0.990
+36.33 / 0.899
+42.18 / 0.969
+34.94 / 0.887
+38.91 / 0.949
+37.65 / 0.916
+42.60 / 0.981
+37.46 / 0.919
+46.38 / 0.990
+38.07 / 0.930
+43.37 / 0.982
+38.43 / 0.930
+44.02 / 0.982
+38.05 / 0.927
+44.07 / 0.986
+36.11 / 0.907
+41.48 / 0.972
+37.33 / 0.946
+51.53 / 0.996
+43.63 / 0.979
+
+Method
+SGNet [45]
+SCANet [18]
+MB-Taylor [53]
+DCMPNet [77]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Method
+QRNN3D [62]
+SST [33]
+SERT [34]
+LDERT [35]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+Method
+SNLSR [23]
+MAN [59]
+ESSAformer [76]
+SRFormer [78]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Dehazing (Omega = 0.5, 0.75, 1)
+PaviaU [24]
+Eagle [51]
+PSNR / SSIM ↑
+PSNR / SSIM ↑
+34.28 / 0.963
+37.22 / 0.976
+36.59 / 0.978
+39.64 / 0.985
+37.99 / 0.983
+41.03 / 0.991
+37.20 / 0.985
+40.24 / 0.990
+35.59 / 0.965
+38.83 / 0.981
+37.41 / 0.982
+40.73 / 0.992
+37.62 / 0.982
+40.74 / 0.990
+36.76 / 0.978
+40.86 / 0.992
+34.72 / 0.971
+37.65 / 0.982
+36.77 / 0.974
+39.78 / 0.984
+39.59 / 0.986
+42.41 / 0.995
+
+Complex Denoising (Case = 1, 2, 3, 4)
+ICVL [3]
+ARAD [4]
+WDC [79]
+PSNR / SSIM ↑
+PSNR / SSIM ↑ PSNR / SSIM ↑
+41.60 / 0.966
+41.11 / 0.960
+30.82 / 0.868
+42.43 / 0.971
+41.95 / 0.967
+32.71 / 0.889
+43.31 / 0.976
+42.87 / 0.973
+33.31 / 0.903
+43.42 / 0.977
+43.02 / 0.974
+33.49 / 0.904
+40.68 / 0.959
+40.09 / 0.945
+28.07 / 0.726
+41.29 / 0.965
+40.71 / 0.954
+28.83 / 0.735
+41.67 / 0.968
+41.17 / 0.962
+28.50 / 0.724
+40.63 / 0.958
+40.15 / 0.947
+28.18 / 0.729
+40.12 / 0.957
+39.81 / 0.952
+27.49 / 0.707
+39.14 / 0.955
+38.75 / 0.936
+33.77 / 0.912
+42.29 / 0.971
+41.99 / 0.969
+34.07 / 0.918
+Super-Resolution (Scale = 2, 4, 8)
+ARAD [4]
+PaviaU [24]
+Houston [65]
+PSNR / SSIM ↑
+PSNR / SSIM ↑ PSNR / SSIM ↑
+36.05 / 0.898
+30.55 / 0.730
+31.70 / 0.787
+36.88 / 0.911
+30.92 / 0.733
+32.03 / 0.791
+37.40 / 0.918
+31.34 / 0.738
+32.37 / 0.793
+38.02 / 0.922
+31.80 / 0.751
+32.80 / 0.803
+36.73 / 0.910
+30.93 / 0.735
+32.00 / 0.791
+37.37 / 0.918
+31.53 / 0.746
+32.73 / 0.799
+38.36 / 0.926
+31.77 / 0.749
+32.89 / 0.805
+36.84 / 0.915
+31.47 / 0.745
+32.54 / 0.796
+36.51 / 0.913
+31.34 / 0.741
+32.52 / 0.793
+35.03 / 0.904
+30.75 / 0.732
+31.85 / 0.775
+38.25 / 0.924
+31.97 / 0.760
+33.06 / 0.810
+Method
+NAFNet [8]
+Restormer [74]
+SwinIR [37]
+MambaIR [16]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Completion (Rate = 0.1, 0.2 0.3)
+ARAD [4]
+Berlin [49]
+PSNR / SSIM ↑ PSNR / SSIM ↑
+47.04 / 0.995
+38.35 / 0.907
+48.34 / 0.995
+35.07 / 0.606
+49.75 / 0.995
+35.45 / 0.886
+50.26 / 0.995
+36.12 / 0.888
+45.27 / 0.992
+35.91 / 0.624
+46.60 / 0.994
+40.45 / 0.652
+47.36 / 0.993
+37.20 / 0.668
+45.08 / 0.992
+38.01 / 0.650
+51.31 / 0.997
+35.97 / 0.580
+47.34 / 0.994
+43.36 / 0.972
+56.48 / 0.999
+49.50 / 0.987
+
+Table 1. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods on 7 HSI restoration tasks. The best
+and second-best performances are highlighted in red and blue, respectively.
+
+scene and remote sensing HSI datasets are included in every
+task. Moreover, normalization is conducted on all datasets.
+Detailed description of the datasets is provided in Section B
+of the supplementary material.
+Settings. To validate the effectiveness and generalization
+capability of the proposed model, we conducted evaluations
+under three different settings. (1) All-in-one: A unified
+model was trained on seven HSI restoration tasks, including Gaussian denoising, complex denoising, Gaussian deblurring, super-resolution, inpainting, dehazing, and band
+completion. (2) Generalization: Few-shot and zero-shot
+learning were performed on unseen tasks. Motion deblurring was evaluated after fine-tuning, while Poisson denoising
+was assessed directly using the pre-trained model. (3) Real-
+
+World: For real-world denoising, following the settings of
+[33], the model was fine-tuned on the APEX dataset [25] and
+evaluated on the Urban dataset [5]. For real-world dehazing,
+the model was directly evaluated on the EO-1 Hyperion data.
+Detailed experimental settings for each task, including degradation synthesis models and intensity ranges, are provided
+in Section C of the supplementary material.
+Implementation Details. Due to the difference in data volume, we employed distinct training strategies for natural
+scene and remote sensing HSI datasets. Both utilized the
+AdamW optimizer (β1 = 0.9, β2 = 0.999) with L1 loss and
+a batch size of 32. For natural HSIs, training was conducted
+for 100 epochs with an initial learning rate of 2 × 10−4 ,
+which was gradually reduced to 1 × 10−6 using cosine an-
+
+Input / 14.07
+
+SST [33] / 30.53
+
+LDERT [35] / 30.74 PromptIR [52] / 26.38 InstructIR [12] / 24.63 PromptHSI [30] / 30.78
+
+Ours / 31.36
+
+GT / PSNR (dB)
+
+Input / 14.20
+
+NAFNet [8] / 40.82
+
+Restormer [74] / 42.16 PromptIR [52] / 42.65 InstructIR [12] / 41.43 PromptHSI [30] / 38.52
+
+Ours / 47.67
+
+GT / PSNR (dB)
+
+MB-Taylor [53] / 38.34 DCMPNet [77] / 37.68 PromptIR [52] / 37.35 InstructIR [12] / 33.76 PromptHSI [30] / 37.82
+
+Ours / 39.49
+
+GT / PSNR (dB)
+
+Input / 18.24
+
+Figure 4. [All-in-one] Visual comparison results on complex denoising, inpainting, and dehazing. The zoomed-in regions are highlighted
+with red boxes, the corresponding zoomed results are marked with green boxes, and the residual maps are outlined with yellow boxes.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+(g)
+
+(h)
+
+Figure 5. The spectral errors of the restored HSIs across multiple tasks. (a) Gaussian denoising. (b) Complex denoising. (c) Gaussian
+deblurring. (d) Super-resolution. (e) Inpainting. (f) Dehazing. (g) Band completion. (h) Poisson denoising. Zoom in for the best view.
+
+Type
+
+Task
+Specific
+
+All
+in
+One
+
+Method
+Stripformer [57]
+FFTformer [27]
+LoFormer [47]
+MLWNet [14]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Motion Deblurring
+PSNR ↑ SSIM ↑
+37.91
+0.948
+38.42
+0.950
+38.94
+0.953
+39.28
+0.959
+37.43
+0.947
+38.77
+0.951
+38.55
+0.950
+37.58
+0.948
+36.58
+0.942
+36.79
+0.945
+40.06
+0.965
+
+Methods
+QRNN3D [62]
+SST [33]
+SERT [34]
+LDERT [35]
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Poisson Denoising
+PSNR ↑
+SSIM ↑
+35.98
+0.910
+37.51
+0.914
+37.46
+0.913
+37.92
+0.915
+33.91
+0.896
+34.83
+0.902
+34.52
+0.901
+34.38
+0.901
+33.96
+0.895
+37.25
+0.912
+38.56
+0.922
+
+Table 2. [Generalization] The results of motion deblurring on the
+ICVL dataset [3] and Poisson denoising on the Houston dataset
+[65]. Task-specific methods are trained on the entire dataset, while
+all-in-one methods are fine-tuned using only 5% of the data.
+
+nealing [41]. In contrast, for remote sensing HSIs, the initial
+learning rate was set to 1 × 10−4 , and training was extended
+to 300 epochs. Given the higher spectral dimensionality of
+remote sensing HSIs, the width of the all-in-one model was
+increased by a factor of 1.5, while task-specific models were
+fine-tuned to achieve optimal performance.
+
+Evaluation Metrics and Comparisons Methods. We employed PSNR and SSIM [60] as quantitative metrics for
+evaluation. The comparison methods included six all-in-one
+models, i.e., AirNet [32], PromptIR [52], PIP [36], HAIR
+[7], InstructIR [12], and PromptHSI [30], along with 22
+state-of-the-art task-specific models.
+
+4.2. Comparison with state-of-the-art methods
+All-in-one. Table 1 presents the quantitative performance
+of seven all-in-one methods and 22 task-specific approaches
+across seven HSI restoration tasks. Our method consistently
+outperforms all all-in-one methods and surpasses state-ofthe-art task-specific approaches in multiple tasks, achieving
+significant PSNR improvements in inpainting, dehazing, and
+band completion. Furthermore, our method attains the best
+or near-best performance across all hyperspectral remote
+sensing datasets. Notably, InstructIR and PromptHSI exhibit
+anomalous results in the deblurring task due to their inability
+to effectively distinguish different types of HSI degradation.
+Visualization comparsion of prompts are provided in Section
+D of the supplementary material.
+
+Input
+
+Input
+
+SST [33]
+
+LDERT [35]
+
+AirNet [32]
+
+PromptIR [52]
+
+InstructIR [12]
+
+PromptHSI [30]
+
+Ours
+
+MB-Taylor [53]
+
+DCMPNet [77]
+
+AirNet [32]
+
+PromptIR [52]
+
+InstructIR [12]
+
+PromptHSI [30]
+
+Ours
+
+Figure 6. [Real-world] Visual comparison results on real denoising and real dehazing. Zoom in for the best view.
+
+Method
+
+PSNR ↑
+
+SSIM ↑
+
+Params (M)
+
+Baseline (Only Spatial SA)
+
+39.24
+
+0.963
+
+20.93
+
++ Textual Prompt PT
+
+39.62
+
+0.964
+
+21.51
+
++ Visual Prompt PV
+
+39.57
+
+0.964
+
+23.68
+
++ Textual Prompt PT + Visual Prompt PV
+
+39.90
+
+0.964
+
+24.26
+
++ Global Spectral SA + PT + PT
+
+40.63
+
+0.969
+
+30.07
+
++ Local Spectral SA + PT + PV
+
+40.46
+
+0.968
+
+24.43
+
++ Local Spectral SA + PT + PV + Spectral Prompt PS
+
+41.05
+
+0.971
+
+25.10
+
+Full Model
+
+41.98
+
+0.974
+
+30.91
+
+Noise
+A
+C
+
+Region A
+
+B
+D
+
+Table 3. Ablation study to verify the effectiveness of modules on
+Chikusei dataset in inpainting task with mask ratio = 0.9.
+
+Figure 4 presents visual comparisons for complex denoising, inpainting, and dehazing. The residual maps highlight
+the superiority of our method in structural recovery and
+fine-detail reconstruction. Figure 5 illustrates the normalized digital number (DN) error between the restored and
+ground truth images across spectral bands. Leveraging spectral prompts, our method achieves the most accurate spectral
+reconstruction across all tasks.
+Generalization. Table 2 presents the experimental results
+for motion blur removal using few-shot learning and Poisson noise removal using zero-shot learning. The proposed
+method exhibits superior generalization ability compared to
+existing approaches under both learning paradigms.
+Real-world. As shown in Figure 6, we present a comparative
+visualization of all-in-one and task-specific methods applied
+to real-world denoising and dehazing scenarios. The results
+highlight the proposed method’s effectiveness in restoring
+texture details and spectral structure, while mitigating common artifacts like over-smoothing and spectral distortion.
+Additional Results. More quantitative results and visualizations are in Section E of the supplementary material.
+
+4.3. Model Analysis
+Ablation Study. To assess the effectiveness of each module in the proposed MP-HSIR framework, we conducted an
+ablation study, starting with a baseline model that includes
+only spatial self-attention (SA) and then progressively incor-
+
+Region B
+
+Blur
+
+Region C
+
+Region D
+Spectral Response Weights
+
+Figure 7. Visualization of the activation proportions for universal
+low-rank spectral patterns within the spectral prompt.
+
+porating textual prompts PT , learnable visual prompts PV ,
+global spectral self-attention, local spectral self-attention,
+and spectral prompts PS . As shown in Table 3, both accuracy metrics for the inpainting task on the Chikusei dataset
+progressively improve with the addition of each module.
+Notably, the local spectral self-attention module guided by
+spectral prompts provides the most significant performance
+gain, attributed to the additional spectral guidance offered
+by spectral prompts. Results for other tasks are provided in
+Section E of the supplementary material.
+Visualization of Spectral Prompt. To further investigate
+the role of spectral prompts, we visualize the activation distribution of universal low-rank spectral patterns under both
+noise and blur degradations in Figure 7. By selecting identical regions from both degraded images for comparison,
+we observe that despite different degradation types, the activation patterns remain highly consistent within the same
+regions. This indicates that spectral prompts effectively capture key spectral information in HSI and demonstrate strong
+robustness against different types of degradation.
+
+5. Conclusion
+HSI restoration is challenging due to diverse and often unknown degradation types while existing methods are typi-
+
+cally limited to specific degradation scenarios. In this work,
+we propose MP-HSIR, a universal HSI restoration framework that integrates spectral, textual, and visual prompts.
+MP-HSIR introduces a novel prompt-guided spatial-spectral
+transformer, where spectral prompts provide universal lowrank spectral patterns to enhance spectral reconstruction.
+Furthermore, the text-visual synergistic prompts combine
+high-level semantic representations with fine-grained visual
+features to guide degradation modeling. Extensive experiments on 9 HSI restoration tasks—including all-in-one
+restoration, generalization testing, and real-world scenarios—demonstrate the superior robustness and adaptability of
+MP-HSIR under diverse degradation conditions.
+
+References
+[1] Yuang Ai, Huaibo Huang, Xiaoqiang Zhou, Jiexiang Wang,
+and Ran He. Multimodal prompt perceiver: Empower adaptiveness generalizability and fidelity for all-in-one image
+restoration. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 25432–
+25444, 2024. 2, 3
+[2] Margaret E Andrew and Susan L Ustin. The role of environmental context in mapping invasive plants with hyperspectral
+image data. Remote Sensing of Environment, 112(12):4301–
+4317, 2008. 1
+[3] Boaz Arad and Ohad Ben-Shahar. Sparse recovery of hyperspectral signal from natural rgb images. In Computer
+Vision–ECCV 2016: 14th European Conference, Amsterdam,
+the Netherlands, October 11–14, 2016, Proceedings, Part VII
+14, pages 19–34. Springer, 2016. 5, 6, 7, 13, 15, 16
+[4] Boaz Arad, Radu Timofte, Rony Yahel, Nimrod Morag, Amir
+Bernat, Yuanhao Cai, Jing Lin, Zudi Lin, Haoqian Wang,
+Yulun Zhang, et al. Ntire 2022 spectral recovery challenge
+and data set. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 863–881,
+2022. 5, 6, 13, 15, 16, 17
+[5] M. F. Baumgardner, L. L. Biehl, and D. A. Landgrebe. 220band aviris hyperspectral image data set: June 12, 1992 indian pine test site 3, 2015. Available: https://purr.
+purdue.edu/publications/1947/1. 5, 6, 13
+[6] Théo Bodrito, Alexandre Zouaoui, Jocelyn Chanussot, and
+Julien Mairal. A trainable spectral-spatial sparse coding
+model for hyperspectral image restoration. Advances in Neural Information Processing Systems, 34:5430–5442, 2021.
+3
+[7] Jin Cao, Yi Cao, Li Pang, Deyu Meng, and Xiangyong
+Cao. Hair: Hypernetworks-based all-in-one image restoration.
+arXiv preprint arXiv:2408.08091, 2024. 3, 6, 7, 15, 16, 17
+[8] Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, and Jian Sun.
+Simple baselines for image restoration. In European Conference on Computer Vision, pages 17–33. Springer, 2022. 6, 7,
+16, 17
+[9] Yong Chen, Wenzhen Lai, Wei He, Xi-Le Zhao, and Jinshan
+Zeng. Hyperspectral compressive snapshot reconstruction via
+coupled low-rank subspace representation and self-supervised
+
+deep network. IEEE Transactions on Image Processing, 33:
+926–941, 2024. 1
+[10] Yurong Chen, Hui Zhang, Yaonan Wang, Yimin Yang, and
+Jonathan Wu. Flex-dld: Deep low-rank decomposition model
+with flexible priors for hyperspectral image denoising and
+restoration. IEEE Transactions on Image Processing, 33:
+1211–1226, 2024. 3
+[11] Lu Chi, Borui Jiang, and Yadong Mu. Fast fourier convolution.
+Advances in Neural Information Processing Systems, 33:4479–
+4488, 2020. 5, 13
+[12] Marcos V Conde, Gregor Geigle, and Radu Timofte. Instructir: High-quality image restoration following human instructions. In European Conference on Computer Vision, pages
+1–21. Springer, 2024. 2, 3, 6, 7, 8, 15, 16, 17
+[13] Mark A Folkman, Jay Pearlman, Lushalan B Liao, and Peter J
+Jarecke. Eo-1/hyperion hyperspectral imager design, development, characterization, and calibration. Hyperspectral Remote
+Sensing of the Land and Atmosphere, 4151:40–51, 2001. 13
+[14] Xin Gao, Tianheng Qiu, Xinyu Zhang, Hanlin Bai, Kang Liu,
+Xuan Huang, Hu Wei, Guoying Zhang, and Huaping Liu.
+Efficient multi-scale network with learnable discrete wavelet
+transform for blind motion deblurring. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 2733–2742, 2024. 6, 7, 16
+[15] Pedram Ghamisi, Naoto Yokoya, Jun Li, Wenzhi Liao, Sicong
+Liu, Javier Plaza, Behnood Rasti, and Antonio Plaza. Advances in hyperspectral image and signal processing: A comprehensive overview of the state of the art. IEEE Geoscience
+and Remote Sensing Magazine, 5(4):37–78, 2017. 3
+[16] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong Ren,
+and Shu-Tao Xia. Mambair: A simple baseline for image
+restoration with state-space model. In European Conference
+on Computer Vision, pages 222–241. Springer, 2024. 6, 17
+[17] Jianhua Guo, Jingyu Yang, Huanjing Yue, Hai Tan, Chunping
+Hou, and Kun Li. Rsdehazenet: Dehazing network with
+channel refinement for multispectral remote sensing images.
+IEEE Transactions on Geoscience and Remote Sensing, 59
+(3):2535–2549, 2020. 14
+[18] Yu Guo, Yuan Gao, Wen Liu, Yuxu Lu, Jingxiang Qu,
+Shengfeng He, and Wenqi Ren. Scanet: Self-paced semicurricular attention network for non-homogeneous image dehazing. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 1885–1894,
+2023. 6, 17
+[19] Yu Guo, Yuan Gao, Yuxu Lu, Huilin Zhu, Ryan Wen Liu, and
+Shengfeng He. Onerestore: A universal restoration framework for composite degradation. In European Conference on
+Computer Vision, pages 255–272. Springer, 2024. 2
+[20] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Identity mappings in deep residual networks. In Computer
+Vision–ECCV 2016: 14th European Conference, Amsterdam,
+The Netherlands, October 11–14, 2016, Proceedings, Part IV
+14, pages 630–645. Springer, 2016. 4
+[21] Wei He, Quanming Yao, Chao Li, Naoto Yokoya, and Qibin
+Zhao. Non-local meets global: An integrated paradigm for
+hyperspectral denoising. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 6868–6877, 2019. 1, 3
+
+[22] Uta Heiden, Wieke Heldens, Sigrid Roessner, Karl Segl,
+Thomas Esch, and Andreas Mueller. Urban structure type
+characterization using hyperspectral remote sensing and
+height information. Landscape and urban Planning, 105
+(4):361–375, 2012. 1
+[23] Qian Hu, Xinya Wang, Junjun Jiang, Xiao-Ping Zhang, and
+Jiayi Ma. Exploring the spectral prior for hyperspectral image
+super-resolution. IEEE Transactions on Image Processing,
+2024. 6, 16
+[24] Xin Huang and Liangpei Zhang. A comparative study of
+spatial approaches for urban mapping using hyperspectral
+rosis images over pavia city, northern italy. International
+Journal of Remote Sensing, 30(12):3205–3221, 2009. 5, 6,
+13, 16, 17
+[25] Klaus I Itten, Francesco Dell’Endice, Andreas Hueni, Mathias
+Kneubühler, Daniel Schläpfer, Daniel Odermatt, Felix Seidel,
+Silvia Huber, Jürg Schopfer, Tobias Kellenberger, et al. Apexthe hyperspectral esa airborne prism experiment. Sensors, 8
+(10):6235–6259, 2008. 5, 6, 13
+[26] Junjun Jiang, Zengyuan Zuo, Gang Wu, Kui Jiang, and
+Xianming Liu. A survey on all-in-one image restoration:
+Taxonomy, evaluation and future trends. arXiv preprint
+arXiv:2410.15067, 2024. 2, 3
+[27] Lingshun Kong, Jiangxin Dong, Jianjun Ge, Mingqiang Li,
+and Jinshan Pan. Efficient frequency domain-based transformers for high-quality image deblurring. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 5886–5895, 2023. 6, 7, 16
+[28] Yo-Yu Lai, Chia-Hsiang Lin, and Zi-Chao Leng. Hyperrestormer: A general hyperspectral image restoration
+transformer for remote sensing imaging. arXiv preprint
+arXiv:2312.07016, 2023. 3
+[29] Zeqiang Lai, Chenggang Yan, and Ying Fu. Hybrid spectral
+denoising transformer with guided attention. In Proceedings of the IEEE/CVF International Conference on Computer
+Vision, pages 13065–13075, 2023. 3
+[30] Chia-Ming Lee, Ching-Heng Cheng, Yu-Fan Lin, Yi-Ching
+Cheng, Wo-Ting Liao, Chih-Chung Hsu, Fu-En Yang, and
+Yu-Chiang Frank Wang. Prompthsi: Universal hyperspectral image restoration framework for composite degradation.
+arXiv preprint arXiv:2411.15922, 2024. 3, 6, 7, 8, 15, 16, 17
+[31] Yiming Lei, Jingqi Li, Zilong Li, Yuan Cao, and Hongming
+Shan. Prompt learning in computer vision: a survey. Frontiers
+of Information Technology & Electronic Engineering, 25(1):
+42–63, 2024. 3
+[32] Boyun Li, Xiao Liu, Peng Hu, Zhongqin Wu, Jiancheng
+Lv, and Xi Peng. All-in-one image restoration for unknown
+corruption. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 17452–
+17462, 2022. 2, 3, 6, 7, 8, 15, 16, 17
+[33] Miaoyu Li, Ying Fu, and Yulun Zhang. Spatial-spectral transformer for hyperspectral image denoising. In Proceedings of
+the AAAI Conference on Artificial Intelligence, pages 1368–
+1376, 2023. 3, 6, 7, 8, 15
+[34] Miaoyu Li, Ji Liu, Ying Fu, Yulun Zhang, and Dejing Dou.
+Spectral enhanced rectangle transformer for hyperspectral
+image denoising. In Proceedings of the IEEE/CVF Confer-
+
+ence on Computer Vision and Pattern Recognition, pages
+5805–5814, 2023. 3, 6, 7, 15
+[35] Miaoyu Li, Ying Fu, Tao Zhang, Ji Liu, Dejing Dou, Chenggang Yan, and Yulun Zhang. Latent diffusion enhanced rectangle transformer for hyperspectral image restoration. IEEE
+Transactions on Pattern Analysis and Machine Intelligence,
+2024. 1, 3, 6, 7, 8, 15
+[36] Zilong Li, Yiming Lei, Chenglong Ma, Junping Zhang, and
+Hongming Shan. Prompt-in-prompt learning for universal
+image restoration. arXiv preprint arXiv:2312.05038, 2023. 2,
+3, 6, 7, 15, 16, 17
+[37] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc
+Van Gool, and Radu Timofte. Swinir: Image restoration
+using swin transformer. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision, pages 1833–
+1844, 2021. 6, 17
+[38] Hanxiao Liu, Zihang Dai, David So, and Quoc V Le. Pay
+attention to mlps. Advances in Neural Information Processing
+Systems, 34:9204–9215, 2021. 4
+[39] Yun-Yang Liu, Xi-Le Zhao, Yu-Bang Zheng, Tian-Hui Ma,
+and Hongyan Zhang. Hyperspectral image restoration by
+tensor fibered rank constrained optimization and plug-andplay regularization. IEEE Transactions on Geoscience and
+Remote Sensing, 60:1–17, 2021. 3
+[40] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 10012–10022, 2021. 4
+[41] Ilya Loshchilov and Frank Hutter. Sgdr: Stochastic gradient
+descent with warm restarts. arXiv preprint arXiv:1608.03983,
+2016. 7, 13
+[42] Bing Lu, Phuong D Dao, Jiangui Liu, Yuhong He, and Jiali
+Shang. Recent advances of hyperspectral imaging technology
+and applications in agriculture. Remote Sensing, 12(16):2659,
+2020. 1
+[43] Yuning Lu, Jianzhuang Liu, Yonggang Zhang, Yajing Liu, and
+Xinmei Tian. Prompt distribution learning. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 5206–5215, 2022. 3
+[44] Ziwei Luo, Fredrik K Gustafsson, Zheng Zhao, Jens Sjölund,
+and Thomas B Schön. Photo-realistic image restoration in the
+wild with controlled vision-language models. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 6641–6651, 2024. 2, 3
+[45] Xiaofeng Ma, Qunming Wang, and Xiaohua Tong. A spectral
+grouping-based deep learning model for haze removal of
+hyperspectral images. ISPRS Journal of Photogrammetry and
+Remote Sensing, 188:177–189, 2022. 3, 6, 17
+[46] Matteo Maggioni, Vladimir Katkovnik, Karen Egiazarian,
+and Alessandro Foi. Nonlocal transform-domain filter for volumetric data denoising and reconstruction. IEEE Transactions
+on Image Processing, 22(1):119–133, 2012. 3
+[47] Xintian Mao, Jiansheng Wang, Xingran Xie, Qingli Li, and
+Yan Wang. Loformer: Local frequency transformer for image
+deblurring. In Proceedings of the 32nd ACM International
+Conference on Multimedia, pages 10382–10391, 2024. 6, 7,
+16
+
+[48] Yuchun Miao, Lefei Zhang, Liangpei Zhang, and Dacheng
+Tao. Dds2m: Self-supervised denoising diffusion spatiospectral model for hyperspectral image restoration. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 12086–12096, 2023. 3, 6, 16
+[49] Akpona Okujeni, Sebastian van der Linden, and Patrick
+Hostert. Berlin-urban-gradient dataset 2009: An enmap
+preparatory flight campaign, 2016. Available: https:
+//doi.org/10.2312/enmap.2016.0021. 5, 6, 13,
+17
+[50] Li Pang, Xiangyu Rui, Long Cui, Hongzhong Wang, Deyu
+Meng, and Xiangyong Cao. Hir-diff: Unsupervised hyperspectral image restoration via improved diffusion models. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 3005–3014, 2024. 3, 6,
+16
+[51] Kabir Yunus Peerbhay, Onisimo Mutanga, and Riyad Ismail.
+Commercial tree species discrimination using airborne aisa
+eagle hyperspectral imagery and partial least squares discriminant analysis (pls-da) in kwazulu–natal, south africa. ISPRS
+Journal of Photogrammetry and Remote Sensing, 79:19–28,
+2013. 5, 6, 13, 16, 17
+[52] Vaishnav Potlapalli, Syed Waqas Zamir, Salman H Khan, and
+Fahad Shahbaz Khan. Promptir: Prompting for all-in-one image restoration. Advances in Neural Information Processing
+Systems, 36:71275–71293, 2023. 2, 3, 6, 7, 8, 15, 16, 17
+[53] Yuwei Qiu, Kaihao Zhang, Chenxi Wang, Wenhan Luo, Hongdong Li, and Zhi Jin. Mb-taylorformer: Multi-branch efficient
+transformer expanded by taylor formula for image dehazing.
+In Proceedings of the IEEE/CVF International Conference
+on Computer Vision, pages 12802–12813, 2023. 6, 7, 8, 17
+[54] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,
+Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning
+transferable visual models from natural language supervision.
+In International Conference on Machine Learning, pages
+8748–8763. PmLR, 2021. 5
+[55] Lankapalli Ravikanth, Digvir S Jayas, Noel DG White, Paul G
+Fields, and Da-Wen Sun. Extraction of spectral information
+from hyperspectral data and application of hyperspectral imaging for food and agricultural products. Food and Bioprocess
+Technology, 10:1–33, 2017. 1
+[56] Dunbin Shen, Jianjun Liu, Zebin Wu, Jinlong Yang, and Liang
+Xiao. Admm-hfnet: A matrix decomposition-based deep
+approach for hyperspectral image fusion. IEEE Transactions
+on Geoscience and Remote Sensing, 60:1–17, 2021. 3
+[57] Fu-Jen Tsai, Yan-Tsung Peng, Yen-Yu Lin, Chung-Chi Tsai,
+and Chia-Wen Lin. Stripformer: Strip transformer for fast
+image deblurring. In European Conference on Computer
+Vision, pages 146–162. Springer, 2022. 6, 7, 16
+[58] Yuting Wan, Xin Hu, Yanfei Zhong, Ailong Ma, Lifei Wei,
+and Liangpei Zhang. Tailings reservoir disaster and environmental monitoring using the uav-ground hyperspectral joint
+observation and processing: a case of study in xinjiang, the
+belt and road. In IGARSS 2019-2019 IEEE International Geoscience and Remote Sensing Symposium, pages 9713–9716.
+IEEE, 2019. 1
+
+[59] Yan Wang, Yusen Li, Gang Wang, and Xiaoguang Liu. Multiscale attention network for single image super-resolution.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 5950–5960, 2024. 6,
+16
+[60] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P
+Simoncelli. Image quality assessment: from error visibility to
+structural similarity. IEEE Transactions on Image Processing,
+13(4):600–612, 2004. 7
+[61] Cody Weber, Rahim Aguejdad, Xavier Briottet, J Avala, Sophie Fabre, Jean Demuynck, Emmanuel Zenou, Yannick Deville, Moussa Sofiane Karoui, Fatima Zohra Benhalouche, et al.
+Hyperspectral imagery for environmental urban planning. In
+IGARSS 2018-2018 IEEE International Geoscience and Remote Sensing Symposium, pages 1628–1631. IEEE, 2018. 1
+[62] Kaixuan Wei, Ying Fu, and Hua Huang. 3-d quasi-recurrent
+neural network for hyperspectral image denoising. IEEE
+Transactions on Neural Networks and Learning Systems, 32
+(1):363–375, 2020. 1, 3, 6, 7, 15
+[63] Chanyue Wu, Dong Wang, Yunpeng Bai, Hanyu Mao, Ying
+Li, and Qiang Shen. Hsr-diff: Hyperspectral image superresolution via conditional diffusion models. In Proceedings of
+the IEEE/CVF International Conference on Computer Vision,
+pages 7083–7093, 2023. 3
+[64] Gang Wu, Junjun Jiang, Kui Jiang, and Xianming Liu. Harmony in diversity: Improving all-in-one image restoration via
+multi-task collaboration. In Proceedings of the 32nd ACM
+International Conference on Multimedia, pages 6015–6023,
+2024. 2, 3
+[65] Hao Wu and Saurabh Prasad. Convolutional recurrent neural networks for hyperspectral data classification. Remote
+Sensing, 9(3):298, 2017. 5, 6, 7, 13, 16
+[66] Jiahua Xiao, Yang Liu, and Xing Wei. Region-aware
+sequence-to-sequence learning for hyperspectral denoising.
+In European Conference on Computer Vision, pages 218–235.
+Springer, 2024. 3
+[67] Ting Xie, Shutao Li, and Jibao Lai. Adaptive rank and structured sparsity corrections for hyperspectral image restoration.
+IEEE Transactions on Cybernetics, 52(9):8729–8740, 2021.
+3
+[68] Meng Xu, Yanxin Peng, Ying Zhang, Xiuping Jia, and Sen Jia.
+Aacnet: Asymmetric attention convolution network for hyperspectral image dehazing. IEEE Transactions on Geoscience
+and Remote Sensing, 61:1–14, 2023. 1, 3
+[69] Wei Xu, Qing Zhu, Na Qi, and Dongpan Chen. Deep sparse
+representation based image restoration with denoising prior.
+IEEE Transactions on Circuits and Systems for Video Technology, 32(10):6530–6542, 2022. 3
+[70] CEN Yi, Lifu Zhang, Xia Zhang, WANG Yueming, QI Wenchao, TANG Senlin, and Peng Zhang. Aerial hyperspectral
+remote sensing classification dataset of xiongan new area
+(matiwan village). National Remote Sensing Bulletin, 24(11):
+1299–1306, 2020. 5, 6, 13, 15
+[71] Naoto Yokoya and Akira Iwasaki. Airborne hyperspectral
+data over chikusei. Space Appl. Lab., Univ. Tokyo, Tokyo,
+Japan, Tech. Rep. SAL-2016-05-27, 5(5):5, 2016. 5, 6, 13, 16
+[72] Dabing Yu, Qingwu Li, Xiaolin Wang, Zhiliang Zhang, Yixi
+Qian, and Chang Xu. Dstrans: Dual-stream transformer
+
+for hyperspectral image restoration. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer
+Vision, pages 3739–3749, 2023. 3
+[73] Qiangqiang Yuan, Qiang Zhang, Jie Li, Huanfeng Shen, and
+Liangpei Zhang. Hyperspectral image denoising employing a
+spatial–spectral deep residual convolutional neural network.
+IEEE Transactions on Geoscience and Remote Sensing, 57
+(2):1205–1218, 2018. 3
+[74] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+Restormer: Efficient transformer for high-resolution image
+restoration. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 5728–5739,
+2022. 6, 7, 16, 17
+[75] Hongyan Zhang, Wei He, Liangpei Zhang, Huanfeng Shen,
+and Qiangqiang Yuan. Hyperspectral image restoration using
+low-rank matrix recovery. IEEE Transactions on Geoscience
+and Remote Sensing, 52(8):4729–4743, 2013. 3
+[76] Mingjin Zhang, Chi Zhang, Qiming Zhang, Jie Guo, Xinbo
+Gao, and Jing Zhang. Essaformer: Efficient transformer for
+hyperspectral image super-resolution. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 23073–23084, 2023. 1, 3, 6, 16
+[77] Yafei Zhang, Shen Zhou, and Huafeng Li. Depth information
+assisted collaborative mutual promotion network for single
+image dehazing. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 2846–
+2855, 2024. 6, 7, 8, 17
+[78] Yupeng Zhou, Zhen Li, Chun-Le Guo, Song Bai, Ming-Ming
+Cheng, and Qibin Hou. Srformer: Permuted self-attention
+for single image super-resolution. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 12780–12791, 2023. 6, 16
+[79] Feiyun Zhu. Hyperspectral unmixing: ground truth labeling,
+datasets, benchmark performances and survey. arXiv preprint
+arXiv:1708.05125, 2017. 5, 6, 13, 15
+
+Supplementary Materials
+A. Degradation Preictor
+
+Task
+
+The proposed universal multi-prompt framework, MP-HSIR,
+can perform specific restoration tasks either based on human
+instructions or autonomously via the degradation predictor.
+In this work, we employ a ResNet-34 network with fast
+Fourier convolution [11] to train classification models separately on natural scene and remote sensing hyperspectral
+datasets. The binary cross-entropy loss used for training is
+defined as follows:
+N
+
+L=−
+
+1 X
+[yi log pi + (1 − yi ) log (1 − pi )] ,
+N i=1
+
+(9)
+
+where N denotes the number of samples, pi represents the
+output after sigmoid activation, and yi is the corresponding
+ground-truth label. The training was conducted with a batch
+size of 64, using the same optimizer as in the restoration
+experiments. The initial learning rate was set to 1 × 10−4
+and progressively decreased to 1×10−6 via cosine annealing
+[41]. The model was trained for 1000 epochs on the natural
+scene hyperspectral dataset and 4000 epochs on the remote
+sensing hyperspectral dataset.
+Table 4 presents the accuracy and precision of the degradation predictor for both hyperspectral datasets. The results
+show that the predictor achieves 100% accuracy and precision across all tasks, demonstrating MPIR-HSI’s effectiveness in supporting all trained blind restoration tasks.
+
+B. Dataset Details
+This section provides a comprehensive overview of the 13
+datasets used across 9 hyperspectral image (HSI) restoration
+tasks and real-world scenarios, as summarized in Table 5.
+ARAD [4]. The ARAD dataset, derived from the NTIRE
+2022 Spectral Recovery Challenge, was collected using a
+Specim IQ hyperspectral camera. It consists of 1,000 images,
+with 900 allocated for training and 50 for testing.
+ICVL [3]. The ICVL dataset was obtained using a Specim
+PS Kappa DX4 hyperspectral camera combined with a rotating stage for spatial scanning. It contains 201 images,
+with 100 for training and 50 for testing, ensuring no scene
+overlap.
+Xiong’an [70]. The Xiong’an dataset was captured using an
+imaging spectrometer developed by the Chinese Academy
+of Sciences. Three central regions of size 512 × 512 were
+randomly cropped for testing, while the remaining areas
+were used for training.
+
+Gaussian Denoising
+Complex Denoising
+Gaussian Deblurring
+Super-Resolution
+Inpainting
+Dehazing
+Band Completion
+
+Natural Scene
+Accuracy ↑ Precision ↑
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+
+Remote Sensing
+Accuracy ↑ Precision ↑
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+100.00
+
+Table 4. Accuracy and precision results of the degradation predictor
+in degradation classification
+
+WDC [79]. The Washington DC (WDC) dataset was captured by a Hydice sensor. A central region of size 256 ×
+256 was selected for testing, with the remainder used for
+training.
+PaviaC [24]. The Pavia Center (PaviaC) dataset was acquired using a ROSIS sensor, following the same partitioning
+strategy as the WDC dataset.
+PaviaU [24]. The Pavia University (PaviaU) dataset was also
+collected using a ROSIS sensor, with the same partitioning
+strategy as WDC.
+Houston [65]. The Houston dataset was obtained using an
+ITRES CASI-1500 sensor, employing the same partitioning
+strategy as WDC.
+Chikusei [71]. The Chikusei dataset was captured using
+an HH-VNIR-C sensor. Four 512 × 512 regions were randomly cropped for testing, with the remaining areas used for
+training.
+Eagle [51]. The Eagle dataset was collected using an AsiaEAGLE II sensor, following the same partitioning strategy
+as WDC.
+Berlin [49]. The Berlin dataset utilizes only the HyMap
+image from the BerlinUrbGrad dataset. A 512 × 512 central
+region was randomly cropped for testing, while the remaining data were used for training.
+Urban [5]. The Urban dataset, collected using a Hydice
+sensor, is specifically used for real-world denoising experiments.
+APEX [25]. The APEX dataset exhibits characteristics similar to the Urban dataset and is primarily used for fine-tuning
+pre-trained models.
+EO-1 [13]. The EO-1 dataset was captured by the Hyperion
+sensor. Ten scenes were collected for testing, with 67 invalid
+bands removed, retaining 175 valid bands for real-world
+dehazing experiments.
+All datasets underwent min-max normalization, and training samples were uniformly cropped to 64 × 64.
+
+Type
+
+Dataset
+
+Sensor
+
+Wavelength (nm)
+
+Channels
+
+Size
+
+GSD (m)
+
+Natural
+HSIs
+
+ARAD 1K
+
+Specim IQ
+
+400–700
+
+31
+
+482×512
+
+/
+
+ICVL
+
+Specim PS Kappa DX4
+
+400–700
+
+31
+
+1392×1300
+
+/
+
+Xiong’an
+
+Unknown
+
+400–1000
+
+256
+
+3750×1580
+
+0.5
+
+WDC
+
+Hydice
+
+400–2400
+
+191
+
+1208×307
+
+5
+
+PaviaC
+
+ROSIS
+
+430–860
+
+102
+
+1096×715
+
+1.3
+
+Remote
+Sensing
+HSIs
+
+PaviaU
+
+ROSIS
+
+430–860
+
+103
+
+610×340
+
+1.3
+
+Houston
+
+ITRES CASI-1500
+
+364–1046
+
+144
+
+349×1905
+
+2.5
+
+Chikusei
+
+HH-VNIR-C
+
+343–1018
+
+128
+
+2517×2335
+
+2.5
+
+Eagle
+
+AsiaEAGLE II
+
+401–999
+
+128
+
+2082×1606
+
+1
+
+Berlin
+
+Unknown
+
+455–2447
+
+111
+
+6805×1830
+
+3.6
+
+Urban
+
+Hydice
+
+400-2500
+
+210
+
+307×307
+
+2
+
+APEX
+
+Unknown
+
+350-2500
+
+285
+
+1000×1500
+
+2
+
+EO-1
+
+Hyperion
+
+357-2567
+
+242
+
+3471×991
+
+30
+
+Table 5. Properties of 13 Natural Scene and Remote Sensing Hyperspectral Datasets.
+
+C. Detailed Experimental Setup
+In this section, we provide a detailed description of the experimental settings for the 9 HSI restoration tasks.
+Gaussian Denoising. Each image was corrupted by zeromean independent and identically distributed (i.i.d.) Gaussian noise with sigma ranging from 30 to 70. For testing,
+sigma = 30, 50, and 70 were selected for evaluation.
+Complex Denoising. Each image was corrupted with one
+of the following four noise scenarios:
+1) Case 1 (Non-i.i.d. Gaussian Noise): All bands were
+corrupted by non-i.i.d. Gaussian noise with standard deviations randomly selected from 10 to 70.
+2) Case 2 (Gaussian Noise + Stripe Noise): All bands
+were corrupted by non-i.i.d. Gaussian noise, and one-third
+of the bands were randomly selected to add column stripe
+noise with intensities ranging from 5% to 15%.
+3) Case 3 (Gaussian Noise + Deadline Noise): The noise
+generation process was similar to Case 2, but stripe noise
+was replaced by deadline noise.
+4) Case 4 (Gaussian Noise + Impulse Noise): All bands
+were corrupted by non-i.i.d. Gaussian noise, and one-third
+of the bands were randomly selected to add impulse noise
+with intensities ranging from 10% to 70%.
+Gaussian Deblurring. An empirical formula was used
+to calculate the standard deviation σ based on the Gaussian
+kernel size KS , formulated as:
+
+σ = 0.3 ×
+
+
+KS − 1
+− 1 + 0.8.
+2
+
+(10)
+
+For natural hyperspectral datasets, KS was set to 9, 15,
+and 21, while for remote sensing hyperspectral datasets, KS
+was set to 7, 11, and 15.
+
+Super-Resolution. Bicubic interpolation was used to
+downsample the images, with downscaling factors of 2, 4,
+and 8. To ensure that the input and output image sizes
+of the all-in-one model remained consistent, an unpooling
+operation was applied to resize the downsampled HSIs to
+their original dimensions.
+Inpainting. Random masks with rates of 0.7, 0.8, and
+0.9 were applied to each image for the inpainting task.
+Dehazing. To realistically simulate haze contamination,
+the haze synthesis method from [17] was adopted. Specifically, 100 haze masks were extracted from the cirrus band
+of Landsat-8 OLI and superimposed onto the original image
+according to the wavelength ratio to generate haze-affected
+HSIs, modeled as:
+
+
+Ii = Ji e
+
+λ1
+λi
+
+γ
+
+ln t1
+
+
+
+
+
+λ1 γ
+ln t1
+λi
++A 1−e
+,
+
+(11)
+
+where I is the hazy HSI, J is the clear HSI, A is the global
+atmospheric light, λ is the wavelength, and γ is the spatial
+function, which is set to 1. The reference transmission map
+t1 is calculated from the cirrus band reflectance:
+t1 = 1 − ωB9 ,
+
+(12)
+
+where ω is a weighting factor controlling the haze intensity,
+and B9 is the cirrus band reflectance. In the experiments, ω
+was set to [0.5, 0.75, 1], corresponding to different levels of
+haze contamination.
+Band Completion. A certain proportion of bands were
+discarded for each image, with discard rates of 0.1, 0.2, and
+0.3. The experimental results were evaluated only on the
+missing bands.
+
+Gaussian Denoising (ICVL [3])
+Type
+
+Methods
+
+Gaussian Denoising (ARAD [4])
+
+Gaussian Denoising (Xiong’an [70])
+
+Sigma = 30
+
+Sigma = 50
+
+Sigma = 70
+
+Sigma = 30
+
+Sigma = 50
+
+Sigma = 70
+
+Sigma = 30
+
+Sigma = 50
+
+Sigma = 70
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Task
+Specific
+
+QRNN3D [62]
+SST [33]
+SERT [34]
+LDERT [35]
+
+42.18 / 0.967
+43.32 / 0.976
+43.53 / 0.978
+44.12 / 0.982
+
+39.70 / 0.942
+41.09 / 0.952
+41.32 / 0.966
+41.68 / 0.968
+
+38.09 / 0.933
+39.51 / 0.949
+39.82 / 0.956
+39.95 / 0.957
+
+41.67 / 0.967
+43.02 / 0.972
+43.21 / 0.975
+43.74 / 0.979
+
+39.15 / 0.935
+40.58 / 0.951
+40.84 / 0.959
+41.35 / 0.966
+
+36.71 / 0.894
+38.99 / 0.941
+39.21 / 0.945
+39.32 / 0.950
+
+37.86 / 0.870
+39.26 / 0.878
+39.54 / 0.885
+39.92 / 0.889
+
+36.03 / 0.825
+37.34 / 0.848
+37.58 / 0.859
+37.96 / 0.868
+
+34.29 / 0.792
+35.99 / 0.824
+36.37 / 0.833
+36.54 / 0.838
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+42.02 / 0.966
+42.40 / 0.971
+43.00 / 0.974
+42.53 / 0.972
+42.99 / 0.974
+42.61 / 0.976
+43.62 / 0.977
+
+39.68 / 0.942
+40.14 / 0.954
+40.69 / 0.958
+40.23 / 0.957
+40.84 / 0.960
+40.27 / 0.960
+41.41 / 0.963
+
+37.59 / 0.923
+38.20 / 0.934
+38.94 / 0.941
+38.78 / 0.939
+39.23 / 0.946
+39.08 / 0.945
+39.82 / 0.951
+
+41.39 / 0.963
+41.84 / 0.967
+42.33 / 0.970
+42.03 / 0.968
+42.21 / 0.970
+41.90 / 0.971
+43.12 / 0.975
+
+39.08 / 0.933
+39.55 / 0.947
+40.07 / 0.953
+39.76 / 0.950
+40.16 / 0.955
+39.84 / 0.959
+40.88 / 0.960
+
+37.09 / 0.903
+37.67 / 0.921
+38.36 / 0.933
+37.95 / 0.928
+38.60 / 0.938
+38.37 / 0.938
+39.28 / 0.946
+
+34.04 / 0.700
+34.90 / 0.715
+34.51 / 0.704
+34.51 / 0.712
+33.79 / 0.703
+39.54 / 0.902
+40.55 / 0.922
+
+31.61 / 0.665
+32.76 / 0.680
+32.43 / 0.671
+32.22 / 0.675
+31.47 / 0.662
+37.80 / 0.877
+38.70 / 0.896
+
+30.17 / 0.639
+31.31 / 0.657
+30.98 / 0.647
+30.89 / 0.650
+29.96 / 0.633
+36.87 / 0.864
+37.17 / 0.874
+
+Table 6. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different Gaussian noise levels
+on Gaussian denoising tasks. The best and second-best performances are highlighted in red and blue, respectively.
+Complex Denoising (ICVL [3])
+Type
+
+Complex Denoising (ARAD [4])
+
+Complex Denoising (WDC [79])
+
+Case = 1
+
+Case = 2
+
+Case = 3
+
+Case = 4
+
+Case = 1
+
+Case = 2
+
+Case = 3
+
+Case = 4
+
+Case = 1
+
+Case = 2
+
+Case = 3
+
+Case = 4
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Methods
+
+Task
+Specific
+
+QRNN3D [62]
+SST [33]
+SERT [34]
+LDERT [35]
+
+42.24 / 0.969
+43.38 / 0.976
+43.96 / 0.980
+44.04 / 0.981
+
+41.98 / 0.968
+42.69 / 0.973
+43.48 / 0.978
+43.57 / 0.979
+
+41.62 / 0.968
+42.51 / 0.972
+43.45 / 0.977
+43.55 / 0.979
+
+40.55 / 0.960
+41.16 / 0.964
+42.37 / 0.969
+42.51 / 0.971
+
+41.74 / 0.966
+42.84 / 0.973
+43.56 / 0.978
+43.67 / 0.979
+
+41.55 / 0.965
+42.38 / 0.971
+43.19 / 0.976
+43.33 / 0.977
+
+41.38 / 0.964
+42.01 / 0.970
+42.88 / 0.974
+43.06 / 0.974
+
+39.76 / 0.946
+40.56 / 0.956
+41.85 / 0.963
+42.02 / 0.965
+
+31.98 / 0.885
+33.85 / 0.907
+34.48 / 0.922
+34.65 / 0.923
+
+31.77 / 0.882
+33.69 / 0.905
+34.26 / 0.920
+34.42 / 0.920
+
+31.48 / 0.878
+33.37 / 0.901
+33.98 / 0.915
+34.13 / 0.917
+
+28.05 / 0.822
+29.92 / 0.841
+30.53 / 0.854
+30.74 / 0.856
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+42.11 / 0.968
+42.76 / 0.973
+42.96 / 0.974
+41.78 / 0.965
+41.29 / 0.963
+40.61 / 0.967
+43.07 / 0.975
+
+41.24 / 0.964
+41.93 / 0.969
+42.13 / 0.970
+41.47 / 0.965
+40.89 / 0.961
+40.36 / 0.965
+42.46 / 0.972
+
+40.89 / 0.961
+41.43 / 0.969
+41.38 / 0.969
+40.68 / 0.958
+39.94 / 0.958
+39.30 / 0.960
+42.20 / 0.972
+
+38.49 / 0.942
+39.04 / 0.947
+40.19 / 0.959
+38.58 / 0.943
+38.46 / 0.945
+36.27 / 0.927
+41.42 / 0.966
+
+41.62 / 0.965
+42.26 / 0.969
+42.39 / 0.971
+41.19 / 0.959
+40.72 / 0.960
+40.22 / 0.951
+42.74 / 0.973
+
+40.83 / 0.959
+41.54 / 0.964
+41.71 / 0.966
+40.95 / 0.961
+40.38 / 0.957
+39.98 / 0.955
+42.32 / 0.971
+
+40.31 / 0.957
+40.90 / 0.964
+41.11 / 0.966
+40.53 / 0.959
+39.94 / 0.956
+39.42 / 0.953
+41.93 / 0.970
+
+37.59 / 0.905
+38.12 / 0.919
+39.45 / 0.943
+37.92 / 0.909
+38.21 / 0.934
+35.39 / 0.884
+40.98 / 0.960
+
+29.02 / 0.752
+29.84 / 0.761
+29.57 / 0.751
+29.38 / 0.756
+28.66 / 0.736
+34.93 / 0.931
+35.21 / 0.933
+
+28.93 / 0.744
+29.71 / 0.754
+29.31 / 0.745
+29.22 / 0.750
+28.47 / 0.730
+34.87 / 0.930
+34.99 / 0.931
+
+28.67 / 0.740
+29.39 / 0.747
+29.17 / 0.740
+28.73 / 0.744
+28.19 / 0.725
+34.49 / 0.928
+34.72 / 0.928
+
+25.67 / 0.667
+26.38 / 0.676
+25.95 / 0.658
+25.40 / 0.664
+24.63 / 0.637
+30.78 / 0.857
+31.36 / 0.880
+
+Table 7. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different cases on Complex
+denoising tasks. The best and second-best performances are highlighted in red and blue, respectively.
+
+G
+
+C
+
+B
+
+L
+
+P
+
+H
+
+M
+
+G
+
+C
+
+B
+
+L
+
+P
+
+H
+
+M
+
+G
+
+G
+
+G
+
+G
+
+C
+
+C
+
+C
+
+B
+
+B
+
+B
+
+L
+
+L
+
+L
+
+P
+
+P
+
+P
+
+H
+
+H
+
+H
+
+M
+
+M
+
+PromptIR
+
+C
+
+B
+
+L
+
+P
+
+H
+
+M
+
+M
+
+InstructIR
+
+Ours
+
+Figure 8. Similarity matrices of prompt vector for seven HSI
+restoration tasks, with task names as in manuscript.
+
+Motion Deblurring. The pre-trained model was finetuned and tested on this task with a blur kernel radius of 15
+and a blur angle of 45 degrees.
+Poisson Denoising. The pre-trained model was directly
+tested on this task with a Poisson noise intensity scaling
+factor of 10.
+
+D. Visualization Results of Prompts
+In Table 8, we present the similarity matrices of prompt vectors for different degradation types, comparing PromptIR
+[52], InstructIR [12], and the proposed method. PromptIR relies exclusively on visual prompts, InstructIR utilizes textual
+prompts for guidance, and the proposed method integrates
+
+text-visual synergistic prompts to enhance degradation modeling. As illustrated in the Figure 8, both PromptIR and InstructIR struggle to effectively differentiate between various
+HSI degradation types, whereas our method demonstrates
+distinct separation for each individual task, highlighting its
+superior capability in handling diverse degradation scenarios.
+
+E. More Experimental Results
+In this section, we present additional experimental results,
+including the results of more quantitative results, model efficiency, more results of ablation study, controllability analysis, and more visual comparisons.
+
+E.1. More Quantitative Results
+In this section, we provide a detailed quantitative comparison
+for 7 all-in-one HSI restoration tasks. The experimental
+results across different degradation levels are systematically
+presented for each task, including Gaussian denoising in
+Table 6, complex denoising in Table 7, Gaussian deblurring
+in Table 8, super-resolution in Table 9, inpainting in Table
+10, dehazing in Table 11, and band completion in Table 12.
+
+Gaussian Deblurring (ICVL [3])
+Type
+
+Methods
+
+Gaussian Deblurring (PaviaC [24])
+
+Gaussian Deblurring (Eagle [51])
+
+Radius = 9
+
+Radius = 15
+
+Radius = 21
+
+Radius = 7
+
+Radius = 11
+
+Radius = 15
+
+Radius = 7
+
+Radius = 11
+
+Radius = 15
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Task
+Specific
+
+Stripformer [57]
+FFTformer [27]
+LoFormer [47]
+MLWNet [14]
+
+49.21 / 0.994
+49.83 / 0.994
+50.35 / 0.995
+50.68 / 0.996
+
+45.85 / 0.989
+46.43 / 0.989
+46.94 / 0.991
+47.54 / 0.991
+
+43.04 / 0.980
+43.69 / 0.981
+44.15 / 0.983
+44.76 / 0.983
+
+38.73 / 0.934
+39.82 / 0.942
+39.54 / 0.941
+40.85 / 0.949
+
+36.95 / 0.914
+37.63 / 0.919
+37.41 / 0.918
+38.92 / 0.929
+
+35.72 / 0.891
+36.44 / 0.901
+36.21 / 0.892
+37.28 / 0.901
+
+44.68 / 0.974
+45.51 / 0.980
+45.32 / 0.979
+46.61 / 0.983
+
+41.37 / 0.958
+42.18 / 0.962
+42.03 / 0.961
+43.68 / 0.969
+
+39.83 / 0.942
+40.59 / 0.944
+40.42 / 0.946
+41.83 / 0.955
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+50.64 / 0.995
+51.00 / 0.996
+51.05 / 0.996
+49.43 / 0.994
+24.19 / 0.533
+25.16 / 0.619
+51.53 / 0.996
+
+47.10 / 0.991
+47.70 / 0.992
+47.29 / 0.991
+46.06 / 0.989
+33.44 / 0.878
+30.89 / 0.852
+47.60 / 0.992
+
+43.89 / 0.982
+44.32 / 0.983
+44.21 / 0.983
+43.87 / 0.981
+44.51 / 0.983
+41.52 / 0.980
+45.07 / 0.982
+
+39.45 / 0.940
+40.41 / 0.948
+40.31 / 0.944
+39.97 / 0.943
+19.66 / 0.329
+38.73 / 0.936
+40.85 / 0.949
+
+37.76 / 0.921
+38.62 / 0.929
+38.51 / 0.926
+38.18 / 0.923
+25.12 / 0.583
+36.63 / 0.913
+38.95 / 0.928
+
+36.08 / 0.893
+37.13 / 0.904
+36.73 / 0.902
+35.64 / 0.891
+36.32 / 0.894
+34.84 / 0.888
+37.19 / 0.905
+
+44.83 / 0.977
+46.17 / 0.981
+45.90 / 0.982
+45.14 / 0.979
+23.35 / 0.477
+42.45 / 0.972
+46.26 / 0.982
+
+42.32 / 0.966
+43.45 / 0.968
+42.75 / 0.968
+42.69 / 0.966
+34.05 / 0.872
+39.34 / 0.952
+43.54 / 0.969
+
+40.11 / 0.946
+41.60 / 0.955
+40.86 / 0.951
+40.48 / 0.947
+40.64 / 0.949
+37.46 / 0.938
+41.36 / 0.952
+
+Table 8. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different blur kernel radius on
+Gaussian deblurring tasks. The best and second-best performances are highlighted in red and blue, respectively.
+Super-Resolution (ARAD [4])
+Type
+
+Super-Resolution (PaviaU [24])
+
+Super-Resolution (Houston [65])
+
+Scale = 2
+
+Scale = 4
+
+Scale = 8
+
+Scale = 2
+
+Scale = 4
+
+Scale = 8
+
+Scale = 2
+
+Scale = 4
+
+Scale = 8
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Methods
+
+Task
+Specific
+
+SNLSR [23]
+MAN [59]
+ESSAformer [76]
+SRFormer [78]
+
+43.93 / 0.980
+44.81 / 0.985
+45.32 / 0.988
+45.84 / 0.989
+
+34.56 / 0.902
+35.35 / 0.912
+36.02 / 0.927
+36.73 / 0.931
+
+29.67 / 0.813
+30.49 / 0.830
+30.85 / 0.838
+31.48 / 0.845
+
+34.58 / 0.869
+34.92 / 0.872
+35.47 / 0.879
+35.92 / 0.887
+
+29.85 / 0.719
+30.26 / 0.723
+30.60 / 0.728
+31.08 / 0.745
+
+27.23 / 0.601
+27.59 / 0.604
+27.96 / 0.606
+28.41 / 0.620
+
+34.91 / 0.908
+35.26 / 0.911
+35.60 / 0.913
+36.15 / 0.920
+
+31.33 / 0.782
+31.68 / 0.785
+31.94 / 0.787
+32.44 / 0.805
+
+28.86 / 0.671
+29.15 / 0.677
+29.57 / 0.679
+29.81 / 0.684
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+44.82 / 0.985
+45.33 / 0.988
+46.01 / 0.989
+43.77 / 0.984
+43.47 / 0.984
+40.25 / 0.975
+46.72 / 0.991
+
+35.26 / 0.919
+36.00 / 0.927
+37.34 / 0.939
+35.89 / 0.924
+35.46 / 0.921
+35.41 / 0.931
+36.88 / 0.939
+
+30.12 / 0.828
+30.77 / 0.838
+31.73 / 0.853
+30.87 / 0.836
+30.61 / 0.834
+29.35 / 0.806
+31.14 / 0.843
+
+34.85 / 0.871
+35.57 / 0.883
+35.71 / 0.885
+35.49 / 0.882
+35.25 / 0.879
+34.84 / 0.871
+36.27 / 0.894
+
+30.19 / 0.724
+30.81 / 0.735
+31.02 / 0.744
+30.79 / 0.736
+30.71 / 0.732
+30.13 / 0.722
+31.26 / 0.757
+
+27.76 / 0.609
+28.20 / 0.619
+28.20 / 0.618
+28.13 / 0.616
+28.05 / 0.613
+27.27 / 0.602
+28.38 / 0.630
+
+35.22 / 0.911
+35.96 / 0.915
+36.10 / 0.917
+35.81 / 0.913
+35.68 / 0.909
+35.34 / 0.912
+36.57 / 0.926
+
+31.65 / 0.786
+32.38 / 0.798
+32.55 / 0.806
+32.17 / 0.795
+32.15 / 0.789
+31.62 / 0.778
+32.68 / 0.813
+
+29.13 / 0.676
+29.85 / 0.684
+30.02 / 0.692
+29.64 / 0.680
+29.73 / 0.681
+28.59 / 0.635
+29.92 / 0.690
+
+Table 9. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different downsampling scales
+on Super-Resolution tasks. The best and second-best performances are highlighted in red and blue, respectively.
+Inpainting (ICVL [3])
+Type
+
+Methods
+
+Inpainting (Chikusei [71])
+
+Rate = 0.7
+
+Rate = 0.8
+
+Rate = 0.9
+
+Rate = 0.7
+
+Rate = 0.8
+
+Rate = 0.9
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Task
+Specific
+
+NAFNet [8]
+Restormer [74]
+DDS2M [48]
+HIR-Diff [50]
+
+45.03 / 0.989
+46.51 / 0.991
+45.41 / 0.989
+41.82 / 0.973
+
+44.65 / 0.988
+46.00 / 0.991
+43.34 / 0.983
+38.87 / 0.949
+
+43.50 / 0.985
+44.85 / 0.988
+37.80 / 0.935
+36.04 / 0.924
+
+40.34 / 0.952
+36.52 / 0.902
+36.77 / 0.906
+38.59 / 0.923
+
+40.15 / 0.955
+36.34 / 0.892
+35.23 / 0.901
+37.96 / 0.920
+
+38.97 / 0.952
+36.13 / 0.903
+32.83 / 0.854
+36.41 / 0.904
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+43.10 / 0.983
+46.96 / 0.992
+44.37 / 0.985
+44.83 / 0.983
+44.85 / 0.989
+42.83 / 0.983
+53.06 / 0.997
+
+43.06 / 0.983
+46.93 / 0.992
+43.47 / 0.983
+44.30 / 0.983
+44.29 / 0.987
+41.72 / 0.976
+51.94 / 0.996
+
+41.65 / 0.977
+45.24 / 0.988
+42.26 / 0.978
+42.92 / 0.981
+43.08 / 0.983
+39.89 / 0.956
+49.60 / 0.994
+
+38.12 / 0.919
+38.86 / 0.925
+38.74 / 0.922
+38.43 / 0.921
+36.30 / 0.904
+38.99 / 0.966
+44.75 / 0.981
+
+37.86 / 0.921
+38.30 / 0.931
+38.58 / 0.930
+38.28 / 0.928
+36.18 / 0.908
+37.64 / 0.952
+44.06 / 0.981
+
+36.39 / 0.918
+37.05 / 0.934
+37.98 / 0.938
+37.43 / 0.932
+35.84 / 0.909
+35.35 / 0.920
+42.08 / 0.975
+
+Table 10. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different mask rates on
+Inpainting tasks. The best and second-best performances are highlighted in red and blue, respectively.
+
+E.2. Model Efficiency
+In this section, we present the parameter counts and computational costs of the all-in-one models for both natural scene
+and remote sensing hyperspectral datasets. Notably, the network width for remote sensing datasets is 1.5 times greater
+
+than that for natural scene datasets across all models. As
+demonstrated in Table 13, our method achieves a lower parameter count while maintaining competitive computational
+efficiency.
+
+Dehazing (PaviaU [24])
+
+Dehazing (Eagle [51])
+
+Omega = 0.5
+
+Omega = 0.75
+
+Omega = 1.0
+
+Omega = 0.5
+
+Omega = 0.75
+
+Omega = 1.0
+
+Type
+
+Methods
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Task
+Specific
+
+SGNet [45]
+SCANet [18]
+MB-Taylor [53]
+DCMPNet [77]
+
+36.52 / 0.974
+39.01 / 0.986
+40.51 / 0.991
+39.63 / 0.993
+
+34.10 / 0.964
+36.54 / 0.978
+38.03 / 0.984
+37.14 / 0.985
+
+32.22 / 0.949
+34.21 / 0.969
+35.44 / 0.975
+34.82 / 0.976
+
+39.43 / 0.989
+41.92 / 0.991
+43.76 / 0.995
+42.93 / 0.995
+
+37.33 / 0.976
+39.68 / 0.987
+40.97 / 0.992
+40.15 / 0.991
+
+34.90 / 0.962
+37.31 / 0.978
+38.36 / 0.986
+37.64 / 0.985
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+38.61 / 0.982
+40.34 / 0.991
+40.30 / 0.991
+39.47 / 0.989
+38.24 / 0.986
+38.62 / 0.982
+42.64 / 0.993
+
+35.65 / 0.967
+37.43 / 0.983
+37.64 / 0.983
+36.79 / 0.980
+34.57 / 0.974
+36.48 / 0.975
+39.46 / 0.988
+
+32.51 / 0.947
+34.47 / 0.971
+34.93 / 0.971
+34.02 / 0.965
+31.36 / 0.954
+35.22 / 0.964
+36.68 / 0.978
+
+41.88 / 0.991
+43.55 / 0.995
+43.21 / 0.994
+43.38 / 0.995
+40.90 / 0.991
+40.88 / 0.986
+45.66 / 0.997
+
+38.68 / 0.982
+40.69 / 0.992
+40.95 / 0.991
+40.54 / 0.992
+38.07 / 0.985
+40.49 / 0.984
+42.24 / 0.995
+
+35.92 / 0.969
+37.94 / 0.988
+38.07 / 0.985
+38.67 / 0.988
+33.99 / 0.971
+37.98 / 0.981
+39.34 / 0.992
+
+Table 11. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different haze levels on
+Dehazing tasks. The best and second-best performances are highlighted in red and blue, respectively.
+Band Completion (ARAD [4])
+
+Band Completion (Berlin [49])
+
+Rate = 0.1
+
+Rate = 0.2
+
+Rate = 0.3
+
+Rate = 0.1
+
+Rate = 0.2
+
+Rate = 0.3
+
+Type
+
+Methods
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+PSNR / SSIM ↑
+
+Task
+Specific
+
+NAFNet [8]
+Restormer [74]
+SwinIR [37]
+MambaIR [16]
+
+47.82 / 0.996
+49.24 / 0.997
+50.95 / 0.997
+51.46 / 0.998
+
+47.02 / 0.995
+48.29 / 0.995
+49.80 / 0.995
+50.32 / 0.995
+
+46.29 / 0.994
+47.49 / 0.993
+48.49 / 0.993
+49.01 / 0.993
+
+39.71 / 0.972
+34.98 / 0.605
+36.88 / 0.950
+37.54 / 0.953
+
+37.51 / 0.874
+35.24 / 0.606
+34.69 / 0.855
+35.38 / 0.857
+
+37.84 / 0.875
+35.00 / 0.607
+34.78 / 0.854
+35.43 / 0.855
+
+All
+in
+One
+
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+46.14 / 0.994
+47.68 / 0.996
+48.35 / 0.995
+46.27 / 0.994
+52.66 / 0.998
+49.05 / 0.996
+57.83 / 0.999
+
+45.21 / 0.992
+46.71 / 0.994
+47.37 / 0.994
+44.92 / 0.992
+51.37 / 0.997
+47.09 / 0.993
+56.61 / 0.999
+
+44.46 / 0.990
+45.41 / 0.992
+46.37 / 0.991
+44.04 / 0.990
+49.90 / 0.996
+45.89 / 0.992
+54.99 / 0.998
+
+37.62 / 0.691
+42.81 / 0.707
+38.60 / 0.706
+40.04 / 0.705
+36.17 / 0.606
+47.11 / 0.997
+52.14 / 0.999
+
+35.26 / 0.586
+39.55 / 0.910
+36.58 / 0.657
+36.54 / 0.607
+35.33 / 0.559
+43.14 / 0.973
+49.20 / 0.997
+
+34.86 / 0.595
+39.00 / 0.640
+36.43 / 0.641
+37.45 / 0.639
+36.40 / 0.576
+39.82 / 0.956
+47.26 / 0.965
+
+Table 12. [All-in-one] Quantitative comparison of all-in-one and state-of-the-art task-specific methods under different mask rates on Band
+Completion tasks. The best and second-best performances are highlighted in red and blue, respectively.
+
+Natural Scene
+Methods
+AirNet [32]
+PromptIR [52]
+PIP [36]
+HAIR [7]
+InstructIR [12]
+PromptHSI [30]
+MP-HSIR (Ours)
+
+Remote Sensing
+
+Params (M)
+
+FLOPS (G)
+
+Params (M)
+
+FLOPS (G)
+
+5.82
+33.00
+27.80
+7.68
+68.82
+25.90
+13.88
+
+19.04
+10.03
+10.66
+2.72
+2.81
+10.10
+14.40
+
+12.23
+72.60
+58.26
+17.28
+154.03
+50.89
+30.91
+
+43.79
+22.21
+22.08
+6.46
+6.57
+21.91
+32.74
+
+Table 13. Model complexity comparisons
+
+E.3. More results of Ablation Study
+In this section, we present ablation studies on the textual
+prompts PT , learnable visual prompts PV , global spectral self-attention, local spectral self-attention, and spectral
+prompts PS across multiple tasks, as shown in Tables 14, 15,
+and 16. Overall, the addition of each module progressively
+
+Method
+
+PSNR ↑
+
+SSIM ↑
+
+Baseline (Only Spatial SA)
+
+33.78
+
+0.782
+
+20.93
+
++ Textual Prompt PT
+
+34.53
+
+0.807
+
+21.51
+
++ Visual Prompt PV
+
+34.47
+
+0.805
+
+23.68
+
++ Textual Prompt PT + Visual Prompt PV
+
+34.92
+
+0.822
+
+24.26
+
++ Global Spectral SA + PT + PT
+
+35.20
+
+0.835
+
+30.07
+
++ Local Spectral SA + PT + PV
+
+35.82
+
+0.846
+
+24.43
+
++ Local Spectral SA + PT + PV + Spectral Prompt PS
+
+36.67
+
+0.863
+
+25.10
+
+Full Model
+
+37.17
+
+0.874
+
+30.91
+
+Params (M)
+
+Table 14. Ablation study to verify the effectiveness of modules on
+Xiong’an dataset in Gaussian denoising task with sigma = 70.
+
+improves the two accuracy metrics across all tasks.
+
+E.4. Controllable Results
+In this section, we demonstrate the controllable restoration
+capability of the proposed method. Specifically, we conduct
+controlled restoration tasks under two composite degradation
+scenarios: Gaussian noise with Gaussian blur and complex
+
+Method
+
+PSNR ↑
+
+SSIM ↑
+
+Baseline (Only Spatial SA)
+
+30.10
+
+0.788
+
+20.93
+
++ Textual Prompt PT
+
+37.64
+
+0.928
+
+21.51
+
++ Visual Prompt PV
+
+37.42
+
+0.925
+
+23.68
+
++ Textual Prompt PT + Visual Prompt PV
+
+38.91
+
+0.942
+
+24.26
+
++ Global Spectral SA + PT + PT
+
+39.20
+
+0.944
+
+30.07
+
++ Local Spectral SA + PT + PV
+
+39.79
+
+0.948
+
+24.43
+
++ Local Spectral SA + PT + PV + Spectral Prompt PS
+
+40.51
+
+0.950
+
+25.10
+
+Full Model
+
+41.36
+
+0.952
+
+30.91
+
+Params (M)
+
+Table 15. Ablation study to verify the effectiveness of modules on
+Eagle dataset in Gaussian deblurring task with radius = 15.
+Method
+
+PSNR ↑
+
+SSIM ↑
+
+Baseline (Only Spatial SA)
+
+32.52
+
+0.967
+
+20.93
+
++ Textual Prompt PT
+
+34.24
+
+0.965
+
+21.51
+
++ Visual Prompt PV
+
+34.13
+
+0.964
+
+23.68
+
++ Textual Prompt PT + Visual Prompt PV
+
+34.92
+
+0.969
+
+24.26
+
++ Global Spectral SA + PT + PT
+
+35.53
+
+0.973
+
+30.07
+
++ Local Spectral SA + PT + PV
+
+35.64
+
+0.974
+
+24.43
+
++ Local Spectral SA + PT + PV + Spectral Prompt PS
+
+36.13
+
+0.976
+
+25.10
+
+Full Model
+
+36.68
+
+0.978
+
+30.91
+
+Params (M)
+
+Table 16. Ablation study to verify the effectiveness of modules on
+PaviaU dataset in Dehazing task with Omega = 1.0.
+
+Mixed Degradation
+
+Controllable Recovery
+
+GT
+
+Figure 10. Controllable Reconstruction: Removing Complex Noise
+from Complex Noise + Gaussian Blur Degradation.
+
+real-world scenarios. As shown in Figures 11, 12, 13, and 14,
+the visualization results indicate that our method achieves the
+best performance in restoring texture details and structural
+features.
+
+Mixed Degradation
+
+Controllable Recovery
+
+GT
+
+Figure 9. Controllable Reconstruction: Removing Gaussian from
+Gaussian Noise + Gaussian Blur Degradation.
+
+noise with Gaussian blur, aiming to remove noise while preserving blur. As illustrated in Figures 9 and 10, our method
+can precisely remove specific degradation types through
+accurate guidance from textual prompts, highlighting its
+controllability and interpretability.
+
+E.5. More Visual Results
+In this section, we present further visual results for each task,
+including all-in-one experiments, generalization testing, and
+
+Input
+
+Task-Specific
+
+PromptIR
+
+InstructIR
+
+PromptHSI
+
+Ours
+
+GT
+
+Figure 11. Visual comparison results of Gaussian denoising, complex denoising, Gaussian deblurring, and super-resolution, including the
+corresponding residual maps. Task-Specific represents the optimal task-specific method.
+
+Input
+
+Task-Specific
+
+PromptIR
+
+InstructIR
+
+PromptHSI
+
+Ours
+
+GT
+
+Figure 12. Visual comparison results of Inpainting, Dehazing, Band Completion, and Motion Deblurring, including the corresponding
+residual maps. Task-Specific represents the optimal task-specific method.
+
+Input
+
+Task-Specific
+
+PromptIR
+
+InstructIR
+
+PromptHSI
+
+Ours
+
+GT
+
+Figure 13. Visual comparison results of Poisson Denoising, including the corresponding residual maps. Task-Specific represents the optimal
+task-specific method.
+
+Input
+
+Task-Specific
+
+AirNet
+
+PromptIR
+
+InstructIR
+
+PromptHSI
+
+Ours
+
+Figure 14. Visual comparison results of Real Dehazing, including the corresponding residual maps. Task-Specific represents the optimal
+task-specific method.
+
+

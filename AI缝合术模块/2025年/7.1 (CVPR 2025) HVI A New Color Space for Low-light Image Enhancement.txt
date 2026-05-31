@@ -1,0 +1,2917 @@
+HVI: A New Color Space for Low-light Image Enhancement
+
+arXiv:2502.20272v2 [cs.CV] 28 Feb 2025
+
+Qingsen Yan1 * Yixu Feng1∗ Cheng Zhang1∗
+Guansong Pang2
+Kangbiao Shi1
+Peng Wu1
+Wei Dong3
+Jinqiu Sun1
+Yanning Zhang1†
+1
+2
+Northwestern Polytechnical University
+Singapore Management University
+3
+Xi’an University of Architecture and Technology
+
+Abstract
+Low-Light Image Enhancement (LLIE) is a crucial computer
+vision task that aims to restore detailed visual information
+from corrupted low-light images. Many existing LLIE methods are based on standard RGB (sRGB) space, which often
+produce color bias and brightness artifacts due to inherent
+high color sensitivity in sRGB. While converting the images
+using Hue, Saturation and Value (HSV) color space helps
+resolve the brightness issue, it introduces significant red and
+black noise artifacts. To address this issue, we propose a new
+color space for LLIE, namely Horizontal/Vertical-Intensity
+(HVI), defined by polarized HS maps and learnable intensity. The former enforces small distances for red coordinates
+to remove the red artifacts, while the latter compresses the
+low-light regions to remove the black artifacts. To fully leverage the chromatic and intensity information, a novel Color
+and Intensity Decoupling Network (CIDNet) is further introduced to learn accurate photometric mapping function
+under different lighting conditions in the HVI space. Comprehensive results from benchmark and ablation experiments
+show that the proposed HVI color space with CIDNet outperforms the state-of-the-art methods on 10 datasets. The
+code is available at https://github.com/Fediory/HVI-CIDNet.
+
+1. Introduction
+Under low-light conditions, imaging sensors often capture weak light signals with severe noise, resulting in poor
+visual quality for low-light images. Obtaining high-quality
+images from such degraded images necessitates Low-Light
+Image Enhancement (LLIE) that aims at improving the image brightness while simultaneously reducing the impact of
+noise and color bias [38].
+The majority of existing LLIE approaches [19, 25, 29, 52,
+75, 80] focus on finding an appropriate image brightness,
+which is typically done by employing deep neural networks
+to learn a mapping relationship between low-light images
+* These authors contributed equally to this work.
+† Corresponding author.
+
+and normal-light images within the standard RGB (sRGB)
+space. However, the image brightness exhibits a strong
+coupling with the color from the three sRGB channels, a.k.a.
+high color sensitivity in [17, 36], causing an obvious color
+distortion of the restored image in these LLIE methods [6,
+29], as shown in Fig. 1 (a).
+Inspired by Kubelka-Munk theory [17], recent methods
+[39, 76, 81] have sought to transform images from the sRGB
+color space to the Hue, Saturation and Value (HSV) color
+space. These methods help achieve the brightness enhancement more accurately, but they amplify local color space
+noise [17], introducing severe artifacts in the results. As
+illustrated in Fig. 1 (b), the transformation from sRGB to the
+HSV disrupts the continuity of the red (① Red Discontinuity
+Noise) and black (② Black Plane Noise) color, resulting in
+increased Euclidean distances for similar color and the introduction of artifacts in the final images (see the zoomed
+in images of ① and ②). These two types of noise can cause
+severe artifacts in the enhancement of red-dominated or extremely dark images.
+To address these issues, we introduce a new color space
+named Horizontal/Vertical-Intensity (HVI), designed specifically for the LLIE task. The key intuition is that minimizing
+color space noise, by reducing Euclidean distances in similar
+colors. To this end, we polarize in the Hue and Saturation
+(HS) plane to enforce smaller distances for similar red point
+coordinates, which eliminates the red discontinuity noise
+in the primary HSV space (see Fig. 1 (c)). For the black
+plane noise issue, we introduce a trainable darkness density
+parameter k and its corresponding adaptive intensity collapse function Ck , which compresses the radius of low-light
+regions to zero, with the flexibility to gradually expand to
+the value of one as the intensity increases, as illustrated in
+Fig. 1 (d). This helps remove the black noise artifacts while
+maintaining the primary image appearance.
+We further propose an LLIE network, named Color and
+Intensity Decoupling Network (CIDNet), to leverage the
+chromatic and intensity information for optimizing the color
+and intensity in the HVI space. After transforming the image into the HVI space, CIDNet leverages two network
+
+Figure 1. The top row illustrates the process of transforming images from the sRGB color space, via HSV, to the HVI color space. The
+bottom row presents the corresponding test results. The sRGB color space is known for its high color sensitivity, often causing color
+distortions in test images. By decoupling brightness and color to obtain the HSV color space, the illumination enhancement appears
+normalized. However, this transformation introduces varying levels of red discontinuities and black regions, which subsequently cause
+artifacts in the enhanced images. Introducing polarization to HSV ensures continuity in the red regions. Introducing a learnable intensity
+function Ck , on the other hand, helps collapse the black regions, yielding the HVI color space with optimal image enhancement.
+
+branches, namely HV-branch and intensity-branch, to respectively model decoupled color and brightness information
+for learning accurate photometric mapping under different
+lighting conditions and restoring more natural colors.
+Our contributions can be summarized as follows:
+• We introduce a new HVI color space for the LLIE task,
+which is uniquely defined by polarized HS and trainable
+intensity. This offers an effective tool that eliminates the
+color space noise arising from the HSV space, largely
+enhancing the brightness of the low-light images.
+• We further propose a novel LLIE network, CIDNet, to concurrently model the intensity and chromatic of low-light
+images in the HVI space. Despite being lightweight and
+computationally-efficient with relatively small parameters
+(1.88M) and computational loads (7.57GFLOPs), it enables the learning of accurate photometric mapping under
+different lighting conditions.
+• Comprehensive results from quantitative and qualitative
+experiments show that our approach outperforms various
+types of state-of-the-art (SOTA) methods on different metrics across 10 datasets.
+
+2. Related Work
+
+dress the aforementioned issues. For instance, RetinexNet
+[62] enhances images by decoupling illumination and reflectance based on Retinex theory. Bread [21] decouples the
+entanglement of noise and color distortion by using YCbCr
+color space. Furthermore, they designed a color adaption network to tackle the color distortion issue left in light-enhanced
+images. Still, RetinexNet and Bread can show inaccurate
+control in terms of brightness and biased color in black areas.
+Diffusion-based Methods. With the advancement of
+Denoising Diffusion Probabilistic Models (DDPMs) [24],
+diffusion-based generative models have achieved remarkable
+results in the LLIE task. It has shown the capability to
+generate more accurate and appropriate images. However,
+they still exhibit issues such as local overexposure or color
+shift. Recent LLIE diffusion methods have attempted to
+address these challenges by incorporating global supervised
+brightness correction or employing local color correctors [14,
+26, 27, 59, 64, 79]. Other methods such as Diff-Retinex [69]
+rethink the retinex theory with a diffusion-based model in the
+LLIE task, aiming to decomposed an image to illumination
+and reflectance from sRGB color space. However, these
+diffusion models often fail to fully decouple brightness and
+color information.
+
+2.1. Low-Light Image Enhancement
+Single-stage Methods. Single-stage deep learning approaches [6, 13, 23, 29, 41, 75] has been widely used in
+LLIE. Existing methods propose distinct solutions to ad-
+
+2.2. Color Space
+RGB. Currently, the most commonly used is the sRGB
+color space. For the same principle as visual recognition by
+
+the human eye, sRGB is widely used in digital imaging devices [47]. Nevertheless, image brightness and color exhibit
+a strong interdependence with the three channels in sRGB
+[17]. A slight disturbance in the color space will cause an
+obvious variation in both the brightness and color of the
+generated image. Thus, sRGB is not a desired color space
+for low-light enhancement.
+HSV and YCbCr. The HSV color space represents points
+in an RGB color model with a cylindrical coordinate system
+[15]. Indeed, it does decouple brightness and color of the
+image from RGB channels. However, the red color discontinuity and black plane noise pose significant challenges when
+we enhance the images in HSV color space, resulting in the
+emergence of various obvious artifacts. To circumvent issues
+related to HSV, some methods [4, 21] also transform sRGB
+images to the YCbCr color space, which has an illumination axis (Y) and reflect-color-plane (CbCr). Although it
+solved the hue dimension discontinuity problem of HSV, the
+Y axis is still coupled with the CbCr plane partially, leading
+to severe color shifts.
+
+3. HVI Color Space
+The HVI space is built upon the HSV color space, which
+is proposed to address the color space noise issues arising
+from the HSV space. The key intuition in HVI is that the
+restored images should have good perceptual quality for
+respective colors, i.e., similar colors have small Euclidean
+distances. Below we introduce the HVI transformation in
+detail, where the HSV color space is first applied to decouple
+the brightness and color information of input images, which
+could cause color space noise (e.g., red discontinuity and
+black plane). We then introduce our proposed polarized HS
+operations and learnable intensity collapse function in HVI
+to effectively address these issues.
+
+3.1. Color Space Noises in HSV
+Intensity Map. In the task of LLIE, one crucial aspect
+is accurately estimating the illumination intensity map of
+the scene from a sRGB input image. Previous methods [16,
+62, 75] largely rely on the Retinex theory [34], using deep
+learning to directly generate the corresponding normal-light
+map. While this approach aligns with statistical principles,
+it often struggles to fit physical laws and human perception
+[17], resulting in limited generalizability [59]. Therefore,
+we instead refer to the Max-RGB theory [34] to estimate the
+intensity map, a.k.a., Value in HSV, rather than using neural
+networks to generate it. According to Max-RGB, for each
+individual pixel x, we can estimate the intensity map of an
+image Imax ∈ RH×W as follows:
+Imax (x) =
+
+max
+c∈{R,G,B}
+
+(Ic (x)).
+
+(1)
+
+The intensity map then goes through the sRGB-HSV
+
+transformation that can lead to various red and black noises.
+We introduce these separately as follows.
+Hue/Saturation Plane. Real-world low-light images often contain significant noise, making its identification and
+removal a key challenge in LLIE. Recent studies [62, 69] indicate that the noise in low-light images is a primary cause to
+shifts in Hue and Saturation, a.k.a. a general case of Reintex
+theory [59], while having minimal impact on light intensity.
+Therefore, decoupling the sRGB color space, known for its
+high color sensitivity, can be advantageous for the LLIE task.
+By leveraging pixel-based photometric invariance [17] and
+dichromatic reflection modeling [51], sRGB can be decoupled into illuminance and chromatic components, yielding
+the HSV (Hue/Saturation-Value) color space. In this representation, the Value map (V) component corresponds to
+light intensity map (V = Imax ), while the HS plane forms a
+chromaticity plane independent of illuminance constraints.
+Specifically, the transformation of sRGB image to Saturation
+map (S) is defined as follows
+(
+0,
+Imax = 0
+s=
+,
+(2)
+∆
+,
+Imax ̸= 0
+Imax
+where ∆ = Imax − min(Ic ) and s is any pixel in S. The
+Hue map (H) is formulated as
+
+0,
+if s = 0
+
+
+
+ IG −IB mod 6, if I
+max = IR
+∆
+h=
+,
+(3)
+I
+−I
+B
+R
+2 + ∆ ,
+if Imax = IG
+
+
+
+G
+4 + IR −I
+,
+if Imax = IB
+∆
+where h is any pixel in H.
+Color Space Noises. Converting an sRGB image to HSV
+space effectively decouples brightness from color, enabling
+more accurate color denoising and more natural illuminance
+recovery. However, this transformation also amplifies noise
+in the red and dark regions [17], which are critical for LLIE
+tasks. As illustrated in Fig. 1 (b), enhancing the image
+brightness within the HSV color space yields a more balanced brightness level. However, excessive noise in the red
+discontinuities and the black plane introduces significant
+artifacts, particularly in red and dark areas of output image,
+which greatly degrade the perceptual quality.
+To address this issue, we propose the HVI color space
+as follows, which effectively preserves the decoupling of
+brightness and color while minimizing these artifacts.
+
+3.2. Horizontal/Vertical Plane with Polarized HS
+and Collapsible Intensity
+Our primary approach to addressing the color space noise
+issue is to ensure that more similar colors exhibit smaller
+Euclidean distances. Along the Hue axis, the color red
+appears identically at both h = 0 and h = 6, due to the
+
+modular arithmetic of Hue-axis, which splits the same color
+across two ends of the spectrum. In particular, to address
+the red discontinuity issue, we apply polarization to the
+Hue axis (h) at each pixel in H, obtaining orthogonal h =
+πh
+cos( πh
+3 ) and v = sin( 3 ). When the Hue axis is polarized,
+it forms an angle within the orthogonalized h − v plane, with
+s representing the distance from the origin.
+For the black plane noise issue, we aim to collapse regions
+of low light intensity while preserving those with higher intensity. However, the optimal extent of collapse varies across
+different datasets and networks. Therefore, it is important to
+make this region adaptively collapsible through a learning
+process. To achieve this, we introduce an adaptive intensity
+collapse function Ck as follows
+r
+πImax (x)
+k
+Ck (x) = sin(
+) + ε,
+(4)
+2
+where k ∈ Q+ is a trainable parameter to control the dark
+color point density, and a small ε = 1×10−8 is used to avoid
+gradient explosion. Essentially, Ck serves a radius mapping
+function, with smaller Ck corresponding to smaller radius
+or lower intensity values. Thus, black points are clustered
+together as Ck decreases. We then formalize the Horizontal
+(Ĥ) map and Vertical (V̂) map as
+Ĥ = Ck ⊙ S ⊙ H,
+V̂ = Ck ⊙ S ⊙ V,
+
+(5)
+
+where h ∈ H, v ∈ V , and ⊙ denotes the element-wise
+multiplication. Ĥ, V̂, and Imax can be concatenated to form
+an HVI image.
+Thanks to these operations, the HVI space builds a strong
+color space that maintains the advantages of HSV while removing the red and black noises. More importantly, since
+HVI is trainable due to k and Ck , specifically designed neural networks, as discussed in the following, can be created to
+optimize LLIE upon HVI under various lighting conditions.
+
+4. Color and Intensity Decoupling Network
+To more effectively utilize chromatic and brightness information in the HVI space, we introduce a novel dual-branch
+LLIE network, named Color and Intensity Decoupling Network (CIDNet), to separately model the HV-plane and I-axis
+information in the HVI space, as shown in Fig. 2. CIDNet
+employs HV-branch to suppress the noise and chromaticity in the dark regions and utilizes I-branch to estimate the
+illuminance of the whole images.
+The overall framework of CIDNet can be divided into
+three consecutive main steps. There is an HVI transformation
+applied before the dual-branch enhancement network. After
+the enhancement, CIDNet performs perceptual-inverse HVI
+transformation to map the image to the sRGB space. Below
+we introduce each step in detail.
+
+4.1. HVI Transformation
+As described in Sec. 3.2, the HVI transformation decomposes the sRGB image into two components: an intensity
+map containing scene illuminance information and an HV
+color map containing scene color and structure information.
+Specifically, we first calculate the intensity map using Eq. 1,
+which is II = Imax . Subsequently, we utilize the intensity
+map and the original image to generate HV color map using
+Eq. 5. Furthermore, a trainable density-k is employed to
+adjust the color point density of the low-intensity color plane,
+as shown in Fig. 2(a).
+
+4.2. Dual-branch Enhancement Network
+As illustrated in Fig. 2 (b), the dual-branch network is
+built upon the UNet architecture, involving an encoder and
+an decoder with respective three Lighten Cross-Attention
+(LCA) modules, and multiple skip connections. Two key
+designs in the network are the dual-branch structure and the
+LCA module. We explain the key intuition behind these
+designs as follows.
+The LLIE task can be decomposed into two sub-tasks:
+noise removal in low-light regions and brightness enhancement. By converting the image to the HVI color space, where
+luminance and color are decoupled, we can apply brightness
+mapping to the Intensity map and denoising to the HV color
+map. Since these two sub-tasks follow distinct statistical patterns [38], inspired by Retinex-based methods [16, 62, 63],
+we use separate branches, the I-branch and HV-branch, to
+address each sub-task individually. Additionally, the input
+to the HV branch is formed by concatenating the Intensity
+map with the HV color map, as we observed that severely
+low-light images contain a small amount of noise in the
+luminance component as well.
+The cross-attention between the two branches is used,
+rather than using self-attention individually to each branch.
+One main reason is that the illumination intensity is inversely
+proportional to image noise intensity. A low-light image
+may also contain high-illumination regions requiring only
+minimal denoising and enhancement. Therefore, using the
+intensity features to guide the HV-branch in denoising can
+reduce global color shifts and achieve more effective noise
+suppression. For another reason, the noisy intensity information, after being denoised in the HV-branch, is transferred to
+the I-branch through cross-attention, resulting in smoother
+enhancement outcomes.
+
+4.3. Perceptual-inverse HVI Transformation
+To convert HVI back to the HSV color space, we perform
+a Perceptual-inverse HVI Transformation (PHVIT), which
+is a surjective mapping while allowing for the independent
+adjustment of the image’s saturation and brightness.
+The PHVIT sets ĥ and v̂ as an intermediate variable as
+ĥ = CkĤ+ε ,v̂ = CkV̂+ε , where ε = 1 × 10−8 is used to avoid
+
+Figure 2. The overview of the proposed CIDNet. (a) HVI Color Transformation (HVIT) takes an sRGB image as input and generates HV
+color map and intensity map as outputs. (b) Enhancement Network performs the main processing, utilizing a dual-branch UNet architecture
+with six Lighten Cross-Attention (LCA) blocks. Lastly, we apply Perceptual-inverse HVI Transform (PHVIT) to take a light-up HVI map as
+input and transform it into an sRGB-enhanced image.
+
+gradient explosion. Then, we convert ĥ and v̂ to HSV color
+space. The Hue (H), Saturation (S) and Value (V) map can
+be estimated as
+v̂
+H = arctan( ) mod 1,
+q ĥ
+S = αS ĥ2 + v̂ 2 ,
+
+(6)
+
+V = αI ÎI ,
+where αS , αI are the customizing linear parameters to
+change the image color saturation and brightness. Finally,
+we will obtain the sRGB image with HSV image [15].
+
+4.4. Loss Function
+To provide comprehensive supervision for training CIDNet, we guide the enhancement from two key perspectives,
+including the GroundTruth in the sRGB space and the HVI
+map in the HVI space. Specifically, given the enhanced
+HVI map ÎHVI and the restored sRGB image Î output from
+CIDNet, we aim to minimize their difference to the primary
+sRGB GroundTruth I and its corresponding HVI map IHVI :
+L = λ · l(ÎHVI , IHVI ) + l(Î, I),
+
+(7)
+
+where λ is a weighting hyperparameter to balance the losses
+in the two different color spaces. This helps achieve not only
+more closely with the probabilistic distribution of sRGB in
+the HVI space, especially the red and black ones, due to
+the optimized k and Ck , but also inheritance of pixel-level
+structure detail in the sRGB space.
+
+5. Experiments
+5.1. Datasets and Settings
+We employ seven commonly-used LLIE benchmark
+datasets for evaluation, including LOLv1 [62], LOLv2 [68],
+DICM [35], LIME [22], MEF [43], NPE [57], and VV [54].
+
+We also conduct further experiments on two extreme datasets,
+SICE [5] (containing mix and grad test sets [77]) and SID
+(Sony-Total-Dark) [7].
+LOL. The LOL dataset has v1 [62] and v2 [68] versions.
+Compared to LOL-v1 that contains both real and synthetic
+data, LOL-v2 is divided into real and synthetic subsets. For
+LOLv1 and LOLv2-Real, we crop the training images into
+400 × 400 patches and train CIDNet for 1,500 epochs with a
+batch size of 8. For LOLv2-Synthetic, we set the batch size
+to 1 and train CIDNet for 500 epochs without cropping.
+SICE. The original SICE dataset [5] contains 589 lowlight and overexposed images, with the training, validation,
+and test sets divided into three groups according to 7:1:2.
+CIDNet is optimized using 160 × 160 cropped images from
+the training set for 1,000 epochs with a batch size of 10 and
+tested on the datasets SICE-Mix and SICE-Grad [77].
+Sony-Total-Dark. This dataset is a customized version
+of a SID subset [7]. To make this dataset more challenging,
+we convert the raw format images to sRGB images with no
+gamma correction, resulting in images with extreme darkness. We crop the training images into 256 × 256 patches
+and train CIDNet for 1,000 epochs with a batch size of 4.
+Experiment Settings. We implement our CIDNet by
+PyTorch. The model is trained with the Adam [31] optimizer
+(β1 = 0.9 and β2 = 0.999) by using a single NIVIDA 2080Ti
+or 3090 GPU. The learning rate is initially set to 1×10−4 and
+then steadily decreased to 1 × 10−7 by the cosine annealing
+scheme [42] during the training process.
+Evaluation Metrics. For the paired datasets, we adopt
+the Peak Signal-to-Noise Ratio (PSNR) and Structural Similarity (SSIM) [61] as the distortion metrics. To comprehensively evaluate the perceptual quality of the restored
+images, we report Learned Perceptual Image Patch Similarity (LPIPS) [74] with AlexNet [32] as the reference. For
+the unpaired datasets, we evaluate single recovered images
+using BRISQUE [44] and NIQE [45] perceptually.
+
+Table 1. Quantitative results of PSNR/SSIM↑ and LPIPS↓ on the LOL (v1 and v2) datasets. Due to the limited number of test set in LOLv1,
+we use GT mean method during testing to minimize errors. This approach will be explained in supplementary. The FLOPs is tested on a
+single 256 × 256 image. The best performance is in red color and the second best is in cyan color.
+Methods
+
+Color Model
+
+RetinexNet [62]
+KinD [75]
+ZeroDCE [19]
+RUAS [49]
+LLFlow [60]
+EnlightenGAN [29]
+SNR-Aware [66]
+Bread [21]
+PairLIE [16]
+LLFormer [58]
+RetinexFormer [6]
+GSAD [26]
+QuadPrior [59]
+CIDNet(Ours)
+
+Retinex
+Retinex
+RGB
+Retinex
+RGB
+RGB
+SNR+RGB
+YCbCr
+Retinex
+RGB
+Retinex
+RGB
+Kubelka-Munk
+HVI
+
+Complexity
+Params/M FLOPs/G
+0.84
+584.47
+8.02
+34.99
+0.075
+4.83
+0.003
+0.83
+17.42
+358.4
+114.35
+61.01
+4.01
+26.35
+2.02
+19.85
+0.33
+20.81
+24.55
+22.52
+1.53
+15.85
+17.36
+442.02
+1252.75
+1103.20
+1.88
+7.57
+
+RUAS [49]
+
+LLFlow [60]
+
+Input
+
+PSNR↑
+18.915
+23.018
+21.880
+18.654
+24.998
+20.003
+26.716
+25.299
+23.526
+25.758
+27.140
+27.605
+22.849
+28.201
+
+SNRNet [66]
+
+LOLv1
+SSIM↑
+0.427
+0.843
+0.640
+0.518
+0.871
+0.691
+0.851
+0.847
+0.755
+0.823
+0.850
+0.876
+0.800
+0.889
+
+LPIPS↓
+0.470
+0.156
+0.335
+0.270
+0.117
+0.317
+0.152
+0.155
+0.248
+0.167
+0.129
+0.092
+0.201
+0.079
+
+RetFormer [6]
+
+LOLv2-Real
+PSNR↑ SSIM↑ LPIPS↓
+16.097
+0.401
+0.543
+17.544
+0.669
+0.375
+16.059
+0.580
+0.313
+15.326
+0.488
+0.310
+17.433
+0.831
+0.176
+18.230
+0.617
+0.309
+21.480
+0.849
+0.163
+20.830
+0.847
+0.174
+19.885
+0.778
+0.317
+20.056
+0.792
+0.211
+22.794
+0.840
+0.171
+20.153
+0.846
+0.113
+20.592
+0.811
+0.202
+24.111
+0.871
+0.108
+
+GSAD [25]
+
+LOLv2-Synthetic
+PSNR↑ SSIM↑ LPIPS↓
+17.137
+0.762
+0.255
+18.320
+0.796
+0.252
+17.712
+0.815
+0.169
+13.765
+0.638
+0.305
+24.807
+0.919
+0.067
+16.570
+0.734
+0.220
+24.140
+0.928
+0.056
+17.630
+0.919
+0.091
+19.074
+0.794
+0.230
+24.038
+0.909
+0.066
+25.670
+0.930
+0.059
+24.472
+0.929
+0.051
+16.108
+0.758
+0.114
+25.705
+0.942
+0.045
+
+CIDNet(Ours)
+
+GroundTruth
+
+Figure 3. Visual comparison of the enhanced images yielded by different SOTA methods on LOLv1 (top row) and LOLv2 (bottom row).
+
+Table 2. Quantitative result on SICE, Sont-Total-Dark, and the five
+unpaired datasets (DICM [35], LIME [22], MEF [43], NPE [57],
+and VV [54]). The top-ranking score is in red.
+Methods
+RetinexNet [62]
+ZeroDCE [19]
+URetinexNet [63]
+RUAS [49]
+LLFlow [60]
+CIDNet (Ours)
+
+SICE
+PSNR↑ SSIM↑
+12.424
+0.613
+12.452
+0.639
+10.899
+0.605
+8.656
+0.494
+12.737
+0.617
+13.435
+0.642
+
+Sony-Total-Dark
+PSNR↑ SSIM↑
+15.695
+0.395
+14.087
+0.090
+15.519
+0.323
+12.622
+0.081
+16.226
+0.367
+22.904
+0.676
+
+Unpaired
+BRIS↓ NIQE↓
+23.286
+4.558
+26.343
+4.763
+26.359
+3.829
+36.372
+4.800
+28.087
+4.221
+23.521
+3.523
+
+5.2. Main Results
+Results on LOL Datasets. In Tab. 1, it can be found that
+our method is optimal on all metrics for both LOLv1 and
+LOLv2 datasets with 1.88M parameters and 7.57 GFLOPs.
+We outperform the best RGB-based method GSAD (diffusion) in terms of all PSNR, SSIM, and LPIPS metrics,
+while utilizing only 10.8% parameters of GSAD. Compared
+to RetinexFormer, a SOTA method based on Retinex theory, CIDNet delivers higher image quality while reducing
+
+computational cost by 8.28 GFLOPs. Subjective results are
+illustrated in Fig. 3, which demonstrates that our method not
+only more accurately recovers multi-color regions compared
+to GroundTruth but also achieves stable brightness enhancement, thanks to the HVI color space. More visualization
+comparison can be found in supplementary materials.
+Results on SICE and Sony-total-Dark. To validate the
+performance on large-scale datasets, we evaluate CIDNet on
+SICE (including Mix and Grad) and SID-Total-Dark. The
+results are presented in Table 2, where it is clear that CIDNet
+is the best performer in both PSNR and SSIM metrics on the
+two datasets. Notably, on Sony-Total-Dark, our model surpasses the second-best method by 6.678 dB in PSNR. This
+improvement is due to the extreme darkness of the dataset
+images, which substantially increases the difficulty of distinguishing details from noise. However, CIDNet leverages
+the intensity collapse function Ck to effectively maintain an
+optimal signal-to-noise ratio during training, enabling better
+detail recovery.
+Results on Unpaired Datasets. We evaluate the effec-
+
+Figure 4. Visual comparison on the five unpaired datasets. Follow RetinexFormer [6], we select one image in each dataset to compare our
+method with the other methods. More visual comparison can be found in the supplementary materials.
+Table 3. Results of applying HVI transformation as a plug-in to various LLIE methods on LOLv2-Real. Values in brackets represent the
+absolute improved performance gain. The best PSNR/SSIM↑, LPIPS↓, and inference time↓ are in bolded.
+Methods
+PSNR↑
+SSIM↑
+LPIPS↓
+GPU Time/s↓
+Model Type
+
+FourLLIE [55]
+22.730(+0.381)
+0.856(+0.009)
+0.125(+0.011)
+0.075
+CNN
+
+LEDNet [82]
+23.394(+3.456)
+0.837(+0.010)
+0.115(-0.005)
+0.054
+CNN
+
+SNR-Aware [66]
+22.251(+0.771)
+0.840(-0.009)
+0.117(-0.054)
+0.070
+Transformer
+
+Table 4. Model ablation. Dual denotes the dual-branch network.
+Metrics
+Color Space
+
+sRGB
+HSV
+HVI (w/ Polarization Only)
+HVI (w/ Ck Only)
+
+PSNR↑
+20.062
+21.349
+21.558
+21.536
+
+SSIM↑
+0.825
+0.801
+0.821
+0.825
+
+LPIPS↓
+0.137
+0.167
+0.149
+0.179
+
+Structure
+
+UNet Baseline [46]
+SelfAttn [71]
+Dual+SelfAttn [71]
+
+19.306
+22.313
+23.159
+
+0.778
+0.835
+0.856
+
+0.222
+0.126
+0.116
+
+Loss
+
+HVI Only
+sRGB Only
+
+23.221
+23.319
+
+0.854
+0.857
+
+0.132
+0.123
+
+Full Model (HVI-CIDNet)
+
+24.111
+
+0.871
+
+0.108
+
+tiveness of models trained on LOLv1 or LOLv2-Syn using various methods, and report their performance using
+BRISQUE and NIQE metrics in Tab. 2. Our method exhibits
+a substantial improvement in the NIQE metric compared
+to other approaches. As shown in Fig. 4, while CIDNet
+does not outperform RetinexNet in the BRISQUE metric in
+Tab. 2, its recovered perceptual results are closer to realistic
+appearances than RetinexNet. This may be attributed to the
+fact that building upon the HSV space, the HVI color space
+is derived from real-world perceptual models [17].
+Generalizing HVI to Other LLIE Models. To verify the
+effectiveness of the HVI color space, we further evaluate its
+performance when it is used with different LLIE models. In
+particular, HVIT, together with its inverse mapping PHVIT,
+is used as a plug-and-play module into six SOTA methods
+that use sRGB images as input and are independent of spe-
+
+LLFormer [58]
+22.671(+2.615)
+0.852(+0.060)
+0.117(-0.094)
+0.139
+Transformer
+
+GSAD [25]
+23.715(+3.562)
+0.876(+0.030)
+0.103(-0.010)
+0.315
+Diffusion
+
+DiffLight [14]
+23.969(+1.364)
+0.859(+0.003)
+0.109(-0.012)
+0.578
+CNN+Diffusion
+
+CIDNet
+24.111
+0.871
+0.108
+0.053
+Transformer
+
+cific color space characteristics. The results are reported in
+Tab. 3. It is clear that transforming to the HVI color space
+improves PSNR, SSIM, and LPIPS metrics across various
+methods compared to the results in the sRGB color space.
+Notably, the GSAD method demonstrates the most significant improvement, with a PSNR increase of 3.562 dB. This
+demonstrates not only the generalizability of HVI to various
+sRGB-based methods but also its general effectiveness as a
+color space for the LLIE task.
+For the inference time results in Tab. 3, it is evident
+that the diffusion-based methods require longer GPU time
+but achieve better enhancement results. In contrast, CIDNet shows the most efficient inference while achieving the
+highest PSNR and the second-best SSIM and LPIPS scores.
+This highlights the strong ability of CIDNet in balancing the
+efficiency and effectiveness within the HVI color space.
+
+5.3. Ablation Study
+We validate our HVI color space and the key modules
+in CIDNet using both quantitative (Tab. 4) and qualitative
+results (Figs. 5 and 6). The experiments are all performed on
+LOLv2-Real for fast convergence and stable performance.
+HVI Color Space. It can be seen in Tab. 4 that the
+enhancement in the sRGB color space leads to chromatic
+aberration and luminance bias, as demonstrated by the difference between Figs. 5(b) and (g). Compared to sRGB,
+using HSV yields images aligned more closely with the
+GroundTruth in both luminance and color due to its effectiveness on decoupling brightness from color, which can be
+
+(a) Input
+
+(b) sRGB
+
+(c) HSV
+
+(d) w/ Polarization
+
+(e) w/ Ck
+
+(f) HVI
+
+(g) GroundTruth
+
+Figure 5. Top and middle rows are ablation results on LOLv2-Real for five different color spaces used by CIDNet. The bottom row provides
+a visual comparison by mapping the pixel values of the results to sRGB. Note that due to the dual-branch and the cross-attention mechanism
+are specifically designed for HVI, we only use UNet [46] with self attentions [71] for a fair comparison.
+
+observed the enhancement from Fig. 5(b) to Fig. 5(c). This
+results in improved PSNR and LPIPS in Tab. 4. However,
+it significantly introduces more noise due to the red discontinuity in HSV, leading to the noisy black spots in the red
+regions in Fig. 5(c) and the degraded SSIM in Tab. 4. Using
+the polarization or the Ck solely in the HVI space can lead
+to similar image quality in PSNR and SSIM compared to
+those in the HSV color space. Qualitatively, as shown in
+Fig. 5(d), using polarization only helps cluster similar red
+tones, avoiding the red discontinuity. Relying solely on the
+intensity function Ck helps adjust the brightness, but leads
+to confusion between red and other colors. Consequently,
+dot-like artifacts appear not only in the red regions but also
+color shifts in other areas, as shown in Fig. 5(e). These
+issues are all effectively mitigated when the polarization and
+the Ck function are applied together, as shown by consistent
+improvement of the Full Model in all three metrics in Tab. 4
+and the better image enhancement in Fig. 5(f).
+Dual-branch Network Structure. In Tab. 4, adding
+self-attention to the baseline noticeably improves all three
+metrics, indicating that transformer-based models hold potential for application in the HVI color space. We then modified
+the architecture from a single-branch to a dual-branch structure without cross-attention, resulting in a PSNR increase of
+0.846 dB, while SSIM and LPIPS showed minimal change.
+Further incorporating the cross-attention into the I-branch
+and HV-branch (Full Model) obtains the best color restoration, light enhancement, and optimal metric performance, as
+shown in Tab. 4. This can also be observed in Fig. 6.
+Loss Function. As shown in Tab. 4, compared to using
+
+SelfAttn
+Dual + Self
+Dual + Cross GroundTruth
+Figure 6. Results of using different structures on LOLv2-Real.
+
+both HVI and sRGB losses, relying solely on the HVI loss
+lacks pixel-level spatial consistency constraints, leading to
+a loss of structural detail in the image and thus lower performance across the three metrics, especially in the LPIPS
+metric. On the other hand, using only sRGB loss is focused on pixel-space enhancement, neglecting the low-light
+probability distribution in the HVI color space, resulting in
+undesired color imbalance.
+
+6. Conclusion
+In this work, we introduce the HVI color space and the
+CIDNet approach to address the color bias and brightness
+artifact issues that occur to current sRGB-based LLIE
+approaches. By encapsulating polarized HS maps and a
+learnable intensity component, HVI shows strong robustness
+to both issues. To further enhance LLIE, CIDNet is designed
+to model decoupled chromatic and intensity information in
+the HVI space for achieving precise photometric adjustments
+under varying lighting conditions. Experimental results
+on 10 datasets demonstrate that the HVI color space,
+combined with CIDNet, outperforms SOTA LLIE methods,
+establishing it as a robust solution for low-light enhancement.
+
+References
+[1] Abdelrahman Abdelhamed, Stephen Lin, and Michael S
+Brown. A high-quality denoising dataset for smartphone
+cameras. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, pages 1692–1700, 2018. 6
+[2] Saeed Anwar and Nick Barnes. Real image denoising with
+feature attention. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), 2019. 8
+[3] Max Born, Emil Wolf, and AB Bhatia. Geometrical theory of
+optical imaging. Principles of Optics, pages 179–180, 1999.
+4
+[4] A. Brateanu, R. Balmez, A. Avram, and C. Orhei. Lyt-net:
+Lightweight yuv transformer-based network for low-light
+image enhancement, 2024. 3
+[5] Jianrui Cai, Shuhang Gu, and Lei Zhang. Learning a deep
+single image contrast enhancer from multi-exposure images.
+IEEE Transactions on Image Processing, 27(4):2049–2062,
+2018. 5, 6
+[6] Yuanhao Cai, Hao Bian, Jing Lin, Haoqian Wang, Radu Timofte, and Yulun Zhang. Retinexformer: One-stage retinexbased transformer for low-light image enhancement. In Proceedings of ICCV, pages 12504–12513, 2023. 1, 2, 6, 7, 3, 5,
+8, 10, 11, 13, 14, 15, 16, 17, 18, 19
+[7] Chen Chen, Qifeng Chen, Jia Xu, and Vladlen Koltun. Learning to see in the dark. In CVPR, 2018. 5, 6, 9, 18
+[8] Sung-Jin Cho, Seo-Won Ji, Jun-Pyo Hong, Seung-Won Jung,
+and Sung-Jea Ko. Rethinking coarse-to-fine approach in
+single image deblurring, 2021. 7, 8
+[9] Tomáš Chobola, Yu Liu, Hanyi Zhang, Julia A. Schnabel, and
+Tingying Peng. Fast context-based low-light image enhancement via neural implicit representations. In Proceedings of
+the European Conference on Computer Vision (ECCV), 2024.
+7
+[10] Kostadin Dabov, Alessandro Foi, Vladimir Katkovnik, and
+Karen Egiazarian. Image denoising by sparse 3-d transformdomain collaborative filtering. IEEE Transactions on Image
+Processing, 16(8):2080–2095, 2007. 8
+[11] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale, 2021. 4
+[12] Hugh S Fairman, Michael H Brill, and Henry Hemmendinger.
+How the cie 1931 color-matching functions were derived
+from wright-guild data. Color Research & Application: Endorsed by Inter-Society Color Council, The Colour Group
+(Great Britain), Canadian Society for Color, Color Science
+Association of Japan, Dutch Society for the Study of Color,
+The Swedish Colour Centre Foundation, Colour Society of
+Australia, Centre Français de la Couleur, 22(1):11–23, 1997.
+4
+[13] Guo-Dong Fan, Bi Fan, Min Gan, Guang-Yong Chen, and
+C. L. Philip Chen. Multiscale low-light image enhancement
+
+network with illumination constraint. IEEE Transactions
+on Circuits and Systems for Video Technology, 32(11):7403–
+7417, 2022. 2
+[14] Yixu Feng, Shuo Hou, Haotian Lin, Yu Zhu, Peng Wu, Wei
+Dong, Jinqiu Sun, Qingsen Yan, and Yanning Zhang. Difflight: Integrating content and detail for low-light image enhancement. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 6143–6152,
+2024. 2, 7
+[15] James D Foley and Andries Van Dam. Fundamentals of
+interactive computer graphics. Addison-Wesley Longman
+Publishing Co., Inc., 1982. 3, 5
+[16] Zhenqi Fu, Yan Yang, Xiaotong Tu, Yue Huang, Xinghao
+Ding, and Kai-Kuang Ma. Learning a simple low-light image
+enhancer from paired low-light instances. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 22252–22261, 2023. 3, 4, 6, 2, 13, 14, 15,
+16, 17
+[17] Theo Gevers, Arjan Gijsenij, Joost Van de Weijer, and JanMark Geusebroek. Color in computer vision: fundamentals
+and applications. John Wiley & Sons, 2012. 1, 3, 7, 6
+[18] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+modeling with selective state spaces.
+arXiv preprint
+arXiv:2312.00752, 2023. 9
+[19] Chunle Guo Guo, Chongyi Li, Jichang Guo, Chen Change
+Loy, Junhui Hou, Sam Kwong, and Runmin Cong. Zeroreference deep curve estimation for low-light image enhancement. In Proceedings of the IEEE conference on computer
+vision and pattern recognition (CVPR), pages 1780–1789,
+2020. 1, 6, 2, 3, 8, 12, 13, 14, 15, 16, 17, 19
+[20] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong Ren,
+and Shu-Tao Xia. Mambair: A simple baseline for image
+restoration with state-space model. In European Conference
+on Computer Vision, pages 222–241. Springer, 2025. 9
+[21] Xiaojie Guo and Qiming Hu. Low-light image enhancement
+via breaking down the darkness. International Journal of
+Computer Vision, 131(1):48–66, 2023. 2, 3, 6
+[22] X. Guo, Y. Li, and H. Ling. Lime: Low-light image enhancement via illumination map estimation. IEEE Transactions on
+Image Processing, 26(2):982–993, 2017. 5, 6, 9, 14
+[23] Zhiquan He, Wu Ran, Shulin Liu, Kehua Li, Jiawen Lu,
+Changyong Xie, Yong Liu, and Hong Lu. Low-light image enhancement with multi-scale attention and frequency-domain
+optimization. IEEE Transactions on Circuits and Systems for
+Video Technology, 34(4):2861–2875, 2024. 2
+[24] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In Advances in Neural Information
+Processing Systems, pages 6840–6851. Curran Associates,
+Inc., 2020. 2
+[25] Jinhui Hou, Zhiyu Zhu, Junhui Hou, Hui Liu, Huanqiang
+Zeng, and Hui Yuan. Global structure-aware diffusion process for low-light image enhancement. Advances in Neural
+Information Processing Systems, 36, 2024. 1, 6, 7, 3, 12
+[26] Jinhui Hou, Zhiyu Zhu, Junhui Hou, Hui Liu, Huanqiang
+Zeng, and Hui Yuan. Global structure-aware diffusion process for low-light image enhancement. Advances in Neural
+Information Processing Systems, 36, 2024. 2, 6
+
+[27] Hai Jiang, Ao Luo, Haoqiang Fan, Songchen Han, and
+Shuaicheng Liu. Low-light image enhancement with waveletbased diffusion models. ACM Transactions on Graphics
+(TOG), 42(6):1–14, 2023. 2
+[28] Hai Jiang, Ao Luo, Xiaohong Liu, Songchen Han, and
+Shuaicheng Liu. Lightendiffusion: Unsupervised low-light
+image enhancement with latent-retinex diffusion models. In
+European Conference on Computer Vision, 2024. 7
+[29] Yifan Jiang, Xinyu Gong, Ding Liu, Yu Cheng, Chen Fang,
+Xiaohui Shen, Jianchao Yang, Pan Zhou, and Zhangyang
+Wang. Enlightengan: Deep light enhancement without paired
+supervision. IEEE Transactions on Image Processing, 30:
+2340–2349, 2021. 1, 2, 6, 3
+[30] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Perceptual
+losses for real-time style transfer and super-resolution, 2016.
+6
+[31] Diederik P. Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization, 2017. 5
+[32] Alex Krizhevsky, I. Sutskever, and G. Hinton. Imagenet classification with deep convolutional neural networks. Advances
+in neural information processing systems, 25(2), 2012. 5
+[33] Orest Kupyn, Tetiana Martyniuk, Junru Wu, and Zhangyang
+Wang. Deblurgan-v2: Deblurring (orders-of-magnitude)
+faster and better. In The IEEE International Conference on
+Computer Vision (ICCV), 2019. 7, 8, 19
+[34] Edwin H Land. The retinex theory of color vision. Scientific
+american, 237(6):108–129, 1977. 3, 5
+[35] Chulwoo Lee, Chul Lee, and Chang-Su Kim. Contrast enhancement based on layered difference representation of 2d
+histograms. IEEE Transactions on Image Processing, 22(12):
+5372–5384, 2013. 5, 6, 9, 13
+[36] Jaerin Lee, JoonKyu Park, Sungyong Baik, and Kyoung Mu
+Lee. Rethinking RGB color representation for image restoration models, 2024. 1
+[37] Aleš Leonardis. Computer Vision–ECCV 2024: 18th European Conference, Milan, Italy, September 29–October 4,
+2024, Proceedings, Part XXIV. Springer Nature, 2024. 7
+[38] Chongyi Li, Chunle Guo, Linghao Han, Jun Jiang, MingMing Cheng, Jinwei Gu, and Chen Change Loy. Low-light
+image and video enhancement using deep learning: A survey. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 44(12):9396–9416, 2022. 1, 4, 2
+[39] Zhi Li, Zhenhong Jia, Jie Yang, and Nikola Kasabov. Low illumination video image enhancement. IEEE photonics journal,
+12(4):1–13, 2020. 1
+[40] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc
+Van Gool, and Radu Timofte. Swinir: Image restoration using
+swin transformer. In Proceedings of CVPR, pages 1833–1844,
+2021. 9
+[41] Kin Gwn Lore, Adedotun Akintayo, and Soumik Sarkar. Llnet: A deep autoencoder approach to natural low-light image
+enhancement, 2016. 2
+[42] Ilya Loshchilov and Frank Hutter. Sgdr: Stochastic gradient
+descent with warm restarts, 2017. 5
+[43] Kede Ma, Kai Zeng, and Zhou Wang. Perceptual quality
+assessment for multi-exposure image fusion. IEEE Transactions on Image Processing, 24(11):3345–3356, 2015. 5, 6, 9,
+15
+
+[44] Anish Mittal, Anush Krishna Moorthy, and Alan Conrad
+Bovik. No-reference image quality assessment in the spatial
+domain. IEEE Transactions on Image Processing, 21(12):
+4695–4708, 2012. 5
+[45] Anish Mittal, Rajiv Soundararajan, and Alan C. Bovik. Making a “completely blind” image quality analyzer. IEEE Signal
+Processing Letters, 20(3):209–212, 2013. 5
+[46] Olivier Petit, Nicolas Thome, Clément Rambour, and Luc
+Soler. U-net transformer: Self and cross attention for medical
+image segmentation, 2021. 7, 8
+[47] Charles Poynton. 18 - image digitization and reconstruction. In Digital Video and HDTV, pages 187–194. Morgan
+Kaufmann, San Francisco, 2003. 3
+[48] Jaesung Rim, Haeyun Lee, Jucheol Won, and Sunghyun Cho.
+Real-world blur dataset for learning and benchmarking deblurring algorithms. In Proceedings of the European Conference
+on Computer Vision (ECCV), 2020. 8, 19
+[49] Liu Risheng, Ma Long, Zhang Jiaao, Fan Xin, and Luo
+Zhongxuan. Retinex-inspired unrolling with cooperative prior
+architecture search for low-light image enhancement. In Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, 2021. 6, 3, 10, 11, 12, 13, 14, 15, 16, 17,
+18
+[50] George Seif and Dimitrios Androutsos. Edge-based loss
+function for single image super-resolution. In Proceedings of
+ICASSP), pages 1468–1472, 2018. 6
+[51] Steven A Shafer. Using color to separate reflection components. Color Research & Application, 10(4):210–218, 1985.
+3
+[52] Chunyan She, Fujun Han, Lidan Wang, Shukai Duan, and
+Tingwen Huang. Mpc-net: Multi-prior collaborative network
+for low-light image enhancement. IEEE Transactions on
+Circuits and Systems for Video Technology, pages 1–1, 2024.
+1
+[53] Yiqi Shi, Duo Liu, Liguo Zhang, Ye Tian, Xuezhi Xia, and
+Xiaojing Fu. Zero-ig: Zero-shot illumination-guided joint
+denoising and adaptive enhancement for low-light images.
+In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 3015–3024, 2024. 7
+[54] Vassilios Vonikakis, Rigas Kouskouridas, and Antonios
+Gasteratos. On the evaluation of illumination compensation algorithms. Multimedia Tools and Applications, 77:1–21,
+2018. 5, 6, 9, 17
+[55] Chenxi Wang, Hongjun Wu, and Zhi Jin. Fourllie: Boosting low-light image enhancement by fourier frequency information. In Proceedings of the 31st ACM International
+Conference on Multimedia, pages 7459–7469, 2023. 7
+[56] Jiaqi Wang, Zhengliang Liu, Lin Zhao, Zihao Wu, Chong Ma,
+Sigang Yu, Haixing Dai, Qiushi Yang, Yiheng Liu, Songyao
+Zhang, et al. Review of large vision models and visual prompt
+engineering. Meta-Radiology, page 100047, 2023. 9
+[57] Shuhang Wang, Jin Zheng, Hai-Miao Hu, and Bo Li. Naturalness preserved enhancement algorithm for non-uniform
+illumination images. IEEE transactions on image processing
+: a publication of the IEEE Signal Processing Society, 22,
+2013. 5, 6, 9, 16
+[58] Tao Wang, Kaihao Zhang, Tianrun Shen, Wenhan Luo, Bjorn
+Stenger, and Tong Lu. Ultra-high-definition low-light image
+
+enhancement: A benchmark and transformer-based method.
+In Proceedings of the AAAI Conference on Artificial Intelligence, pages 2654–2662, 2023. 6, 7
+[59] Wenjing Wang, Huan Yang, Jianlong Fu, and Jiaying Liu.
+Zero-reference low-light enhancement via physical quadruple
+priors. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 26057–26066,
+2024. 2, 3, 6, 7
+[60] Yufei Wang, Renjie Wan, Wenhan Yang, Haoliang Li, LapPui Chau, and Alex C Kot. Low-light image enhancement
+with normalizing flow. arXiv preprint arXiv:2109.05923,
+2021. 6, 3, 10, 11, 12, 18
+[61] Zhou Wang, A.C. Bovik, H.R. Sheikh, and E.P. Simoncelli.
+Image quality assessment: from error visibility to structural
+similarity. IEEE Transactions on Image Processing, 13(4):
+600–612, 2004. 5, 6
+[62] Chen Wei, Wenjing Wang, Wenhan Yang, and Jiaying Liu.
+Deep retinex decomposition for low-light enhancement. arXiv
+preprint arXiv:1808.04560, 2018. 2, 3, 4, 5, 6, 10, 11, 12, 18,
+19
+[63] Wenhui Wu, Jian Weng, Pingping Zhang, Xu Wang, Wenhan
+Yang, and Jianmin Jiang. Uretinex-net: Retinex-based deep
+unfolding network for low-light image enhancement. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR), pages 5901–5910, 2022. 4,
+6, 13, 14, 15, 16, 17, 18, 19
+[64] Yuhui Wu, Guoqing Wang, Zhiwen Wang, Yang Yang, Tianyu
+Li, Peng Wang, Chongyi Li, and Heng Tao Shen. Recodiff: Explore retinex-based condition strategy in diffusion
+model for low-light image enhancement. arXiv preprint
+arXiv:2312.12826, 2023. 2
+[65] Rui Xu, Shu Yang, Yihui Wang, Bo Du, and Hao Chen. A
+survey on vision mamba: Models, applications and challenges.
+arXiv preprint arXiv:2404.18861, 2024. 9
+[66] Xiaogang Xu, Ruixing Wang, Chi-Wing Fu, and Jiaya Jia. Snraware low-light image enhancement. In 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR),
+pages 17693–17703, 2022. 6, 7, 10, 11, 12
+[67] Shuzhou Yang, Xuanyu Zhang, Yinhuai Wang, Jiwen Yu,
+Yuhan Wang, and Jian Zhang. Difflle: Diffusion-guided
+domain calibration for unsupervised low-light image enhancement, 2023. 2
+[68] Wenhan Yang, Wenjing Wang, Haofeng Huang, Shiqi Wang,
+and Jiaying Liu. Sparse gradient regularized deep retinex network for robust low-light image enhancement. IEEE Transactions on Image Processing, 30:2072–2086, 2021. 5, 3, 6, 11,
+12
+[69] Xunpeng Yi, Han Xu, Hao Zhang, Linfeng Tang, and Jiayi
+Ma. Diff-retinex: Rethinking low-light image enhancement
+with a generative diffusion model. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 12302–12311, 2023. 2, 3
+[70] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar
+Hayat, Fahad Shahbaz Khan, Ming-Hsuan Yang, and Ling
+Shao. Learning enriched features for real image restoration
+and enhancement. In ECCV, 2020. 8
+[71] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+
+Restormer: Efficient transformer for high-resolution image
+restoration. In CVPR, 2022. 7, 8
+[72] Jingyi Zhang, Jiaxing Huang, Sheng Jin, and Shijian Lu.
+Vision-language models for vision tasks: A survey. IEEE
+Transactions on Pattern Analysis and Machine Intelligence,
+2024. 9
+[73] Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and
+Lei Zhang. Beyond a gaussian denoiser: Residual learning of
+deep cnn for image denoising. IEEE Transactions on Image
+Processing, 26(7):3142–3155, 2017. 8
+[74] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman,
+and Oliver Wang. The unreasonable effectiveness of deep
+features as a perceptual metric. In CVPR, 2018. 5
+[75] Yonghua Zhang, Jiawan Zhang, and Xiaojie Guo. Kindling
+the darkness: A practical low-light image enhancer. In Proceedings of the 27th ACM International Conference on Multimedia, pages 1632–1640, New York, NY, USA, 2019. ACM.
+1, 2, 3, 6, 12, 13, 14, 15, 16, 17
+[76] Yu Zhang, Xiaoguang Di, Bin Zhang, Ruihang Ji, and Chunhui Wang. Better than reference in low-light image enhancement: Conditional re-enhancement network. IEEE Transactions on Image Processing, 31:759–772, 2021. 1
+[77] Shen Zheng, Yiling Ma, Jinqian Pan, Changjie Lu, and
+Gaurav Gupta. Low-light image and video enhancement:
+A comprehensive survey and beyond. arXiv preprint
+arXiv:2212.10772, 2022. 5, 6
+[78] Dewei Zhou, Zongxin Yang, and Yi Yang. Pyramid diffusion
+models for low-light image enhancement. arXiv preprint
+arXiv:2305.10028, 2023. 6
+[79] Dewei Zhou, Zongxin Yang, and Yi Yang. Pyramid diffusion
+models for low-light image enhancement. arXiv preprint
+arXiv:2305.10028, 2023. 2
+[80] Han Zhou, Wei Dong, Xiaohong Liu, Shuaicheng Liu,
+Xiongkuo Min, Guangtao Zhai, and Jun Chen. Glare: Low
+light image enhancement via generative latent feature based
+codebook retrieval. In Proceedings of the European Conference on Computer Vision (ECCV), 2024. 1, 6, 7
+[81] Libing Zhou, Xiaojing Chen, Baisong Ye, Xueli Jiang, Sheng
+Zou, Liang Ji, Zhengqian Yu, Jianjian Wei, Yexin Zhao, and
+Tianyu Wang. A low-light image enhancement method based
+on hsv space. The Imaging Science Journal, pages 1–14,
+2023. 1
+[82] Shangchen Zhou, Chongyi Li, and Chen Change Loy. Lednet:
+Joint low-light enhancement and deblurring in the dark. In
+ECCV, 2022. 7, 6, 8, 18, 19
+
+HVI: A New Color Space for Low-light Image Enhancement
+Supplementary Material
+
+k = 0.5
+
+k = 0.8
+
+k=1
+
+k = 1.5
+
+k=2
+
+k=3
+
+k=5
+
+k = 10
+
+Figure 8. Visually comparison of HVI color spaces with different
+density-k.
+
+k=1
+Figure 7. Different Density-ks. The independent variable is Intensity (Imax ) and the dependent variable is Ck .
+
+k=3
+
+k = 10
+
+k = 50
+
+Figure 9. HV-map comparison of density-ks in low-light images. It
+can be seen that as k increases, the noise in the image is amplified,
+while the conflict between detail and noise becomes increasingly
+obvious.
+
+7. Supplementary Introduction
+In our appendix, we first provide additional details about
+the HVI color space, along with an extended version to
+address crossing-datasets challenge in Low-light Image Enhancement task. Next, we present the detailed structure of
+the LCA module in CIDNet and conduct ablation studies on
+its submodules. Following this, we conduct additional experiments on the HVI-CIDNet described in the main text to
+validate the advantages of the HVI color space and CIDNet.
+Finally, we analyze the limitations of our approach and offer
+a discussion on potential improvements.
+
+8. Details and Extensions of HVI Color Space
+In Sec. 3.2, we introduced the HVI color space, which
+addresses the red discontinuity and black plane noise issues
+in HSV by applying polar coordinate transformation and
+incorporating the k parameter to construct the Ck intensity
+compression formula, collapsing the low-light plane into a
+compact region. In this section, we provide a visual analysis
+of the effectiveness of k and further discuss the extensibility
+of HVI, aiming to adapt it for solving additional the crossingdataset challenge.
+
+8.1. Visualization and Further Discussion of Parameter k
+We visualise Eq. 4 for the generation of Ck and the result
+is illustrated in Fig. 7. It can be seen that Ck is essentially
+a remapping function positively correlated with Intensity
+from zero to one. The purpose of the parameter k is to
+adjust the gradient of Ck over Intensity. As shown in Fig. 7,
+larger k values exhibit steeper gradients near zero and more
+gradual slopes as they approach one, which can think of k
+as a specific low-light characteristic to adjust the density
+of black color plane points. We show in Fig. 8 the results
+of a more intuitive visualization of HVI, based on different
+values of k. As k increases, we can notice that the low-light
+”chassis” of the HVI space gradually becomes rounded from
+sharp, and finally widens to approximate a cylinder. This is
+because k affects the gradient of Ck , and it represents the
+radius of the HV plane at different Intensities.
+However, this leads to a new question about Ck , i.e., what
+is the key of setting k in Eq. 4 if the low-light plane collapse
+is also satisfied by setting Ck = Imax ?
+The density-k is set to be a hyper-parameter that learns the
+noise and detail conflicts between different datasets, which
+the motivation is in Fig. 9. As k increases, we observe
+
+that the conflict between noise and detail becomes more
+pronounced, and also leads to greater color deviation with
+more intense saturation and contrast. We argue that the parameter k can be set as a hyper-parameter for regulating
+the signal-to-noise ratio at low-light color space area, to be
+added to the subsequent training with the neural network.
+Meanwhile, different values of k can be trained using different networks and different datasets. From this, we obtain a
+universal collapse formula as
+p
+(8)
+Ck (x) = k F (Imax (x)) + ε,
+where F (·) is a function that passing through (0, 0) and (1, 1)
+and consecutive between [0, 1]. ε is a small quantity that
+prevents the gradient of a power function from exploding
+when back-propagated, and x denotes any pixel in the image.
+When we design Eq. 8, in addition to the method mentioned in the main text as
+F (Imax (x)) = sin (
+
+πImax (x)
+),
+2
+
+(9)
+Figure 10. Different γG and γB s in Eq. 12. The independent
+variable is Hue as h and the dependent variable is Pγ .
+
+we also considered two alternative approaches,
+F (Imax (x)) = Imax (x),
+
+(10)
+
+and F (Imax (x)) = log2 (Imax (x) + 1),
+
+(11)
+
+which are both satisfied the F (·) function definition. The
+reason we ultimately choose to use the sinusoidal (sin) formula is because of its characteristic to minimize the risk
+of gradient explosion (k < 1 or Imax (x) → 0 in Eq. 10)
+and gradient vanishing (k → 0 in Eq. 11). Therefore, our
+design can greatly improve the success rate during training
+in order to make modifications to other network structures
+more efficiently, saving time and cost.
+
+8.2. Further Develop of improving generalization
+between different datasets
+Motivation. In the field of LLIE, model generalization
+remains a challenging issue [38]. Models trained on one
+specific dataset often perform poorly when applied to another
+dataset [59]. This dilemma arises primarily from two factors.
+1. The varying sensitivity of different types of cameras to
+the red, green, and blue channel when capturing light
+intensity.
+2. The differences in shooting environments across datasets,
+leading to variations in noise characteristics and brightness mapping statistics.
+Previous methods have acknowledged these issues and
+largely adopted unsupervised or zero-shot approaches to
+address them [16, 19, 29, 59, 67]. While these methods exhibit stronger generalization compared to some supervised
+approaches, their performance often falls short on the training and testing sets of the same dataset [16, 59]. To tackle
+this problem, we explore applying a linear mapping to the
+
+Hue transformation Pγ and a saturation mapping function
+T (x) in the HVI color space to adapt to the varying sensitivity of different cameras to the RGB channels and different
+low-light scenes.
+Methodology. For Problem 1, we consider that the sensitivity of the camera on RGB can be equated to the relationship between the positions of the three RGB colours on the
+Hue axis of HSV. If one wants to have higher generalisation
+on other cameras, one just needs to fine-tune their positions.
+Therefore, we set Pγ to be an linear map of Hue in HSV
+color space as
+
+1
+
+if 0 ≤ h < 2
+ 2 γG h,
+Pγ = 12 (γB − γG )(h − 2) + γG , if 2 ≤ h < 4 , (12)
+
+1
+if 4 ≤ h ≤ 6
+2 (6 − γB )(h − 6) + 6,
+where γG , γB ∈ (0, 6), h ∈ [0, 6] denotes the hue value
+mentioned in 3. Note that the polarization function should
+change to h = cos(2πPγ ) and v = sin(2πPγ ) from h
+to Pγ . As Fig. 10, Hue is mapped to Pγ by a trainable
+segmented linear function with γG and γB , and each folded
+line represents a specific make or model of camera. We can
+manually adjust these two parameters in order to allow the
+HVI space to switch from one camera image distribution, to
+another. The visualization of these two gamma parameters
+on the color Hue is shown in Fig. 11. The original Hue axis is
+set by γG = 2, γB = 4 as Fig. 11(a). When γG = 4.2, γB =
+4.8 (see Fig. 11(b)), green elongated by stretching. When
+γG = 0.6, γB = 1.2 (see Fig. 11(d)), red part is highlighted.
+However, there are limitations. It’s that we can’t be sure of
+
+Table 5. Robustness testing experiments. All methods is trained on the LOLv1 and tested in the LOLv2-Syn dataset. The best result is in red
+color.
+Methods
+
+LLFlow [60]
+
+RetinexFormer [6]
+
+GSAD [25]
+
+RUAS [49]
+
+PairLIE [16]
+
+EnlightenGAN [29]
+
+ZeroDCE [19]
+
+CIDNet
+
+PSNR↑
+SSIM↑
+LPIPS↓
+
+17.119
+0.812
+0.224
+
+16.570
+0.769
+0.252
+
+15.854
+0.748
+0.243
+
+15.326
+0.488
+0.458
+
+19.074
+0.797
+0.230
+
+16.183
+0.734
+0.220
+
+17.712
+0.815
+0.169
+
+19.457
+0.817
+0.193
+
+Train Mode
+Main Type
+
+Supervised
+Flow
+
+Supervised
+Transformer
+
+Supervised
+Diffusion
+
+Unsupervised
+Unrolling
+
+Unsupervised
+CNN
+
+Unsupervised
+GAN
+
+Zero-shot
+CNN
+
+Supervised
+HVI + Transformer
+
+(a) γG = 2, γB = 4
+
+(c) γG = 1.2, γB = 3.6
+
+(b) γG = 4.2, γB = 4.8
+
+(d) γG = 0.6, γB = 1.2
+
+Figure 11. A visual presentation for different γG and γB values.
+
+its parameters for an unknown camera, so we can’t adjust
+it to the appropriate γG and γB value. This also limits the
+generalization of these two parameters, and requires us to
+conduct in-depth research in the future.
+For the second problem, we try to solve it by setting
+a mapping equation T (·) on saturation-axis (s). We consider that different scenes simply have different saturation
+on different hues. Therefore, we introduce the FunctionalSaturation-T to establish a saturation mapping relationship
+between different scenes, which enhances the model’s generalization capability. Specifically, it can be utilized as
+DT = T (
+
+Pγ
+),
+6
+
+(13)
+
+where T (·) satisfies T (0) = T (1) and T (Pγ ) ≥ 0. The T
+equation can be a custom function, a trainable formula, or a
+neural network, designed to fit the saturation correspondence
+between different scenes. For instance, HVI with T (x) =
+−4x(x − 1) is a color space that filter the red related colors
+to adapt the red-free outdoor scenes as Fig. 12. If we set
+
+Figure 12. An image transform to HVI space with T (x) =
+−4x(x − 1), which filtered the red related colors. We note that
+these colors are not disappeared, but rather the colors are hidden in
+HVI space, preventing the networks from extracting the relevant
+features.
+
+T (x) = t|x − 0.5| where t is a trainable parameter, then
+T (x) is a trainable filter to adaptively find the colors that
+need to be filtered out. If T is a well-trained neural network
+to adjust different saturation scenes, the generalization of
+HVI color space could achieve better. In our main text, we
+choose T (x) = 1 as a uniformly sensitive color space for
+each color, which has a color disc in HV-plane as Fig. 11(a).
+Experiments on generalization ability. To verify the
+generalization ability of our model, we take the model
+trained on LOLv1 [62] and tested it on LOLv2-Syn [68]
+as Table 5. Compared with three supervised learning stateof-the-art method, LLFlow [60], RetinexFormer [6], and
+GSAD [25], our model comprehensively outperforms in
+three metrics, thanks to the T (·) function and Pγ mapping.
+And compared with the unsupervised methods RUAS [49],
+PairLIE [16] and EnlightenGAN [29], our approach significantly outperforms the once dominant unsupervised models
+in terms of generalisation ability. Despite ZeroDCE being one of the most generalizable zero-shot methods, our
+CIDNet outperforms it in terms of PSNR and SSIM. Nevertheless, our LPIPS score is noticeably worse, indicating
+that the generated images do not subjectively compare well
+with the ground truth. This discrepancy may arise from our
+failure to select more suitable T equation and γG and γB
+parameter, which, although yielding higher metrics, result in
+less realistic image quality.
+Ablation Study. We conduct a further ablation study on
+CIDNet with and without Eq. 12 and Eq. 13, respectively,
+to test the crossing dataset generalization ability of our proposed method. As shown in Tab. 6, With the addition of Eq.
+
+Table 6. Ablation study on different types of HVI color space,
+which is trained on the LOLv1 and tested in the LOLv2-Syn dataset.
+
+PSNR↑
+SSIM↑
+LPIPS↓
+
+w/o Eq. 12 and Eq. 13
+
+w/ Eq. 12 Only
+
+w/ Eq. 13 Only
+
+Full
+
+17.545
+0.794
+0.232
+
+18.112
+0.811
+0.219
+
+18.458
+0.807
+0.200
+
+19.457
+0.817
+0.193
+
+12 and Eq. 13, all three metrics, PSNR, SSIM, and LPIPS,
+show significant improvement, which demonstrate the effective of T (·) function and Pγ mapping, by adjusting the
+relationship between the RGB channels between different
+cameras and the different scenes that were captured.
+
+9. Architecture Details of CIDNet
+In this section, we first provide a detailed explanation of
+the Lighten Cross-Attention (LCA) module mentioned in
+Sec. 4.2. Next, we discuss the physical-based significance
+underlying the Intensity Enhance Layer (IEL) and Color
+Denoise Layer (CDL). Finally, we conduct ablation studies
+on the various sub-modules within the LCA to evaluate their
+individual contributions.
+
+9.1. Lighten Cross-Attention
+To enhance the interaction between the structures of images contained in the brightness and color branches, we
+propose the Lighten Cross-Attention (LCA) module to learn
+the complementary information of HV-branch and intensitybranch. As shown in Fig. 13, the HV-branch and I-branch in
+LCA handle HV features and intensity features, respectively.
+To learn the complementary potential between HV features
+and intensity features during the processing, we propose
+cross attention block (CAB) to facilitate mutual guidance between HV features and intensity features. To force the CAB
+to learn the information from the opposite branch (i.e., HV
+branch only use the information of I-brach to refine itself),
+we utilize the one branch as the query and leverage another
+branch as key and value in the CAB.
+As shown in 13, Specifically, the LCA module consists of
+a Cross Attention Block (CAB), an Intensity Enhance Layer
+(IEL) for the I-way, and a Color Denoise Layer (CDL) for
+the HV-way. The CAB exhibits a symmetrical structure
+between the I-way and HV-way. We use the I-branch as an
+example to describe the details. YI ∈ RĤ×Ŵ ×Ĉ denotes the
+inputs of I-branch, our CAB first derives query (Q) by Q =
+W (Q) YI . Meanwhile, the CAB splits key (K) and value (V)
+by K = W (K) YI and V = W (V ) YI . W (Q) , W (K) and
+W (V ) represents the feature embedding convolution layers.
+We formulate as
+ŶI = W (V ⊗ Softmax (Q ⊗ K/αH ) + YI ),
+
+(14)
+
+where αH is the multi-head factor [11] and W (·) denotes
+the feature embedding convolutions.
+
+Figure 13. The dual-branch Lighten Cross-Attention (LCA) block
+(i.e., I-branch and HV-branch). The LCA incorporates a Cross
+Attention Block (CAB), an Intensity Enhance Layer (IEL), and a
+Color Denoise Layer (CDL). The feature embedding convolution
+layers contains a 1 × 1 depth-wise convolution and a 3 × 3 group
+convolution.
+
+Next, following Retinex theory, intensity enhance layer
+(IEL) decomposes the tensor ŶI as YI = W (I) ŶI and
+YR = W (R) ŶI . The IEL is defined as
+ỸI = Ws ((tanh (Ws YI ) + YI )
+⊙(tanh (Ws YR ) + YR )),
+
+(15)
+
+where ⊙ represents the element-wise multiplication and Ws
+denotes the depth-wise convolution layers. Finally, the output of IEL adds the residuals to simplify the training process.
+
+9.2. Physical Significance of CDL And IEL
+We first explain the physical significance of the Color
+Denoise Layer as CDL block. Each light ray that passes
+through our retina can be broken down into any number
+of different wavelengths of light with corresponding light
+saturations [3, 12] as
+P = Σ(S ⊙ W )
+
+(16)
+
+where P is a map or image, S, W represent the Saturation
+and Wavelength. A normal-light feature map P̂ can be gen-
+
+Figure 14. Structural diagrams of IEL and CDL that follow two different theories but have a consistent structure. (1) Pixel-by-pixel
+photometric decomposition. (2) Decoupling of each photometric component into Wavelength and Saturation corresponding to that
+wavelength. (3) Find the ∆ of Wavelength and Saturation to solve the color bias and noise problem. (4) Re-stack the decomposed
+photometric channel-wise components to their original size to complete the enhancement task.
+
+(a) Input
+PSNR ↑ /SSIM ↑
+
+(b) w/o CAB
+14.15/0.843
+
+(c) w/o IEL
+14.55/0.710
+
+(d) w/o CDL
+13.71/0.657
+
+(e) Full LCA
+20.80/0.848
+
+(f) GroundTruth
+∞/1.0
+
+Figure 15. The visual quality comparison results on LOLv2-Real dataset with various LCA blocks (by removing submodules in the LCA).
+(e) Full LCA denotes the original design of the LCA block.
+
+erated by a low-light feature map P as
+P̂ = P + ∆P
+= Σ((S + ∆S) ⊙ (W + ∆W ))
+
+[34], which can be decomposed to illumination L and reflectance R as
+(17)
+
+where ∆S and ∆W formulate the color bias and feature
+noise of HV-features.
+Inputted a low-light tensor P with H × W × C, any small
+1 × 1 × C tensor on channel-wise can be considered as a
+photometric decomposition feature at that pixel. Our Color
+Denoise Layer (CDL) first use a depth-wise Conv1 × 1 to
+preliminary photodecomposition to a H × W × µC tensor
+as Fig. 14(1). Next, it’s decomposed into Wavelength and
+Saturation by a depth-wise group Conv3 × 3 layer as Fig.
+14(2). ∆W can be formulated as
+∆W = tanh (DWConv3×3 (W ))
+
+(18)
+
+where DWConv represent the Depth-wise grouped Conv3 ×
+3 layer as Fig. 14 (3), and ∆S is excatly the same as ∆W .
+The reason we use tanh as an activation function is that
+its dependent variable domain ∈ (−1, 1). The depth-wise
+tensor P̂′ generated by P̂′ = (S + ∆S) ⊙ (W + ∆W ) as
+Eq. 4. Finally, P̂′ is multiplied by a Point-wise Conv1 × 1
+into a new light-up post-tensor as Fig. 14 (4).
+The Intensity Enhance Layer (IEL) has exactly the same
+structure as CDL, but follows a different theory as Retinex
+
+I=L⊙R
+
+(19)
+
+where ⊙ denotes the element-wise multiplication and I represent Intensity features. We follows RetinexFormer [6] to
+model the corruptions of light Intensity as
+Î = I + ∆I
+= (L + ∆L) ⊙ (R + ∆R)
+
+(20)
+
+where ∆I and ∆R denote the perturbations. The generation
+formula for light-up Intensity-feature Î is similar to that for
+P̂ as Eq. 4. Thus the network structure of the IEL can
+reuse the structure of the CDL, but with statistically utterly
+different laws.
+
+9.3. Ablation study on LCA sub-modules
+The experiment is performed on LOLv2-Real dataset [68]
+for fast convergence and stable performance. As Tab. 7, removing the CAB, CDL or IEL clearly shows a decrease
+effect of PSNR and SSIM, which demonstrates the effectiveness of sub-modules in LCA block. The visual quality
+comparisons are shown in Fig. 15. Specifically, removing
+CAB leads to unstable brightness enhancement, resulting
+
+Table 7. Ablation of Cross Attention Block (CAB), Intensity Enhancement Layer (IEL) and Color Denoise Layer (CDL) in Lighten
+Cross-Attention (LCA).
+
+CAB
+(1)
+(2)
+(3)
+(4)
+
+√
+√
+√
+
+IEL
+√
+√
+√
+
+CDL
+√
+√
+√
+
+PSNR↑
+19.938
+22.647
+22.324
+24.111
+
+SSIM↑
+0.835
+0.855
+0.847
+0.871
+
+LPIPS↓
+0.138
+0.126
+0.136
+0.108
+
+in local overexposure and artifacts. On the other hand, removing IEL or CDL results in excessively dark brightness,
+thereby affecting the details.
+
+10. Additional Experiments and Details
+10.1. Datasets Summarization
+All the datasets used in the paper are summarized in Tab.
+8. We evaluated the model’s ability to enhance low-light
+image using the LOL dataset and five additional unpaired
+datasets. To assess its generalization on large-scale datasets,
+we conducted experiments on the SICE and SID datasets.
+Furthermore, to verify the effectiveness of the HVI-CIDNet
+method in other tasks, we utilized the LOL-Blur dataset to
+test its performance on low-light enhancement combined
+with deblurring and the SIDD dataset to evaluate its image
+denoising capability in this supplementary.
+
+10.2. Implementation Details
+Padding. Since CIDNet contains three times the downsampling process, both the length and width of the processed
+image must be divisible by eight. Therefore, for input images that are not integrable, we pad the input images to be a
+multiplier of 8 × 8 using reflect padding on both sides. After
+that, we crop the padded image back to its original size.
+Clip Operation. Since there may exist outliers in the
+output tensor of CIDNet, we apply a simple clip operation
+in the PHVIT module, i.e., D = {p = (h, v, i)| h2 + v 2 ≤
+2
+sin k ( πi
+2 ), 0 ≤ i ≤ 1}, where p = (h, v, i) is the threedimensional coordinates in the HVI color space, and k denotes the density-k in Eq. 4.
+GT Mean. When the number of test images in a paired
+dataset is too small, resulting in significant metric fluctuations that hinder the evaluation of model performance, we
+often employ the GT Mean method as an auxiliary tool
+for testing various metrics. During evaluation, GT Mean
+aligns the overall brightness of the output image with the
+GroundTruth by adjusting the average luminance, allowing
+for a more precise numerical comparison of non-luminancerelated attributes such as noise in details, color consistency,
+and structural stability. This evaluation approach has been
+widely adopted in recent state-of-the-art LLIE methods
+
+#Train
+
+#Test
+
+Resolutions (H × W )
+
+485
+689
+900
+
+15
+100
+100
+
+400 × 600
+400 × 600
+384 × 384
+
+Unpaired
+Datasets
+
+DICM [35]
+LIME [22]
+MEF [43]
+NPE [57]
+VV [54]
+
+0
+0
+0
+0
+0
+
+69
+10
+17
+8
+24
+
+Various
+Various
+Various
+Various
+Various
+
+SICE
+
+Original [5]
+Mix [77]
+Grad [77]
+
+4800
+0
+0
+
+0
+589
+589
+
+Various
+600 × 900
+600 × 900
+
+SID [7]
+
+Sony-Total-Dark
+
+2099
+
+598
+
+1424 × 2128
+
+LOL-Blur [82]
+
+low-blur and
+high-sharp-scaled
+
+10200
+
+1800
+
+640 × 1120
+
+SIDD [1]
+
+(crop)
+
+30608
+
+1280
+
+512 × 512 (train)
+256 × 256 (test)
+
+Dataset
+
+Subsets
+
+LOL
+
+v1 [62]
+v2-Real [68]
+v2-Synthetic [68]
+
+Table 8. Datasets summary on low-light image enhancement, joint
+low-light image deblurring and enhancement, and single image
+denoising task.
+
+[25, 60, 78, 80]. Specifically, GT Mean first transfer the
+output image and GroundTruth to gray image (Ioutput and
+Igt ) [17]. Then, we calculated the light adjustment value (q)
+as
+PM PN
+1
+i=1
+j=1 Ioutput (i, j)
+MN
+q=
+,
+(21)
+PM PN
+1
+i=1
+j=1 Igt (i, j)
+MN
+and the refined output image Iq can be formulated as
+Iq = qIoutput and clip to [0, 255] as an normal sRGB image.
+We replaced the original method Ioutput with Iq to evaluate
+image metrics, aiming to minimize unnecessary luminance
+fluctuations and enable a more accurate comparison of different models’ performance. This approach was applied to
+test all methods on the LOLv1 [62] test set (only 15 standard
+definition images).
+Loss Details. To integrate the advantages of HVI space
+and the sRGB space, the loss function consists both color
+spaces. In HVI color space, we utilize L1 loss L1 , SSIM
+loss Ld [61], edge loss Le [50], and perceptual loss Lp [30]
+for the low-light enhancement task. It can be expressed as
+l(X̂HV I , XHV I ) = λ1 · L1 (X̂HV I , XHV I )
++ λd · Ld (X̂HV I , XHV I )
++ λe · Le (X̂HV I , XHV I )
+
+(22)
+
++ λp · Lp (X̂HV I , XHV I ),
+where λ1 , λd , λe , λp are all the weight to trade-off the loss
+function l(·). In sRGB color space, we employ the same loss
+ˆ I). Therefore, our overall loss function L is
+function as l(I,
+represented by
+L = λc · l(ÎHVI , IHVI ) + l(Î, I),
+
+(23)
+
+Table 9. Quantitative results of PSNR/SSIM↑ and LPIPS↓ on the LOL (v1 and v2) datasets. Due to the limited number of test set in LOLv1,
+we use GT mean method during testing to minimize errors. Since the GLARE [80] method did not provide pre-trained weights or training
+code for the LOLv2-Synthetic dataset, we were unable to conduct testing on this dataset. The FLOPs is tested on a single 256 × 256 image.
+The best result is in red color.
+Methods
+
+Color Model
+
+CoLIE [9]
+Zero-IG [53]
+LightenDiff [28]
+GLARE [80]
+CIDNet(Ours)
+
+HSV
+Retinex
+Retinex
+RGB
+HVI
+
+(a) CoLIE [9] (b) GLARE [80]
+
+Complexity
+Params/M FLOPs/G
+0.12
+8.06
+0.08
+30.19
+26.54
+2257.42
+59.48
+508.42
+1.88
+7.57
+
+(c) CIDNet
+
+PSNR↑
+20.275
+26.077
+23.620
+27.451
+28.201
+
+LOLv1
+SSIM↑
+0.490
+0.794
+0.829
+0.883
+0.889
+
+LPIPS↓
+0.365
+0.191
+0.180
+0.081
+0.079
+
+LOLv2-Real
+PSNR↑ SSIM↑ LPIPS↓
+15.787
+0.497
+0.340
+18.132
+0.746
+0.248
+22.878
+0.855
+0.166
+22.511
+0.871
+0.105
+24.111
+0.871
+0.108
+
+LOLv2-Synthetic
+PSNR↑ SSIM↑ LPIPS↓
+14.986
+0.685
+0.233
+15.777
+0.762
+0.259
+21.582
+0.869
+0.153
+25.705
+0.942
+0.045
+
+(d) GroundTruth
+
+Figure 16. Qualitative results of CoLIE [9], GLARE [80] and
+our CIDNet on LOL dataset. Zoom in to see more details of the
+differences between GLARE and CIDNet.
+
+Figure 17. Visual comparison on LOL-Blur dataset. Compared
+to other methods, our CIDNet is closer to GroundTruth and more
+dominant in visual recognition. (Zoom in for best view.)
+
+where λc is the weight to balance the loss in different color
+spaces.
+
+10.3. More Comparison and Discussion with Updated Methods on LOL Datasets
+Quantitative Result. We selected four state-of-the-art
+low-light enhancement methods published in ECCV 2024
+[37] and CVPR 2024, namely CoLIE [9], Zero-IG [53],
+LightenDiff [28], and GLARE [80]. The selection criteria
+required that each method provides open-source code and
+pre-trained weights. For methods without available pretrained weights, we retrained them on the LOL datasets
+before testing. The quantitative results are presented in Tab.
+9. Compared to these methods, our CIDNet achieves the
+most competitive metrics with the lowest FLOPs. However,
+on the LOLv2-real dataset, our LPIPS score is slightly worse
+than that of GLARE. This is because GLARE, being based
+on a Flow model, produces smoother outputs (see Figs. 16(b)
+and (c)) that improve LPIPS scores but at the cost of losing
+finer details, making the results appear less realistic. This
+is why the GLARE method has a high SSIM and a lower
+PSNR than ours.
+Additional Discussion. In Tab. 9, we observe that, apart
+from GLARE, the other three models utilize color models
+derived from physical optics theory. The CoLIE method
+enhances the Value axis in HSV color space but does not
+address noise reduction or color shift correction in the Hue
+and Saturation axes, resulting in a notably low SSIM score.
+As shown in Fig. 16(a), CoLIE does not include a denoising
+process, so the output image can be seen as very strong noise,
+which seriously affects the visual quality. Both Zero-IG and
+
+LightenDiff employ Retinex theory to decouple illumination
+and reflectance. By enhancing the illumination space and
+denoising the reflectance space, these methods achieve better
+metrics and visual results. However, the metrics of CoLIE,
+Zero-IG, and LightenDiff do not surpass those of the RGBbased GLARE method. The primary reason is that these
+methods are Zero-shot approaches, which prioritize crossdataset generalization at the cost of reduced performance on
+a single dataset [59].
+Additionally, CoLIE and Zero-IG have significantly fewer
+parameters compared to GLARE, limiting their ability to fit
+more precise results. We look forward to future methods that
+further explore the potential of the HVI color space, enabling
+models to achieve both superior visual quality and enhanced
+generalization capability.
+
+10.4. Joint Low-light Image Deblurring and Enhancement
+Long exposures in dimly lit environments can result in
+photos that are prone to blurring. To verify the robustness
+ability of our model, we conduct experiments on the lowlight blur dataset LOL-Blur.
+In the first set, we perform lighting-up with ZeroDCE
+and then deblurring with MIMO [8]. In the second set,
+we perform deblurring with DeblurGAN-v2 [33] and then
+enahancement with ZeroDCE. In the third group, we have
+retrained on LOL-Blur with four methods, RetinexFormer,
+MIMO, and LEDNet, and compared them with our CIDNet.
+The results (see Tab. 10) show that the quantitative com-
+
+Table 10. Quantitative evaluation on LOL-Blur dataset. PSNR↑ and
+SSIM↑: the higher, the better; LPIPS↓ and FLOPs↓: the lower, the
+better. The symbol ‘†’ indicates that we use DeblurGAN-v2 trained
+on RealBlur [48] dataset. ‘‡’ indicates the network is retrained on
+the LOL-Blur dataset. The highest result is in red color.
+Methods
+
+PSNR↑
+
+SSIM↑
+
+LPIPS↓
+
+FLOPs↓
+
+ZeroDCE [19] → MIMO [8]
+DeblurGAN† [33] → ZeroDCE [19]
+RetinexFormer‡ [6]
+MIMO‡ [8]
+LEDNet‡ [82]
+
+17.680
+18.330
+22.904
+24.410
+25.271
+
+0.542
+0.589
+0.824
+0.835
+0.859
+
+0.422
+0.384
+0.236
+0.183
+0.141
+
+67.19
+34.19
+15.85
+62.36
+35.93
+
+CIDNet‡
+
+26.572
+
+0.890
+
+0.120
+
+7.57
+
+Table 11. Quantitative evaluation on SIDD dataset for testing image
+denoising. The best result is in red color.
+Methods
+
+BM3D [10]
+
+DnCNN [73]
+
+RIDNet[2]
+
+MIRNet[70]
+
+CIDNet
+
+PSNR↑
+SSIM↑
+
+25.65
+0.685
+
+23.66
+0.583
+
+38.71
+0.951
+
+39.72
+0.959
+
+39.88
+0.959
+
+Table 12. Ablation of three different types of inputs in Enhancement
+Network. Each distinct convolution layers will extract and generate
+corresponding intensity features (as I-Feature) and HV-Feature
+from different input maps (the type of input is indicated in the
+columns I-Feature and HV-Feature). The best result is in red color.
+Types
+
+I-Feature
+
+HV-Feature
+
+PSNR↑
+
+SSIM↑
+
+LPIPS↓
+
+(1) Half-HVIT
+(2) Separate-HVIT
+(3) Full-HVIT
+
+intensity
+intensity
+HVI-Map
+
+HVI-Map
+HV-Map
+HVI-Map
+
+24.111
+23.734
+23.814
+
+0.868
+0.857
+0.859
+
+0.108
+0.141
+0.127
+
+The outcomes underscore the favorable performance of our
+method in the denoising task as Fig. 18, further elucidating
+that the notable results in the enhancement task are attributed
+to effectively addressing the severe noise introduced by lowlight conditions.
+
+10.6. Variant HVIT Ablation Study and Discussion
+Input
+
+CIDNet
+
+GroundTruth
+
+Figure 18. Visual comparison between inputs, outputs by our
+CIDNet, and GroundTruth. Obviously, our methods denoise a
+single image clearly with less color bias.
+
+parison of CIDNet against the current stage SOTA method
+LEDNet by 5.15%, 3.61%, and 14.89% in PSNR, SSIM, and
+LPIPS metrics respectively. Not only that, the FLOPs of our
+model are the lowest among these methods.
+As shown in Fig. 17, we have taken a set of blurred
+images, recovered them using different methods, and compared them with GroundTruth. The experimental results
+reveal that the image reconstructions achieved by CIDNet
+exhibit a notable improvement in visual comfort and perceptual recognition, thereby enhancing the overall quality and
+interpretability of the generated images.
+Fig. 29 shows additional comparisons of our model with
+competing methods on LOL-Blur dataset [82] for not only
+enhancing but deblurring. It is evident that our developed
+approach yields sharper edges, leading to a more visually
+appealing outcome.
+
+10.5. Image Denoising
+Tab. 11 reports the results of real noise removal on SIDD
+dataset. We compare three state-of-the-art methods with
+our CIDNet. It is clear to see that our CIDNet achieves a
+PSNR of 39.88 dB, which is 0.12 dB above the MIRNet [70].
+
+To investigate how the first two 3 × 3 convolution layers
+(in Fig. 2(b)) learned to generate I-feature and HV-feature,
+we further develop three different HVIT by changing the inputs. We hypothesize that the intensity features (hereinafter
+abbreviated as I-Feature) can be generated either from the
+HVI-Map (the concatenation of Intensity Map and HV Color
+Map) or the Intensity Map, while the HV-Feature can similarly be generated from either the HVI-Map or the HV-Map.
+To validate this, we conducted additional ablation experiments on three types of HVIT, with the results summarized
+in Tab. 12. It is clear that the Half-HVIT, which is our default
+version, achieves the best restoration results among the three
+HVIT models. The performance drop of the Separate-HVIT
+is more pronounced, which can be attributed to the lower
+information content in the HV-Feature compared to the HVIMap, which lacks guidance from the intensity part. On the
+other hand, the performance decline of the Full-HVIT was
+due to the interference noise information in the HVI-Map for
+extracting I-Feature, leading to convolutional layers failing
+to accurately extract key features.
+
+10.7. HVI Color General Ablation
+The HVI color space proposed in this study is derived
+from an optimized adaptation of the HSV color space, aiming to address the inherent limitations in handling chromatic
+artifacts, particularly black and red noise, at the color space
+level. By integrating the polarization and Ck function, the
+coupling between chromatic detail and low-light noise is
+substantially decoupled. This advancement enables the HVI-
+
+(a) Corrected (b) EHS
+
+(c) Ew/P
+
+(d) Ew/Ck
+
+(e) EHV
+
+Figure 19. (a) Corrected Image: replacing the low-light Value Map
+(V) with the GT’s, yet significant noise remains. (b)-(e): Error Map
+between (a) and GT of different spaces. w/P and w/Ck represents
+HVI with only Polarization and only Ck function, respectively.
+
+Color Space
+Avg. PSNR↑
+
+HSV
+14.346
+
+w/ Polarization
+20.632
+
+w/ Ck
+25.046
+
+HVI
+27.115
+
+Table 13. The average PSNR↑ of corrected image in different color
+spaces, across LOLv1 and v2 datasets.
+Datasets
+NIQE↓
+
+DICM [35]
+3.357
+
+LIME [22]
+3.032
+
+MEF [43]
+3.114
+
+NPE [57]
+3.326
+
+VV [54]
+2.487
+
+Avg.
+3.134
+
+Table 14. The NIQE↓ metric of five unpaired datasets enhanced
+by our method within random gamma curve technique to improve
+generalization ability.
+
+based CIDNet to achieve remarkable performance improvements in low-light image enhancement tasks. Furthermore,
+to rigorously validate the efficacy of the proposed HVI framework, a comprehensive experimental protocol was designed
+and conducted as outlined below.
+We compare the error map of different color spaces to
+show the superiority of our methods. In HSV, noise and
+chromatic information are often indistinguishable under lowlight conditions, leading to low-quality images. As Fig.
+19 (b), EHS shows significant noise and causes artifacts
+in the enhanced image (Fig. 1 of the manuscript). The
+proposed polarization of HVI can decouple noise from red
+color details, which helps precisely recover the details and
+red region colors, as shown in the bookcase in Fig. 19 (c).
+Furthermore, the proposed Ck function can cluster similar
+black tones, thus directly enhancing the SNR (see Fig. 19
+(d)). Thanks to the polarization and Ck function, EHV (Fig.
+19 (e)) has the lowest errors, demonstrating the effectiveness
+of the proposed method, achieving the highest PSNR of
+27.115 dB (Tab. 13) on the LOL datasets.
+
+10.8. Random Gamma Curve Experiment
+We observed that employing the random gamma curve
+technique (IInput = ILQ γ , where γ is the random number
+between 0.6 and 1.2) for data pre-processing enhances the
+generalization capability of the model. To improve performance on the five unpaired datasets, we created LOLv2+,
+combining paired images from LOLv2’s real and synthetic
+subsets, and applied the random gamma curve technique for
+pre-processing (Tab. 14). This reduced the NIQE metric by
+
+0.389 (Tab. 2), demonstrating enhanced generalization on
+unseen data. As other methods in Tab. 2 did not use this
+technique, we avoid direct comparisons and instead present
+our optimal results to highlight the approach’s effectiveness
+in the main text.
+
+10.9. More Visual Comparisons
+LOL. Fig. 20, Fig. 21 and Fig. 22 shows the low-light
+single image enhancement results of three subsets of LOL
+dataset, respectively.
+Unpaired Datasets. Qualitative visual comparisons of
+five unpaired datasets DICM [35], LIME [22], MEF [43],
+NPE [57], and VV [54] with our CIDNet against SOTA
+methods. They are shown in Fig. 23, Fig. 24, Fig. 25, Fig.
+26, and Fig. 27.
+Sony-Total-Dark. The visual results on extream lowlight dataset Sony-Total-Dark [7] is shown in Fig. 28. We
+did not provide GroundTruth for comparison because all
+methods had poorer results.
+
+11. Limitation and Unstudied issues
+Intensity Collapse Function Ck in HVI Color Space.
+In Eq. 4, we use sine function (as Eq. 9) and Eq. 8 to
+collapse the dark region in color space domain. Further
+research remains to be done as to whether a more appropriate
+function than Eq. 9 exists.
+The Generalizability of the HVI Color Space in Other
+Tasks. When applying the HVI Transformation to the
+SwinIR method [40] for classic super-resolution ×2 task,
+we also observed an average PSNR improvement of 0.14
+dB. Therefore, HVI is expected to have good applicability to
+other low-level vision tasks. (The superior performance remain unexplored.) Unfortunately, time constraints prevented
+us from exploring HVI on additional tasks. In the future,
+we will focus on verifying the proposed HVI color space on
+other vision tasks, e.g., visual recognition tasks.
+Model training method. Our model employs traditional
+supervised learning to validate the effectiveness of HVICIDNet. However, we have not explored training under unsupervised, semi-supervised, or zero-shot learning paradigms,
+which presents an interesting avenue for future research.
+Will training HVI and CIDNet separately impact performance? HVI-CIDNet is a novel framework for low-light
+image enhancement, consisting of HVI transformation and
+enhancement network. Since we don’t have ground truth
+of HVI, the proposed HVI-CIDNet can not be trained separately.
+Other Unstudied Questions. Would replacing the Transformer module in CIDNet with Mamba [18, 20, 65] yield
+better performance? Furthermore, can our HVI color space
+be effectively applied to other large vision models [56] or
+adapted for use in other vision tasks [72]?
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+SNR-Aware
+
+RetinexFormer
+
+CIDNet
+
+GroundTruth
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+SNR-Aware
+
+RetinexFormer
+
+CIDNet
+
+GroundTruth
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+SNR-Aware
+
+RetinexFormer
+
+CIDNet
+
+GroundTruth
+
+Figure 20. Visual examples for low-light enhancement on LOLv1 dataset [62] among RetinexNet [62], RUAS [49], LLFlow [60], SNR-Aware
+[66], RetinexFormer [6], and our CIDNet. Our model clearly removed real low-light noise while enhanced well-light and low color bias.
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+SNR-Aware
+
+RetinexFormer
+
+CIDNet
+
+GroundTruth
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+SNR-Aware
+
+RetinexFormer
+
+CIDNet
+
+GroundTruth
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+SNR-Aware
+
+RetinexFormer
+
+CIDNet
+
+GroundTruth
+
+Figure 21. Visual examples for low-light enhancement on LOLv2-Real dataset [68] among RetinexNet [62], RUAS [49], LLFlow [60],
+SNR-Aware [66], RetinexFormer [6], and our CIDNet. Our model demonstrates superior capabilities in effectively correcting brightness and
+color differences compared to existing methodologies.
+
+Input
+
+RetinexNet
+
+RUAS
+
+KinD
+
+LLFlow
+
+SNR-Aware
+
+ZeroDCE
+
+GSAD
+
+CIDNet
+
+GroundTruth
+
+Input
+
+RetinexNet
+
+RUAS
+
+KinD
+
+LLFlow
+
+SNR-Aware
+
+ZeroDCE
+
+GSAD
+
+CIDNet
+
+GroundTruth
+
+Input
+
+RetinexNet
+
+RUAS
+
+KinD
+
+LLFlow
+
+SNR-Aware
+
+ZeroDCE
+
+GSAD
+
+CIDNet
+
+GroundTruth
+
+Figure 22. Visual examples for low-light enhancement on LOLv2-Synthetic dataset [68] among RetinexNet [62], RUAS [49], KinD [75],
+LLFlow [60], SNR-Aware [66], ZeroDCE [19], GSAD [25], and our CIDNet. Although the output images of the GSAD method and CIDNet
+are relatively similar, it is evident that CIDNet produces more visually pleasing results.
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Figure 23. Visual examples for unpaired image enhancement on DICM dataset [35] among KinD [75], RUAS [49], URetinexNet [63],
+RetinexFormer [6], PairLIE [16], ZeroDCE [19], and our CIDNet. Our method exhibits enhanced generalization capabilities, consequently
+resulting in more aesthetically pleasing outcomes with a higher degree of reality.
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Figure 24. Visual examples for unpaired image enhancement on LIME dataset [22] among KinD [75], RUAS [49], URetinexNet [63],
+RetinexFormer [6], PairLIE [16], ZeroDCE [19], and our CIDNet. Our method can suppress the color shift phenomenon while increasing
+brightness.
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Figure 25. Visual examples for unpaired image enhancement on MEF dataset [43] among KinD [75], RUAS [49], URetinexNet [63],
+RetinexFormer [6], PairLIE [16], ZeroDCE [19], and our CIDNet. Our method maintains the reality colors while enhancing the brightness
+to a suitable threshold.
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Input
+
+KinD
+
+RUAS
+
+URetinexNet
+
+RetinexFormer
+
+PairLIE
+
+ZeroDCE
+
+CIDNet
+
+Figure 26. Visual examples for unpaired image enhancement on NPE dataset [57] among KinD [75], RUAS [49], URetinexNet [63],
+RetinexFormer [6], PairLIE [16], ZeroDCE [19], and our CIDNet. Our method aligns more closely with the characteristics observed in real
+scenes with long exposures.
+
+Input
+
+KinD
+
+RUAS
+
+ZeroDCE
+
+PairLIE
+
+CIDNet
+
+Input
+
+KinD
+
+RUAS
+
+ZeroDCE
+
+PairLIE
+
+CIDNet
+
+Figure 27. Visual examples for unpaired image enhancement on VV dataset [54] among KinD [75], RUAS [49], URetinexNet [63],
+RetinexFormer [6], PairLIE [16], ZeroDCE [19], and our CIDNet. Our method can suppress the color shift phenomenon while increasing
+brightness, and achieve more realistic result.
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+URetinexNet
+
+LEDNet
+
+RetinexFormer
+
+CIDNet
+
+Input
+
+RetinexNet
+
+RUAS
+
+LLFlow
+
+URetinexNet
+
+LEDNet
+
+RetinexFormer
+
+CIDNet
+
+Figure 28. Visual examples for extremely low-light image enhancement on Sony-Total-Dark dataset [7]. As shown, almost no low-light
+features were extracted by RetinexNet [62], RUAS [49] and LLFlow [60]. Although URetinexNet [63], LEDNet [82] and RetinexFormer [6]
+brightens the image, the results in more artifacts and color bias. Only our CIDNet achieves a reasonable and more realistic enhancing effect.
+
+Input
+
+DeblurGANv2 → ZeroDCE
+
+RetinexFormer
+
+LEDNet
+
+CIDNet
+
+GroundTruth
+
+Input
+
+DeblurGANv2 → ZeroDCE
+
+RetinexFormer
+
+LEDNet
+
+CIDNet
+
+GroundTruth
+
+Figure 29. Visual examples for low-light image enhancement and deblurring on LOL-Blur dataset [82] among DeblurGANv2 [33] to
+ZeroDCE [19], RetinexFormer [6], LEDNet [63], and proposed CIDNet. We use DeblurGAN-v2 trained on RealBlur [48] dataset, and
+ZeroDCE trained on LOLv1 dataset [62]. Compared to other methods, our CIDNet recovers a more recognizable image with realistic colors.
+
+

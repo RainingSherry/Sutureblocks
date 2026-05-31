@@ -1,0 +1,2731 @@
+PFGNet: A Fully Convolutional Frequency-Guided Peripheral Gating Network
+for Efficient Spatiotemporal Predictive Learning
+Xinyong Cai1
+
+Changbin Sun1 Yong Wang2 Hongyu Yang1 Yuankai Wu1 *
+College of Computer Science, Sichuan University
+2
+Department of Data and Systems Engineering, The University of Hong Kong
+1
+
+Abstract
+
+●RNNba
+s
+e
+d
+▲ RNNf
+r
+e
+e
+0.
+38
+Pr
+e
+dRNNv
+2
+
+Spatiotemporal predictive learning (STPL) aims to forecast
+future frames from past observations and is essential across
+a wide range of applications. Compared with recurrent or
+hybrid architectures, pure convolutional models offer superior efficiency and full parallelism, yet their fixed receptive fields limit their ability to adaptively capture spatially
+varying motion patterns. Inspired by biological center–
+surround organization and frequency-selective signal processing, we propose PFGNet, a fully convolutional framework that dynamically modulates receptive fields through
+pixel-wise frequency-guided gating. The core Peripheral
+Frequency Gating (PFG) block extracts localized spectral
+cues and adaptively fuses multi-scale large-kernel peripheral responses with learnable center suppression, effectively forming spatially adaptive band-pass filters. To maintain efficiency, all large kernels are decomposed into separable 1D convolutions (1 × k followed by k × 1), reducing per-channel computational cost from O(k 2 ) to O(2k).
+PFGNet enables structure-aware spatiotemporal modeling
+without recurrence or attention. Experiments on Moving
+MNIST, TaxiBJ, Human3.6M, and KTH show that PFGNet
+delivers SOTA or near-SOTA forecasting performance with
+substantially fewer parameters and FLOPs. Our code is
+available at https://github.com/fhjdqaq/PFGNet.
+
+0.
+36
+
+Phy
+DNe
+t
+Pr
+e
+dNe
+t
+
+MSE
+
+arXiv:2602.20537v2 [cs.CV] 19 Mar 2026
+
+fenghuajuedai09@gmail.com, wuyk0@scu.edu.cn
+
+0.
+34
+
+Conv
+LSTM
+E3
+DLSTM
+
+0.
+32
+
+Pr
+e
+dRNN++
+
+Si
+mVP
+Si
+mVPv2
+MAU
+
+TAU
+
+Me
+t
+2
+Ne
+t
+Pr
+e
+dRNN
+MI
+M
+
+0.
+30Swi
+nLSTM
+VMRNN
+PFGNe
+t
+0
+
+10
+
+20
+
+30
+Pa
+r
+ams
+(
+M)
+
+40
+
+5
+0
+
+Figure 1. Performance-efficiency trade-off on TaxiBJ. Bubble size
+denotes FLOPs. PFGNet achieves SOTA MSE with minimal cost.
+
+lectively amplify informative signals while suppressing redundancy, as exemplified by center–surround suppression
+in the retina and primary visual cortex [20, 26]. Mathematically, this antagonistic receptive field acts as a spatial bandpass filter, selectively responding to mid-frequency changes
+(edges, textures) while suppressing low-frequency (uniform) and high-frequency (noise) components [39]. Such
+biological efficiency inspires a critical question: can we design computational operators that emulate this predictive,
+frequency-selective mechanism?
+Spatiotemporal predictive learning (STPL) mirrors this
+biological imperative: models must anticipate future frames
+from past observations in an unsupervised manner. STPL
+powers diverse applications—including weather nowcasting [33, 47, 59], autonomous driving [3, 27, 38], traffic flow prediction [7, 13, 68], and human motion anticipation [2, 58]—by learning latent spatial correlations and
+temporal dynamics from raw sequences. Among existing
+paradigms, pure convolutional models (e.g., SimVP [14],
+TAU [49], STLight [1]) offer superior parallelism and scalability over recurrent counterparts (e.g., ConvLSTM [47],
+PredRNN [59], SwinLSTM [52], VMRNN [53]), yet re-
+
+1. Introduction
+“We don’t just passively perceive the world; we
+actively generate it.” — Dr. Anil Seth
+This profound insight from cognitive science reveals that
+perception is inherently predictive. The human visual system does not passively register light; it anticipates spatial
+structure to construct coherent representations [8]. This predictive process relies on a hierarchy of mechanisms that se* Corresponding author
+
+1
+
+main constrained by fixed, uniform receptive fields that fail
+to adapt to spatially varying motion patterns.
+Recent advances in large-kernel ConvNets [10, 11, 35]
+demonstrate that sufficiently wide receptive fields enable
+CNNs to approximate global context without depth, bridging local inductive bias with long-range dependency modeling. Recent studies [11, 30, 69] further show that large
+convolutions can be reliably decomposed into cascaded
+small kernels without notable degradation in representational power, indicating that the benefits of large receptive
+fields need not rely on monolithic kernels.
+However, simply enlarging kernels is insufficient. Optimal receptive field size varies pixel-wise: textured regions
+demand broad integration, while homogeneous areas require suppression of redundant low-frequency responses.
+This spatial heterogeneity echoes center–surround organization, suggesting that large kernels should be dynamically
+modulated to mimic biological opponency. From this perspective, we make a key observation: a large-kernel convolution with learnable center suppression mathematically
+recovers a ring-shaped (annular) band-pass filter [15]. Consider a large kernel HL and a small central kernel HS . Their
+difference HL − βHS yields:
+
+In summary, our contributions are threefold:
+1. Biological grounding: We formalize large-kernel center
+suppression as a learnable ring-shaped band-pass filter,
+linking CNNs to center–surround receptive fields.
+2. Frequency-guided adaptivity: PFG uses local spectral
+cues to achieve pixel-wise receptive field modulation.
+3. Scalable efficiency: PFGNet delivers efficient, highaccuracy STPL via pure convolution and fully separable
+large kernels: every k × k convolution is decomposed
+into a 1 × k horizontal followed by a k × 1 vertical convolution, reducing per-channel complexity from O(k 2 )
+to O(2k).
+
+2. Related Work
+2.1. Spatiotemporal Predictive Learning
+Recurrent-based models leverage memory units to capture temporal dynamics sequentially. Starting from ConvLSTM [47], the PredRNN family [59, 60] introduces spatiotemporal memory flow and causal LSTMs to enhance
+long-term dependency modeling. Subsequent works further
+refine this paradigm: MIM [62] mitigates non-stationarity
+via memory differencing; E3D-LSTM [61] integrates 3D
+convolutions; PhyDNet [16] disentangles physical constraints; MAU [4] and CrevNet [66] improve motion encoding and invertibility. Recent hybrid designs inject global
+context into recurrent cells: SwinLSTM [52] replaces convolution with shifted-window self-attention; VMRNN [53]
+integrates Vision Mamba’s selective SSMs for efficient
+long-sequence modeling. Despite strong temporal expressiveness, these models suffer from autoregressive inference,
+limited parallelism, and high latency [50].
+Recurrent-free convolutional models eliminate recurrence for full parallelization and scalability. SimVP [14]
+proposes an encoder–translator–decoder pipeline, showing
+that a strong spatial backbone can implicitly model temporal evolution. Its variants replace the translator with
+MetaFormer architectures [50, 67], suggesting that backbone design dominates performance. Recent works explore
+structural priors: MMVP [70] decouples motion and appearance; PastNet [65] incorporates physical knowledge;
+TAT [41] and WaST [42] use multi-dimensional attention
+and wavelet decomposition. Met2Net [33] targets multivariate forecasting with latent prediction constraints. While
+efficient, these models rely on fixed receptive fields, failing
+to adapt to spatially varying motion patterns.
+
+(HL −βHS )∗x = peripheral response−β·central response.
+(1)
+This is similar to the Difference of Gaussians (DoG)—a
+classic model of center–surround receptive fields [39]—
+and, in the frequency domain, implements a ring-shaped
+band-pass filter that amplifies mid-frequencies while attenuating DC (low) and high-frequency noise. Prior works [44,
+57] show such filters dominate early visual processing; we
+now show they can be learned and adaptively gated in
+CNNs.
+Building on this insight, we introduce PFGNet, a fully
+convolutional framework with a novel Peripheral Frequency
+Gating (PFG) block. PFG dynamically modulates multiscale large-kernel responses using pixel-wise frequency
+cues—gradient magnitude, Laplacian, and local variance—
+extracted via lightweight depthwise filters. These cues drive
+a gating network that:
+1. Suppresses central redundancy via learnable β-scaled inhibition,
+2. Fuses peripheral responses across scales (e.g., K =
+{9, 15, 31}),
+3. Forms adaptive spatial band-pass filters tailored to local
+texture.
+Combined with GLU-style [9] channel mixing and
+GRN normalization [64], PFG enables structure-aware,
+frequency-selective spatiotemporal modeling without recurrence or attention. As shown in Figure 1, PFGNet achieves
+state-of-the-art forecasting accuracy on TaxiBJ with significantly fewer parameters and FLOPs than recurrent, hybrid,
+or small-kernel baselines.
+
+2.2. Large-Kernel Convolutional Networks
+The resurgence of large-kernel ConvNets addresses the receptive field limitation of standard CNNs. ViT [12] and
+Swin Transformer [36] demonstrate that global context is
+key to performance, which small kernels struggle to capture
+efficiently. RepLKNet [10] scales kernels to 31×31 via re2
+
+parameterization; SLaK [35] pushes to 51×51 using sparse
+factorization; UniRepLKNet [11] unifies design principles:
+“see wide without going deep”. These works prove that
+large kernels approximate global attention with linear complexity and inductive bias. However, they apply uniform
+kernels, ignoring pixel-wise variation in optimal receptive
+field size.
+
+then fed into a symmetric decoder to reconstruct the output
+out
+. See Figure 2 for details.
+frames {Ot }Tt=1
+
+3.2. Lightweight Multi-Scale Initialization
+The PFG block selects at each pixel the most relevant response among several scales through frequency-guided gating. For this content-adaptive fusion to work well, the
+model must first access diverse multi-scale responses covering low, mid, and high frequencies. Without such structured
+initialization, PFG would either work on uniform smallkernel features with limited long-range context or trigger
+costly full-scale processing, both of which are suboptimal.
+To build this foundation efficiently, we introduce
+MSInit. It performs an initial condensation of features and
+provides stable multi-scale responses using separable onedimensional kernels that approximate a km × km response.
+For each scale m ∈ {1, . . . , M }:
+
+2.3. Frequency-Domain and Peripheral Modeling
+Frequency-domain methods enable efficient global mixing
+by operating in transformed spaces. AFNO [17] performs
+token mixing in Fourier space with learnable filtering; DCFormer [34] models directly in the DCT domain with
+frequency-component selection; Octave Convolution [6]
+partitions features into high- and low-frequency groups
+and computes at lower resolution for the low-frequency
+branch, enlarging the effective receptive field while reducing cost. However, these operators require explicit transformations into the frequency domain, which introduce additional computational overhead and memory access costs.
+In contrast, spatial-domain approaches avoid such transformations: PeLK [5] proposes peripheral convolution with
+parameter sharing to scale kernels beyond 100 × 100; PerViT [40] introduces eccentricity-aware positional encoding
+to mimic center–surround attention bias.
+Despite progress, existing works lack pixel-wise frequency guidance and explicit center suppression. Channellevel or band-level gating cannot adapt to local texture; uniform large kernels waste computation on homogeneous regions. No prior work unifies biological center–surround,
+frequency-domain filtering, and adaptive large-kernel fusion in a pure convolutional STPL framework.
+
+Tm (Z) = vm ∗ (hm ∗ Z) + dm (Z) + Z,
+
+(2)
+
+where hm ∈ R1×km and vm ∈ Rkm ×1 are one-dimensional
+kernels, dm (·) denotes a 3×3 depthwise convolution branch
+enhancing mid-frequency sensitivity, and the identity term
+Z maintains gradient flow. Outputs are projected by 1 × 1
+convolutions with channels evenly divided across branches,
+and then concatenated to form the multi-scale tensor:
+
+C ′ ×H ′ ×W ′
+X = Concat {Conv1×1 (Tm (Z))}M
+.
+m=1 ∈ R
+(3)
+In practice, we use km ∈ {3, 5, 7}, yielding strong performance and reliable multi-scale context for subsequent
+frequency-guided gating.
+
+3.3. Pixel-wise Frequency-Guided Peripheral Gating
+
+3. Methodology
+
+The core of PFGNet is the PFG block (Figure 3), which
+dynamically fuses multi-scale large-kernel peripheral responses using pixel-wise frequency cues.
+′
+′
+′
+From input X ∈ RC ×H ×W , we compute three spectral
+cues (frequency descriptor) via fixed depthwise convolution
+followed by channel averaging:
+q
+f1 = (Gx ∗ X)2 + (Gy ∗ X)2 ,
+
+3.1. Overall Architecture
+PFGNet follows a SimVP-style encoder–translator–
+decoder [14] pipeline. We use Ns to denote the spatial
+encoder/decoder depth measured by the number of downand up-sampling blocks, and Nt to denote the number of
+PFG blocks in the middle module. Given input frames
+in
+{It ∈ RCin ×H×W }Tt=1
+, a shared spatial encoder extracts
+′
+′
+feature maps Ft = Enc(It ) ∈ RC×H ×W , which are then
+′
+′
+′
+packed along the temporal dimension into Z ∈ RC ×H ×W
+′
+with C = Tin ·C. The middle stage starts with an MSInit
+(multi-scale initialization) module that generates coarse
+low-, mid-, and high-frequency components via identitypreserving mid- and small-kernel paths. This is followed
+by Nt stacked PFG blocks, each dynamically selecting
+among multi-scale large-kernel peripheral responses using
+pixel-wise frequency-guided gating (Sobel gradient, Laplacian, local variance) with center suppression. The output
+out
+Z′ is unpacked temporally to recover {F′t }Tt=1
+, which are
+
+(4)
+
+f2 = |L ∗ X|,
+2
+
+2
+
+f3 = E3×3 [X ] − E3×3 [X] ,
+where Gx and Gy = G⊤
+x are Sobel edge detectors, L is the
+Laplacian curvature detector, and E3×3 [·] denotes local averaging via a 3×3 avg-pool (padding=1, stride=1) to estimate
+variance. The resulting single-channel maps are concate′
+′
+nated to form the frequency descriptor F ∈ R3×H ×W .
+A lightweight 1 × 1 convolution with learnable weights
+Wg and bias bg maps F to per-pixel, per-scale logits:
+′
+
+′
+
+Zg = Wg ∗ F + bg ∈ RK×H ×W ,
+3
+
+(5)
+
+Translator
+
+PFG Block
+
+MSInit
+
+Spatial
+Spatial
+Encoder
+Encoder
+
+Input
+
+𝐻
+
+×𝑁t
+𝑇𝑖𝑛
+
+𝐻′
+
+𝑇𝑖𝑛
+
+𝑊
+
++
+
+DW9×1
+
+⊖ DW3×3
+
+DW1×15
+
+DW15×1
+
+⊖
+
+DW1×31
+
+DW31×1
+
+⊖ DW3×3
+
+∇, Δ, σ²
++
+
+Conv1×1
+
+Identity
+
+×
+
+gate&
+softmax
+Var
+Lap
+Grad
+
+u
+
+DW
+
+v
+
+σ
+
+⊙
+
+Output
+
+Filter
+
+DW7×1
+
+DW×3
+
+Conv 1×1
+
+Conv1×1
+
+Identity
+
+DW3×3
+
+DW1×9
+
+Conv 1×1
+
++
+
+Input
+
+DW3×3
+
+concat
+
+Input
+
+DW5×1
+
+𝑇𝑜𝑢𝑡
+
+𝐻
+𝑊
+
+Conv1×1
+
+Identity
+DW1×5
+
+𝑇𝑜𝑢𝑡
+𝑊′
+
+DW3×1
+DW3×3
+
+Output
+
+𝐻′
+
+𝑊′
+
+DW1×3
+
+DW1×7
+
+Spatial
+Decoder
+
+α3
+α
+α1 2
+
+PFG Block
+
+MSInit
+
+Figure 2. Overall architecture and core modules of PFGNet. The model follows a SimVP-style encoder–translator–decoder pipeline.
+in
+The input sequence {It }Tt=1
+is encoded into latent features, temporally packed, and processed by a MSInit followed by Nt PFG blocks.
+
+Input
+
+Filter
+
+concat
+
+Conv1×1
+
+nt
+die
+Gra nitude
+g
+Ma
+Laplacian
+Δ
+Response
+Lo
+σ²
+Var cal
+ia n
+ce
+∇
+
+argmax
+
+softmax
+
+α
+
+Frequency
+Gate Logits
+Map
+
+where hk and vk are 1×k and k×1 depthwise convolution
+kernels, respectively. A 3×3 depthwise center kernel C extracts local context. The peripheral response with learnable
+center suppression is:
+
+Preferred Kernel Scale
+(pixel-wise)
+
+Yk = Pk − tanh(β k ) ⊙ (C ∗ X),
+
+Figure 3. Frequency-Guided Peripheral Gating in the PFG
+block. Three local spectral cues (gradient magnitude, Laplacian, local variance) are extracted via fixed depthwise filters,
+channel-averaged, concatenated into a 3-channel frequency map,
+and passed through a 1 × 1 conv to produce per-pixel gate logits. Softmax over the K scales yields selection weights αk (the
+argmax visualization is only used to illustrate the preferred scale).
+
+where β k ∈ RC is a learnable channel-wise parameter
+for scale k (broadcast over spatial dimensions). Each entry of tanh(β k ) lies in [−1, 1], allowing bidirectional modulation. This sign-sensitive flexibility is crucial since feature maps contain both positive and negative activations,
+enabling the model to adaptively enhance or inhibit central
+context based on local spectral content.
+The final output is a convex combination of the gated
+peripheral responses:
+X
+PFG(X) =
+αk ⊙ Y k .
+(9)
+
+where K = |K| is the number of peripheral scales. A
+softmax over the scale dimension per pixel produces gating
+weights:
+exp(Zg,k (h, w))
+αk (h, w) = PK
+, k ∈ K. (6)
+j=1 exp(Zg,j (h, w))
+P
+This ensures k αk (h, w) = 1 at every pixel, enabling
+′
+′
+adaptive selection among scales. Here, αk ∈ RH ×W denotes the per-pixel gating map for scale k.
+
+k∈K
+
+This forms adaptive spatial band-pass filters that emphasize
+mid-frequency motion patterns while suppressing redundant low-frequency background and high-frequency noise.
+This formulation can be interpreted as a learnable center–surround operation: a large peripheral convolution captures broad contextual patterns, while a small central kernel
+suppresses redundant local responses. From a frequencydomain perspective, the kernel size determines the spectral selectivity: a large spatial kernel corresponds to a narrow, low-pass response that preserves slowly varying background information, whereas a small kernel produces a
+
+3.3.1. Multi-Scale Peripheral Response with Center Suppression
+For each scale k ∈ K = {9, 15, 31}, the large kernel is
+approximated separably to reduce computation:
+′
+
+′
+
+′
+
+Pk = vk ∗ (hk ∗ X) ∈ RC ×H ×W ,
+
+(8)
+
+′
+
+(7)
+4
+
+large 2D kernel into two 1D convolutions (horizontal 1 × k
+followed by vertical k × 1). This separable design reduces
+the per-channel complexity from O(k 2 ) to O(2k)—nearly
+linear in kernel size. For k = 31, this yields a 15× reduction
+in kernel parameters and multiply-adds per layer.
+
+broader, higher-pass response that is more sensitive to local
+edges and noise. Subtracting the two thus removes overlapping low-frequency components while retaining their difference in the middle band.
+Formally, let HLk (ω) and HS (ω) denote the frequency
+responses of the large and small kernels, both real-valued.
+Define Hk (ω) = HLk (ω) − βk HS (ω). If there exist 0 <
+r1 < r2 ≤ π such that HLk (ω) > βk HS (ω), r1 <
+∥ω∥ < r2 , and HLk (ω) ≤ βk HS (ω), otherwise, then
+Hk (ω) behaves as a ring-shaped band-pass filter that amplifies mid-frequency components:
+Hk (ω) > 0 for ω ∈ Ωm ,
+
+Hk (ω) ≤ 0 otherwise,
+
+4. Experiments
+We evaluate PFGNet on four representative spatiotemporal
+prediction benchmarks: Moving MNIST [48], TaxiBJ [68],
+KTH [46], and Human3.6M [21]. All datasets are obtained from the OpenSTL [50] repository and processed following its public pipeline. To ensure reproducibility and
+fair comparison, we align with the OpenSTL evaluation
+framework, and we include influential recurrent and nonrecurrent methods to establish a comprehensive benchmark.
+
+(10)
+
+where Ωm = {ω : r1 < ∥ω∥ < r2 }. This property explains
+how learnable center suppression enables large-kernel convolutions to selectively enhance motion- or edge-relevant
+frequencies while filtering out static low-frequency backgrounds and high-frequency noise. A more detailed theoretical analysis is provided in the supplementary material,
+where we show that, under mild conditions, there exists
+a coefficient β such that the composite filter Hk (ω) =
+HLk (ω) − βk HS (ω) achieves a higher signal-to-noise ratio than HLk (ω) alone.
+
+4.1. Experimental Setups
+Datasets 1. Moving MNIST: The standard setting uses
+the first 10 frames for observation and predicts the next
+10 frames. Both the training and test sets contain 10,000
+sequences, serving to assess the stability and lower bound
+of temporal modeling. 2. TaxiBJ: The prevalent protocol
+adopts a temporal split with the last four weeks for testing
+and earlier data for training. All models observe 4 frames
+and predict 4 frames, highlighting the trade-off across numerical error, efficiency, and deployability. 3. KTH: The
+common split uses subjects 1 to 16 for training and 17 to
+25 for testing. All models observe 10 frames, and predict
+20 frames or 40 frames, focusing on long-range structural
+preservation and boundary consistency. 4. Human3.6M:
+We follow the OpenSTL public configuration and evaluation paradigm, with resolution set to 256 × 256 × 3, and
+organize the training and testing pipeline accordingly to ensure consistency with community practice.
+
+3.3.2. Channel Mixing via GLU
+Given the preceding feature, we expand channels from C ′
+to 2E by a point-wise convolution and evenly split along
+channels into U and V. A lightweight GLU [9] path then
+complements spatial adaptation:
+
+Zc = PWE→C ′ σ(U) ⊙ DW3×3 (V) ,
+(11)
+where E = 4C ′ with expansion ratio r = 4; PW denotes a point-wise 1×1 convolution, and DW3×3 denotes
+a depthwise 3×3 convolution. We also apply GRN normalization [64] and LayerScale [55] for stable training.
+
+Metrics We adopt a complementary set of quality and efficiency metrics. MSE measures per-pixel mean squared
+error and lower values are better. MAE measures per-pixel
+mean absolute error and lower values are better. SSIM assesses image structural similarity in terms of structure, luminance, and contrast and higher values are better. PSNR
+measures reconstruction quality in a signal-to-noise ratio
+form and higher values are better. Parameters and FLOPs
+characterize model complexity and computational cost and
+smaller values are more deployment-friendly.
+
+3.4. Output Decoding
+After Nt PFG blocks, the final latent tensor Z′ ∈
+′
+′
+′
+RC ×H ×W is unpacked along the channel dimension to re′
+′
+out
+.
+cover the temporal axis, yielding {F′t ∈ RC×H ×W }Tt=1
+A symmetric decoder, following the SimVP design [14],
+applies convolutional upsampling to restore each F′t to the
+original resolution, yielding output frames Ot = Dec(F′t ).
+Collectively, these frames form the output sequence {Ot ∈
+out
+RCout ×H×W }Tt=1
+. The default setting is Tout = Tin . In
+practice, if Tout < Tin , the first Tout frames are sliced; if
+Tout > Tin , predictions are rolled out autoregressively by
+feeding the last output back as input.
+
+Training Details To ensure fairness, we follow the OpenSTL training and evaluation procedures, including unified data preprocessing, evaluation protocols, and logging.
+Dataset-specific settings for spatial resolution, temporal
+windows, training epochs, learning rates, batch sizes, architectural hyperparameters, and hardware resources are sum-
+
+3.5. Computational Efficiency
+Despite using large receptive fields (K = {9, 15, 31}),
+PFGNet maintains high efficiency by decomposing every
+5
+
+Table 1. Experimental setup. Tin and Tout denote the numbers of input and predicted frames, respectively.
+
+Resolution
+
+Tin
+
+Tout
+
+Ns Nt DropPath Epochs Learning Rate Batch Size
+
+Moving MNIST (64, 64, 1)
+TaxiBJ
+(32, 32, 2)
+KTH
+(128, 128, 1)
+Human3.6M
+(256, 256, 3)
+
+10
+4
+10
+4
+
+10
+4
+20/40
+4
+
+4
+2
+2
+4
+
+Dataset
+
+8
+8
+6
+8
+
+0
+0.1
+0.1
+0.1
+
+2000
+50
+100
+50
+
+1e−3
+2e−3
+2e−4/1e−4
+1.5e−3
+
+GPU
+1× RTX 4090
+1× RTX 3090
+4× RTX 4090
+5× RTX 3090
+
+16
+16
+2/1
+2
+
+Table 2. Quantitative comparison on the Moving MNIST dataset.
+
+marized in Table 1. All implementations are conducted and
+verified within a unified codebase.
+
+Method
+
+4.2. Main Results
+
+MSE ↓
+
+SSIM ↑
+
+Recurrent-based Methods
+
+Tables 2, 3, 4, and 5 report comprehensive quantitative
+comparisons between PFGNet and state-of-the-art baselines
+across four benchmarks. Figures 4, 5, 6 and 7 showcase representative qualitative predictions from PFGNet.
+
+ConvLSTM [47]
+DFN [22]
+FRNN [43]
+VPN [25]
+PredRNN [59]
+CausalLSTM [60]
+MIM [62]
+E3D-LSTM [61]
+LMC [29]
+MAU [4]
+PhyDNet [16]
+CrevNet [66]
+SwinLSTM [52]
+VMRNN [53]
+
+Moving MNIST PFGNet achieves lower numerical error and higher structural similarity under the non-recurrent
+paradigm, showing stable gains over SimVP and TAU while
+still outperforming recurrent methods that emphasize temporal memory. The results indicate that frequency-guided
+gating highlights the most predictive mid-band components
+in short-term trajectory and occlusion scenarios, which reduces blur diffusion and ghosting while preserving clear
+digit boundaries and motion continuity.
+
+103.3
+89.0
+69.7
+64.1
+56.8
+46.5
+44.2
+41.3
+41.5
+27.6
+24.4
+22.3
+17.7
+16.5
+
+0.707
+0.726
+0.813
+0.870
+0.867
+0.898
+0.910
+0.910
+0.924
+0.937
+0.947
+0.949
+0.962
+0.965
+
+Recurrent-free Methods
+SimVP [14]
+MMVP [70]
+TAU [49]
+PFGNet(Ours)
+
+Input
+
+Ground Truth
+
+Inflow
+
+PFGNet
+
+23.8
+22.2
+19.8
+15.2
+
+0.948
+0.952
+0.957
+0.967
+Outflow
+
+Input
+
+Figure 4. Qualitative results of PFGNet on Moving MNIST.
+Ground Truth
+
+TaxiBJ On the TaxiBJ dataset (Table 3), PFGNet
+achieves leading MSE (0.2881), near-best MAE (14.75)
+and SSIM (0.9857) with only 1.9M parameters and 0.6G
+FLOPs—surpassing all recurrent-free baselines and recurrent methods. This demonstrates PFGNet’s ability to stably extract predictive structures—robust, generalizable representations of inflow–outflow dynamics that persist across
+coupled spatiotemporal patterns. Compared with stateof-the-art recurrent models, PFGNet delivers clear efficiency advantages while maintaining equal or superior
+accuracy, making it ideal for compute-constrained and
+latency-sensitive deployments such as real-time urban traffic forecasting.
+
+PFGNet
+
+Figure 5. Qualitative results of PFGNet on TaxiBJ.
+
+KTH On the KTH dataset (Table 4), PFGNet achieves the
+highest SSIM across all methods, with competitive PSNR
+(34.10 and 32.64). This SSIM dominance reflects PFGNet’s
+superior preservation of limb contours, joint trajectories,
+and motion topology over long horizons—crucial for articulated action forecasting. The slightly lower PSNR arises because KTH features high-contrast, near-static backgrounds
+that dominate pixel-wise error. PSNR penalizes minor in6
+
+Table 3. Quantitative comparison on the TaxiBJ dataset.
+Input
+
+Params FLOPs MSE ↓ MAE ↓ SSIM ↑
+
+Method
+
+Recurrent-based Methods
+ConvLSTM [47]
+PredNet [38]
+PredRNN [59]
+PredRNN++ [60]
+E3D-LSTM [61]
+PhyDNet [16]
+MIM [62]
+MAU [4]
+PredRNNv2 [63]
+SwinLSTM [52]
+VMRNN [53]
+
+15.0M
+12.5M
+23.7M
+38.4M
+51.0M
+3.1M
+37.9M
+4.4M
+23.7M
+2.9M
+2.6M
+
+20.7G
+0.9G
+42.4G
+63.0G
+98.2G
+5.6G
+64.1G
+6.4G
+42.6G
+1.3G
+0.9G
+
+0.3358
+0.3516
+0.3194
+0.3348
+0.3421
+0.3622
+0.3110
+0.3062
+0.3834
+0.3026
+0.2887
+
+Ground Truth
+
+15.32
+15.91
+15.31
+15.37
+14.98
+15.53
+14.96
+15.26
+15.55
+15.00
+14.69
+
+0.9836
+0.9828
+0.9838
+0.9834
+0.9842
+0.9828
+0.9847
+0.9840
+0.9826
+0.9843
+0.9858
+
+PFGNet
+
+Figure 6. Qualitative results of PFGNet on KTH.
+Table 5. Quantitative comparison on the Human3.6M dataset.
+Method
+
+13.8M
+9.6M
+10.0M
+16.8M
+1.9M
+
+3.6G
+2.5G
+2.6G
+8.8G
+0.6G
+
+0.3282
+0.3108
+0.3246
+0.3164
+0.2881
+
+15.45
+14.93
+15.03
+14.82
+14.75
+
+FLOPs
+
+MSE ↓ MAE ↓ SSIM ↑
+
+Recurrent-based Methods
+ConvLSTM [47]
+E3D-LSTM [61]
+PredNet [38]
+PhyDNet [16]
+MAU [4]
+MIM [62]
+PredRNN [59]
+PredRNN++ [60]
+PredRNNv2 [63]
+
+Recurrent-free Methods
+SimVP [14]
+TAU [49]
+SimVPv2 [51]
+Met2Net [33]
+PFGNet(Ours)
+
+Params
+
+0.9835
+0.9848
+0.9844
+0.9851
+0.9857
+
+15.5M
+60.9M
+12.5M
+4.2M
+20.2M
+47.6M
+24.6M
+39.3M
+24.6M
+
+347.0G
+542.0G
+13.7G
+19.1G
+105.0G
+1051.0G
+704.0G
+1033.0G
+708.0G
+
+125.5
+143.3
+261.9
+125.7
+127.3
+112.1
+113.2
+110.0
+114.9
+
+1566.7
+1442.5
+1625.3
+1614.7
+1577.0
+1467.1
+1458.3
+1452.2
+1484.7
+
+0.9813
+0.9803
+0.9786
+0.9804
+0.9812
+0.9829
+0.9831
+0.9832
+0.9827
+
+1511.5
+1441.0
+1390.7
+1603.5
+1599.7
+1497.7
+1511.9
+1527.4
+1484.1
+1469.7
+1454.5
+1481.1
+1446.4
+1392.4
+
+0.9822
+0.9834
+0.9839
+0.9796
+0.9799
+0.9824
+0.9819
+0.9822
+0.9827
+0.9828
+0.9831
+0.9824
+0.9834
+0.9838
+
+Recurrent-free Methods
+
+tensity shifts in large uniform regions, whereas PFGNet intentionally de-emphasizes photometric fidelity to prevent
+limb collapse and boundary diffusion—yielding anatomically coherent, perceptually superior predictions.
+
+SimVP [14]
+SimVPv2 [51]
+TAU [49]
+ViT [12]
+Swin Transformer [36]
+Uniformer [31]
+MLP-Mixer [54]
+ConvMixer [56]
+Poolformer [67]
+ConvNeXt [37]
+VAN [18]
+HorNet [45]
+MogaNet [32]
+PFGNet(Ours)
+
+Table 4. Quantitative comparison on the KTH dataset.
+
+KTH (10 → 20)
+
+Method
+
+KTH (10 → 40)
+
+SSIM ↑ PSNR ↑ SSIM ↑ PSNR ↑
+Recurrent-based Methods
+ConvLSTM [47]
+SAVP [28]
+FRNN [43]
+DFN [22]
+PredRNN [59]
+VarNet [23]
+SAVP-VAE [28]
+PredRNN++ [60]
+E3D-LSTM [61]
+STMFANet [24]
+SwinLSTM [52]
+VMRNN [53]
+
+0.712
+0.746
+0.771
+0.794
+0.839
+0.843
+0.852
+0.865
+0.879
+0.893
+0.903
+0.907
+
+23.58
+25.38
+26.12
+27.26
+27.55
+28.48
+27.77
+28.47
+29.31
+29.85
+34.34
+34.06
+
+0.639
+0.701
+0.678
+0.652
+0.703
+0.739
+0.811
+0.741
+0.810
+0.851
+0.879
+0.882
+
+22.85
+23.97
+23.77
+23.01
+24.16
+25.37
+26.18
+25.21
+27.24
+27.56
+33.15
+32.69
+
+0.905
+0.906
+0.911
+
+33.72
+27.54
+34.10
+
+0.886
+0.888
+0.891
+
+197.0G
+74.6G
+182.0G
+239.0G
+188.0G
+211.0G
+164.0G
+39.4G
+156.0G
+157.0G
+182.0G
+143.0G
+63.6G
+58.3G
+
+115.8
+108.4
+113.3
+136.3
+133.2
+116.3
+125.7
+115.8
+118.4
+113.4
+111.4
+118.1
+109.1
+111.3
+
+Input
+
+Ground Truth
+
+PFGNet
+
+Recurrent-free Methods
+SimVP [14]
+MMVP [70]
+PFGNet(Ours)
+
+41.2M
+11.3M
+37.6M
+28.3M
+38.8M
+27.7M
+47.0M
+3.1M
+31.2M
+31.4M
+37.5M
+28.1M
+8.6M
+7.3M
+
+Figure 7. Qualitative results of PFGNet on Human3.6M.
+
+32.93
+26.35
+32.64
+
+Human3.6M On the high-resolution Human3.6M dataset
+(256×256, rich texture, complex articulated motion),
+7
+
+Table 6. Ablation on macro structure. We analyze the roles of
+MSInit and different fusion strategies under a unified kernel setting
+(K = {9, 15, 31}).
+
+PFGNet achieves a near-optimal performance-complexity
+trade-off: with only 7.3M parameters and 58.3G FLOPs,
+it attains MAE = 1392.4 (2nd best) and SSIM = 0.9838
+(2nd best)—surpassing most recurrent baselines and all
+recurrent-free models except TAU (which uses 5.2× more
+parameters and 3.1× more FLOPs). In contrast, recurrent
+models (e.g., PredRNN++, MIM) require 3–6× more parameters and 10–18× more FLOPs to achieve comparable
+SSIM, while transformer-based recurrent-free designs sacrifice throughput for marginal error reduction. PFGNet thus
+breaks the accuracy–efficiency barrier in full-convolutional
+STPL, delivering deployment-ready performance without
+compromising long-term motion coherence or human detail
+preservation.
+
+model1 model2 model3 PFGNet
+MSInit
+✓
+✓
+✓
+✓
+mean
+Fusion
+softmax
+✓
+✓
+✓
+✓
+✓
+✓
+3×3
+Center
+5×5
+✓
+MSE ↓ 0.3119 0.3033 0.2995 0.2881
+TaxiBJ
+MAE ↓ 14.89 14.89 14.90
+14.75
+SSIM ↑ 0.9849 0.9849 0.9848 0.9857
+0.911
+SSIM ↑ 0.909 0.909 0.904
+KTH 10→20
+PSNR ↑ 32.88 33.08 33.61
+34.10
+Archi
+
+4.3. Ablation Study
+
+MSE
+
+To quantify the true contribution of each component, we
+conduct various groups of ablation experiments. The results
+are given in Tables 6 and 7 and Figure 8.
+We first ablate the macro-structural design of PFGNet
+(Table 6 and Figure 8a). MSInit serves as a lightweight
+multi-scale initializer: removing it (model1) significantly degrades all metrics, confirming its role in providing diverse frequency-aware features for subsequent gating. For multi-scale fusion, the softmax gating mechanism—through its ability to perform pixel-wise adaptive
+weighting—consistently surpasses fixed-weight strategies
+(model2). Overall, under the current setting, the 3×3
+center suppression kernel shows advantages over the 5×5
+one; nevertheless, the kernel size should generally remain
+aligned with the scale of the main convolution. Figure 8a
+shows that single-scale kernels, regardless of their size, consistently underperform the combination of multiple kernels.
+Interestingly, the largest kernel (k=31) achieves the lowest MSE yet the highest SSIM when used alone—providing
+strong empirical evidence for our hypothesis that extremely
+large receptive fields are essential for STPL. However, no
+single scale offers balanced spectral coverage: smaller kernels capture fine textures but miss global coherence, while
+larger ones excel in structure preservation but lose local detail. The parallel fusion of multiple scales achieves the best
+performance, confirming the necessity of multi-scale integration.
+We further analyze the internal mechanisms of the PFG
+block (Table 7 and Figure 8b). The learnable center suppression parameter (β) significantly outperforms fixed values: β = 0 (no suppression) retains redundant lowfrequency background (model3), while fixed β = ±1 (models 1–2) lacks spatial adaptivity. Using tanh as the gating
+function for β yields better results than sigmoid, indicating that both positive and negative feedback contribute to
+feature modulation. The three frequency cues are complementary—removing any single cue or any pair leads to per-
+
+SSIM MSE
+MSE ( )
+SSIM ( )
+
+0.315
+0.310
+0.305
+0.300
+0.295
+0.290
+{9}
+
+{15} {31} {9,15} {15,31}{9,15,31}
+
+SSIM
+
+0.9858 0.310
+0.9856
+0.305
+0.9854
+0.9852 0.300
+0.9850 0.295
+0.9848
+0.9846 0.290
+
+MSE ( )
+SSIM ( )
+
+0.9858
+0.9856
+0.9854
+0.9852
+0.9850
+0.9848
+0.9846
+
+Grad Lap Var G+L G+V L+V G+L+V
+
+(a) Ablation on kernel-set combina- (b) Ablation on frequency-cue comtions in PFG block.
+binations.
+
+Figure 8. Ablation results on TaxiBJ.
+Table 7. Ablation on detail mechanisms under full configuration
+(MSInit + softmax + all operators). We compare fixed vs. learnable β, and activation functions used for the suppression gate.
+model1 model2 model3 model4 PFGNet
+✓
+−1
+1
+✓
+β
+0
+✓
+learnable
+✓
+✓
+tanh
+✓
+✓
+✓
+✓
+Gate
+sigmoid
+✓
+MSE ↓ 0.3209 0.3286 0.2993 0.3142 0.2881
+TaxiBJ
+MAE ↓ 14.96 15.02 14.86 15.00 14.75
+SSIM ↑ 0.9849 0.9844 0.9850 0.9845 0.9857
+Moving MNIST MSE ↓ 28.06 28.14 27.84 28.04 27.61
+(100 epochs) SSIM ↑ 0.9371 0.9369 0.9377 0.9372 0.9381
+
+formance degradation, whereas using all three in parallel
+provides the most stable gating signal for pixel-wise scale
+selection.
+The optimal configuration—MSInit + softmax fusion
++ K = {9, 15, 31} + learnable β with tanh gating + all
+three frequency cues—achieves the best results, validating
+the synergy between frequency-guided adaptive band-pass
+8
+
+filtering and separable large-kernel efficiency, which enables PFGNet to outperform recurrent, attention-based, and
+small-kernel baselines with minimal computational overhead.
+
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 5557–5567, 2024. 3
+[6] Yunpeng Chen, Haoqi Fan, Bing Xu, Zhicheng Yan, Yannis Kalantidis, Marcus Rohrbach, Shuicheng Yan, and Jiashi Feng. Drop an octave: Reducing spatial redundancy in
+convolutional neural networks with octave convolution. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, 2019. 3
+[7] Jinguo Cheng, Ke Li, Yuxuan Liang, Lijun Sun, Junchi Yan,
+and Yuankai Wu. Rethinking urban mobility prediction: A
+multivariate time series forecasting approach. IEEE Transactions on Intelligent Transportation Systems, 26(2):2543–
+2557, 2024. 1
+[8] Andy Clark. Surfing uncertainty: Prediction, action, and the
+embodied mind. Oxford University Press, 2015. 1
+[9] Yann N Dauphin, Angela Fan, Michael Auli, and David
+Grangier. Language modeling with gated convolutional networks. In International Conference on Machine Learning,
+pages 933–941. PMLR, 2017. 2, 5
+[10] Xiaohan Ding, Xiangyu Zhang, Jungong Han, and Guiguang
+Ding. Scaling up your kernels to 31x31: Revisiting large
+kernel design in cnns. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages
+11963–11975, 2022. 2
+[11] Xiaohan Ding, Yiyuan Zhang, Yixiao Ge, Sijie Zhao, Lin
+Song, Xiangyu Yue, and Ying Shan. Unireplknet: A universal perception large-kernel convnet for audio video point
+cloud time-series and image recognition. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 5513–5524, 2024. 2, 3
+[12] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale. In International Conference on Learning Representations, 2021. 2, 7, 4
+[13] Shen Fang, Qi Zhang, Gaofeng Meng, Shiming Xiang, and
+Chunhong Pan. Gstnet: Global spatial-temporal network
+for traffic flow prediction. In Proceedings of the 28th International Joint Conference on Artificial Intelligence, pages
+2286–2293, 2019. 1
+[14] Zhangyang Gao, Cheng Tan, Lirong Wu, and Stan Z. Li.
+Simvp: Simpler yet better video prediction. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 3170–3180, 2022. 1, 2, 3, 5, 6, 7,
+4
+[15] Rafael C Gonzalez. Digital image processing. Pearson education india, 2009. 2
+[16] Vincent Le Guen and Nicolas Thome. Disentangling physical dynamics from unknown factors for unsupervised video
+prediction. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 11474–
+11484, 2020. 2, 6, 7, 4
+[17] John Guibas, Morteza Mardani, Zongyi Li, Andrew Tao, Anima Anandkumar, and Bryan Catanzaro. Efficient token mixing for transformers via adaptive fourier neural operators.
+
+5. Conclusion
+In this work, we present PFGNet, a fully convolutional
+framework for spatiotemporal predictive learning that mimics biological center–surround processing via pixel-wise
+frequency-guided gating and learnable center suppression.
+Under the standardized OpenSTL protocol, PFGNet delivers SOTA or near-SOTA forecasting accuracy with substantially fewer parameters and FLOPs than recent recurrent,
+attention-based, or hybrid models. Lightweight, fully parallelizable, and plug-and-play, PFGNet provides a scalable
+real-time solution for high-precision predictive vision and
+is well suited for integration into larger backbones and deployment in applications such as autonomous systems and
+weather nowcasting.
+
+Acknowledgments
+This work was supported in part by the National
+Natural Science Foundation of China under Grant
+No. 62406206 and by the Fundamental Research Funds
+for the Central Universities. We also extend our sincere appreciation to the providers of the datasets used
+in this study, whose contributions were essential to
+the experimental validation of the proposed method.
+
+References
+[1] Andrea Alfarano, Alberto Alfarano, Linda Friso, Andrea
+Bacciu, Irene Amerini, and Fabrizio Silvestri. Stlight: A
+fully convolutional approach for efficient predictive learning
+by spatio-temporal joint processing. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer
+Vision, pages 1090–1100, 2025. 1
+[2] Mohammad Babaeizadeh, Chelsea Finn, Dumitru Erhan,
+Roy H. Campbell, and Sergey Levine. Stochastic variational
+video prediction. In International Conference on Learning
+Representations, 2018. 1
+[3] Apratim Bhattacharyya, Mario Fritz, and Bernt Schiele.
+Long-term on-board prediction of people in traffic scenes
+under uncertainty. In Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition, pages 4194–
+4202, 2018. 1
+[4] Zheng Chang, Xinfeng Zhang, Shanshe Wang, Siwei Ma,
+Yan Ye, Xiang Xinguang, and Wen Gao. Mau: A motionaware unit for video prediction and beyond. Advances in
+Neural Information Processing Systems, 34:26950–26962,
+2021. 2, 6, 7, 4
+[5] Honghao Chen, Xiangxiang Chu, Yongjian Ren, Xin Zhao,
+and Kaiqi Huang. Pelk: Parameter-efficient large kernel
+convnets with peripheral convolution. In Proceedings of
+
+9
+
+[31] Kunchang Li, Yali Wang, Gao Peng, Guanglu Song, Yu Liu,
+Hongsheng Li, and Yu Qiao. Uniformer: Unified transformer
+for efficient spatial-temporal representation learning. In International Conference on Learning Representations, 2022.
+7, 4
+[32] Siyuan Li, Zedong Wang, Zicheng Liu, Cheng Tan, Haitao
+Lin, Di Wu, Zhiyuan Chen, Jiangbin Zheng, and Stan Z. Li.
+Moganet: Multi-order gated aggregation network. In International Conference on Learning Representations, 2024. 7,
+4
+[33] Shaohan Li, Hao Yang, Min Chen, and Xiaolin Qin.
+Met2net: A decoupled two-stage spatio-temporal forecasting
+model for complex meteorological systems. In Proceedings
+of the IEEE/CVF International Conference on Computer Vision, pages 5458–5468, 2025. 1, 2, 7
+[34] Xinyu Li, Yanyi Zhang, Jianbo Yuan, Hanlin Lu, and Yibo
+Zhu. Discrete cosin transformer: Image modeling from
+frequency domain. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision, pages
+5468–5478, 2023. 3
+[35] Shiwei Liu, Tianlong Chen, Xiaohan Chen, Xuxi Chen, Qiao
+Xiao, Boqian Wu, Tommi Kärkkäinen, Mykola Pechenizkiy,
+Decebal Constantin Mocanu, and Zhangyang Wang. More
+convnets in the 2020s: Scaling up kernels beyond 51x51 using sparsity. In International Conference on Learning Representations, 2023. 2, 3
+[36] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 10012–10022, 2021. 2, 7, 4
+[37] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A convnet for the
+2020s. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 11976–11986,
+2022. 7, 4
+[38] William Lotter, Gabriel Kreiman, and David Cox. Deep
+predictive coding networks for video prediction and unsupervised learning. In International Conference on Learning
+Representations, 2017. 1, 7, 4
+[39] David Marr and Ellen Hildreth. Theory of edge detection.
+Proceedings of the Royal Society of London. Series B. Biological Sciences, 207(1167):187–217, 1980. 1, 2
+[40] Juhong Min, Yucheng Zhao, Chong Luo, and Minsu Cho.
+Peripheral vision transformer. Advances in Neural Information Processing Systems, 35:32097–32111, 2022. 3
+[41] Xuesong Nie, Xi Chen, Haoyuan Jin, Zhihang Zhu, Yunfeng Yan, and Donglian Qi. Triplet attention transformer
+for spatiotemporal predictive learning. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer
+Vision, pages 7036–7045, 2024. 2
+[42] Xuesong Nie, Yunfeng Yan, Siyuan Li, Cheng Tan, Xi Chen,
+Haoyuan Jin, Zhihang Zhu, Stan Z Li, and Donglian Qi.
+Wavelet-driven spatiotemporal predictive learning: Bridging frequency and time variations. In Proceedings of the
+AAAI Conference on Artificial Intelligence, pages 4334–
+4342, 2024. 2
+
+In International Conference on Learning Representations,
+2021. 3
+[18] Meng-Hao Guo, Cheng-Ze Lu, Zheng-Ning Liu, Ming-Ming
+Cheng, and Shi-Min Hu. Visual attention network. Computational Visual Media, 9(4):733–752, 2023. 7, 4
+[19] Xiaotao Hu, Zhewei Huang, Ailin Huang, Jun Xu, and
+Shuchang Zhou. A dynamic multi-scale voxel flow network
+for video prediction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages
+6121–6131, 2023. 4
+[20] David H Hubel and Torsten N Wiesel. Receptive fields,
+binocular interaction and functional architecture in the cat’s
+visual cortex. The Journal of physiology, 160(1):106, 1962.
+1
+[21] Catalin Ionescu, Dragos Papava, Vlad Olaru, and Cristian
+Sminchisescu. Human3. 6m: Large scale datasets and predictive methods for 3d human sensing in natural environments. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 36(7):1325–1339, 2013. 5
+[22] Xu Jia, Bert De Brabandere, Tinne Tuytelaars, and Luc V
+Gool. Dynamic filter networks. Advances in Neural Information Processing Systems, 29, 2016. 6, 7
+[23] Beibei Jin, Yu Hu, Yiming Zeng, Qiankun Tang, Shice Liu,
+and Jing Ye. Varnet: Exploring variations for unsupervised
+video prediction. In 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 5801–
+5806. IEEE, 2018. 7
+[24] Beibei Jin, Yu Hu, Qiankun Tang, Jingyu Niu, Zhiping Shi, Yinhe Han, and Xiaowei Li. Exploring spatialtemporal multi-frequency analysis for high-fidelity and
+temporal-consistency video prediction. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 4554–4563, 2020. 7
+[25] Nal Kalchbrenner, Aäron Oord, Karen Simonyan, Ivo Danihelka, Oriol Vinyals, Alex Graves, and Koray Kavukcuoglu.
+Video pixel networks. In International Conference on Machine Learning, pages 1771–1779. PMLR, 2017. 6
+[26] Stephen W Kuffler. Discharge patterns and functional organization of mammalian retina. Journal of neurophysiology,
+16(1):37–68, 1953. 1
+[27] Yong-Hoon Kwon and Min-Gyu Park. Predicting future
+frames using retrospective cycle gan. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 2019. 1
+[28] Alex X Lee, Richard Zhang, Frederik Ebert, Pieter Abbeel,
+Chelsea Finn, and Sergey Levine. Stochastic adversarial
+video prediction. arXiv preprint arXiv:1804.01523, 2018.
+7
+[29] Sangmin Lee, Hak Gu Kim, Dae Hwi Choi, Hyung-Il Kim,
+and Yong Man Ro. Video prediction recalling long-term motion context via memory alignment learning. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 3054–3063, 2021. 6
+[30] Dachong Li, Li Li, Zhuangzhuang Chen, and Jianqiang Li.
+Shiftwiseconv: Small convolutional kernel with large kernel
+effect. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 25281–25291,
+2025. 2
+
+10
+
+[55] Hugo Touvron, Matthieu Cord, Alexandre Sablayrolles,
+Gabriel Synnaeve, and Hervé Jégou. Going deeper with image transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 32–42, 2021.
+5
+[56] Asher Trockman and J Zico Kolter. Patches are all you need?
+Transactions on Machine Learning Research, 2023. Featured Certification. 7, 4
+[57] Maxwell H Turner, Gregory W Schwartz, and Fred Rieke.
+Receptive field center-surround interactions mediate contextdependent spatial contrast encoding in the retina. Elife, 7:
+e38841, 2018. 2
+[58] Pichao Wang, Wanqing Li, Philip Ogunbona, Jun Wan, and
+Sergio Escalera. Rgb-d-based human motion recognition
+with deep learning: A survey. Computer vision and image
+understanding, 171:118–139, 2018. 1
+[59] Yunbo Wang, Mingsheng Long, Jianmin Wang, Zhifeng
+Gao, and Philip S Yu. Predrnn: Recurrent neural networks
+for predictive learning using spatiotemporal lstms. Advances
+in Neural Information Processing Systems, 30, 2017. 1, 2, 6,
+7, 4
+[60] Yunbo Wang, Zhifeng Gao, Mingsheng Long, Jianmin
+Wang, and Philip S Yu. Predrnn++: Towards a resolution
+of the deep-in-time dilemma in spatiotemporal predictive
+learning. In International Conference on Machine Learning,
+pages 5123–5132. PMLR, 2018. 2, 6, 7, 4
+[61] Yunbo Wang, Lu Jiang, Ming-Hsuan Yang, Li-Jia Li, Mingsheng Long, and Li Fei-Fei. Eidetic 3d lstm: A model for
+video prediction and beyond. In International Conference
+on Learning Representations, 2018. 2, 6, 7, 4
+[62] Yunbo Wang, Jianjin Zhang, Hongyu Zhu, Mingsheng Long,
+Jianmin Wang, and Philip S Yu. Memory in memory:
+A predictive neural network for learning higher-order nonstationarity from spatiotemporal dynamics. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 9154–9162, 2019. 2, 6, 7, 4
+[63] Yunbo Wang, Haixu Wu, Jianjin Zhang, Zhifeng Gao, Jianmin Wang, Philip S Yu, and Mingsheng Long. Predrnn: A
+recurrent neural network for spatiotemporal predictive learning. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 45(2):2208–2225, 2022. 7, 4
+[64] Sanghyun Woo, Shoubhik Debnath, Ronghang Hu, Xinlei
+Chen, Zhuang Liu, In So Kweon, and Saining Xie. Convnext v2: Co-designing and scaling convnets with masked
+autoencoders. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 16133–
+16142, 2023. 2, 5
+[65] Hao Wu, Fan Xu, Chong Chen, Xian-Sheng Hua, Xiao Luo,
+and Haixin Wang. Pastnet: Introducing physical inductive
+biases for spatio-temporal video prediction. In Proceedings
+of the 32nd ACM International Conference on Multimedia,
+pages 2917–2926, 2024. 2
+[66] Wei Yu, Yichao Lu, Steve Easterbrook, and Sanja Fidler.
+Efficient and information-preserving future frame prediction
+and beyond. In International Conference on Learning Representations, 2020. 2, 6
+[67] Weihao Yu, Mi Luo, Pan Zhou, Chenyang Si, Yichen Zhou,
+Xinchao Wang, Jiashi Feng, and Shuicheng Yan. Metaformer
+
+[43] Marc Oliu, Javier Selva, and Sergio Escalera. Folded recurrent neural networks for future video prediction. In Proceedings of the European Conference on Computer Vision, pages
+716–731, 2018. 6, 7
+[44] Xu Pan, Annie DeForge, and Odelia Schwartz. Generalizing
+biological surround suppression based on center surround
+similarity via deep neural network models. PLoS computational biology, 19(9):e1011486, 2023. 2
+[45] Yongming Rao, Wenliang Zhao, Yansong Tang, Jie Zhou,
+Ser-Lam Lim, and Jiwen Lu. Hornet: Efficient high-order
+spatial interactions with recursive gated convolutions. Advances in Neural Information Processing Systems, 2022. 7,
+4
+[46] Christian Schuldt, Ivan Laptev, and Barbara Caputo. Recognizing human actions: a local svm approach. In Proceedings
+of the 17th International Conference on Pattern Recognition,
+2004. ICPR 2004., pages 32–36. IEEE, 2004. 5
+[47] Xingjian Shi, Zhourong Chen, Hao Wang, Dit-Yan Yeung,
+Wai-Kin Wong, and Wang-chun Woo. Convolutional lstm
+network: A machine learning approach for precipitation
+nowcasting. Advances in Neural Information Processing
+Systems, 28, 2015. 1, 2, 6, 7, 4
+[48] Nitish Srivastava, Elman Mansimov, and Ruslan Salakhudinov. Unsupervised learning of video representations using
+lstms. In International Conference on Machine Learning,
+pages 843–852. PMLR, 2015. 5
+[49] Cheng Tan, Zhangyang Gao, Lirong Wu, Yongjie Xu, Jun
+Xia, Siyuan Li, and Stan Z. Li. Temporal attention unit: Towards efficient spatiotemporal predictive learning. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 18770–18782, 2023. 1, 6, 7,
+4
+[50] Cheng Tan, Siyuan Li, Zhangyang Gao, Wenfei Guan, Zedong Wang, Zicheng Liu, Lirong Wu, and Stan Z Li. Openstl: A comprehensive benchmark of spatio-temporal predictive learning. Advances in Neural Information Processing
+Systems, 36:69819–69831, 2023. 2, 5, 4
+[51] Cheng Tan, Zhangyang Gao, Siyuan Li, and Stan Z Li.
+Simvpv2: Towards simple yet powerful spatiotemporal predictive learning. IEEE Transactions on Multimedia, 2025. 7,
+4
+[52] Song Tang, Chuang Li, Pu Zhang, and RongNian Tang.
+Swinlstm: Improving spatiotemporal prediction accuracy
+using swin transformer and lstm. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 13470–13479, 2023. 1, 2, 6, 7
+[53] Yujin Tang, Peijie Dong, Zhenheng Tang, Xiaowen Chu,
+and Junwei Liang. Vmrnn: Integrating vision mamba and
+lstm for efficient and accurate spatiotemporal forecasting. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops, pages 5663–5673,
+2024. 1, 2, 6, 7
+[54] Ilya O Tolstikhin, Neil Houlsby, Alexander Kolesnikov, Lucas Beyer, Xiaohua Zhai, Thomas Unterthiner, Jessica Yung,
+Andreas Steiner, Daniel Keysers, Jakob Uszkoreit, et al.
+Mlp-mixer: An all-mlp architecture for vision. Advances
+in Neural Information Processing Systems, 34:24261–24272,
+2021. 7, 4
+
+11
+
+is actually what you need for vision. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 10819–10829, 2022. 2, 7, 4
+[68] Junbo Zhang, Yu Zheng, and Dekang Qi. Deep spatiotemporal residual networks for citywide crowd flows prediction. In Proceedings of the AAAI Conference on Artificial
+Intelligence, pages 1655–1661, 2017. 1, 5
+[69] Yiyuan Zhang, Xiaohan Ding, and Xiangyu Yue. Scaling up
+your kernels: Large kernel design in convnets towards universal representations. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2025. 2
+[70] Yiqi Zhong, Luming Liang, Ilya Zharkov, and Ulrich Neumann. Mmvp: Motion-matrix-based video prediction. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 4273–4283, 2023. 2, 6, 7
+
+12
+
+PFGNet: A Fully Convolutional Frequency-Guided Peripheral Gating Network
+for Efficient Spatiotemporal Predictive Learning
+Supplementary Material
+Ring-Shaped Band-Pass Filter via Learnable Center Suppression
+
+6. Existence and Optimality of Ring-Shaped
+Pass Band
+
+1.0
+
+In the main text, we established a strong existence result
+under monotonicity, guaranteeing a ring-shaped pass band
+for βk ∈ (0, βmax ). Here we present a weak existence
+theorem that aligns with PFGNet’s implementation, where
+β = tanh(βraw ) ∈ (−1, 1).
+
+Response
+
+0.8
+
+f (a) > 0,
+
+0.4
+
+0.0
+0.0
+
+0.5
+
+1.0
+
+1.5
+
+| |
+
+2.0
+
+2.5
+
+3.0
+
+Figure 9. Frequency response of the PFG block. The largekernel response HLk decays slowly, while the small-kernel response HS decays rapidly. Their difference Hk = HLk − βk HS
+(with βk =0.75) is positive within the green region, forming a ringshaped band-pass filter as stated in the main text.
+
+f (b) ≤ 0.
+
+Then there exist r1 and r2 with c ≤ r1 < a < r2 ≤ b such
+that
+f (r) > 0
+
+0.6
+
+0.2
+
+Theorem 1 (Weak Existence of Ring-Shaped Pass Band).
+Let H1 , H2 : [0, π] → R denote continuous radial
+frequency-response profiles. Define f (r) = H1 (r) −
+βH2 (r) for β ∈ (−1, 1). Assume there exist 0 ≤ c < a <
+b ≤ π such that
+f (c) ≤ 0,
+
+HLk: Large-Kernel Response
+kHS: Small-Kernel Response r2
+Hk = HLk kHS
+m: Ring-Shaped Pass Band
+
+r1
+
+Hence, the combination of large- and small-kernel convolutions ensures the sign pattern required by the corrected weak
+theorem, yielding a non-degenerate ring-shaped pass band
+in practice. We illustrate the frequency-selective behavior
+of the PFG block in Figure 9. Using a large kernel with
+a slowly decaying frequency response HLk (e.g., exponential decay with rate 0.6) and a small kernel with a rapidly
+decaying response HS (e.g., Gaussian decay with variance
+parameter 2.5), their difference Hk = HLk − βk HS (with
+βk = 0.75) suppresses low-frequency background near DC,
+amplifies mid-frequency motion cues, and attenuates highfrequency noise, forming a ring-shaped band-pass filter as
+predicted by our theoretical analysis.
+Furthermore, we have the following theorem:
+
+for all r ∈ (r1 , r2 ), and f (r1 ) = f (r2 ) = 0.
+
+Thus Hβ (ω) = H1 (∥ω∥) − βH2 (∥ω∥) has a nondegenerate ring-shaped pass band {ω : r1 < ∥ω∥ < r2 }.
+Proof. Since f is continuous with f (c) ≤ 0 and f (a) > 0,
+the set S1 = {r ∈ [c, a] : f (r) ≤ 0} is non-empty and
+closed. We define r1 = max S1 . Clearly, c ≤ r1 < a and
+f (r1 ) = 0. By the definition of the maximum, f (r) > 0 for
+all r ∈ (r1 , a].
+Similarly, the set S2 = {r ∈ [a, b] : f (r) ≤ 0} is nonempty and closed because f (a) > 0 and f (b) ≤ 0. We
+define r2 = min S2 . Thus a < r2 ≤ b and f (r2 ) = 0. By
+the definition of the minimum, f (r) > 0 for all r ∈ [a, r2 ).
+Combining these results, we have f (r) > 0 on the continuous interval (r1 , r2 ).
+
+Theorem 2 (Existence of an SNR-maximizing β ⋆ ). Assume
+the input signal has spectral power PS (ω) ≥ 0 and the
+2
+additive noise is white with constant power PN (ω) ≡ σN
+>
+0. Let the composite filter response be Hβ = HL − βHS ,
+where HL and HS denote the frequency responses of the
+large and small kernels, respectively. Define the signal-tonoise ratio
+R
+|Hβ (ω)|2 PS (ω) dω
+SNR(β) = R
+.
+|Hβ (ω)|2 PN (ω) dω
+
+In PFGNet, we set:
+• H1 : frequency response of a large-kernel convolution,
+• H2 : frequency response of a small-kernel convolution,
+• β = tanh(βraw ) ∈ (−1, 1): bounded center-suppression
+coefficient.
+The large kernel decays slowly from DC to midfrequencies, while the small kernel decays rapidly. Their
+difference f (r) = H1 (r) − βH2 (r) naturally satisfies:
+• f (c) ≤ 0 for small c > 0 (small kernel dominates near
+DC),
+• f (a) > 0 in mid-frequencies (large kernel retains more
+energy),
+• f (b) ≤ 0 near b ≈ π (both decay to zero).
+
+If
+HS are linearly independent in L2 ([0, π]) and
+R HL and
+2
+|HS | PS dω > 0, then SNR(β) admits at least one finite
+d
+stationary point β ⋆ satisfying dβ
+SNR(β) = 0.
+Proof. Define the signal energy N (β) and noise energy
+1
+
+D(β) as quadratic forms:
+Z
+N (β) := |HL − βHS |2 PS (ω) dω = A − 2βB + β 2 C,
+Z
+D(β) :=
+
+Assume further that HL is not already a stationary point of
+the SNR in the direction of HS , meaning
+Re(HL HS )PS dω
+
+
+
+2
+|HL − βHS |2 PN (ω) dω = σN
+Ã − 2β B̃ + β 2 C̃ ,
+
+|HL |2 dω ̸=
+
+Z
+
+|HL |2 PS dω
+
+Z
+Re(HL HS ) dω
+
+(i.e., B Ã ̸= AB̃ in the notation below). Then, there exists
+β̂ ̸= 0 such that
+
+where the Rcoefficients are given byRthe respective integrals
+(e.g., C = |HS |2 PS dω and C̃ = |HS |2 dω).
+By the linear independence of HL and HS in L2 , the denominator D(β) is strictly positive for all β ∈ R, ensuring
+(β)
+that SNR(β) = N
+D(β) is continuously differentiable on the
+entire real line.
+Consider the asymptotic behavior of SNR(β) as β →
+±∞. Dividing the numerator and denominator by β 2
+yields:
+
+SNR(β̂) > SNR(0).
+Proof. Define the energy integrals
+N (β) = A−2βB+β 2 C,
+
+2
+D(β) = σN
+(Ã−2β B̃+β 2 C̃),
+
+2
+so that SNR(β) = N (β)/D(β) and SNR(0) = A/(σN
+Ã).
+Consider the difference numerator:
+
+C
+A/β 2 − 2B/β + C
+= 2 .
+β→±∞ σ 2 (Ã/β 2 − 2B̃/β + C̃)
+σN C̃
+N
+
+lim SNR(β) = lim
+
+β→±∞
+
+Z
+
+Z
+
+∆(β) := N (β)Ã−A
+
+D(β)
+= −2β(B Ã−AB̃)+β 2 (C Ã−AC̃).
+2
+σN
+
+Clearly ∆(0) = 0. By our assumption, the coefficient of
+the linear term K = −2(B Ã − AB̃) is strictly non-zero.
+For values of β sufficiently close to 0, the linear term Kβ
+strictly dominates the quadratic term β 2 (C Ã − AC̃). Since
+K ̸= 0, we can choose a β̂ with a sufficiently small absolute
+value and the same sign as K. This guarantees that ∆(β̂) ≈
+K β̂ > 0.
+Since D(β̂) > 0 and Ã > 0, the inequality ∆(β̂) > 0
+directly implies
+
+By assumption, C > 0 and C̃ > 0, so this limit is a finite
+positive constant, which we denote as L.
+We now examine the continuous function SNR(β).
+There are three possible cases: 1. SNR(β) ≡ L for all
+β. Then every β ∈ R is a stationary point, and the theorem holds trivially. 2. There exists some β0 ∈ R such that
+SNR(β0 ) > L. Since the function is continuous and decays to L at both infinities, by the Extreme Value Theorem,
+SNR(β) must attain a global maximum at some finite point
+β ⋆ . 3. There exists some β0 ∈ R such that SNR(β0 ) < L.
+By the same reasoning, SNR(β) attains a global minimum
+at some finite point β ⋆ .
+In cases 2 and 3, Fermat’s theorem guarantees that
+at the local extremum β ⋆ , the derivative must vanish:
+d
+⋆
+dβ SNR(β ) = 0.
+Furthermore, setting the derivative to zero yields:
+
+N (β̂)Ã > A
+
+D(β̂)
+N (β̂)
+A
+=⇒
+> 2 .
+2
+σN
+σN Ã
+D(β̂)
+
+Thus, SNR(β̂) > SNR(0).
+In PFGNet, we learn a per-channel β in each branch and
+share it across spatial locations via backpropagation. Since
+local spectral content varies across pixels, such as motion
+versus static regions, pixel-wise softmax fusion enables spatially varying optimal denoising, while the channel-wise β
+provides learnable center suppression, outperforming any
+fixed global suppression. Moreover, subtracting βHS can
+be beneficial: by Lemma 1, there exists a coefficient β̂ ̸= 0
+such that the filter HL − β̂HS achieves a strictly higher SNR
+than the plain large-kernel filter HL .
+This is empirically corroborated in Figure 10. On
+Moving MNIST, learned channel-wise tanh(β) values are
+symmetrically distributed around zero across all branches
+(K=9, 15, 31), with significant mass at ±1, indicating that
+both enhancement and suppression of peripheral responses
+are utilized to model simple digit motion. On TaxiBJ, a
+complex traffic dataset, tanh(β) is centered at zero with reduced variance for larger kernels, reflecting balanced and
+mild center modulation to preserve rich mid-frequency flow
+patterns. Notably, the symmetric usage of positive and
+negative β on Moving MNIST and the near-zero mean on
+
+N ′ (β)D(β) − N (β)D′ (β) = 0.
+Expanding this expression, the β 3 terms mathematically
+cancel out (C C̃β 3 − C̃Cβ 3 = 0), leaving a polynomial
+equation of degree at most 2:
+(B C̃ − C B̃)β 2 + (C Ã − AC̃)β + (B̃A − B Ã) = 0.
+This confirms that SNR(β) has at most two finite stationary
+points, and we have proven that at least one must exist.
+Lemma 1 (SNR Advantage of HL − βHS over HL ). Assume the input signal has spectral power PS (ω) ≥ 0 and
+2
+additive white noise with power σN
+> 0. Let HL and HS
+be the frequency responses of the large and small kernels,
+respectively, and assume they are linearly independent in
+L2 ([0, π]). Define the composite filter Hβ = HL − βHS
+and the SNR as
+R
+|Hβ |2 PS dω
+SNR(β) = R
+.
+2 dω
+|Hβ |2 σN
+2
+
+1.0
+
+500
+
+count (channels)
+
+tanh( )
+
+0.5
+
+400
+300
+
+0.0
+
+7.2. Mean Absolute Error (MAE)
+MAE =
+
+200
+
+K=9
+
+K=15
+
+0
+1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+tanh( )
+
+K=31
+
+0.5
+
+80
+
+count (channels)
+
+tanh( )
+
+100
+
+0.0
+0.5
+1.0
+
+K=9
+
+K=15
+
+K=31
+
+60
+
+N
+
+All branches
+K=9
+K=15
+K=31
+
+C
+
+MSEn,t =
+
+40
+
+H
+
+W
+
+2
+1 XX X ˜
+Ŷn,t,c,h,w − Ỹn,t,c,h,w .
+S c=1
+w=1
+
+0
+1.00 0.75 0.50 0.25 0.00 0.25 0.50 0.75 1.00
+tanh( )
+
+With the dynamic range upper bound Imax = 255, the
+frame-level and final PSNR are
+PSNRn,t = 20 log10 (Imax ) − 10 log10 (MSEn,t ) ,
+N
+
+PSNR =
+
+For each frame, skimage.metrics.structural similarity is applied in the [0, 1] floating domain and averaged over (N, T ).
+The frame-level SSIM uses the standard form. With a Gaussian window G,
+µx = G ∗ x,
+
+σx2 = G ∗ (x2 ) − µ2x ,
+
+σxy = G ∗ (xy) − µx µy ,
+
+where x and y denote two corresponding image patches,
+and µx , µy , σx2 , σy2 , σxy are their local means, variances,
+and covariance computed using the Gaussian window. The
+SSIM for a pair of patches is defined as
+
+Notation Let the prediction and ground truth be Ŷ, Y ∈
+RN ×T ×C×H×W . Dimensions: N is the batch size, T is the
+temporal length, C is the number of channels, and H, W
+are the spatial sizes. An element Ŷn,t,c,h,w (or Yn,t,c,h,w )
+is the value at batch index n, time step t, channel c, and
+spatial location (h, w). Define the per-frame spatial size
+(including channels) as S = CHW . All scalar metrics are
+averaged over the batch and time dimensions (N, T ).
+
+SSIMpatch (x, y) =
+
+(2µx µy + C1 )(2σxy + C2 )
+,
+(µ2x + µ2y + C1 )(σx2 + σy2 + C2 )
+
+where the dynamic range upper bound is Imax = 1 and
+C1 = (0.01 Imax )2 , C2 = (0.03 Imax )2 . The SSIM of an
+entire frame Ŷn,t , Yn,t is obtained by averaging over all
+overlapping patches:
+
+
+1 X
+SSIMframe Ŷn,t , Yn,t =
+SSIMpatch (x, y),
+|P|
+
+7.1. Mean Squared Error (MSE)
+Non-spatially normalized
+!
+N
+T
+2
+1 XX
+Ŷn,t,c,h,w − Yn,t,c,h,w
+.
+N T n=1 t=1
+
+(x,y)∈P
+
+Spatially normalized
+
+where P denotes the set of all patches. The final SSIM is
+MSEnorm =
+
+C X
+H X
+W
+X
+
+1
+1
+N T n=1 t=1 S c=1
+
+µy = G ∗ y,
+
+σy2 = G ∗ (y 2 ) − µ2y ,
+
+7. Metric Definitions
+
+N X
+T
+X
+
+T
+
+1 XX
+PSNRn,t .
+N T n=1 t=1
+
+7.4. Structural Similarity (SSIM)
+
+TaxiBJ are consistent with our SNR analysis: the learned
+channel-wise β adapts in sign and magnitude to local spectral statistics, supporting the view that pixel-wise softmax
+gating together with channel-wise suppression improves denoising flexibility in practice.
+
+c=1 h=1 w=1
+
+.
+
+h=1
+
+20
+
+Figure 10. Visualization of tanh(β) on Moving MNIST and TaxiBJ datasets. Each pair shows (a,c) the branch-wise tanh(β)
+distributions and (b,d) the smoothed channel-wise count curves,
+where the horizontal axis denotes tanh(β) values and the vertical
+axis indicates the number of channels.
+
+MSE =
+
+!
+
+Each pixel value a is converted to 8-bit as ã =
+uint8(255 a). For each sample frame (n, t), the per-pixel
+mean squared error is
+
+(c) tanh(β) by branch distribu- (d) channel-wise tanh(β) value
+distribution on TaxiBJ
+tion on TaxiBJ
+
+C X
+H X
+W
+X
+
+T
+
+1 XX
+Ŷn,t,c,h,w − Yn,t,c,h,w
+N T n=1 t=1
+
+7.3. Peak Signal-to-Noise Ratio (PSNR)
+
+(a) tanh(β) by branch distribu- (b) channel-wise tanh(β) value
+distribution on Moving MNIST
+tion on Moving MNIST
+1.0
+
+W
+C X
+H X
+X
+c=1 h=1 w=1
+
+100
+
+0.5
+1.0
+
+All branches
+K=9
+K=15
+K=31
+
+!
+Ŷn,t,c,h,w − Yn,t,c,h,w
+
+2
+
+SSIM =
+
+.
+
+N
+T
+
+
+1 XX
+SSIMframe Ŷn,t , Yn,t .
+N T n=1 t=1
+
+h=1 w=1
+
+8. Additional experimental results
+
+In practice, the spatially normalized MSE is used during
+training and validation, while the non-spatially normalized
+version is reported during testing.
+
+Furthermore, we extend our evaluation to the Moving
+Fashion-MNIST (MFMNIST) dataset, with baseline results
+3
+
+0.9858
+
+obtained from OpenSTL [50] under identical experimental
+settings. Figure 11 presents qualitative results of PFGNet.
+As shown in Table 8, PFGNet achieves the highest accuracy among all recurrent-free models (MSE: 23.55, SSIM:
+0.9024) while maintaining moderate complexity (41.3M parameters, 15.2G FLOPs). Notably, compared to recurrentbased PredRNN (116.0G FLOPs) and PredRNN++ (171.7G
+FLOPs), PFGNet delivers significantly lower computational cost with comparable predictive performance, highlighting its efficiency in spatiotemporal forecasting.
+
+0.2886, 0.9857
+
+0.2901, 0.9857
+
+0.9856
+
+SSIM ( )
+
+0.2916, 0.9855
+
+0.9854
+0.9852
+
+0.9850
+0.288
+
+0.289
+
+MSE ( )
+
+0.290
+
+1×k + k×1
+2×k + k×2
+3×k + k×3
+0.291
+
+0.292
+
+Figure 12. Ablation on asymmetric convolution (n × k + k × n).
+Table 8. Quantitative comparison on the Moving FMNIST dataset.
+Method
+
+Params
+
+FLOPs
+
+MSE ↓
+
+MAE ↓
+
+SSIM ↑
+
+113.20
+104.85
+318.30
+125.66
+91.74
+91.97
+96.37
+104.39
+110.09
+97.46
+220.02
+
+0.8793
+0.8928
+0.6713
+0.8567
+0.9091
+0.9097
+0.9043
+0.8722
+0.8722
+0.9004
+0.7572
+
+113.94
+101.22
+96.72
+115.59
+108.93
+111.72
+109.51
+115.74
+103.39
+102.56
+116.28
+110.17
+99.69
+94.78
+
+0.8740
+0.8933
+0.8995
+0.8712
+0.8815
+0.8779
+0.8803
+0.8709
+0.8750
+0.8908
+0.8823
+0.8798
+0.8963
+0.9024
+
+Table 9. Ablation on the number of PFG blocks Nt on Moving
+MNIST and TaxiBJ.
+
+Recurrent-based Methods
+ConvLSTM-S [47]
+ConvLSTM-L [47]
+PredNet [38]
+PhyDNet [16]
+PredRNN [59]
+PredRNN++ [60]
+MIM [62]
+MAU [4]
+E3D-LSTM [61]
+PredRNNv2 [63]
+DMVFN [19]
+
+15.0M
+33.8M
+12.5M
+3.1M
+23.8M
+38.6M
+38.0M
+4.5M
+51.0M
+23.9M
+3.5M
+
+SimVP [14]
+SimVPv2 [51]
+TAU [49]
+ViT [12]
+Swin Transformer [36]
+Uniformer [31]
+MLP-Mixer [54]
+ConvMixer [56]
+Poolformer [67]
+ConvNeXt [37]
+VAN [18]
+HorNet [45]
+MogaNet [32]
+PFGNet(Ours)
+
+58.0M
+46.8M
+44.7M
+46.1M
+46.1M
+44.8M
+38.2M
+3.9M
+37.1M
+37.3M
+44.5M
+45.7M
+46.8M
+41.3M
+
+56.8G
+127.0G
+8.6G
+15.3G
+116.0G
+171.7G
+179.2G
+17.8G
+298.9G
+116.6G
+0.2G
+
+28.87
+25.51
+185.94
+34.75
+22.01
+21.71
+23.09
+26.56
+35.35
+24.13
+118.32
+
+Nt
+2
+4
+Moving MNIST
+6
+(100 epochs)
+8
+10
+2
+4
+TaxiBJ
+6
+8
+10
+Dataset
+
+Recurrent-free Methods
+19.4G
+16.5G
+16.0G
+16.9G
+16.4G
+16.5G
+14.7G
+5.5G
+14.1G
+14.1G
+16.0G
+16.3G
+16.5G
+15.2G
+
+30.77
+25.86
+24.24
+31.05
+28.66
+29.56
+28.83
+31.21
+30.02
+26.41
+31.39
+29.19
+25.14
+23.55
+
+Params
+11.0M
+21.1M
+31.2M
+41.3M
+51.3M
+0.53M
+0.97M
+1.41M
+1.86M
+2.30M
+
+FLOPs
+7.4G
+10.0G
+12.6G
+15.2G
+17.7G
+0.21G
+0.33G
+0.44G
+0.55G
+0.67G
+
+MSE ↓ MAE ↓
+34.70 93.93
+29.74 83.38
+28.33 80.14
+27.61 78.54
+27.21 77.57
+0.3669 15.88
+0.3216 15.21
+0.3130 14.99
+0.2881 14.75
+0.2919 14.78
+
+SSIM ↑
+0.9201
+0.9326
+0.9363
+0.9381
+0.9391
+0.9826
+0.9842
+0.9851
+0.9857
+0.9853
+
+Table 10. Ablation on the number of PFG blocks Nt on KTH
+(10→20).
+Nt
+2
+4
+KTH 10 → 20 6
+8
+10
+Dataset
+
+Input
+
+Params
+10.8M
+20.8M
+30.9M
+41.0M
+51.1M
+
+FLOPs SSIM ↑ PSNR ↑
+57.1G 0.908
+33.88
+98.5G 0.910
+34.01
+0.14T 0.911
+34.10
+0.18T 0.909
+34.10
+0.22T 0.912
+34.24
+
+tational complexity. Therefore, we adopt n=1 as a compact
+and efficient default configuration in our experiments.
+In all main experiments, we set the number of PFG
+blocks Nt to follow the same configuration as SimVP and
+its variants in OpenSTL to ensure a fair comparison; Tables 9 and 10 further investigate how varying Nt from 2
+to 10 affects model complexity and accuracy. As expected,
+Params and FLOPs grow linearly with Nt , since stacking
+more PFG blocks only introduces additional, structurally
+identical modules. On Moving MNIST, a larger Nt consistently leads to lower MSE/MAE and higher SSIM, indicating that this dataset benefits from deeper temporal modeling and does not show overfitting within the tested range.
+On TaxiBJ, performance also improves as Nt increases,
+but the best results are obtained at Nt =8, while Nt =10
+brings slightly worse scores, suggesting a mild overfitting
+tendency and diminishing returns when the model becomes
+
+Ground Truth
+
+PFGNet
+
+Figure 11. Qualitative results of PFGNet on Moving FMNIST.
+
+9. Additional Ablation Studies
+As shown in Figure 12, we further analyze the effect of different n settings in the asymmetric convolution (n × k +
+k × n) on the TaxiBJ dataset. The results show that varying
+n brings only minor changes in performance; setting n=1
+achieves nearly the same accuracy while reducing compu4
+
+too deep. On KTH (10→20), increasing Nt from 2 to 10
+generally leads to higher SSIM and PSNR, though the improvements become marginal once Nt ≥ 6 and even show
+slight fluctuations, and the final training loss remains clearly
+below the validation loss, indicating that the motion structure is already well captured and extra depth mainly refines
+local details rather than improving generalization. In practice, choosing Nt =4 or Nt =6 recovers most of the gains
+while keeping the model compact, which aligns with the
+settings commonly used in OpenSTL. Overall, these results
+confirm that the OpenSTL default choice is well justified
+and provides a well-balanced trade-off between computational efficiency and predictive performance, and we therefore adopt this setting in our main experiments.
+t=1
+
+InFlow
+
+t=2
+
+t=3
+
+t=4
+
+OutFlow
+
+t=1
+
+t=2
+
+t=3
+
+t=4
+
+t=5
+
+t=6
+
+t=7
+
+t=8
+
+Layer-wise dissection on Human3.6M. As shown in
+Figure 14, we select the information-dense Human3.6M
+benchmark and dissect one learned PFG module, reproducing the operator behavior from the spatial to the spectral
+domain.
+Spatial antagonistic structure (Left). The median effective kernel (K = 31 branch) exhibits a sign contrast
+between center and surround with an approximately ringshaped tendency. This pattern is not manually imposed;
+it emerges from separable large-k peripheral aggregation
+and the learnable center–surround suppression term. The
+resulting shape is analogous to the classic Difference-ofGaussians receptive-field model of retinal ganglion cells.
+Adaptive spectral re-weighting (Middle). We plot the
+radial log-power ratio for the K = 31 branch against
+β = 0 baseline (∆ log P (r) = log Pfull −log Pβ=0 ). Energy
+is weakened in the low-frequency region, while strengthened in the mid-to-high frequency region to enhance motion boundaries and structural changes. The curve flattens
+at the highest-frequency end, indicating that high-frequency
+noise is not over-amplified. With the statistics in the figure,
+tanh(β) has near-zero mean and large standard deviation
+across channels, suggesting that the so-called suppression
+acts as channel-dependent bidirectional regulation: some
+channels suppress the center response, while others effectively compensate it. This flexibility aligns with antagonistic processing in biological vision.
+Spatially adaptive kernel selection (Right). We overlay the arg max map of the learned gating weights α, upsampled to the input resolution, on an input frame, visualizing the dominant kernel scale at each spatial location.
+The model prefers larger kernels around dynamic regions
+and motion boundaries, while assigning smaller kernels to
+smooth and static background, supporting input-adaptive
+receptive-field selection.
+
+Input
+t=5
+
+t=6
+
+t=7
+
+t=8
+
+Ground
+Truth
+PFGNet
+Error
+-mean
+Error
+=0
+Error
+Static
+k=15
+Error
+Figure 13. Qualitative visualizations on TaxiBJ.
+
+Figure 13 presents qualitative results on TaxiBJ. We
+compare PFGNet error maps (|Ŷ − Y |) against three ablations: uniform fusion (α-mean), disabled center suppression (β = 0), and static kernel (k = 15). All maps share a
+unified scale. The ablations exhibit visibly larger and more
+diffuse errors (see highlights) compared to the sparse residuals of PFGNet. This qualitative evidence corroborates
+the quantitative results in Sec. 4.3, confirming that both
+adaptive gating and learnable center modulation are critical
+for refining structural details.
+0.25
+
+0.01
+
+0.20
+
+0.00
+−0.01
+−0.02
+
+Δ log power
+
+0.02
+
+tanh(β) stats over channels (C=256)
+mean=0.002, std=0.650
+|β| mean=0.570
+
+0.15
+0.10
+0.05
+
+K=9
+K=15
+K=31
+
+0.00
+0
+
+5
+
+10
+
+15
+
+Radius (frequency)
+
+20
+
+Figure 14. Mechanistic visualization of the learned PFGNet.
+
+5
+
+

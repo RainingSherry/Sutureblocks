@@ -1,0 +1,2821 @@
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+MedFormer: Hierarchical Medical Vision
+Transformer with Content-Aware Dual Sparse
+Selection Attention
+
+arXiv:2507.02488v2 [cs.CV] 5 Aug 2025
+
+Zunhui Xia , Hongxing Li , and Libin Lan , Member, IEEE
+
+Abstract— Objective. Medical image recognition serves
+as a key way to aid in clinical diagnosis, enabling more accurate and timely identification of diseases and abnormalities. Vision transformer-based approaches have proven effective in handling various medical recognition tasks. However, these methods encounter two primary challenges.
+First, they are often task-specific and architecture-tailored,
+limiting their general applicability. Second, they usually
+either adopt full attention to model long-range dependencies, resulting in high computational costs, or rely on
+handcrafted sparse attention, potentially leading to suboptimal performance. To tackle these issues, we present
+MedFormer, an efficient medical vision transformer with
+two key ideas. Approach. First, it employs a pyramid scaling
+structure as a versatile backbone for various medical image
+recognition tasks, including image classification and dense
+prediction tasks such as semantic segmentation and lesion
+detection. This structure facilitates hierarchical feature representation while reducing the computation load of feature
+maps, highly beneficial for boosting performance. Second, it introduces a novel Dual Sparse Selection Attention
+(DSSA) with content awareness to improve computational
+efficiency and robustness against noise while maintaining high performance. As the core building technique of
+MedFormer, DSSA is designed to explicitly attend to the
+most relevant content. Theoretical analysis demonstrates
+that MedFormer outperforms existing medical vision transformers in terms of generality and efficiency. Main results.
+Extensive experiments across various imaging modality
+datasets show that MedFormer consistently enhances performance in all three medical image recognition tasks mentioned above. Significance. MedFormer provides an efficient and versatile solution for medical image recognition,
+with strong potential for clinical application. The code is
+available on GitHub.
+Index Terms— Dual sparse selection attention, efficient
+vision transformer, MedFormer, medical image recognition.
+
+I. I NTRODUCTION
+
+This work described in this paper was supported in part by the Scientific Research Foundation of Chongqing University of Technology under
+Grant 2021ZDZ030 and in part by the Youth Project of Science and
+Technology Research Program of Chongqing Education Commission
+of China under Grant KJQN202301145. (Corresponding authors: Libin
+Lan.)
+Zunhui Xia, Hongxing Li, and Libin Lan are with the College of
+Computer Science and Engineering, Chongqing University of Technology, Chongqing 400054, China (e-mail: zunhui.xia@stu.cqut.edu.cn;
+hongxing.li@stu.cqut.edu.cn; lanlbn@cqut.edu.cn).
+
+D
+
+EEP learning has been widely applied in biomedical
+research [1], [2], particularly in medical image recognition tasks, such as classification, segmentation, and detection,
+which are extremely important for computer-aided diagnosis
+due to their ability to rapidly identify lesion types and accurately localize affected regions [3], [4]. Recently, vision
+transformer-based approaches demonstrate their effectiveness
+in addressing these medical recognition tasks. However, due to
+the diversity and complexity of medical images across different
+imaging modalities (e.g., MRI, CT, and Optics) and varying
+image quality (e.g., signal-to-noise ratio and artifacts), most
+existing vision transformer architectures are typically tailored
+for task-specific scenarios, such as disease diagnosis [5], [6],
+[7], [8], anatomical structure and lesion segmentation [9], [10],
+[11], [12], [13], and abnormality detection [14], [15]. While
+effective in their respective applications, such task-specific
+designs may lead to unsatisfactory performance when applied
+to diverse medical image recognition tasks. This limitation
+underscores the need for a general-purpose transformer architecture with task-agnostic, modality-invariant, and qualityadaptive characteristics.
+On the other hand, as the core building block of vision
+transformers, attention is used to model long-range dependencies. When applied directly to medical imaging tasks, vanilla
+attention incurs high computational complexity and a heavy
+memory footprint [9], [10], [19]. To alleviate this issue, recent
+contributions [11], [13], [20] focus on adapting the sparse
+attention to construct various transformer architectures that
+efficiently handle medical vision tasks. However, some of them
+such as Swin-Unet [11] and MedT [20] typically adopt static,
+handcrafted sparse attention to select patterns. Another line of
+works like BRAU-Net [12] and its enhanced version BRAUNet++ [13], drawn inspiration from Bi-level Routing Attention
+(BRA) [18], use dynamic and content-aware mechanism to
+select the most relevant content. The former enables each
+query token to attend to its designated neighboring tokens,
+limiting the ability to capture long-range dependencies. The
+latter allows each query token to attend to a small portion
+of the most semantically relevant tokens selected within a
+larger scale. While more beneficial for achieving the speedaccuracy trade-off, this line of work essentially makes a sparse
+selection of region-level tokens derived from the average of all
+pixels within each region, which may inadvertently incorporate
+pixel-level noise tokens into the computation of the pixellevel attention matrix, potentially resulting in performance
+
+1
+
+2
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+represents the current query’s position.
+
+V-E 𝑖
+
+16
+
+S-E 𝑖
+
+32
+
+16
+16
+
+represent the pixels or local windows that the query focuses on, respectively.
+
+V-E 2
+
+16
+
+𝐿
+TransFormer
+Block
+
+V-E 1
+
+(a) Vision Transformer
+
+Patch
+Merging
+
+S-E 2
+
+B-E 𝑖
+
+32
+16
+
+8
+
+16
+
+SwinFormer
+Block
+
+(b) Swin Transformer
+
+8
+
+B-E 1
+
+(c) BiFormer
+
+Patch
+Merging
+
+M-E 2
+
+𝐿
+
+𝐿
+S-E 1
+
+Patch
+Merging
+
+B-E 2
+
+M-E 𝑖
+
+32
+
+𝐿
+BiFormer
+Block
+
+8
+
+M-E 1
+
+MedFormer
+Block
+
+(d) MedFormer(Ours)
+
+Fig. 1. Comparison of different transformer architectures and corresponding attention mechanisms, where “V-E”, “S-E”, “B-E”, and “M-E” represent
+Vision Transformer Encoder, Swin Transformer Encoder, BiFormer Encoder, and MedFormer Encoder, respectively. (a) Vision Transformer [16] uses
+full attention, where all layers output feature maps with the same resolution. (b-d) adopt various sparse attention and produce multiscale feature
+maps. (b) Swin Transformer [17] restricts attention computation within local windows. (c) BiFormer [18] dynamically selects windows for each query.
+(d) Our proposed MedFormer adaptively allocates attention at both region-level and pixel-level to reduce computational complexity and extract more
+effective features. This hierarchical architecture improves performance in various dense prediction tasks.
+
+degradation in scenarios with high intra-region variability.
+Therefore, dynamically adjusting the selection criteria for the
+most relevant tokens from a pixel-level perspective is essential
+to improve model robustness and accuracy by mitigating noise
+incorporation and capturing pertinent tokens.
+In this work, inspired by the successful pyramid vision
+transformers [17], [18], [21], we propose a unified medical
+vision transformer backbone, called MedFormer, which is
+constructed in a pyramid structure suitable for various medical
+applications, such as disease diagnosis, anatomical structure
+and lesion segmentation, and abnormality detection. Various
+vision transformer backbone, including the proposed MedFormer, are shown in Fig. 1. This structure has the following
+several advantages. First, this hierarchical design can reduce
+the computational cost associated with processing feature
+maps at different resolutions while yielding richer semantic information beneficial for dense prediction. Second, MedFormer
+facilitates the implementation of our adapted attention mechanism on feature maps across different scales. This flexibility
+allows the model to apply attention selectively based on the
+resolution of the feature map. In high-resolution feature maps,
+attention can focus more on local regions, which is crucial
+for tasks like lesion segmentation, while in low-resolution
+maps, it emphasizes global information, aiding in tasks such as
+disease diagnosis. Third, MedFormer increases channel depth
+while reducing spatial dimensions. This strategy maintains rich
+feature representations even at lower resolutions, ensuring that
+the model retains sufficient detail for precise segmentation and
+detection tasks.
+In addition to advances in model architecture, we introduce
+a novel, dynamic, and content-aware sparse attention aimed at
+achieving both higher model performance and computational
+efficiency. Unlike previous approaches such as full attention
+[16], local attention [17], and bi-level routing attention [18],
+our proposed sparse attention selectively attends to the most
+relevant content at both region-level [18] and pixel-level [22]
+scales, further reducing computational cost and excluding the
+noise pixels without sacrificing performance. We refer to
+this attention mechanism as Dual Sparse Selection Attention
+(DSSA), since it explicitly performs twice sparse selection –
+once at the region level and once at the pixel level. Specifically,
+
+it first filters out irrelevant key-value regions through regionlevel sparse selection, retaining only the k1 most relevant
+regions. Subsequently, it performs pixel-level sparse selection
+within these selected regions to further exclude irrelevant
+pixels (including noise pixels) and retain the most pertinent
+k2 pixels. This dual sparse selection approach ensures that
+the model attends to the most significant features while
+significantly reducing computational complexity. After the
+dual sparse selection operations, pixel-to-pixel full attention
+is applied to the regathered pixel-level tokens from the second
+pixel-level sparse selection step. Various attention mechanisms, including the proposed DSSA, are illustrated in Fig.
+1. The designed DSSA has the following several advantages.
+First, DSSA reduces the number of tokens involved in the
+attention computation by performing two-step sparse selection,
+thereby lowering computational complexity. Second, DSSA
+ensures the model focuses on critical information by attending
+to the most relevant region-level and pixel-level tokens, avoiding the negative impact of pixel-level noise tokens and leading
+to improved performance and efficiency. Third, DSSA can
+be effectively implemented on feature maps across different
+resolutions, making it highly suitable for our MedFormer
+network structure.
+The main technical contributions—hierarchical feature representations through a pyramid structure and the DSSA
+mechanism—endow MedFormer with a strong ability to effectively model long-range dependencies. As a result, the
+proposed MedFormer architecture serves as a robust generalpurpose backbone without any additional bells and whistles.
+This makes it particularly appropriate for medical recognition tasks such as disease diagnosis, anatomical structure
+segmentation, and abnormality detection. To the best of our
+knowledge, this is the first work to attempt developing a
+general-purpose vision transformer backbone for the medical
+image recognition community. Overall, our main contributions
+can be summarized as follows:
+1) We propose an effective and efficient medical vision
+transformer, named MedFormer, which is constructed
+hierarchically to generate multiscale feature representations. MedFormer is capable of serving as a generalpurpose backbone for various medical visual recognition
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+tasks, including classification and dense prediction tasks
+such as segmentation and detection.
+2) We design a dual sparse selection attention mechanism,
+termed DSSA, which performs one-time sparse selection
+on both region-level and pixel-level scales, respectively.
+This mechanism offers two significant advantages: it
+capably selects the most relevant tokens while reducing
+computational cost, and it effectively improves robustness against noise tokens.
+3) We provide a detailed theoretical analysis of DDSA and
+evaluate the proposed MedFormer across a variety of
+medical visual recognition tasks, demonstrating superior
+performance compared to other state-of-the-art methods
+under almost all evaluation metrics.
+The rest of this paper is organized as follows. Section
+II delves into the prior related works and their limitations.
+Section III specifies our method, including MedFormer architecture and DSSA mechanism. Section IV showcases the
+experimental results and details, particularly the visualization
+of DSSA attention map. Section V summarizes our findings
+and indicates directions for further research.
+II. R ELATED W ORK
+A. Transformer-based Medical Visual Recognition
+Due to the outstanding performance in modeling global context, transformers have achieved unprecedented success in the
+natural language processing and computer vision tasks. Given
+this phenomenal success, transformers have also been adapted
+to medical visual recognition field, achieving competitive or
+even superior results compared to CNN counterparts across
+diverse modalities like MRI, CT, and X-ray and various tasks
+such as classification, segmentation, and detection.
+During the early phase of adaptation, several main works
+have emerged that apply vanilla transformers to medical visual recognition tasks. For classification, notable approaches
+include MIL-VT [23] and SEViT [24]. Segmentation has
+benefited from models like TransUNet [9], TransFuse [10],
+and BAT [25]. Detection tasks have seen advancements with
+Spine-Transformers [14] and TR-Net [26]. However, these
+methods typically employ full attention to capture long-range
+dependencies, which leads to high computational complexity
+that scales quadratically with sequence length. Inspired by
+pioneering works such as PVT [21], Swin Transformer [17],
+and BiFormer [18], we propose an efficient medical vision
+transformer that leverages a well-designed dual sparse selection attention mechanism. This novel architecture serves
+as a general-purpose backbone for various medical image
+recognition tasks.
+B. Efficient Self-Attention in Medical Visual Recognition
+As noted above, early adaptations to the medical visual
+recognition field typically adopted full attention to capture
+long-range dependencies. However, a well-known concern
+with this approach is its quadratic computational complexity,
+which can hinder model scalability in many settings. To
+mitigate this issue, more recent works have concentrated on
+
+3
+
+developing modifications to full attention aimed at improving
+computational efficiency while maintaining or even enhancing
+performance. Regarding the classification task, IDA-Net [27]
+incorporates deformable attention [28], allowing for flexible
+and adaptive sampling of features. Inspired by Swin Transformer [17], HiFuse [29] designs a three-branch hierarchical
+multi-scale feature fusion network structure with rich scalability and linear computational complexity, achieving good classification performance. POCFormer [30], which exploits lowrank approximations [31] to reduce the complexity of vanilla
+attention from quadratic to linear for COVID-19 detection.
+KAT [32] and MG-Trans [33] respectively utilize kernelization
+techniques and graph-enhanced transformers, effectively compressing the attention mechanism to handle longer sequences
+more efficiently for histopathology image classification. For
+segmentation tasks, MedT [20] and MSAANet [34] restrict
+query attention key-value pairs in both width and height
+dimensions to reduce computational burden. Similarly, SwinUnet [11], HiFormer [35], MAXFormer [36] perform attention computation within local windows. BRAU-Net++ [13]
+leverages dynamic sparse attention mechanism [18], focusing
+on selective regions of interest to streamline computations
+without sacrificing accuracy. Furthermore, numerous studies
+have explored the use of various efficient attention mechanisms specifically tailored for segmentation tasks. One such
+example is MISSFormer [37], which introduces an efficient
+self-attention module to model long-range dependencies while
+capturing local context from multi-scale features. Different
+from these methods, inspired by bi-level routing attention [18]
+and explicit sparse attention [22], we propose dual sparse
+selection attention for various medical image recognition tasks,
+which not only reduces computational and memory costs but
+also improves performance and robustness to noise tokens.
+C. Transformer-based Medical Vision Backbone
+Recently, transformer-based backbones become a dominant
+paradigm in the computer vision community. The pioneering work is Vision Transformer (ViT) [16], which achieves
+remarkable success in image classification. However, ViT is
+a columnar structure, leading to low-resolution outputs. To
+address this limitation, Pyramid Vision Transformer (PVT)
+[21] borrows the pyramid structure from CNN and proposes a
+similar structure as the general vision transformer backbone.
+Inspired by the significant achievements of PVT in a wide
+range of vision tasks, several subsequent studies such as Swin
+Transformer [17], BiFormer [18], DAT [28] have also embraced this architecture and enhanced it with their respective
+efficient attention mechanisms specifically designed for dense
+prediction tasks. Similarly, our work also proposes a four-stage
+pyramid structure that is equipped with well-designed dual
+sparse selection attention to address dense prediction tasks in
+the medical image recognition field, which enjoys good model
+performance and high computational efficiency.
+III. M ETHOD
+In this section, we first introduce the design details of
+the DSSA mechanism. Then, we theoretically analyze its
+
+4
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+𝑊
+𝑊
+𝑆
+
+𝑄
+
+𝐻
+
+𝑞𝑟
+
+𝑘𝑆𝑟2
+
+𝐾𝑔
+
+𝑉𝑔
+
+region-level key
+
+softmax
+
+𝐼𝑃
+
+Top𝑘1 Index
+
+…
+
+𝐴𝑃
+
+Top𝑘2 Index
+
+𝐼𝑟
+
+Region Average
+
+𝑘1𝑟
+𝑘2𝑟
+
+Top𝑘2 Value
+
+𝐴𝑝
+
+MM
+
+region-level query
+
+reshape&
+MM
+
+𝑉𝑔𝑔
+
+gather
+
+region
+
+gather
+
+M
+M
+
+𝐴𝑟
+
+query
+
+Region-Level Token Sparse Selection
+
+Output Matrix Computation Based
+on Selected Pixel-Level Tokens
+
+Pixel-Level Token Sparse Selection
+
+Fig. 2. Illustration of dual sparse selection attention (DSSA). First, region-level token sparse selection is performed by obtaining queries and
+key features through region averaging, selecting the top-k1 relevant regions. Then, pixel-level token sparse selection is conducted within these
+selected regions, choosing the top-k2 relevant pixel tokens. Finally, matrix multiplication is applied to obtain the output. The mechanism can reduce
+computational complexity while extracting the most relevant features.
+Input: H  W  3
+
+Stage1:
+
+H W
+ C
+4 4
+
+Stage2:
+
+H W
+  2C
+8 8
+
+H W
+query
+  4C
+Stage3:
+
+Stage4:
+
+16 16
+
+region-level key
+
+region-level query
+
+𝑁
+
+Patch
+Merging
+
+region
+MedFormer
+Block
+
+Patch
+Merging
+
+Patch
+Merging
+
+Patch
+Embedding
+
+MedFormer
+Block
+
+MedFormer
+Block
+
+𝑁
+
+H W
+  8C
+32 32
+
+MedFormer
+Block
+
+𝑁
+
+𝑁
+
++
+
+Element-wise Addition
+Position Embedding
+
+LN
+
+MLP
+
++
+
+DSSA
+
++
+
++
+
+LN
+
+Feature Map
+
+Fig. 3. Top: The overall architecture of MedFormer is illustrated, presenting a four-stage hierarchical pyramid network. At each stage i, the
+input feature maps undergo patch embedding or patch merging layer to reduce spatial resolution while increasing the number of channels. Each
+stage contains Ni stacked MedFormer Blocks. This design helps to extract multiscale features while maintaining computational efficiency. Bottom:
+Detailed design of the MedFormer Block.
+
+computational complexity. Finally, we build the DSSA-based
+MedFormer Block and propose a novel backbone network for
+medical image recognition, called MedFormer.
+A. Dual Sparse Selection Attention (DSSA)
+The self-attention mechanism is capable of capturing global
+context, but its computational complexity increases quadratically with the length of input sequence. Consequently, when
+processing longer sequences, the self-attention mechanism
+may become a bottleneck for Transformer. To overcome this
+limitation, we propose the content-aware DSSA. A conceptual
+illustration of the DSSA is provided in Fig. 2. Specifically, our
+approach adopts dynamic sparse selection at both the regional
+and pixel level, which substantially reduces computational
+complexity while filtering noise tokens to ensure effective
+feature extraction. To achieve this, the input feature map
+X ∈ RH×W ×C is partitioned into S × S non-overlapping
+2
+HW
+regions, represented as Xr ∈ RS × S2 ×C . This transformation preserves spatial relationships among pixels, enabling the
+2
+HW
+direct computation of partitioned queries Q ∈ RS × S2 ×C ,
+
+2
+
+HW
+
+2
+
+HW
+
+keys K ∈ RS × S2 ×C , and values V ∈ RS × S2 ×C by
+the projection weight matrices Wq , Wk , Wv ∈ RC×C , this
+process is formularized as:
+Q = Xr W q , K = Xr W k , V = Xr W v .
+
+(1)
+
+1) Region-Level Token Sparse Selection: Directly performing pixel-level sparse selection is not only time-consuming
+but also computationally expensive. To address this challenge,
+we adopt a region-level sparse selection strategy, as the
+number of regions is substantially smaller than the number of pixels, thereby significantly reducing computational
+complexity. Specifically, we calculate the average of queries
+and keys within each region, obtaining region-level queries
+2
+2
+Qr ∈ RS ×C and region-level keys Kr ∈ RS ×C . Then, we
+compute the relevance between all region-level tokens based
+on Qr and Kr .
+Ar = Qr (Kr )T .
+(2)
+2
+
+2
+
+Where, Ar ∈ RS ×S reflects the semantic relevance between
+all region-level tokens. To efficiently and adaptively filter
+region-level tokens, we retain the k1 regions with the highest
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+relevance to the query region. The indices of these k1 region2
+level tokens are stored in the set Ir ∈ NS ×k1 and are shared
+across all pixel-level tokens within the corresponding query
+region. This approach dynamically reduces the number of
+regions while preserving the capability for global modeling.
+Ir = Topk1 Index(Ar ).
+
+(3)
+
+2) Pixel-Level Token Sparse Selection: To exploit the GPU’s
+
+parallel computation capabilities for matrices, we gather the
+pixel-level keys and values distributed across k1 regions into
+k HW
+S 2 × 1S 2 ×C
+g
+and Vg ∈
+new tensors,
+denoted
+as
+K
+∈
+R
+k HW
+S 2 × 1S 2 ×C
+R
+.
+Kg = gather(K, Ir ), Vg = gather(V, Ir ).
+
+(4)
+
+B. Complexity Analysis of DSSA
+In this section, we analyze the computational complexity
+of DSSA in terms of FLOPs. The total FLOPs are composed
+of three primary components: linear projection, region-level
+token sparse selection, and pixel-level token sparse selection.
+Therefore, the total FLOPs can be represented as follows:
+2
+FLOPsproj = |3HW
+{z C }
+projection
+
+2
+
+2
+
+FLOPsregion = S (S C) + S 2 (S 2 + k1 )
+{z
+}
+| {z } |
+Qr ·(Kr )T
+
+Topk1
+
+k1 HW
+k1 HW
+FLOPstoken = HW
+C + HW (
++ k2 ) + HW k2 C
+2
+| {z }
+S
+S{z2
+|
+{z
+} |
+}
+AP ·Vgg
+Q·(Kg )T
+
+Notably, not all selected pixel-level tokens contribute beneficial features to model learning, as the region-level sparse
+selection process operates at a coarse granularity. To further
+eliminate noise tokens and reduce computational overhead,
+we propose a pixel-level sparse selection strategy. Similar to
+the region-level selection process, we calculate the relevance
+between the selected pixel-level tokens and the corresponding
+query, retaining the k2 pixel-level tokens with the highest
+relevance to the query. The values and indices of these pixelk1 HW
+2
+HW
+level
+tokens
+are stored in Ap ∈ RS × S2 × S2 and Ip ∈
+2
+HW
+NS × S2 ×k2 , respectively, where the value of k2 relates to a
+scaling factor λ. The specific formulas are as follows:
+k1 HW
+,
+S2
+
+(5)
+
+Ap = Q(Kg )T ,
+
+(6)
+
+AP = Topk2 Value(Ap ),
+
+(7)
+
+IP = Topk2 Index(Ap ).
+
+(8)
+
+k2 = λ
+
+5
+
+Topk2
+
+FLOPs = FLOPsproj + FLOPsregion + FLOPstoken
+= 3HW C 2 + S 2 (S 2 C + S 2 + k1 )
+k1 HW
++ k2 ),
++ HW (C + 1)(
+S2
+
+(11)
+
+> k2 , we then substitute
+where S 2 C > S 2 + k1 and k1SHW
+2
+S 2 C and k1SHW
+into Eq. 11 to obtain the inequality:
+2
+2k1 (HW )2
+(C + 1). (12)
+S2
+Next, we denote the right hand side of the inequality in Eq. 12
+1
+as InEq. Applying the AM-GM inequality a+b+c ≥ 3(abc) 3 ,
+we proceed with further analysis:
+FLOPs < 3HW C 2 + 2(S 2 )2 C +
+
+2k1 (HW )2
+(C + 1)
+S2
+2k1 (HW )2
+C
+> 3HW C 2 + 2(S 2 )2 C +
+S2
+k1 (HW )2
+k1 (HW )2
+= 3HW C 2 + 2(S 2 )2 C +
+C+
+C
+2
+S
+S2
+
+ 13
+k1 (HW )2
+k1 (HW )2
+≥ 3HW C 2 + 3 2(S 2 )2 C ·
+C
+·
+C
+S2
+S2
+
+InEq = 3HW C 2 + 2(S 2 )2 C +
+
+2
+
+4
+
+= 3HW C 2 + 6C(k1 ) 3 (HW ) 3 .
+3) Matrix Multiplication: By leveraging the dual sparse selection mechanism, we efficiently complete the attention allocation process. Then, we gather the k2 pixel-level values into
+2
+HW
+a new tensor Vgg ∈ RS × S2 ×k2 ×C , to fully exploit GPU
+acceleration:
+
+(13)
+Combining Eq. 12 and Eq. 13, it is evident that the upper
+bound of FLOPs is strictly less than the lower bound of InEq:
+
+Vgg = gather(Vg , IP ).
+
+In conclusion, this analysis demonstrates that the complexity
+4
+of DSSA is less than O((HW ) 3 ), representing a significant
+reduction compared to vanilla attention.
+
+(9)
+
+To enable matrix multiplication between AP and Vgg , we
+introduce an additional dimension to the third axis of AP ,
+resulting in a tensor shape of S 2 × HW
+S 2 × 1 × k2 . Furthermore,
+to enrich local feature information, we incorporate a local
+context enhancement module, denoted as LCE(·), which is
+constructed using a 5×5 depth-wise convolution. This module
+further strengthens feature representation. The final output of
+the model is expressed as:
+O = AP Vgg + LCE(V).
+
+(10)
+
+2
+
+4
+
+FLOPs < 3HW C 2 + 6C(k1 ) 3 (HW ) 3 .
+
+(14)
+
+C. Architecture Design
+1) MedFormer Block: Utilizing DSSA, we construct a basic
+block called the MedFormer Block. This block is composed of
+three main components: a 3×3 depth-wise convolution to implicitly encode relative positional information, a DSSA layer
+performs sparse selection both at region-level and pixel-level
+to capture critical features, and a two-layer MLP module with
+expansion ratio e=3. Each component incorporates residual
+connections to maintain the model’s learning capacity, and
+
+6
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+TABLE I
+VARIANTS OF M ED F ORMER FOR MEDICAL IMAGE CLASSIFICATION . Ci : C HANNEL DIMENSION AT STAGE i. S: THE NUMBER OF REGIONS IN
+FEATURE MAPS . k1 : S ELECT THE k1 MOST RELEVANT REGIONS . λ: PROPORTIONALITY COEFFICIENT USED FOR THE SECOND SPARSE SELECTION .
+
+Stage
+
+Output Size
+
+Layer
+
+Patch Embedding
+
+Stage1
+
+MedFormer-Tiny
+
+3×3
+× 2, C1 = 32
+BN
+
+H
+W
+4 × 4
+
+Transformer Encoder
+
+Patch Merging
+Stage2
+
+
+
+3×3
+, C2 = 64
+BN
+
+H
+W
+8 × 8
+
+Transformer Encoder
+
+
+
+3×3
+, C2 = 128
+BN
+
+
+
+
+3×3
+, C2 = 256
+BN
+
+Patch Merging
+Stage3
+
+H
+W
+16 × 16
+
+Transformer Encoder
+
+Patch Merging
+Stage4
+
+H
+W
+32 × 32
+
+Transformer Encoder
+Params
+FLOPs
+
+
+
+MedFormer-Small
+
+3×3
+× 2, C1 = 64
+BN
+
+
+S=7
+ k1 = 1  × 2
+λ = 81
+
+
+3×3
+, C2 = 128
+BN
+
+
+S=7
+ k1 = 4  × 2
+λ = 81
+
+
+3×3
+, C2 = 256
+BN
+
+
+S=7
+k1 = 16 × 8
+λ = 18
+
+
+3×3
+, C2 = 512
+BN
+
+
+S=7
+k1 = 49 × 2
+λ = 18
+
+3.20M
+0.58G
+
+
+
+MedFormer-Base
+
+3×3
+× 2, C1 = 96
+BN
+
+
+
+
+3×3
+, C2 = 192
+BN
+
+
+
+
+3×3
+, C2 = 384
+BN
+
+
+
+
+3×3
+, C2 = 768
+BN
+
+12.63M
+2.18G
+
+28.30M
+4.79G
+
+TABLE II
+DATASETS OF THE VARIOUS MEDICAL IMAGE TASKS USED IN OUR EXPERIMENTS .
+
+Task
+
+DataSet
+
+Input size
+
+Num class
+
+Train
+
+Val
+
+Test
+
+Classification
+
+ISIC-2018 Classification [38] [39]
+ColonPath [40]
+Brain Tumor [41]
+
+224×224
+224×224
+224×224
+
+7
+2
+4
+
+9376
+8007
+5618
+
+-
+
+2344
+2002
+1405
+
+Segmentation
+
+ISIC-2018 Segmentation [38] [39]
+CVC-ClinicDB [42]
+Synapse [43]
+
+224×224
+256×256
+224×224
+
+2
+2
+9
+
+1868
+441
+2212
+
+467
+110
+-
+
+259
+61
+1567
+
+Kvasir-Seg [44]
+Brain Tumor Detection [45]
+
+256×256
+256×256
+
+2
+4
+
+800
+7128
+
+-
+
+200
+1782
+
+Detection
+
+layer normalization is applied to stabilize the training process
+and improve the capability of generalization. The detailed
+design of the block is shown in Fig. 3.
+2) Architecture: To produce hierarchical feature maps for
+enhancing performance in classification and various dense
+prediction tasks, we construct a hierarchical pyramid medical
+backbone network based on MedFormer Blocks, named MedFormer. The detailed design is illustrated in Fig. 3. Specifically, Stage 1 consists of a patch embedding layer and N1
+MedFormer Blocks. The patch embedding layer is composed
+of two 3×3 convolutions, which transform the input image into
+a feature map with a resolution of H4 × W
+4 × C. To obtain a
+hierarchical representation, Stage 2 introduces a patch merging
+layer with a 3×3 convolution, which reduces the number of
+tokens and sets the channel dimension to 2C, resulting in a
+
+W
+feature map size of H
+8 × 8 × 2C. Then, N2 MedFormer
+Blocks are applied to extract effective features. After repeating
+the process twice, Stage 3 and Stage 4 generate feature maps
+H
+H
+W
+with dimensions 16
+×W
+16 × 4C and 32 × 32 × 8C, respectively.
+Additionally, by adjusting the parameters of MedFormer, we
+proposed three different variants: Tiny, Small and Base. Table I presents the detailed parameter configurations of these
+MedFormer variants for classification tasks.
+
+IV. E XPERIMENTS AND R ESULTS
+This section begins with an overview of the datasets used in
+our study. Next, we evaluate the Performance of MedFormer
+across three tasks: classification, semantic segmentation, and
+object detection, detailing the corresponding experimental setups and results. Then, we conduct a series of ablation studies
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+7
+
+TABLE III
+C OMPARISON OF DIFFERENT METHODS ON THREE MEDICAL IMAGE CLASSIFICATION DATASETS . * INDICATES THAT THE MODEL IS INITIALIZED WITH
+WEIGHTS PRETRAINED ON THE I MAGE N ET DATASET.
+
+Methods
+
+Params (M)
+
+FLOPs (G)
+
+Top-1 Acc (%)
+
+Throughput (img/s) Mem (MB)
+ISIC-2018
+
+ColonPath
+
+Brain Tumor
+
+HiFuse-Tiny [29]
+MIL-VT [23]
+KAT [32]
+MG-Trans [33]
+
+120.00
+21.80
+20.08
+22.12
+
+17.56
+4.28
+3.01
+3.38
+
+415.6
+1288.0
+879.8
+926.7
+
+5599
+1027
+1975
+2033
+
+84.61
+84.21
+88.54
+88.32
+
+98.70
+97.55
+98.22
+98.46
+
+95.14
+87.13
+96.31
+97.16
+
+ViT-S [16]
+PVT-S [21]
+Swin-T [17]
+BiFormer-S [18]
+
+21.67
+23.98
+27.53
+25.03
+
+4.61
+3.83
+4.51
+4.49
+
+1299.5
+917.0
+802.8
+996.6
+
+1027
+1985
+2323
+2091
+
+87.75
+88.76
+87.72
+86.22
+
+97.30
+97.30
+98.10
+98.35
+
+88.21
+90.52
+91.43
+96.33
+
+MedFormer-T
+MedFormer-S
+MedFormer-B
+
+3.20
+12.63
+28.30
+
+0.58
+2.18
+4.79
+
+1569.3
+941.2
+600.3
+
+1715
+2215
+2993
+
+85.51
+88.24
+89.71
+
+97.29
+98.10
+98.72
+
+91.57
+95.62
+98.13
+
+MedFormer-T*
+MedFormer-S*
+MedFormer-B*
+
+3.20
+12.63
+28.30
+
+0.58
+2.18
+4.79
+
+1569.3
+941.2
+600.3
+
+1715
+2215
+2993
+
+93.61
+94.44
+94.57
+
+100.00
+100.00
+100.00
+
+99.64
+99.83
+99.91
+
+to validate the contributions of each component of MedFormer,
+including the effectiveness of DSSA, hyperparameter selection, the effectiveness of denoising, and the effect of model
+depth on performance. Finally, we provide comprehensive
+visualization analyses. All experiments are conducted using
+the PyTorch 2.0 framework on four NVIDIA 3090 graphics
+cards with 24GB memory.
+
+A. Datasets
+This subsection introduces the datasets used for each task,
+with detailed information about each dataset provided in Table
+II. Notably, for classification and detection datasets, we split
+them into training and test sets in an 8:2 ratio. As for
+segmentation datasets, we follow the same data partitioning
+scheme as previous works, such as Swin-Unet, MISSFormer,
+and BRAU-Net++.
+1) ISIC-2018 Classification: The classification dataset originates from the ISIC-2018 Challenge Task 3 and encompasses
+seven distinct categories of images. All images have been
+standardized to a uniform resolution of 600×450 pixels. The
+entire dataset consists of 9,376 training images and 2,344 test
+images.
+2) ColonPath: This is a binary classification dataset from
+Ruijin Hospital in China, designed to detect malignant cell
+regions in tissue slides. These images are derived from
+colonoscopy results of 396 patients. We randomly split the
+dataset into 8,007 training images and 2,002 test images.
+3) Brain Tumor: This is an MRI image dataset for fourclass brain tumor classification, consisting of a total of 7,023
+images, including 5,618 training images and 1,405 test images.
+4) ISIC-2018 Segmentation: This segmentation dataset is
+collocated from the ISIC-2018 Challenge Task 1 and contains
+2,594 images with varying resolutions. Following [13], we first
+allocate 10% as the test set, then split the remaining images
+into training and validation sets with 8:2 ratio.
+
+5) CVC-ClinicDB: CVC-ClinicDB is a widely used polyp
+segmentation dataset consisting of 612 images. Following the
+same division method as the ISIC-2018 Segmentation dataset,
+we obtain 441 training images, 110 validation images, and 61
+test images.
+6) Synapse: This is a multi-organ segmentation dataset
+consists of 30 abdominal CT scans, with each CT volume
+containing between 85 and 198 slices of 512×512 pixels. The
+dataset is partitioned following [11], [37]. Specifically, 2,212
+slices from 18 scans are used for training, and 1,567 slices
+from 12 scans are used for testing.
+7) Kvasir-Seg: The Kvasir-Seg dataset contains 1,000
+pathological polyp images and their corresponding annotations. We randomly split the dataset into 800 training images
+and 200 testing images.
+8) Brain Tumor Detection: This dataset is specifically designed for detecting brain tumors using computer vision techniques. The train set and test set includes 7,128 images and
+1,782 images, respectively.
+
+B. Medical Image Classification
+1) Settings: The classification performance of MedFormer
+is evaluated on three medical image datasets. To ensure a fair
+and comprehensive evaluation, MedFormer is compared with
+two types of methods: specialized medical image classification
+methods and widely-used Transformer backbone networks.
+The AdamW optimizer is used with a weight decay of 0.05
+and the initial learning rate is set to 1e − 6. A linear warmup strategy is employed to gradually increase the learning
+rate during the first 5 epochs, followed by a cosine annealing
+schedule with a minimum learning rate of 1e − 5. To further
+enhance the model’s generalization ability, a series of data
+augmentation techniques are applied, including mixup, cutmix,
+and random erasing. Additionally, the input images are resized
+to 224×224, and the training is conducted for 300 epochs. For
+MedFormer, key parameters are configured, such as setting
+
+8
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+TABLE IV
+Q UANTITATIVE RESULTS ON PARAMS , FLOP S , DSC, AND HD OF OUR APPROACH AGAINST OTHER STATE - OF - THE - ART METHODS FOR MEDICAL
+IMAGE SEGMENTATION ON S YNAPSE MULTI - ORGAN SEGMENTATION DATASET. O NLY DSC IS EXCLUSIVELY USED FOR THE EVALUATION OF
+INDIVIDUAL ORGAN . T HE SYMBOL ↑ INDICATES THE LARGER THE BETTER . T HE SYMBOL ↓ INDICATES THE SMALLER THE BETTER . T HE BEST
+RESULT IS IN B LOD , AND THE SECOND BEST IS UNDERLINED . * INDICATES THE MODEL IS INITIALIZED WITH PRE - TRAINED WEIGHTS .
+Methods
+
+Params (M) FLOPs (G)
+
+DSC (%) ↑ HD (mm) ↓ Aorta
+
+Pancreas
+
+Spleen
+
+Stomach
+
+Focal-UNet [46]
+MISSFormer [37]
+MAXFormer [36]
+MedFormer-B
+
+44.25
+42.46
+88.93
+31.28
+
+9.99
+9.89
+45.16
+7.49
+
+80.81
+81.96
+83.66
+81.75
+
+20.66
+18.20
+15.89
+18.72
+
+85.74
+86.99
+87.72
+87.62
+
+Gallbladder Kidney (L) Kidney (R) Liver
+71.37
+68.65
+73.53
+71.66
+
+85.23
+85.21
+87.92
+82.25
+
+82.99
+82.00
+84.67
+81.04
+
+94.38
+94.41
+95.00
+95.14
+
+59.34
+65.67
+66.55
+62.12
+
+88.49
+91.92
+92.46
+92.52
+
+78.94
+80.81
+81.44
+81.65
+
+TransUNet* [9]
+Swin-Unet* [11]
+HiFormer* [35]
+BRAU-Net++* [13]
+
+105.28
+27.17
+25.51
+62.63
+
+29.35
+6.16
+8.05
+17.66
+
+77.48
+79.13
+80.39
+82.47
+
+31.69
+21.55
+14.70
+19.07
+
+87.23
+85.47
+86.21
+87.95
+
+63.13
+66.53
+65.69
+69.10
+
+81.87
+83.28
+85.23
+87.13
+
+77.02
+79.61
+79.77
+81.53
+
+94.08
+94.29
+94.61
+94.71
+
+55.86
+56.58
+59.52
+65.17
+
+85.08
+90.66
+90.99
+91.89
+
+75.62
+76.60
+81.08
+82.26
+
+PVT-S* [47]
+Swin-T* [17]
+DAT-T* [28]
+BiFormer-S* [18]
+
+25.35
+28.61
+24.31
+25.89
+
+4.49
+5.20
+4.87
+5.55
+
+80.00
+82.02
+82.68
+82.99
+
+23.47
+19.87
+19.45
+17.15
+
+85.87
+87.03
+87.37
+87.17
+
+69.28
+73.87
+74.50
+71.22
+
+80.09
+83.38
+83.30
+85.87
+
+77.44
+81.20
+79.55
+82.79
+
+94.77
+94.46
+94.85
+94.94
+
+60.25
+65.00
+65.07
+67.42
+
+90.65
+89.58
+92.13
+91.02
+
+81.67
+81.64
+84.69
+83.45
+
+MedFormer-T*
+MedFormer-S*
+MedFormer-B*
+
+3.83
+13.49
+31.28
+
+1.26
+2.90
+7.49
+
+81.23
+82.21
+84.07
+
+20.20
+19.23
+17.38
+
+85.93
+86.84
+88.16
+
+74.51
+69.61
+74.83
+
+80.74
+84.27
+85.90
+
+78.86
+81.91
+82.90
+
+94.61
+94.44
+95.58
+
+61.79
+64.89
+66.96
+
+91.53
+93.10
+93.01
+
+80.90
+82.65
+85.24
+
+TABLE V
+Q UANTITATIVE RESULTS OF DIFFERENT METHODS FOR MEDICAL IMAGE SEGMENTATION ON ISIC-2018 S EGMENTATION AND CVC-C LINIC DB
+DATASETS . * INDICATES THE MODEL IS INITIALIZED WITH PRE - TRAINED WEIGHTS .
+ISIC-2018 Segmentation
+
+Methods
+
+CVC-ClinicDB
+
+Params (M) FLOPs (G)
+
+mIoU
+
+DSC
+
+Acc
+
+Prec
+
+Recall
+
+mIoU
+
+DSC
+
+Acc
+
+Prec
+
+Recall
+
+MedT [20]
+MISSFormer [37]
+MedFormer-B
+
+81.43
+81.45
+81.67
+
+86.92
+88.29
+88.42
+
+95.10
+94.81
+94.78
+
+90.56
+91.37
+91.15
+
+89.93
+89.13
+89.60
+
+81.47
+83.68
+84.49
+
+86.97
+89.50
+89.99
+
+98.44
+98.58
+98.71
+
+89.35
+91.65
+91.13
+
+90.04
+88.08
+89.55
+
+1.56
+42.53
+29.38
+
+3.60
+11.92
+7.15
+
+TransUNet* [9]
+Swin-Unet* [11]
+HiFormer* [35]
+BRAU-Net++* [13]
+
+77.05
+81.87
+81.54
+84.01
+
+84.97
+87.43
+88.44
+90.10
+
+94.56
+95.44
+94.68
+95.61
+
+84.77
+90.97
+90.23
+91.18
+
+89.85
+91.28
+90.82
+92.24
+
+79.95
+84.85
+85.74
+88.17
+
+86.70
+88.21
+90.48
+92.94
+
+98.25
+98.72
+98.62
+98.83
+
+87.63
+90.52
+91.56
+93.84
+
+87.34
+91.13
+90.37
+93.06
+
+105.32
+27.18
+25.51
+62.63
+
+38.54
+8.09
+8.05
+23.03
+
+PVT-S* [21]
+Swin-T* [17]
+DAT-T* [28]
+BiFormer-S* [18]
+
+82.22
+82.83
+83.07
+83.17
+
+88.75
+89.24
+89.43
+89.54
+
+94.82
+95.14
+95.25
+95.23
+
+91.46
+91.45
+91.43
+91.32
+
+90.24
+90.83
+91.17
+91.13
+
+86.08
+88.70
+90.21
+90.27
+
+91.53
+93.75
+94.33
+94.69
+
+98.80
+98.97
+99.01
+99.02
+
+92.77
+94.84
+95.43
+95.47
+
+91.00
+93.16
+94.31
+93.97
+
+25.47
+28.61
+24.31
+25.89
+
+5.92
+8.26
+6.40
+6.74
+
+MedFormer-T*
+MedFormer-S*
+MedFormer-B*
+
+83.26
+82.69
+82.96
+
+89.63
+89.20
+89.45
+
+95.31
+95.11
+95.34
+
+91.65
+91.35
+91.53
+
+91.22
+90.95
+91.01
+
+86.00
+89.22
+90.33
+
+91.13
+94.02
+94.73
+
+98.71
+99.02
+99.08
+
+91.56
+94.35
+95.64
+
+92.08
+94.33
+94.28
+
+3.83
+13.49
+29.38
+
+1.60
+3.72
+7.15
+
+the region partition factor S to 7, the hyperparameter λ to
+1/8, the dimension of each attention head to 32, and the MLP
+expansion ratio to 3.
+2) Results: All classification results are summarized in
+Table III. It is observed that MedFormer-B achieves the best
+performance across all three classification datasets. Notably,
+MedFormer-T achieves comparable performance to some
+methods with only 3.2M parameters and 0.58G FLOPs. In
+contrast, HiFuse-Tiny requires significantly more resources but
+performs well only on the ColonPath dataset. KAT and MGTrans are effective in reducing computational requirements,
+but their use of kernel techniques or graph transformers may
+overlook the extraction of detailed features, thus limiting
+the improvement in accuracy. The accuracy of MedFormer
+surpasses that of the compared backbone networks, demonstrating MedFormer’s superior feature representation ability.
+Additionally, MedFormer with pre-trained weights achieves
+an accuracy of 100% and 99.91% on the ColonPath and Brain
+Tumor datasets, respectively, showcasing its immense potential
+
+in medical image classification tasks.
+It is worth noting that the pretrained version of MedFormer
+is included solely to demonstrate its potential but is not
+incorporated into the formal comparisons. To further evaluate
+the deployment feasibility of these methods in real clinical
+systems, we measure the throughput and memory usage for
+each method. The results are shown in Table III. It can be
+seen that ViT-S and MIL-VT, although capable of processing
+images at a high throughput with relatively low memory
+usage, exhibit lower accuracy. MedFormer-T is suitable for
+scenarios where speed is prioritized, offering good throughput
+and low memory usage. MedFormer-B, though slower, excels
+in accuracy and is ideal for medical image classification tasks
+requiring high precision. MedFormer-S strikes a good balance
+between efficiency and accuracy, making it suitable for most
+clinical applications. These variants ensure that MedFormer
+can effectively meet the needs of various clinical scenarios.
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+9
+
+TABLE VI
+R ESULTS OF DIFFERENT METHODS FOR M EDICAL I MAGE D ETECTION ON K VASIR -S EG AND B RAIN T UMOR D ETECTION DATASET. * INDICATES THE
+MODEL IS INITIALIZED WITH PRE - TRAINED WEIGHTS .
+Kvasir-Seg
+
+Methods
+
+Brain Tumor Detection
+
+mAP
+
+AP50
+
+AP75
+
+Recall
+
+Params (M)
+
+FLOPs (G)
+
+mAP
+
+AP50
+
+AP75
+
+Recall
+
+Params (M)
+
+FLOPs (G)
+
+RetinaNet* [48]
+Faster R-CNN* [49]
+Deformable DETR* [50]
+
+51.2
+48.7
+54.3
+
+87.5
+85.3
+86.0
+
+57.4
+57.5
+62.4
+
+91.9
+90.7
+96.1
+
+36.33
+41.35
+41.07
+
+13.05
+26.21
+15.21
+
+35.8
+38.0
+38.7
+
+70.1
+72.3
+73.6
+
+32.5
+35.7
+37.3
+
+82.3
+77.7
+87.2
+
+36.37
+41.36
+41.08
+
+13.11
+26.23
+15.21
+
+PVT-S* [21]
+Swin-T* [17]
+DAT-T* [28]
+BiFormer-S* [18]
+
+56.2
+55.8
+47.3
+49.4
+
+84.3
+89.0
+85.3
+88.6
+
+62.2
+62.3
+49.5
+48.7
+
+89.9
+94.9
+92.4
+95.3
+
+32.58
+36.82
+32.05
+33.62
+
+12.51
+14.58
+12.83
+13.32
+
+45.6
+41.9
+41.5
+45.5
+
+76.6
+75.2
+74.3
+76.8
+
+47.8
+41.3
+41.3
+47.8
+
+83.6
+85.9
+85.8
+85.6
+
+32.62
+36.86
+32.09
+33.66
+
+12.56
+14.64
+12.89
+13.38
+
+MedFormer-T*
+MedFormer-S*
+MedFormer-B*
+
+52.6
+53.8
+56.4
+
+88.8
+89.3
+90.1
+
+58.1
+60.6
+62.6
+
+95.3
+93.0
+94.6
+
+11.09
+21.22
+37.59
+
+8.17
+10.29
+13.34
+
+42.6
+43.9
+45.8
+
+74.6
+76.1
+77.1
+
+43.5
+45.2
+48.1
+
+86.2
+84.9
+84.2
+
+11.13
+21.27
+37.63
+
+8.23
+10.35
+13.80
+
+C. Medical Image Segmentation
+1) Settings: MedFormer is employed as the backbone network in UPerNet [51], and its performance is evaluated
+against other popular backbone networks on medical image
+segmentation tasks. Furthermore, comparisons are conducted
+between MedFormer and several state-of-the-art (SOTA) medical segmentation methods to emphasize its competitiveness.
+For the ISIC-2018 Segmentation and CVC-ClinicDB datasets,
+the input image size is set to 256×256. The Adam optimizer is
+used with an initial learning rate of 1e−4, and training runs for
+200 epochs with a cosine annealing learning rate schedule. For
+the Synapse dataset, the input size is adjusted to 224×224, the
+AdamW optimizer is utilized, and training runs for 400 epochs
+using a cosine annealing learning rate schedule with an initial
+learning rate of 1e−3. To avoid overfitting, data augmentation
+techniques such as horizontal flipping, vertical flipping, and
+scaling and rotation are applied. For the key parameters of
+MedFormer, the dropout rate is set to 0.2, while the region
+partition factor S is 8 for a resolution of 256×256 and 7 for
+224×224.
+2) Results: Table IV presents the experimental results on
+the Synapse dataset. In methods without pretraining, MAXFormer achieves leading results, even surpassing some methods that use pretrained weight initialization. In methods with
+pretrained weights, MedFormer-B* achieves the best average
+DSC of 84.07%, outperforming all other comparison methods.
+The result indicates the significant advantage of MedFormer in
+accurately overlapping the predicted results with the Ground
+Truth. However, MedFormer does not achieve the highest score
+in the HD metric, showing a deficiency in learning edge
+information. We hypothesize that this issue arises because
+DSSA performs twice sparse selections to focus on a small
+number of important tokens. Since the number of boundary
+tokens is much smaller than that of internal organ tokens,
+and the boundary tokens often have semantic ambiguity, they
+are overlooked during the selection process. This limitation
+becomes more evident in multi-organ segmentation datasets
+with blurry boundaries. Additionally, We observe that while
+MedFormer-B* achieves the best DSC (84.07%) in the segmentation task, the performance improvement over MAXFormer (83.66%) is relatively small. To verify whether this
+difference is statistically significant, we performed a paired
+
+t-test to compare the performance of the two models on the
+same dataset. After conducting statistical analysis on the Dice
+coefficient differences for each sample, we obtain a p-value
+of 0.048, which is below the common significance level of
+0.05. This result indicates that the performance improvement
+is statistically significant, further supporting the credibility and
+effectiveness of the proposed method. Furthermore, the segmentation results on the ISIC-2018 Segmentation and CVCClinicDB dataset are shown in Table V. Without using pretrained weights, MedFormer-B achieves performance comparable to SOTA methods on both datasets. In the comparison of
+pre-training initialization strategies, MedFormer-B* achieves
+leading results on the CVC-ClinicDB dataset. Although MedFormer outperforms most competing methods on the ISIC2018 segmentation dataset, there remains a slight performance
+gap compared to BRAU-Net++. We consider this result understandable for two reasons: first, the marginal advantage of
+BRAU-Net++ comes at the cost of significantly higher computational complexity; second, MedFormer is not a dedicated
+segmentation model and only employs a simple segmentation
+head—UPerNet. Under the same UPerNet configuration, other
+backbone networks perform worse than MedFormer. Overall,
+MedFormer demonstrates robust performance in segmentation
+tasks, highlighting its potential as a general-purpose backbone
+network.
+D. Medical Image Detection
+1) Settings: Since Transformer-based medical image detection methods with available code are scarce, we reproducing
+several milestone object detection approaches to highlight
+the competitiveness of MedFormer in detection tasks. Furthermore, we also compare MedFormer with several popular
+backbone networks under the RetinaNet [48] detection framework to verify its effectiveness. The input resolution is set
+to 256×256, and the AdamW optimizer is employed with a
+cosine annealing learning rate scheduler and a weight decay of
+1e−4. The initial learning rate is set to 1e−4. The parameters
+for MedFormer are adjusted as follows: the region partition
+factor S is set to 8, and the drop rate is set to 0.3.
+2) Results: We use four metrics to evaluate the detection
+performance of all methods: mean Average Precision (mAP ),
+AP50 , AP75 , and Recall. The detailed results are presented
+
+10
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+TABLE VII
+A BLATION STUDY OF DIFFERENT ATTENTION MECHANISMS , ON THE
+PROPOSED M ED F ORMER ARCHITECTURE .
+
+Attention
+
+ISIC-2018
+
+Synapse
+
+Depth
+
+Params (M)
+
+FLOPs (G)
+
+Acc (%)
+
+Top-1 Acc. (%)
+
+DSC (%)
+
+85.49
+86.53
+87.56
+87.65
+88.24
+
+72.50
+78.66
+73.03
+79.35
+79.44
+
+2,2,6,2
+2,2,8,2
+4,4,8,4
+4,4,18,4
+
+11.298
+12.633
+18.35
+25.027
+
+1.906
+2.184
+3.026
+4.375
+
+86.01
+88.24
+86.87
+86.87
+
+original image
+
+attention map w/o pixellevel sparse selection
+
+Shifted window [17]
+Explicit Sparse [22]
+Deformable [28]
+Bi-level Routing [18]
+Dual Sparse Selection
+
+in Table VI. MedFormer-B achieves the best results on the
+Kvasir-Seg and Brain Tumor Detection datasets in terms of
+three metrics: mAP , AP50 and AP75 . This proves the strong
+object detection performance of MedFormer. Furthermore,
+we observe that the differences in detection results among
+the comparative methods on the Kvasir-Seg dataset are not
+significant. However, on the Brain Tumor Detection dataset,
+dedicated detection methods generally lag behind the backbone networks. We hypothesize that this phenomenon is due
+to two main reasons: First, the Brain Tumor Detection dataset
+is multi-class and has nested bounding boxes, which makes
+accurate localization challenging for the models. Second, the
+backbone networks involved in the comparison are carefully
+designed and have stronger feature representation capabilities.
+All backbone networks are experimented within the RetinaNet
+framework, replacing the original ResNet encoder, achieving
+significant improvements. This further confirms that the primary gap exists in the encoder part.
+TABLE VIII
+A BLATION STUDY ON THE EFFECT OF LCE MODULE ON BOTH
+ISIC-2018 C LASSIFICATION AND S YNAPSE S EGMENTATION DATASETS .
+
+ISIC-2018
+
+Synapse
+
+Top-1 Acc. (%)
+
+DSC (%)
+
+MedFormer-S
+MedFormer-S (w/o LCE)
+
+88.24
+87.64
+
+79.44
+78.93
+
+MedFormer-B
+MedFormer-B (w/o LCE)
+
+89.71
+88.43
+
+81.75
+80.54
+
+Methods
+
+TABLE IX
+A BLATION STUDY OF THE NUMBER OF k1 AND λ ON ISIC-2018
+C LASSIFICATION AND CVC-C LINIC DB DATASET.
+ISIC-2018 Classification
+k1
+
+λ
+
+1,2,8,49
+
+TABLE X
+A BLATION STUDY OF MODEL DEPTH ON ISIC-2018 C LASSIFICATION
+DATASET.
+
+CVC-ClinicDB
+
+FLOPs (G)
+
+Acc (%)
+
+FLOPs (G)
+
+DSC (%)
+
+1/8
+
+2.15
+
+87.05
+
+3.69
+
+87.24
+
+1,4,16,49
+
+1
+1/4
+1/8
+1/16
+
+2.23
+2.18
+2.18
+2.17
+
+87.44
+87.56
+88.24
+85.84
+
+3.79
+3.73
+3.32
+3.31
+
+87.25
+87.64
+88.23
+86.87
+
+2,8,32,49
+
+1/8
+
+2.25
+
+87.56
+
+3.73
+
+87.55
+
+attention map with pixellevel sparse selection
+
+Fig. 4. Visualization of attention maps from sample images in the ISIC
+2018 Classification dataset (top) and the CVC-ClinicDB segmentation
+dataset (bottom), illustrating the effects of excluding noise tokens. The
+pink regions in the segmented samples serve as the ground truth. The
+red circle represents the query token. It can be seen that pixel-level
+sparse selection enhances focus on lesion areas, which is particularly
+important for extracting critical features.
+
+E. Ablation Study
+1) The effectiveness of DSSA: We compare existing sparse
+attention mechanisms on the ISIC-2018 Classification dataset
+and the Synapse segmentation dataset. Experiments are
+conducted under the MedFormer-S architecture. Table VII
+presents the results. Dual Sparse Selection attention achieves
+the best performance on both tasks. This can be attributed
+to its ability to exclude noise tokens while retaining global
+modeling capabilities, thus enabling the extraction of more
+effective features. The Shifted Window attention performs
+poorly, likely due to the handcrafted sparse pattern failing to
+effectively model global dependencies. Deformable attention
+shows unsatisfactory results in multi-organ segmentation, as
+the key-value pairs are shared across all queries, which is
+disadvantageous for pixel-level prediction tasks. In contrast,
+the Explicit Sparse attention selects the most relevant keyvalue pairs for each query, leading to excellent segmentation
+performance. Leveraging its content-aware properties, the Bilevel Routing attention effectively select relevant tokens, which
+contributes to its strong performance on both tasks.
+2) The effectiveness of LCE: We conduct ablation experiments on the LCE module across different MedFormer variants
+and tasks, with the results summarized in Table VIII. As shown
+in the results, the LCE module provides a slight but consistent
+performance improvement across various tasks and model vari-
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+ants. This improvement can be attributed to the module’s use
+of a 5×5 depth-wise convolution, which effectively integrates
+local contextual information while remaining computationally
+lighter than standard convolutions.
+3) Choices of k1 and λ: In this work, we propose two key
+parameters, k1 and λ, which control the sparse selection at
+the region-level and pixel-level, respectively. We gradually
+increase k1 at each stage to ensure sufficient feature extraction
+in smaller regions. Table IX presents the experimental results
+for the combination of these parameters. First, based on the
+analysis of the k1 values, we observe that the number of
+tokens each query can attend to is limited, and introducing too
+many tokens actually leads to a degradation in performance.
+Next, we tested three different values of λ (with the case of
+λ = 1 discussed in detail in the next section), and found
+that the intermediate value of λ = 1/8 yields the best
+performance on both datasets. We believe this result is due
+to the model requiring an appropriate number of pixel-level
+tokens to effectively learn features. Retaining too many pixellevel tokens may introduce excessive noise, distracting the
+model from key features, while retaining too few may result
+in insufficient information, limiting the model’s generalization
+ability. Ultimately, the k1 and λ hyperparameters we selected
+achieve the best performance on both datasets, demonstrating
+their potential generalizability across tasks and datasets.
+4) Effectiveness of Excluding Noise: We design ablation
+experiments to confirm that pixel-level sparse selection can
+effectively exclude noise. First, we present quantitative results
+in Table IX. The accuracy of the model significantly decrease
+when the selection is not applied (λ = 1). We attribute this
+drop to the introduction of excessive noise tokens, which
+prevent the model from extracting relevant features. Second,
+we visualize the attention map with and without pixel-level
+sparse selection in Fig. 4. The results clearly show that
+excluding noise tokens allows the model to focus more on
+the lesion area. Furthermore, from the segmentation samples,
+we observed that the attention maps before and after sparse
+selection exhibit different sensitivities to the boundaries. After
+sparse selection, the attention converges significantly to the
+interior of the ground truth boundaries. This suggests that
+DSSA can, to some extent, adaptively align with the biological
+boundary features of the lesions.
+5) Effect of the depth: We explore the impact of model
+depth on performance in MedFormer-Small, as shown in Table
+X. We find that an appropriate depth helps to effectively
+extract and aggregate semantic information, thereby improving
+model performance. However, continuously stacking MedFormer blocks not only significantly increases the parameter
+count and FLOPs but may also lead to a decrease in model
+accuracy. To balance best performance and computational
+efficiency, we set the depth to [2,2,8,2].
+F. Visualization Study
+In this section, we will conduct a series of visualization studies: visualization of attention maps, visualization of
+MedFormer on segmentation datasets, and visualization of
+MedFormer on object detection datasets.
+
+11
+
+1) Visualization of Attention Map: To intuitively demonstrate
+the superiority of the proposed DSSA, we visualize the attention maps of DSSA at both the region and pixel levels,
+as shown in Fig. 5. We observe that DSSA first selects the
+most relevant regions and then focuses on the tokens most
+related to the query within those regions. This aligns well
+with our design philosophy and validates the rationality and
+effectiveness of our approach. In addition, we visualize the
+regional attention changes across each layer in MedFormer,
+as shown in Fig. 6. This visualization shows that as the
+number of layers increases, our method progressively focuses
+on relevant regions, demonstrating its ability to refine attention
+dynamically and align with clinically meaningful areas.
+2) Visualization of Semantic Segmentation: We visualize the
+segmentation results of MedFormer, SOTA medical image
+segmentation methods and popular backbone networks on
+three datasets. Fig. 7 shows the results on the Synapse dataset,
+where MedFormer’s segmentation results closely matches the
+ground truth. In contrast, other methods exhibit issues such
+as class misidentification and loss of internal details. Fig.
+8 presents the results on the ISIC-2018 Segmentation and
+CVC-ClinicDB datasets. For samples with clear boundaries
+(Sample 1 and Sample 3), most methods achieve competitive
+segmentation results. However, for cases with blurred edges or
+overexposure (Sample 2 and Sample 4), all methods exhibit
+significant performance degradation and high variability. Notably, MedFormer still maintains leading performance under
+these challenging conditions, demonstrating strong robustness
+in complex scenarios. Overall, MedFormer demonstrates superior performance in segmentation tasks due to its unique dual
+sparse selection attention mechanism, which enables precise
+extraction of detailed features.
+3) Visualization of Object Detection: Fig. 9 shows the object
+detection results of MedFormer, well-known detection methods, and popular backbone networks on the Kvasir-Seg and
+Brain Tumor Detection datasets. For the Kvasir-Seg dataset,
+both DAT and BiFormer fail to detect small objects in the first
+sample. On the Brain Tumor Detection dataset, SwinFormer
+detects the same object multiple times in the first sample,
+while Faster R-CNN misses one class in the second sample.
+In contrast, MedFormer achieves accurate object detection on
+both datasets, demonstrating its strong capability in handling
+complex detection tasks.
+
+V. C ONCLUSION
+In this work, we propose a versatile medical backbone
+network, MedFormer. First, MedFormer adopts a four-stage
+pyramid architecture to reduce computational cost while generating hierarchical feature maps to enrich feature representation.
+Second, a dynamic DSSA mechanism is integrated into MedFormer. DSSA performs sparse selection at both the region
+and pixel levels, which alleviates the quadratic complexity of
+the self-attention mechanism and filters out noisy tokens to
+focus on important features. We conduct extensive experiments
+on three medical image recognition tasks, and the results
+demonstrate superior performance compared to other state-ofthe-art methods across almost all evaluation metrics. In future
+
+12
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+Fig. 5. Visualization of attention maps on ISIC-2018 Classification dataset. For each input, we select two different query positions to observe the
+region-level tokens they attend to and the pixel-level tokens within those regions. The heatmap values of the pixel-level tokens vary based on their
+relevance to the query. For this visualization, we use the region-level and pixel-level attention scores extracted from the final MedFormer block of
+the third stage.
+
+Depth：1
+𝑘1 : 1
+
+Depth：2
+𝑘1 : 1
+
+Depth：3
+𝑘1 :4
+
+Depth：4
+𝑘1 :4
+
+Depth：5
+𝑘1 :16
+
+Depth：6
+𝑘1 : 16
+
+Depth：7
+𝑘1 : 16
+
+Depth：8
+𝑘1 : 16
+
+Depth：9
+𝑘1 : 16
+
+Depth：10
+𝑘1 : 16
+
+Depth：11
+𝑘1 : 16
+
+Depth：12
+𝑘1 : 16
+
+Fig. 6. On the ISIC-2018 Classification dataset, we visualize the regional attention maps at a fixed query position across network depths ranging
+from 1 to 12. The number of regions each query is determined by k1 .
+
+aorta
+
+gallbladder
+
+GT
+
+HiFormer
+
+left kidney
+
+BRAU-Net++
+
+right kidney
+
+Swin-Unet
+
+liver
+
+MISSFormer
+
+pancreas
+
+BiFormer
+
+spleen
+
+stomach
+
+SwinFormer
+
+MedFormer
+
+Fig. 7. Visualization of different methods on the Synapse dataset. MedFormer achieves finer segmentation results compared to other methods,
+showing a close alignment with the Ground Truth. In contrast, other approaches suffer from category confusion or fragmented segmentation regions.
+
+work, we will continue to focus on the design of efficient
+Transformers to provide the medical imaging community with
+more lightweight and accurate solutions for medical image
+recognition.
+
+R EFERENCES
+[1] N. Q. K. Le, “Hematoma expansion prediction: still navigating the
+intersection of deep learning and radiomics,” European Radiology,
+vol. 34, no. 5, pp. 2905–2907, 2024.
+[2] Z. Zhao, J. Gui, A. Yao, N. Q. K. Le, and M. C. H. Chua, “Improved
+prediction model of protein and peptide toxicity by integrating channel
+attention into a convolutional neural network and gated recurrent units,”
+ACS omega, vol. 7, no. 44, pp. 40 569–40 577, 2022.
+
+[3] F. Shamshad, S. Khan, S. W. Zamir, M. H. Khan, M. Hayat, F. S. Khan,
+and H. Fu, “Transformers in medical imaging: A survey,” Medical Image
+Analysis, vol. 88, p. 102802, 2023.
+[4] R. Azad, A. Kazerouni, M. Heidari, E. K. Aghdam, A. Molaei, Y. Jia,
+A. Jose, R. Roy, and D. Merhof, “Advances in medical image analysis
+with vision transformers: A comprehensive review,” Medical Image
+Analysis, vol. 91, p. 103000, 2024.
+[5] C. Matsoukas, J. F. Haslum, M. Söderberg, and K. Smith, “Is it time
+to replace cnns with transformers for medical images?” arXiv preprint
+arXiv:2108.09038, 2021.
+[6] R. Sun, Y. Li, T. Zhang, Z. Mao, F. Wu, and Y. Zhang, “Lesion-aware
+transformers for diabetic retinopathy grading,” in Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2021, pp. 10 938–10 947.
+[7] Z. Shao, H. Bian, Y. Chen, Y. Wang, J. Zhang, X. Ji et al., “Transmil:
+Transformer based correlated multiple instance learning for whole
+slide image classification,” Advances in neural information processing
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+MedT
+
+HiFormer
+
+Swin-Unet
+
+BRAU-Net++
+
+BiFormer
+
+SwinFormer
+
+DAT
+
+MedFormer
+
+CVC_ClinicDB
+
+ISIC-2018 Segmentation
+
+GT
+
+13
+
+Fig. 8. Visualizations of Segmentation using various methods on the CVC-ClinicDB and ISIC-2018 Segmentation datasets. The lesion regions of
+GT are shown in red, while the segmentation results of methods are shown in pink.
+
+Faster R-CNN
+
+RetinaNet
+
+Deformable
+DETR
+
+PVT
+
+DAT
+
+BiFormer
+
+SwinFormer
+
+MedFormer
+
+Brain Tumor Detection
+
+Kvasir_Seg
+
+GT
+
+Fig. 9. Visualizations of object detection using various methods on the Kvasir-Seg and Brain Tumor Detection datasets. The Kvasir-Seg dataset
+consists of only one category, represented in red. The Brain Tumor Detection dataset contains three categories, represented respectively in red,
+yellow, and Violet.
+
+14
+
+IEEE TRANSACTIONS ON MEDICAL IMAGING, VOL. XX, NO. XX, XXXX 2020
+
+systems, vol. 34, pp. 2136–2147, 2021.
+[8] Y. Zheng, R. H. Gindra, E. J. Green, E. J. Burks, M. Betke, J. E. Beane,
+and V. B. Kolachalama, “A graph-transformer for whole slide image
+classification,” IEEE transactions on medical imaging, vol. 41, no. 11,
+pp. 3003–3015, 2022.
+[9] J. Chen, Y. Lu, Q. Yu, X. Luo, E. Adeli, Y. Wang, L. Lu, A. L. Yuille, and
+Y. Zhou, “Transunet: Transformers make strong encoders for medical
+image segmentation,” arXiv preprint arXiv:2102.04306, 2021.
+[10] Y. Zhang, H. Liu, and Q. Hu, “Transfuse: Fusing transformers and cnns
+for medical image segmentation.” Springer, 2021, pp. 14–24.
+[11] H. Cao, Y. Wang, J. Chen, D. Jiang, X. Zhang, Q. Tian, and M. Wang,
+“Swin-unet: Unet-like pure transformer for medical image segmentation,” in European conference on computer vision. Springer, 2022, pp.
+205–218.
+[12] P. Cai, L. Jiang, Y. Li, X. Liu, and L. Lan, “Pubic symphysis-fetal head
+segmentation network using biformer attention mechanism and multipath
+dilated convolution,” in MultiMedia Modeling, I. Ide, I. Kompatsiaris,
+C. Xu, K. Yanai, W.-T. Chu, N. Nitta, M. Riegler, and T. Yamasaki,
+Eds. Singapore: Springer Nature Singapore, 2025, pp. 243–256.
+[13] L. Lan, P. Cai, L. Jiang, X. Liu, Y. Li, and Y. Zhang, “Brau-net++:
+U-shaped hybrid cnn-transformer network for medical image segmentation,” arXiv preprint arXiv:2401.00722, 2024.
+[14] R. Tao and G. Zheng, “Spine-transformers: Vertebra detection and localization in arbitrary field-of-view spine ct with transformers.” Springer,
+2021, pp. 93–103.
+[15] H. Wu, J. Zhang, Y. Fang, Z. Liu, N. Wang, Z. Cui, and D. Shen,
+“Multi-view vertebra localization and identification from ct images,” in
+International Conference on Medical Image Computing and ComputerAssisted Intervention. Springer, 2023, pp. 136–145.
+[16] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly et al.,
+“An image is worth 16x16 words: Transformers for image recognition
+at scale,” arXiv preprint arXiv:2010.11929, 2020.
+[17] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and
+B. Guo, “Swin transformer: Hierarchical vision transformer using shifted
+windows,” in Proceedings of the IEEE/CVF international conference on
+computer vision, 2021, pp. 10 012–10 022.
+[18] L. Zhu, X. Wang, Z. Ke, W. Zhang, and R. W. Lau, “Biformer:
+Vision transformer with bi-level routing attention,” in Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition,
+2023, pp. 10 323–10 333.
+[19] S. Zheng, J. Lu, H. Zhao, X. Zhu, Z. Luo, Y. Wang, Y. Fu, J. Feng,
+T. Xiang, P. H. Torr et al., “Rethinking semantic segmentation from a
+sequence-to-sequence perspective with transformers,” in Proceedings of
+the IEEE/CVF conference on computer vision and pattern recognition,
+2021, pp. 6881–6890.
+[20] J. M. J. Valanarasu, P. Oza, I. Hacihaliloglu, and V. M. Patel, “Medical
+transformer: Gated axial-attention for medical image segmentation.”
+Springer, 2021, pp. 36–46.
+[21] W. Wang, E. Xie, X. Li, D.-P. Fan, K. Song, D. Liang, T. Lu, P. Luo,
+and L. Shao, “Pyramid vision transformer: A versatile backbone for
+dense prediction without convolutions,” in Proceedings of the IEEE/CVF
+international conference on computer vision, 2021, pp. 568–578.
+[22] G. Zhao, J. Lin, Z. Zhang, X. Ren, Q. Su, and X. Sun, “Explicit sparse
+transformer: Concentrated attention through explicit selection,” arXiv
+preprint arXiv:1912.11637, 2019.
+[23] S. Yu, K. Ma, Q. Bi, C. Bian, M. Ning, N. He, Y. Li, H. Liu,
+and Y. Zheng, “Mil-vt: Multiple instance learning enhanced vision
+transformer for fundus image classification.” Springer, 2021, pp. 45–54.
+[24] F. Almalik, M. Yaqub, and K. Nandakumar, “Self-ensembling vision
+transformer (sevit) for robust medical image classification.” Berlin,
+Heidelberg: Springer-Verlag, 2022, p. 376–386.
+[25] J. Wang, L. Wei, L. Wang, Q. Zhou, L. Zhu, and J. Qin, “Boundaryaware transformers for skin lesion segmentation.” Springer, 2021, pp.
+206–216.
+[26] X. Ma, G. Luo, W. Wang, and K. Wang, “Transformer network for
+significant stenosis detection in ccta of coronary arteries,” in Medical
+Image Computing and Computer Assisted Intervention – MICCAI 2021.
+Cham: Springer International Publishing, 2021, pp. 516–525.
+[27] Q. Zhao, G. Huang, P. Xu, Z. Chen, W. Li, X. Yuan, G. Zhong, C.-M.
+Pun, and Z. Huang, “Ida-net: Inheritable deformable attention network
+of structural mri for alzheimer’s disease diagnosis,” Biomedical Signal
+Processing and Control, vol. 84, p. 104787, 2023.
+[28] Z. Xia, X. Pan, S. Song, L. E. Li, and G. Huang, “Vision transformer
+with deformable attention,” in Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition, 2022, pp. 4794–4803.
+
+[29] X. Huo, G. Sun, S. Tian, Y. Wang, L. Yu, J. Long, W. Zhang,
+and A. Li, “Hifuse: Hierarchical multi-scale feature fusion network
+for medical image classification,” Biomedical Signal Processing and
+Control, vol. 87, p. 105534, 2024.
+[30] S. Perera, S. Adhikari, and A. Yilmaz, “Pocformer: A lightweight
+transformer architecture for detection of covid-19 using point of care
+ultrasound,” in 2021 IEEE international conference on image processing
+(ICIP). IEEE, 2021, pp. 195–199.
+[31] S. Wang, B. Z. Li, M. Khabsa, H. Fang, and H. Ma, “Linformer:
+Self-attention with linear complexity,” 2020. [Online]. Available:
+https://arxiv.org/abs/2006.04768
+[32] Y. Zheng, J. Li, J. Shi, F. Xie, J. Huai, M. Cao, and Z. Jiang, “Kernel
+attention transformer for histopathology whole slide image analysis and
+assistant cancer diagnosis,” IEEE Transactions on Medical Imaging,
+vol. 42, no. 9, pp. 2726–2739, 2023.
+[33] J. Shi, L. Tang, Z. Gao, Y. Li, C. Wang, T. Gong, C. Li, and H. Fu,
+“Mg-trans: Multi-scale graph transformer with information bottleneck
+for whole slide image classification,” IEEE Transactions on Medical
+Imaging, vol. 42, no. 12, pp. 3871–3883, 2023.
+[34] H. Zeng, X. Shan, Y. Feng, and Y. Wen, “Msaanet: Multi-scale axial
+attention network for medical image segmentation,” in 2023 IEEE
+International Conference on Multimedia and Expo (ICME). IEEE,
+2023, pp. 2291–2296.
+[35] M. Heidari, A. Kazerouni, M. Soltany, R. Azad, E. K. Aghdam,
+J. Cohen-Adad, and D. Merhof, “Hiformer: Hierarchical multi-scale
+representations using transformers for medical image segmentation,”
+in Proceedings of the IEEE/CVF winter conference on applications of
+computer vision, 2023, pp. 6202–6212.
+[36] Z. Liang, K. Zhao, G. Liang, S. Li, Y. Wu, and Y. Zhou, “Maxformer:
+Enhanced transformer for medical image segmentation with multiattention and multi-scale features fusion,” Knowledge-Based Systems,
+vol. 280, p. 110987, 2023.
+[37] X. Huang, Z. Deng, D. Li, X. Yuan, and Y. Fu, “Missformer: An effective
+transformer for 2d medical image segmentation,” IEEE Transactions on
+Medical Imaging, vol. 42, no. 5, pp. 1484–1494, 2022.
+[38] P. Tschandl, C. Rosendahl, and H. Kittler, “The ham10000 dataset,
+a large collection of multi-source dermatoscopic images of common
+pigmented skin lesions,” Scientific data, vol. 5, no. 1, pp. 1–9, 2018.
+[39] N. Codella, V. Rotemberg, P. Tschandl, M. E. Celebi, S. Dusza,
+D. Gutman, B. Helba, A. Kalloo, K. Liopyris, M. Marchetti et al., “Skin
+lesion analysis toward melanoma detection 2018: A challenge hosted
+by the international skin imaging collaboration (isic),” arXiv preprint
+arXiv:1902.03368, 2019.
+[40] D. Wang, X. Wang, L. Wang, M. Li, Q. Da, X. Liu, X. Gao, J. Shen,
+J. He, T. Shen et al., “A real-world dataset and benchmark for foundation
+model adaptation in medical image classification,” Scientific Data,
+vol. 10, no. 1, p. 574, 2023.
+[41] M. Nickparvar, “Brain tumor mri dataset,” 2021. [Online]. Available:
+https://www.kaggle.com/dsv/2645886
+[42] J. Bernal, F. J. Sánchez, G. Fernández-Esparrach, D. Gil, C. Rodrı́guez,
+and F. Vilariño, “Wm-dova maps for accurate polyp highlighting in
+colonoscopy: Validation vs. saliency maps from physicians,” Computerized medical imaging and graphics, vol. 43, pp. 99–111, 2015.
+[43] B. Landman, Z. Xu, J. Igelsias, M. Styner, T. Langerak, and A. Klein,
+“Miccai multi-atlas labeling beyond the cranial vault-workshop and
+challenge (2015),” vol. 2, 2015.
+[44] D. Jha, P. H. Smedsrud, M. A. Riegler, P. Halvorsen, T. de Lange, D. Johansen, and H. D. Johansen, “Kvasir-seg: A segmented polyp dataset,”
+in International Conference on Multimedia Modeling. Springer, 2020,
+pp. 451–462.
+[45] Y. Ghanem, “Brain tumor detection dataset,” jul 2022, visited
+on 2024-06-19. [Online]. Available: https://universe.roboflow.com/
+yousef-ghanem-jzj4y/brain-tumor-detection-fpf1f
+[46] M. Naderi, M. Givkashi, F. Piri, N. Karimi, and S. Samavi, “Focalunet: Unet-like focal modulation for medical image segmentation,” arXiv
+preprint arXiv:2212.09263, 2022.
+[47] M. M. Rahman and R. Marculescu, “Medical image segmentation via
+cascaded attention decoding,” in Proceedings of the IEEE/CVF Winter
+Conference on Applications of Computer Vision, 2023, pp. 6222–6231.
+[48] T.-Y. Lin, P. Goyal, R. Girshick, K. He, and P. Dollár, “Focal loss
+for dense object detection,” in Proceedings of the IEEE international
+conference on computer vision, 2017, pp. 2980–2988.
+[49] S. Ren, K. He, R. Girshick, and J. Sun, “Faster r-cnn: Towards real-time
+object detection with region proposal networks,” IEEE transactions on
+pattern analysis and machine intelligence, vol. 39, no. 6, pp. 1137–1149,
+2016.
+
+XIA et al.: MEDFORMER: HIERARCHICAL MEDICAL VISION TRANSFORMER WITH CONTENT-AWARE DUAL SPARSE SELECTION ATTENTION
+
+[50] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai, “Deformable detr:
+Deformable transformers for end-to-end object detection,” arXiv preprint
+arXiv:2010.04159, 2020.
+[51] T. Xiao, Y. Liu, B. Zhou, Y. Jiang, and J. Sun, “Unified perceptual
+parsing for scene understanding,” in Proceedings of the European
+conference on computer vision (ECCV), 2018, pp. 418–434.
+
+15
+
+

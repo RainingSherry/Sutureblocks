@@ -1,0 +1,1641 @@
+Medical Image Analysis 99 (2025) 103349
+
+Contents lists available at ScienceDirect
+
+Medical Image Analysis
+journal homepage: www.elsevier.com/locate/media
+
+Fourier Convolution Block with global receptive field for MRI reconstruction
+Haozhong Sun a , Yuze Li a , Zhongsen Li a , Runyu Yang a , Ziming Xu a , Jiaqi Dou a , Haikun Qi b ,
+Huijun Chen a ,∗
+a Department of Biomedical Engineering, Tsinghua University, Beijing, China
+b School of Biomedical Engineering, ShanghaiTech University, Shanghai, China
+
+ARTICLE
+
+INFO
+
+MSC:
+41A05
+41A10
+65D05
+65D17
+Keywords:
+Deep learning
+Fourier convolution
+MRI reconstruction
+Receptive field
+
+ABSTRACT
+Reconstructing images from under-sampled Magnetic Resonance Imaging (MRI) signals significantly reduces
+scan time and improves clinical practice. However, Convolutional Neural Network (CNN)-based methods,
+while demonstrating great performance in MRI reconstruction, may face limitations due to their restricted
+receptive field (RF), hindering the capture of global features. This is particularly crucial for reconstruction,
+as aliasing artifacts are distributed globally. Recent advancements in Vision Transformers have further
+emphasized the significance of a large RF. In this study, we proposed a novel global Fourier Convolution Block
+(FCB) with whole image RF and low computational complexity by transforming the regular spatial domain
+convolutions into frequency domain. Visualizations of the effective RF and trained kernels demonstrated that
+FCB improves the RF of reconstruction models in practice. The proposed FCB was evaluated on four popular
+CNN architectures using brain and knee MRI datasets. Models with FCB achieved superior PSNR and SSIM
+than baseline models and exhibited more details and texture recovery. The code is publicly available at
+https://github.com/Haozhoong/FCB.
+
+1. Introduction
+Magnetic resonance imaging (MRI) is a widely employed imaging
+modality for clinical diagnosis. However, the clinical application of
+MRI is impeded by its slow acquisition speed caused prolonged scan
+time and possible motion artifacts. Acquiring under-sampled data in
+the Fourier acquisition space, known as k-space, is a common approach to shorten the MRI scan time (Ravishankar and Bresler, 2010).
+However, acquiring fewer data points results in a violation of the
+Nyquist sampling criterion, leading to inevitable aliasing artifacts in
+the reconstructed images (Shannon, 1948).
+Removing aliasing artifacts in under-sampled MRI scans presents a
+challenging inverse problem that requires incorporation of additional
+prior information. Compressed sensing (CS) technique (Lustig et al.,
+2007) utilizes the sparsity prior in predefined transforms and iterative optimization algorithms to address aliasing. However, CS requires
+manual selection of sparsity types and other parameters, and it often
+exhibits poor performance at higher under-sampling rates (Zbontar
+et al., 2018).
+In recent years, deep learning (DL) based models have shown remarkable performance in MRI reconstruction. These models take advantages of capabilities of deep neural networks to recover images
+and exploit the prior knowledge obtained from the learning process
+
+of data, surpassing traditional CS algorithms in terms of reconstruction quality and speed. There are two main approaches to utilizing
+DL models in MRI reconstruction. The first approach utilizes end-toend models (Ronneberger et al., 2015; Lee et al., 2018; Han et al.,
+2019; El-Rewaidy et al., 2020), which are trained in a paired manner
+using under-sampled images and corresponding fully-sampled images
+without relying on other physical priors of MRI. The second approach
+involves unrolling existing iterative algorithms for reconstruction and
+replacing part of the iterations with neural networks (Sun et al., 2016;
+Zhang and Ghanem, 2018; Xiang et al., 2021; Hammernik et al., 2018;
+Schlemper et al., 2017; Sandino et al., 2020; Aggarwal et al., 2018).
+In this way, complex parameter selection of iterative algorithms can
+be optimized by learning, and the neural network serves as a more
+powerful regularization term.
+In the realm of CS and DL based MRI reconstruction, undersampling
+patterns are typically random or uniform (Sriram et al., 2020b), rather
+than truncated as in super-resolution tasks (Chen et al., 2018). The
+resulting aliasing artifacts exhibit a long-range distribution in the image
+domain, requiring reconstruction models with a large receptive field
+(RF) to effectively remove these artifacts. However, most DL based MRI
+reconstruction models are based on Convolutional Neural Networks
+(CNNs), which have limited RF because of the local spatial convolutions
+
+∗ Corresponding author.
+
+E-mail address: chenhj_cbir@mail.tsinghua.edu.cn (H. Chen).
+https://doi.org/10.1016/j.media.2024.103349
+Received 15 January 2024; Received in revised form 2 September 2024; Accepted 13 September 2024
+Available online 20 September 2024
+1361-8415/© 2024 Elsevier B.V. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+(e.g., 3 × 3 or 5 × 5 kernels) used in most situations. Although deep
+networks with enough stacked convolution layers could cover large RF
+theoretically (Jaderberg et al., 2015), the effective receptive field (ERF)
+of CNNs falls significantly short of expectations (Ding et al., 2022).
+Recently, Vision Transformers (ViTs) have emerged as a powerful alternative (Dosovitskiy et al., 2020; Touvron et al., 2021; Liu et al., 2021),
+and outperform traditional CNNs by with stacked 3 × 3 convolutions
+utilizing multi-head self-attention to capture global information. Other
+approaches have explored CNNs with larger kernels (Liu et al., 2022b;
+Ding et al., 2022; Liu et al., 2022a; Deng et al., 2023), achieving
+comparable, even superior, performance to ViTs. The increased ERF
+is considered a key factor in the success of these methods. However,
+both large kernel CNNs and ViTs face challenges such as extensive
+computational requirements and training difficulties (Liu et al., 2022a).
+In this study, we propose the Fourier Convolution Block (FCB), a
+Plug-and-Play global operator that can be used in CNNs for MRI reconstruction. The term ‘Plug-and-Play’ used here is for indicating that FCB
+is a standalone convolution block, distinct from the pretrained modelbased PnP iteration algorithm (Ahmad et al., 2020). FCB transforms
+standard spatial domain convolutions into the frequency domain to
+provide an extensive RF, leveraging the equivalence of spatial discrete
+domain convolution to element-wise multiplication in the frequency
+domain. FCB achieves a global RF, which matches the image size
+and can be adaptively learned, while needing less computational requirement than large kernel convolutions. To reduce the parameters
+of FCB, the regular convolutions are modified to depth separable convolutions (Howard et al., 2017), inspired by the design of Sun et al.
+(2023). This modification enables the Fourier Convolution’s application
+in the modern CNN with deep architecture. To further overcome the
+challenge in train networks with large RF (Liu et al., 2022a), a novel
+re-parameterization strategy for training networks with FCB was also
+proposed for better capturing both local and global information.
+Thus, the main contributions of this work are:
+1. Focusing on scaling up the RF of CNNs for MRI reconstruction,
+a Plug-and-Play Fourier operator FCB was proposed to replace local
+spatial convolutions. The results demonstrated that the proposed FCB
+could enlarge the ERF of CNNs and provide better reconstruction
+quality than ViTs and large-kernel CNNs with large RFs while costing
+less computing time.
+2. We integrated FCB into a depth separable structure and proposed
+a novel re-parameterization strategy for training, enabling the network
+better fuse the local and global information. The two improvements
+pave the way for the efficient training of Fourier Convolution within a
+deep architecture.
+
+optimization algorithms for reconstruction. ADMMNet (Sun et al.,
+2016) unrolled the alternating direction method of multipliers (ADMM)
+optimization in the general CS-based MRI model and represented
+different stages with learnable nodes, which can be trained using
+back-propagation. There are also other unrolled networks for the
+ISTA (Zhang and Ghanem, 2018) and FISTA (Xiang et al., 2021)
+optimization frameworks. VN (Variational Network) (Hammernik et al.,
+2018) formulated CS optimization as a variational model and learned
+parameters including the kernel, activation function, and data term.
+Additionally, other works used DL models as a regularization term, and
+the reconstruction iterations can be unrolled as a joint network and
+data consistency layer, realized by direct replacement (Schlemper et al.,
+2017; Duan et al., 2019; Yan et al., 2023), Proximal Gradient (Sandino
+et al., 2020), or Conjugate Gradient (CG) algorithm (Aggarwal et al.,
+2018).
+
+2. Related work
+
+2.3. Fourier convolution
+
+2.1. DL-based MRI reconstruction
+
+Fourier convolution was initially proposed for accelerating convolutional operations due to its runtime efficiency (Mathieu et al.,
+2013). Spectral representation of CNNs using Fourier convolution was
+introduced in Rippel et al. (2015) and Ayat et al. (2019), where Fourier
+convolution serves as the spectral parametrization of convolutional
+layers. However, due to the large number of parameters in the Fourier
+convolution kernel, networks employing this approach lacked the depth
+seen in modern CNN architectures. To address this limitation, Wood
+and Larson (2021) parameterized the Fourier convolution kernel using
+given functions, allowing for a smaller number of trainable parameters
+to represent a Fourier convolution layer. However, this parametric approach still incurred high computational memory costs during forward
+and backward computations. We initially employ Fourier convolution
+within MRI reconstruction networks to capture large-scale correlations in aliased MR images. In our proposed approach, we integrate
+FCB with depth-wise convolution (Howard et al., 2017), significantly
+minimizing parameters and memory requirements. Furthermore, our
+re-parameterization method helps improve the convergence of Fourier
+convolution. As we know, our work represents the first instance of
+utilizing Fourier convolution in deep CNNs rather than in toy models.
+
+2.2. ViT and large-kernel CNN
+Recently, Vision Transformers have been shown to outperform
+CNNs in various visual tasks (Dosovitskiy et al., 2020; Touvron et al.,
+2021; Liu et al., 2021). ViT (Dosovitskiy et al., 2020) split the input image into patches and embeds them into vectors with fixed
+scale. Multi-head self-attention was then applied to establish longrange dependencies within the image. Swin Transformer (Liu et al.,
+2021) proposed a hierarchical structure similar to CNNs with shifted
+window-based self-attention, and has shown significant performance
+gains over previous state-of-the-art CNNs in various vision tasks. Recent
+studies (Lin and Heckel, 2022; Huang et al., 2022; Zhao et al., 2023;
+Guo et al., 2023) have also utilized ViTs for MRI reconstruction, leveraging the long-range dependence of ViTs to improve the reconstruction
+performance.
+Inspired by the long-range dependence in ViTs, CNN designs with
+large kernel sizes have been explored, showing promising results in
+achieving comparable performance with ViTs (Liu et al., 2022b; Ding
+et al., 2022; Liu et al., 2022a; Deng et al., 2023). For instance, the
+kernel size in ConvNext (Liu et al., 2022b) was increased from 3 × 3
+to 7 × 7 to match the size of the local window in Swin Transformer
+and Yan et al. (2024) proposed a ConvNeXt-based network for selfsupervised MC MRI reconstruction. Further, Ding et al. (2022) scaled
+the normal convolution to 31 × 31 using large depth-wise convolution,
+achieving comparable or better performance than Swin Transformer.
+Multi-branch convolutions with different kernel sizes (Liu et al., 2022a)
+were introduced and fused using softmax attention to adaptively adjust
+the receptive field size. Furthermore, Deng et al. (2023) shifted the sampling locations of convolutions in different channels to capture a global
+RF, and demonstrated improved results in semantic segmentation tasks.
+
+MRI reconstruction is a specific image recovery task, and DL-based
+models have been widely used for this purpose. End-to-End Model
+learns a direct mapping from aliased images to fully sampled images. UNet (Ronneberger et al., 2015), with its multi-scale structure
+and skipping connections, is one of the most popular architectures
+for MRI reconstruction and has been shown to outperform CS methods (Zbontar et al., 2018) at different acceleration ratios. Some studies
+have used separate networks for magnitude and phase reconstruction,
+with the dual-frame U-Net designed to avoid high-frequency signal
+loss (Lee et al., 2018). Complex-valued Networks have also been explored based on the complex nature of MRI signal (El-Rewaidy et al.,
+2020; Cole et al., 2021; Duan and Ren, 2024). Besides, some works
+have incorporated perceptual loss or generative adversarial network
+(GAN) framework to improve the image quality of the reconstructed
+MRI (Yang et al., 2017; Mardani et al., 2018; Quan et al., 2018).
+Taking the physical priors of MRI signals into consideration, the
+model-based network is designed as an unrolled form of the various
+2
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+3. Methods
+3.1. Fourier convolution
+We will demonstrate the capability of Fourier Convolution to
+achieve both local and global RF in discrete scenarios. Fourier Convolution involves element-wise multiplication in the frequency domain. The
+Discrete Fourier Transform (DFT) transforms 2D images in the neural
+network to the frequency domain and is formulated as:
+[
+]
+∑ 𝑁−1
+∑ 𝑥(𝑛, 𝑚)
+(
+) 𝑁−1
+)
+−2𝜋𝑗 (
+𝑋 𝑘1 , 𝑘2 =
+exp
+𝑛𝑘1 + 𝑚𝑘2
+(1)
+𝑁
+𝑁2
+𝑛=0 𝑚=0
+
+Fig. 1. The illustration of the proposed Fourier Convolution Block (FCB). (a) Three
+traditional convolution layers with kernel sizes of 3 × 3, 11 × 11, and 21 × 21. (b)
+The equivalent FCBs with the size of 𝑁 ×𝑁 corresponding to the traditional convolution
+layers with different kernel size shown on the top.
+
+where 𝑥 is the feature map with size of 𝑁 × 𝑁, and 𝑋 is its spectrum.
+The Fourier Convolution is then formulated as the element-wise multiplication between the spectrum and a production kernel W with the
+same size:
+(
+)
+(
+)
+(
+)
+𝑌 𝑘1 , 𝑘2 = 𝑋 𝑘1 , 𝑘2 ⊙ 𝑊 𝑘1 , 𝑘2
+(2)
+With the definition of inverse DFT (IDFT):
+[
+]
+𝑁−1
+∑ 𝑁−1
+∑ (
+)
+)
+2𝜋𝑗 (
+𝑥(𝑛, 𝑚) =
+𝑋 𝑘1 , 𝑘2 exp
+𝑛𝑘1 + 𝑚𝑘2
+𝑁
+𝑘 =0 𝑘 =0
+1
+
+Table 1
+Comparison of the computation operations and parameters between regular convolution
+and FCB.
+
+Operations
+Parameters
+
+(3)
+
+FCB
+
+𝑆 ⋅ 𝑓 ⋅ 𝑓 ′ ⋅ 𝑁2 ⋅ 𝐾2
+𝑓 ⋅ 𝑓 ′ ⋅ 𝐾2
+
+𝑆 ⋅ 𝑓 ⋅ 𝑁 2 ⋅ (𝑓 ′ + 4 log 𝑁)
+𝑓 ⋅ 𝑓 ′ ⋅ 𝐾2
+
+2
+
+it could be deduced that there is an equivalence between Fourier
+Convolution and spatial convolution:
+IDFT{𝑌 } = 𝑥 ∗ 𝑤
+
+According to the conclusion of Eq. (4), Fourier Convolution can
+strictly correspond to any spatial convolution with arbitrary size between 1 × 1 to 𝑁 × 𝑁 and FCB is capable of covering both local and
+global RFs. All operations in FCB are continuously differentiable, enabling the adaptive learning of the effective RFs for each FCB layer
+through backpropagation during training.
+The theoretical computation operations and parameters of FCB and
+traditional convolution are analyzed and shown in Table 1. With the
+image size 𝑁 × 𝑁, convolution kernel size 𝐾 × 𝐾, batch size 𝑆,
+the number of input channels 𝑓 ′ and the number of output channels
+𝑓 , the number of operations for a traditional convolution should be
+𝑆𝑓 𝑓 ′ 𝑁 2 𝐾 2 . On the other hand, the proposed FCB includes a relatively
+simple element-wise product with 𝑓 ′ 𝑁 2 operations, FFT and IFFT with
+operations 2𝑁 2 log 𝑁. Thus, the total number of operations of FCB is
+𝑆𝑓 𝑁 2 (𝑓 ′ +4 log 𝑁). Notably, only half of the frequency data needs to be
+computed and stored in FCB since the frequency data satisfies conjugate
+symmetry.
+The ratio of the two computational complexities is expressed as
+(𝑓 ′ + 4 log 𝑁)∕(𝑓 ′ 𝐾 2 ), and in our study, 𝑓 ′ is 1 due to the depthwise convolution. This implies that FCB may have more operations
+than traditional convolution when the kernel size is small. However,
+to enlarge the RF, increasing the kernel size 𝐾 will be more computationally expensive than using FCB, as demonstrated by the results
+in Section 4.6. Conversely, FCB incurs the substantial 𝑁 2 parameters
+when convolution parameters depend on kernel size.
+
+(4)
+
+where ‘‘∗’’ represents convolution with circle-padding:
+𝑥∗𝑤=
+
+Convolution
+
+𝑁−1
+∑ 𝑁−1
+∑
+
+𝑥(𝑝, 𝑞)𝑤 (⌊(𝑛 − 𝑝) ∕𝑁⌋, ⌊(𝑚 − 𝑞) ∕𝑁⌋)
+
+(5)
+
+𝑝=0 𝑞=0
+
+The convolution kernel 𝑤 is the IDFT of FCB kernel 𝑊 with size 𝑁 × 𝑁
+but it can be expressed as a zero-padding version of some smaller kernel
+𝑤′ with a size of 𝐾(1 ≤ 𝐾 ≤ 𝑁):
+{ ′
+𝑤 (𝑛, 𝑚),
+𝑛 ≤ 𝐾, 𝑚 ≤ 𝐾
+𝑤(𝑛, 𝑚) =
+(6)
+0,
+others
+It implies that, although production kernel 𝑊 in Fourier domain has
+a constant size as the same as the input, its spatial counterpart could
+be a zero-padded convolution kernel of which the size 𝐾 × 𝐾 varies
+from 1 × 1 to the input size 𝑁 × 𝑁. This point highlights that Fourier
+convolution can result in a global RF, as it could be equivalent to a
+convolution with a kernel size that matches the input image. The local
+RF is also accessible when the Fourier convolution corresponds the
+spatial one with small size.
+3.2. Fourier Convolution Block (FCB) for CNNs
+In this study, a Plug-and-Play Fourier Convolution Block (FCB)
+which can replace the traditional convolution layers of popular CNNs
+for MRI reconstruction is proposed. The illustration of FCB is shown in
+Fig. 1. The input image 𝑥 ∈ 𝑅𝑁×𝑁 is firstly transformed to frequency
+domain using Fast Fourier Transform (FFT), denoted as  , and elementwise multiplied by the learned kernel 𝑊 ∈ 𝐶 𝑁×𝑁 in the frequency
+domain. The resulting spectrum is then transformed back to the spatial
+domain using Inverse FFT (IFFT), denoted as  −1 . This process can be
+formulated as
+𝑦 =  −1 { {𝑥} ⊗ 𝑊 }
+
+3.3. FCB enhanced CNN
+In this study, FCB was tested in four popular networks for MRI
+reconstruction: UNet (Ronneberger et al., 2015), E2EVar (Sriram et al.,
+2020a), MoDL (Aggarwal et al., 2018) and VSNet (Duan et al., 2019),
+representing one end-to-end CNN and two model-based CNN architectures, respectively. The original architectures of these models are
+shown in Fig. 2. To incorporate FCB, traditional convolution blocks
+were modified to depth separable convolutions (Howard et al., 2017)
+with identity shortcuts, in which the depth-wise (DW) can be replaced
+by FCB, as illustrated in Fig. 2. Since the network backbone in E2EVar
+is UNet, we did not separately illustrate its modification version.
+Here, the depth separable convolution (Howard et al., 2017) was
+to address the disadvantage of the substantial parameters of FCB,
+since the majority of parameters in depth separable convolutions are
+
+(7)
+
+⊗ represents the element-wise multiplication. Because the FFT
+transforms the real-valued 𝑥 into a complex-valued spectrum, this multiplication is a complex operation. Using conjugate symmetry similar
+to Rippel et al. (2015), half of the frequency data is stored and operated
+on. The result of the multiplication can be transformed back to a real
+value using the IFFT.
+3
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+Fig. 2. The architecture of baseline models and proposed convolution blocks (only one iteration in MoDL and VSNet is shown). Abbrev: DW = Depth-wise Convolution, PW =
+Point-Wise Convolution. The convolution blocks are consistently colored with the model views, with DW layers highlighted in red. This indicates that the convolution operation
+here can be replaced by FCB.
+
+concentrated in the 1 × 1 convolution. Moreover, identity shortcut
+connections were also used since they are crucial in large-kernel models
+or transformers (Liu et al., 2022b).
+CNN models with large kernel pose a challenge in terms of scaling to
+a large RF while retaining local information. To address this challenge,
+RepLKNet (Ding et al., 2022) proposed the idea of paralleling a small
+kernel convolution group and re-parameterizing the parallel branch
+into the main branch. Inspired by that, a re-parameterization training
+strategy was proposed to tackle this issue. We took the advantage of
+adaptive RF of FCB to synthesize information from different scales,
+and avoided extra parallels and complex optimization. In this training
+strategy, the original network with traditional spatial 3 × 3 convolution
+kernels were firstly trained to capture local patterns. Once the first
+phase converges, the DW convolution with FCB was re-parameterized
+from 3 × 3 convolution to Fourier convolution, then the network was
+fine-tuned to scale to a global RF. As per Eqs. (4) and (6), this reparameterization is essentially a zero-padded DFT of the convolution
+kernel 𝑤 ∈ 𝑅𝐾×𝐾 . The transformed FCB kernel can be formulated as:
+[
+]
+𝐾−1 𝐾−1
+)
+−2𝜋𝑗 (
+1 ∑∑
+𝑊 (𝑘1 , 𝑘2 ) =
+𝑤(𝑛, 𝑚) exp
+𝑘1 𝑛 + 𝑘2 𝑚
+(8)
+𝑁
+𝑁 2 𝑛=0 𝑚=0
+
+4.2. Baselines and evaluation strategies
+The performance of UNet with the proposed FCB (F-UNet), E2EVar
+with FCB (F-E2EVar), MoDL with FCB (F-MoDL) and VSNet with
+FCB (F-VSNet), as well as baseline UNet (Ronneberger et al., 2015),
+E2EVar (Sriram et al., 2020a), MoDL (Aggarwal et al., 2018) and
+VSNet (Duan et al., 2019) models, were evaluated and compared.
+Additionally, three ViT models for MRI reconstruction were compared
+including ViT (Lin and Heckel, 2022), ReconFormer (Guo et al., 2023)
+and SwinMR (Huang et al., 2022). Methods utilizing k-space data
+including Ksp (Han et al., 2019) and MDRecon (Ran et al., 2020) for
+global dependency were also considered. Furthermore, the Fast Fourier
+Convolution (FFC) method (Chi et al., 2020) employed 1 × 1 convolution and nonlinear layer in the Fourier domain to achieve a global
+receptive field. We compared the FasterFC block (Liu et al., 2024b,a),
+adapted from FFC for MRI reconstruction in the UNet architecture
+(FasterFC-UNet), with the FCB.
+The performance of FCB was evaluated on the previously described
+brain and knee datasets at 8× and 12× acceleration rate, using a
+variable density Poisson under-sampling pattern (Lustig et al., 2008).
+The size of the Autocalibration Signal (ACS) was set to 20 × 20, and
+the polynomial order of variable density was set to 4. Additionally,
+the experiments were extended to include Cartesian and radial undersampling patterns. Models’ performance under extra noise was also
+assessed. Gaussian noise with a standard deviation equivalent to 10%
+and 20% of the signal intensity was introduced into the under-sampled
+k-space data. Peak Signal to Noise Ratio (PSNR) and Structural Similarity (SSIM) on the validation set were used for performance evaluation,
+computed on the magnitude image of the reconstruction results compared to the ‘‘ground truth’’ images reconstructed with fully-sampled
+k-space. The Wilcoxon signed-rank test was utilized to evaluate the
+improvements in the two metrics. To ensure a fair comparison between
+End-to-End and model-based methods, the ground truth images were
+combined using the sensitive maps from ESPIRiT (Roy and Kailath,
+1989).
+
+To ensure a strict equivalence between FCB and local convolution in the
+first training phase, circular convolution was used, which also agrees
+with the naturally wrapped MRI signal (Sandino et al., 2020).
+4. Experiments
+4.1. Data preparation
+In this study, brain and knee data of FastMRI dataset (Zbontar et al.,
+2018) were used to test the performance of the proposed FCB. For
+brain experiment, 250 volumes of T1, T2, T2 fluid-attenuated inversion
+recovery (FLAIR) and post-contrast T1 brain data (40, 50, 135, 25
+respectively) were included. Among them, 200 volumes (3154 slices)
+were used for training and 50 (794 slices) for validation with the same
+composition rate of contrasts. For knee experiment, 118 volumes of PD
+weighted knee data were involved, and 100 (2963 slices) were used
+for training, 18 (524 slices) for validation. All the images were centercropped to 320 × 320, and the maximum magnitude of each volume
+was normalized to 1. Because the number of coils of brain dataset was
+not identical, coil compression was performed by keeping the first 𝑛𝑐
+columns singular vectors of singular value decomposition (SVD) (Klema
+and Laub, 1980). In this study, 𝑛𝑐 was set to 8. The sensitive maps were
+estimated from the center k-space region by using ESPIRiT (Roy and
+Kailath, 1989).
+
+4.3. Implementation details
+In all the models, mean absolute error (MAE) loss on the coilcombined image was utilized for training:
+1 ∑|
+𝑥 − 𝑥̂ 𝑠 ||
+𝑆 𝑆=1 | 𝑠
+𝑆
+
+𝐿(𝑥, 𝑥)
+̂ =
+4
+
+(9)
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+Table 2
+Quantitative results on the validation set in brain and knee datasets at 8× and 12× acceleration.
+Task
+
+Brain
+
+Knee
+
+Method
+
+PSNR
+
+SSIM
+
+8×
+
+12×
+
+8×
+
+12×
+
+UNet
+F-UNet
+p
+
+34.44 ± 3.38
+35.25 ± 3.48
+∗∗∗
+
+33.19 ± 3.22
+34.11 ± 3.34
+∗∗∗
+
+0.9047 ± 0.1130
+0.9126 ± 0.1133
+∗∗∗
+
+0.8909 ± 0.1127
+0.9013 ± 0.1133
+∗∗∗
+
+E2EVar
+F-E2EVar
+p
+
+34.22 ± 3.17
+35.71 ± 3.27
+∗∗∗
+
+33.20 ± 3.15
+34.76 ± 3.16
+∗∗∗
+
+0.8711 ± 0.1082
+0.8879 ± 0.1094
+∗∗∗
+
+0.8771 ± 0.1109
+0.8931 ± 0.1122
+∗∗∗
+
+MoDL
+F-MoDL
+p
+
+36.62 ± 3.27
+37.15 ± 3.43
+∗∗∗
+
+35.41 ± 3.30
+35.63 ± 3.30
+∗∗∗
+
+0.9165 ± 0.1125
+0.9192 ± 0.1129
+∗∗∗
+
+0.9024 ± 0.1179
+0.9038 ± 0.1173
+∗∗∗
+
+VSNet
+F-VSNet
+p
+
+36.78 ± 3.20
+37.14 ± 3.21
+∗∗∗
+
+35.06 ± 2.87
+35.59 ± 2.98
+∗∗∗
+
+0.9140 ± 0.1112
+0.9182 ± 0.1109
+∗∗∗
+
+0.8982 ± 0.1110
+0.9068 ± 0.1120
+∗∗∗
+
+UNet
+F-UNet
+p
+
+34.23 ± 2.15
+35.52 ± 2.34
+∗∗∗
+
+33.09 ± 2.06
+34.36 ± 2.22
+∗∗∗
+
+0.8955 ± 0.0338
+0.9136 ± 0.0321
+∗∗∗
+
+0.8731 ± 0.0382
+0.8943 ± 0.0355
+∗∗∗
+
+E2EVar
+F-E2EVar
+p
+
+33.59 ± 2.13
+35.32 ± 2.42
+∗∗∗
+
+32.67 ± 2.04
+34.48 ± 2.30
+∗∗∗
+
+0.8748 ± 0.0346
+0.9025 ± 0.0342
+∗∗∗
+
+0.8617 ± 0.0362
+0.8951 ± 0.0346
+∗∗∗
+
+MoDL
+F-MoDL
+p
+
+35.04 ± 2.43
+35.68 ± 2.56
+∗∗∗
+
+33.66 ± 2.39
+34.38 ± 2.37
+∗∗∗
+
+0.8974 ± 0.0374
+0.9063 ± 0.0375
+∗∗∗
+
+0.8717 ± 0.0437
+0.8851 ± 0.0409
+∗∗∗
+
+VSNet
+F-VSNet
+p
+
+35.31 ± 2.30
+35.84 ± 2.41
+∗∗∗
+
+33.72 ± 2.14
+34.37 ± 2.25
+∗∗∗
+
+0.9030 ± 0.0332
+0.9111 ± 0.0327
+∗∗∗
+
+0.8719 ± 0.0401
+0.8869 ± 0.0367
+∗∗∗
+
+∗∗∗ means that p < 0.001.
+
+Fig. 3. A reconstruction example of the T2-weighted data in validation set in brain dataset. The top displays the result at 8× acceleration, while the bottom displays the result
+at 12× acceleration. PSNR and SSIM of the single image reconstructed are noted in the top right-hand corner. The second and fifth rows depict the reconstruction of the zoomed
+region marked in the ground truth. The third and sixth rows display the residual error in this zoomed region, with all errors multiplied by 10 for better visualization.
+
+where 𝑥𝑠 is the 𝑠th target image and 𝑥̂𝑠 is the predicted one. 𝑆 is the
+size of mini-batch, which is 16 for UNet and VSNet and 8 for MoDL.
+The baseline UNet had 64 channels in the hidden layer and involved 4
+times down-sampling. The E2EVar model had a total of 12 iterations,
+with its UNet backbone consisting of 18 channels. The MoDL model
+included 10 iterations with 64 filters in each of the 5 convolution layers
+and the VSNet model had 5 iterations with the same width and depth.
+Notably, in the four baseline models, the convolution blocks were
+replaced with the depth-separable convolutions with shortcut and the
+padding mode was circular padding to ensure a fair comparison. The
+
+last 6 layers in F-UNet were replaced by the proposed FCB, while both
+in F-MoDL and F-VSNet, the 3rd and 4th layers were replaced.
+When training the UNet, F-UNet, and ViT models, all images were
+handled as magnitude images. For the E2EVar, MoDL, VSNet and their
+FCB versions, the real and imaginary values were arranged as separate
+channels (Aggarwal et al., 2018). The baseline models and their FCB
+versions were trained using the RMSprop optimizer (Graves, 2013) with
+a learning rate of 1e–4 for UNet and VSNet, and 1e–3 for MoDL. E2EVar
+was trained with the Adam optimizer (Kingma, 2014) at a 1e–3 learning
+rate, as in Sriram et al. (2020a). The baseline models were trained for
+5
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+Table 3
+Quantitative results on the validation set using Cartesian and Radial mask.
+Task
+
+Brain
+
+Knee
+
+Method
+
+PSNR
+
+SSIM
+
+Cartesian
+
+Radial
+
+Cartesian
+
+Radial
+
+UNet
+F-UNet
+p
+
+31.21 ± 3.02
+31.74 ± 2.99
+∗∗∗
+
+34.36 ± 3.06
+34.98 ± 3.12
+∗∗∗
+
+0.8736 ± 0.1109
+0.8811 ± 0.1113
+∗∗∗
+
+0.9087 ± 0.1122
+0.9150 ± 0.1133
+∗∗∗
+
+E2EVar
+F-E2EVar
+p
+
+31.57 ± 2.95
+32.54 ± 2.98
+∗∗∗
+
+33.89 ± 3.02
+35.37 ± 3.13
+∗∗∗
+
+0.8740 ± 0.1103
+0.8858 ± 0.1124
+∗∗∗
+
+0.8682 ± 0.1079
+0.8956 ± 0.1109
+∗∗∗
+
+MoDL
+F-MoDL
+p
+
+30.28 ± 3.11
+30.82 ± 3.03
+∗∗∗
+
+35.61 ± 3.05
+35.98 ± 3.07
+∗∗∗
+
+0.8426 ± 0.1160
+0.8519 ± 0.1153
+∗∗∗
+
+0.9141 ± 0.1116
+0.9197 ± 0.1118
+∗∗∗
+
+VSNet
+F-VSNet
+p
+
+29.91 ± 2.81
+30.46 ± 2.77
+∗∗∗
+
+35.77 ± 2.94
+36.03 ± 2.95
+∗∗∗
+
+0.8354 ± 0.1063
+0.8476 ± 0.1074
+∗∗∗
+
+0.9184 ± 0.1104
+0.9208 ± 0.1105
+∗∗∗
+
+UNet
+F-UNet
+p
+
+31.40 ± 1.94
+31.94 ± 1.96
+∗∗∗
+
+34.06 ± 2.25
+35.01 ± 2.38
+∗∗∗
+
+0.8456 ± 0.0386
+0.8557 ± 0.0369
+∗∗∗
+
+0.8991 ± 0.0340
+0.9112 ± 0.0332
+∗∗∗
+
+E2EVar
+F-E2EVar
+p
+
+31.12 ± 1.94
+32.17 ± 2.04
+∗∗∗
+
+33.52 ± 2.19
+34.92 ± 2.43
+∗∗∗
+
+0.8338 ± 0.0392
+0.8549 ± 0.0385
+∗∗∗
+
+0.8756 ± 0.0347
+0.9012 ± 0.0349
+∗∗∗
+
+MoDL
+F-MoDL
+p
+
+29.81 ± 2.16
+30.71 ± 2.08
+∗∗∗
+
+35.15 ± 2.40
+35.50 ± 2.46
+∗∗∗
+
+0.8046 ± 0.0429
+0.8231 ± 0.0431
+∗∗∗
+
+0.8997 ± 0.0368
+0.9085 ± 0.0353
+∗∗∗
+
+VSNet
+F-VSNet
+p
+
+29.86 ± 1.79
+30.48 ± 1.80
+∗∗∗
+
+35.30 ± 2.38
+35.55 ± 2.46
+∗∗∗
+
+0.7986 ± 0.0435
+0.8139 ± 0.0424
+∗∗∗
+
+0.9042 ± 0.0367
+0.9080 ± 0.0367
+∗∗∗
+
+80 epochs, except for VSNet which was trained for 200 epochs. The
+FCB enhanced models were trained for the same number of epochs
+to the corresponding baseline models. For the training of F-UNet, FE2EVar, F-MoDL and F-VSNet, after re-parameterization, the learning
+rate was set to 1e–4, and the L2 weight normalization was added. The
+optimizer procedure for ViT (Lin and Heckel, 2022), ReconFormer (Guo
+et al., 2023), SwinMR (Huang et al., 2022), Ksp (Han et al., 2019) and
+MDRecon (Ran et al., 2020) were kept consistent with their original
+papers.
+
+Table 4
+Quantitative results on the validation set when 10% Or 20% Gaussian noise added in
+brain dataset at 8× acceleration.
+Method
+
+4.4. Quantitative metrics results
+The comparison between FCB and traditional convolution in four
+architectures (UNet, E2EVar, MoDL and VSNet) at 8× and 12× acceleration rates in brain and knee validation datasets are shown in Table 2.
+The mean value and standard deviation of PSNR and SSIM are included.
+Across different acceleration rates and datasets, FCB outperforms its
+baseline counterpart by a significant margin in all four architectures.
+The F-E2EVar demonstrates the highest performance improvement.
+For all architectures, the Wilcoxon signed-rank test results indicate
+statistical significance (p < 0.001). The performance difference in brain
+and knee data could be attributed to part of reconstructions with
+inferior quality, characterized by more noticeable artifacts in knee
+images shown in Section 4.5.
+Table 3 shows the results when equispaced Cartesian and radial
+under-sampling patterns were utilized at 8× acceleration. The proposed
+FCB significantly improved the performance of the four architectures
+across different patterns. The overall metrics of the four baseline models in the equispaced Cartesian undersampling were low, while the
+implementation of FCB led to remarkable improvements in all architectures. Then, Table 4 presents the quantitative results when additional
+noise was introduced. The inclusion of noise led to a decrease in the
+PSNR and SSIM values for the baseline models, particularly for MoDL.
+For all four architectures, FCB significantly outperformed its baseline
+counterpart, with F-VSNet achieving the best PSNR and SSIM at both
+10% and 20% noise levels.
+The comparison between F-MoDL and other methods including
+three ViT models (ViT, ReconFormer, SwinMR) and two k-space data
+
+PSNR
+
+SSIM
+
+10%
+
+20%
+
+10%
+
+20%
+
+UNet
+F-UNet
+p
+
+34.00 ± 3.18
+34.66 ± 3.23
+∗∗∗
+
+33.35 ± 3.05
+34.00 ± 3.07
+∗∗∗
+
+0.9015 ± 0.1121
+0.9088 ± 0.1129
+∗∗∗
+
+0.8947 ± 0.1119
+0.9035 ± 0.1122
+∗∗∗
+
+E2EVar
+F-E2EVar
+p
+
+33.64 ± 2.98
+34.79 ± 3.01
+∗∗∗
+
+32.83 ± 2.78
+33.77 ± 2.76
+∗∗∗
+
+0.8596 ± 0.1058
+0.8749 ± 0.1071
+∗∗∗
+
+0.8329 ± 0.1015
+0.8469 ± 0.1025
+∗∗∗
+
+MoDL
+F-MoDL
+p
+
+35.55 ± 2.94
+35.96 ± 3.01
+∗∗∗
+
+34.21 ± 2.85
+34.54 ± 2.75
+∗∗∗
+
+0.9026 ± 0.1090
+0.9114 ± 0.1104
+∗∗∗
+
+0.8833 ± 0.1191
+0.8982 ± 0.1093
+∗∗∗
+
+VSNet
+F-VSNet
+p
+
+35.86 ± 2.87
+36.21 ± 2.93
+∗∗∗
+
+34.56 ± 2.64
+34.92 ± 2.72
+∗∗∗
+
+0.9112 ± 0.1102
+0.9172 ± 0.1110
+∗∗∗
+
+0.8942 ± 0.1090
+0.9057 ± 0.1101
+∗∗∗
+
+involved models (Ksp, MDRecon) is shown in Table 5. The proposed
+FCB method achieved significantly better PSNR and SSIM than all these
+methods. Additionally, the parameters and runtime of the networks
+were compared. Runtime was measured by the mean GPU time of the
+forward pass on the validation dataset. The parameter count of F-MoDL
+was lower than most methods, except for MDRecon. Its runtime was
+shorter than the three ViT models with time-consuming self-attention,
+but longer than Ksp and MDRecon due to the conjugate gradient
+operator.
+4.5. Qualitative visualization results
+Figs. 3 and 4 illustrate the reconstructed brain T2 and T1 contrast
+images from all models. UNet and E2EVar produced smoother results,
+while MoDL and VSNet exhibited visible aliasing artifacts (marked by
+red arrows in Fig. 3), possibly due to aliasing and texture confusion.
+On the other hand, F-UNet and F-E2EVar recovered more details than
+UNet and E2EVar, and both F-MoDL and F-VSNet effectively suppressed
+the aliasing artifacts presented in their baselines. The zoomed region
+6
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+Fig. 4. A reconstruction example of the T1-weighted data in validation set in brain dataset.
+
+Fig. 5. A reconstruction example of the validation set in knee dataset. The top displays the result at 8× acceleration, while the bottom displays the result at 12× acceleration.
+
+Table 5
+Quantitative results compared with other methods.
+F-MoDL
+
+ViT
+
+ReconFormer
+
+SwinMR
+
+Ksp
+
+MDRecon
+
+PSNR
+p
+
+37.15 ± 3.40
+–
+
+31.98 ± 2.97
+∗∗∗
+
+33.69 ± 3.04
+∗∗∗
+
+34.94 ± 3.27
+∗∗∗
+
+33.57 ± 3.51
+∗∗∗
+
+36.31 ± 3.49
+∗∗∗
+
+SSIM
+p
+
+0.9197 ± 0.1123
+–
+
+0.8828 ± 0.1123
+∗∗∗
+
+0.8979 ± 0.1091
+∗∗∗
+
+0.9069 ± 0.1122
+∗∗∗
+
+0.8610 ± 0.1100
+∗∗∗
+
+0.8930 ± 0.1164
+∗∗∗
+
+Parameter (M)
+Time (ms)
+
+6.61
+50.1
+
+616.71
+84.96
+
+1.08
+596.94
+
+9.64
+297.3
+
+30.34
+6.01
+
+1.3
+17.94
+
+highlighted intricate details and sharp edges, where UNet and E2EVar
+exhibited more residual errors and MoDL and VSNet generated some
+false textures (marked by red arrows in Fig. 4(b)), compared with
+models with FCB. Overall, models with FCB significantly enhanced
+reconstruction accuracy, displaying less false structure and texture.
+
+The knee images reconstructed by all models are shown in Fig. 5.
+At 8× acceleration, UNet produced smoother result, while MoDL and
+VSNet generated obvious horizontal aliasing artifacts (marked by red
+arrows), similar to the results of the brain dataset. By employing FCB, FUNet and F-E2EVar recovered more details, especially the bone texture,
+7
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+Fig. 6. An example of brain T1-weighted data reconstructed by F-MoDL and other methods.
+
+sizes, and F-UNet were compared. The performance of FasterFC in
+the same UNet architecture was also compared. As shown in Table 6,
+enlarging the kernel size of UNet improved the reconstruction metrics,
+but there was no further improvement when the kernel size was larger
+than 11. On the other hand, the runtime quickly increased with larger
+kernel sizes, the runtime of UNet with kernel size of 21 was nearly 3
+times as long as that of UNet with standard 3 × 3 convolution kernel.
+Notably, the runtime of F-UNet was shorter than the best traditional
+UNet with an 11 × 11 kernel size, aligning with the theoretical operations presented in Table 1. FasterFC performed better than the 3 × 3
+convolution and slightly better than the 7 × 7 version, but its runtime
+was comparable to the 21 × 21 due to the extra point-wise convolution.
+Given the homogeneity of the Fourier transform, the global connection
+in FasterFC primarily stems from its Fourier nonlinear layer, which may
+explain its limited performance. Furthermore, F-UNet achieved the best
+reconstruction performance, significantly surpassing all the large-kernel
+UNet variants and FasterFC-UNet, which can be attributed to the global
+and adaptive receptive field of FCB.
+Furthermore, a series of ablation experiments were carried out on
+UNet-based models using the knee dataset to investigate the effect of
+all the innovations in the proposed method, including circular padding,
+depth-wise convolution, shortcut, FCB, and re-parameterization during
+training. As shown in Table 7, all the modifications contributed to the
+improved reconstruction performance with high statistic significance.
+Although circular padding, depth-wise convolution, and shortcut may
+seem to contribute less, they are actually crucial innovations to embed
+FCB into CNN. Notably, these modifications have also been employed
+in the baseline models in Sections 4.4 and 4.5 and did not contribute
+the over-performance of FCB when comparing.
+To explore the layer-wise RF of the proposed FCB, the convolution
+kernels of UNet and F-UNet were visualized (Fig. 8) by showing the
+spectrum of the kernel with the maximum norm in each layer. For the
+baseline UNet, the spectral visualization map appeared very smooth,
+and the distribution varies across different layers. In contrast, for FUNet (FCB was deployed in the last 6 layers), the spectral map of
+FCB kernel exhibited more sharp features and sparsely focused on the
+zero frequency, which was consistent with the distribution of real kspace data. Furthermore, to illustrate the size in spatial domain of
+trained FCB kernel, the rank of the trained kernels’ spectrum in both
+models were calculated and showed in Fig. 8 (the white numbers).
+Due to the orthogonality of Fourier Transform, the rank is consistent
+between convolution kernel and its spectrum (Proakis, 2007), so the
+rank of spectrum is a lower bound of kernel’s size in spatial domain, as
+described in Eq. (6). The rank of FCB kernels could reach high values,
+such as 143, while the ranks of normal convolutions are typically
+lower than 3. In terms of layer-wise dimension, it is evident that FCB
+significantly scaled up the size of convolution and, namely, the RF.
+
+Fig. 7. PSNR results on the knee validation dataset at 8× acceleration when FCB is
+applied to different layers in the model. (a) Results for UNet. (b) Results for MoDL.
+(c) Results for VSNet.
+
+and F-MoDL and F-VSNet suppressed the aliasing artifacts to a great
+extent. The zoomed region and error maps showed that all models with
+FCB had better performance in reconstructing detailed cartilage and
+edge information. At 12× acceleration, MoDL and VSNet showed even
+heavier artifacts, whereas the four FCB models achieved more accurate reconstructions, with F-E2EVar exhibiting slightly smaller residual
+error.
+Example comparison between F-MoDL and other methods is shown
+in Fig. 6. F-MoDL accurately reconstructed the brain structure and
+texture, whereas the results of ViT and Ksp exhibited obvious artifacts.
+ReconFormer and SwinMR produced overly smooth results. Although
+MDRecon prevented heavy artifacts, it still exhibited more noise-like
+errors than F-MoDL, as evident in the zoomed-in regions and error
+maps.
+4.6. Analysis of FCB
+As a Plug-and-Play block, FCB can be utilized in any convolutional
+layer of CNN models. Here, the impact of implementing FCB in different
+layers was further explored. Fig. 7 shows the PSNR results of F-UNet,
+F-MoDL and F-VSNet in the knee dataset. The 𝑥-axis represents the
+number of convolution layers that were replaced by FCB from the last,
+with 0 indicating the baseline model without FCB and 1 indicating only
+the last layer being replaced by FCB. The results for different FCB layers
+were very close, and using just one FCB layer significantly improved
+the reconstruction performance. As a single FCB also has a global RF,
+as referred in Section 3.1, this phenomenon suggests that only replacing
+the last layer with FCB is capable of incorporating global information
+into the reconstruction process, aligning with the findings in Rao et al.
+(2022).
+To demonstrate that FCB can scale up the RF while maintaining
+low computational complexity than traditional convolution, the reconstruction performance and runtime between UNet with different kernel
+8
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+Table 6
+Comparison the reconstruction performance and runtime between UNet with different Kernel sizes, FasterFC-UNet and F-UNet on the knee
+dataset at 8× acceleration.
+k = 3
+
+k = 7
+
+k = 11
+
+k = 15
+
+k = 21
+
+FasterFC
+
+FCB
+
+PSNR
+p
+
+34.23 ± 2.15
+∗∗∗
+
+34.40 ± 2.16
+∗∗∗
+
+34.79 ± 2.23
+∗∗∗
+
+34.83 ± 2.23
+∗∗∗
+
+34.42 ± 2.19
+∗∗∗
+
+34.44 ± 2.08
+∗∗∗
+
+35.52 ± 2.34
+–
+
+SSIM
+p
+
+0.8955 ± 0.0338 0.8981 ± 0.0336 0.9030 ± 0.0329 0.9037 ± 0.0328 0.8984 ± 0.0337 0.9020 ± 0.0328 0.9136 ± 0.0321
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+–
+
+Time (ms) 6.88
+
+8.58
+
+10.87
+
+14.3
+
+21.74
+
+21.61
+
+10.09
+
+Table 7
+Ablation study assessing the impact of modifications and the Re-parametrization method on the knee validation dataset at 8× acceleration.
+Circular
+✓
+✓
+✓
+✓
+✓
+
+Depth-wise
+
+✓
+✓
+✓
+✓
+
+ShortCut
+
+✓
+✓
+✓
+
+FCB
+
+✓
+✓
+
+Re-Para
+
+PSNR
+
+p
+
+SSIM
+
+p
+
+✓
+
+33.38 ± 2.00
+33.57 ± 2.00
+33.82 ± 2.13
+34.23 ± 2.15
+35.22 ± 2.30
+35.52 ± 2.34
+
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+–
+
+0.8802 ± 0.0345
+0.8858 ± 0.0338
+0.8892 ± 0.0347
+0.8955 ± 0.0338
+0.9092 ± 0.0330
+0.9136 ± 0.0321
+
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+∗∗∗
+–
+
+Fig. 9. (a) ERF of UNet. (b) ERF of F-UNet. (c) PSF of the 2D Poisson sampling pattern.
+The ERF of F-UNet covered a larger region, closing to the sampling PSF.
+
+5. Conclusion
+This paper introduced a novel convolution block design with a
+global receptive field for MRI reconstruction CNNs. The experimental results showed that the proposed FCB effectively improved the
+reconstruction performance of the baseline CNN models. At different
+undersampling rates, models enhanced with FCB achieved better quantitative metrics in various datasets, even with additional noise added.
+Furthermore, these models exhibited superior capability in recovering
+intricate details, including texture and edges. Notably, the models with
+FCB outperformed Vision Transformers, which are considered mainstream models with large receptive fields. Additionally, FCB models
+also surpassed methods that embed k-space data to enhance long-range
+connections. FCB also demonstrated low computational complexity,
+with experiments showing that its runtime is significantly less than Vision Transformers and comparable to traditional CNNs with an 11 × 11
+convolution kernel.
+Through visualization, it is demonstrated that the proposed FCB
+effectively scales up the RF of CNNs. Unlike other approaches that
+focus on the architecture design of CNNs, our approach pays attention
+to the basic convolution layer in CNNs. Some other works use cascaded or pyramidal architectures (Schlemper et al., 2017; Chen et al.,
+2022; Sriram et al., 2020a) to capture long-distance correlation. Our
+proposed FCB serves as a Plug-and-Play block that has the potential to
+be incorporated into these various CNN architectures. Moreover, FCB
+processes data in the hidden layer as real values and utilizes conjugate
+symmetry in the frequency domain to save memory and time. For
+methods building complex CNNs (Wang et al., 2020; Cole et al., 2021),
+FCB could also be smoothly integrated in complex mode.
+The proposed FCB approach still has some limitations. Although
+its usage memory is comparable to spatial convolution, the number
+of parameters in FCB is still significantly higher, leading to increased
+storage memory costs. This presents a tradeoff between the memory
+
+Fig. 8. Spectral visualization of convolution kernels in UNet and F-UNet (FCB was
+deployed in the last 6 layers). (a) Spectral maps of UNet. (b) Spectral maps of F-UNet.
+The spectral amplitude of convolution kernels or the kernels in FCB are shown from
+the left to right along the depth of UNet. The upper and lower rows correspond to the
+double convolution layers in each UNet block. The ranks of spectrum of kernels are
+noted in the bottom right-hand corner of each map.
+
+The effective receptive field (ERF) (Luo et al., 2016) was also
+calculated to investigate the whole RF of FCB enhanced CNN, which
+can be evaluated through back-propagation techniques:
+ERF =
+
+∑ ∑ 𝜕𝑦𝑘cen
+𝑘
+
+𝑖,𝑗
+
+𝜕𝑥𝑘𝑖,𝑗
+
+(10)
+
+The ERF is an average value among the dataset dimension 𝑘, where
+𝑦𝑘cen represents the center activations in the final output layer of the
+CNN and 𝑥𝑘𝑖,𝑗 represents the 𝑖th row and 𝑗th column element of the
+input image of the CNN. Fig. 9 displays the ERFs of UNet and FUNet. Because the final output layer of UNet has a large size than
+common classification networks, 𝑦𝑘cen includes the center pixels of a
+10 × 10 region chosen for back-propagation. The ERF of UNet exhibited
+a distribution similar to a normal distribution with a mean centered
+at the image center. On the other hand, the ERF of F-UNet not only
+focused on the image center, but also covered a larger region. As a
+comparison, the point spread function (PSF) of the 2D sampling-pattern
+of the k-space used in our experiments is shown (Fig. 9(c)). It can be
+observed that the ERF of F-UNet covered a wider range and was closer
+to the PSF of k-space sampling in MR imaging. This is more conducive
+for the network to utilize the aliased signal and recover the original
+image.
+9
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+and speed when a large RF is desired. Additionally, the proposed FCB
+involves repeated FFTs and IFFTs, which may impact computing efficiency. Some works (Ayat et al., 2019; Watanabe and Wolf, 2021) have
+attempted to design pure spectral-based CNNs to address this issue,
+but the question of activation functions in the Fourier domain remains
+open. Future research in this area could explore ways to improve the
+computing efficiency of FCB.
+
+Cole, E., Cheng, J., Pauly, J., Vasanawala, S., 2021. Analysis of deep complexvalued convolutional neural networks for MRI reconstruction and phase-focused
+applications. Magn. Reson. Med. 86 (2), 1093–1109.
+Deng, Z., Ren, X., Ye, J., He, J., Qiao, Y., 2023. FCN+: Global receptive convolution
+makes FCN great again. arXiv preprint arXiv:2303.04589.
+Ding, X., Zhang, X., Han, J., Ding, G., 2022. Scaling up your kernels to 31x31:
+Revisiting large kernel design in cnns. In: Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. pp. 11963–11975.
+Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T.,
+Dehghani, M., Minderer, M., Heigold, G., Gelly, S., et al., 2020. An image is
+worth 16x16 words: Transformers for image recognition at scale. arXiv preprint
+arXiv:2010.11929.
+Duan, J., Ren, X., 2024. Improved complex convolutional neural network based on
+spirit and dense connection for parallel MRI reconstruction. IET Signal Process.
+2024 (1), 7006156.
+Duan, J., Schlemper, J., Qin, C., Ouyang, C., Bai, W., Biffi, C., Bello, G., Statton, B.,
+O’regan, D.P., Rueckert, D., 2019. VS-net: Variable splitting network for accelerated
+parallel MRI reconstruction. In: Medical Image Computing and Computer Assisted Intervention–MICCAI 2019: 22nd International Conference, Shenzhen, China,
+October 13–17, 2019, Proceedings, Part IV 22. Springer, pp. 713–722.
+El-Rewaidy, H., Neisius, U., Mancio, J., Kucukseymen, S., Rodriguez, J., Paskavitz, A.,
+Menze, B., Nezafat, R., 2020. Deep complex convolutional network for fast
+reconstruction of 3D late gadolinium enhancement cardiac MRI. NMR Biomed. 33
+(7), e4312.
+Graves, A., 2013. Generating sequences with recurrent neural networks. arXiv preprint
+arXiv:1308.0850.
+Guo, P., Mei, Y., Zhou, J., Jiang, S., Patel, V.M., 2023. ReconFormer: Accelerated MRI
+reconstruction using recurrent transformer. IEEE Trans. Med. Imaging.
+Hammernik, K., Klatzer, T., Kobler, E., Recht, M.P., Sodickson, D.K., Pock, T., Knoll, F.,
+2018. Learning a variational network for reconstruction of accelerated MRI data.
+Magn. Reson. Med. 79 (6), 3055–3071.
+Han, Y., Sunwoo, L., Ye, J.C., 2019. 𝑘-Space deep learning for accelerated MRI. IEEE
+Trans. Med. Imaging 39 (2), 377–386.
+Howard, A.G., Zhu, M., Chen, B., Kalenichenko, D., Wang, W., Weyand, T., Andreetto, M., Adam, H., 2017. Mobilenets: Efficient convolutional neural networks
+for mobile vision applications. arXiv preprint arXiv:1704.04861.
+Huang, J., Fang, Y., Wu, Y., Wu, H., Gao, Z., Li, Y., Del Ser, J., Xia, J., Yang, G., 2022.
+Swin transformer for fast MRI. Neurocomputing 493, 281–304.
+Jaderberg, M., Simonyan, K., Zisserman, A., et al., 2015. Spatial transformer networks.
+Adv. Neural Inf. Process. Syst. 28.
+Kingma, D.P., 2014. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980.
+Klema, V., Laub, A., 1980. The singular value decomposition: Its computation and some
+applications. IEEE Trans. Autom. Control 25 (2), 164–176.
+Lee, D., Yoo, J., Tak, S., Ye, J.C., 2018. Deep residual learning for accelerated MRI
+using magnitude and phase networks. IEEE Trans. Biomed. Eng. 65 (9), 1985–1995.
+Lin, K., Heckel, R., 2022. Vision transformers enable fast and robust accelerated mri.
+In: International Conference on Medical Imaging with Deep Learning. PMLR, pp.
+774–795.
+Liu, S., Chen, T., Chen, X., Chen, X., Xiao, Q., Wu, B., Pechenizkiy, M., Mocanu, D.,
+Wang, Z., 2022a. More convnets in the 2020s: Scaling up kernels beyond 51x51
+using sparsity. arXiv preprint arXiv:2207.03620.
+Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., Guo, B., 2021. Swin
+transformer: Hierarchical vision transformer using shifted windows. In: Proceedings
+of the IEEE/CVF International Conference on Computer Vision. pp. 10012–10022.
+Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T., Xie, S., 2022b. A convnet for
+the 2020s. In: Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition. pp. 11976–11986.
+Liu, X., Pang, Y., Liu, Y., Jin, R., Sun, Y., Liu, Y., Xiao, J., 2024a. Dual-domain faster
+Fourier convolution based network for MR image reconstruction. Comput. Biol.
+Med. 177, 108603.
+Liu, X., Pang, Y., Sun, X., Liu, Y., Hou, Y., Wang, Z., Li, X., 2024b. Image reconstruction
+for accelerated MR scan with faster Fourier convolutional neural networks. IEEE
+Trans. Image Process..
+Luo, W., Li, Y., Urtasun, R., Zemel, R., 2016. Understanding the effective receptive field
+in deep convolutional neural networks. Advances in neural information processing
+systems 29.
+Lustig, M., Donoho, D., Pauly, J.M., 2007. Sparse MRI: The application of compressed
+sensing for rapid mr imaging. Magnetic Resonance in Medicine: An Official Journal
+of the International Society for Magnetic Resonance in Medicine 58 (6), 1182–1195.
+Lustig, M., Donoho, D.L., Santos, J.M., Pauly, J.M., 2008. Compressed sensing MRI.
+IEEE Signal Process. Mag. 25 (2), 72–82.
+Mardani, M., Gong, E., Cheng, J.Y., Vasanawala, S.S., Zaharchuk, G., Xing, L.,
+Pauly, J.M., 2018. Deep generative adversarial neural networks for compressive
+sensing MRI. IEEE Trans. Med. Imaging 38 (1), 167–179.
+Mathieu, M., Henaff, M., LeCun, Y., 2013. Fast training of convolutional networks
+through ffts. arXiv preprint arXiv:1312.5851.
+Proakis, J.G., 2007. Digital signal processing: principles, algorithms, and applications,
+4/e. Pearson Education India.
+
+CRediT authorship contribution statement
+Haozhong Sun: Writing – review & editing, Writing – original draft,
+Visualization, Validation, Supervision, Software, Resources, Methodology, Investigation, Funding acquisition, Formal analysis, Data curation, Conceptualization. Yuze Li: Resources, Methodology, Formal
+analysis, Conceptualization. Zhongsen Li: Writing – review & editing,
+Methodology, Conceptualization. Runyu Yang: Validation, Methodology. Ziming Xu: Writing – review & editing, Visualization. Jiaqi Dou:
+Software, Methodology. Haikun Qi: Writing – review & editing. Huijun
+Chen: Writing – review & editing, Writing – original draft, Visualization, Validation, Supervision, Project administration, Methodology,
+Investigation, Funding acquisition, Conceptualization.
+Declaration of competing interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to
+influence the work reported in this paper.
+Data availability
+Data will be made available on request.
+Declaration of Generative AI and AI-assisted technologies in the
+writing process
+Statement: During the preparation of this work the authors used
+OpenAI’s tool ChatGPT in order to improve readability and language
+in revision process. After using this tool, authors reviewed and edited
+the content as needed and take full responsibility for the content of the
+publication.
+Acknowledgments
+This work was supported by the Science and Technology Planning Program of Beijing Municipal Science and Technology Commission and Administrative Commission of Zhongguancun Science Park
+(Z231100004823012), the Key Program of the National Natural Science
+Foundation of China (81930119), the Beijing Municipal Natural Science
+Foundation (Z190024), and the Tsinghua University Initiative Scientific
+Research Program of Precision Medicine (10001020108).
+References
+Aggarwal, H.K., Mani, M.P., Jacob, M., 2018. MoDL: Model-based deep learning
+architecture for inverse problems. IEEE Trans. Med. Imaging 38 (2), 394–405.
+Ahmad, R., Bouman, C.A., Buzzard, G.T., Chan, S., Liu, S., Reehorst, E.T., Schniter, P.,
+2020. Plug-and-play methods for magnetic resonance imaging: Using denoisers for
+image recovery. IEEE Signal Process. Mag. 37 (1), 105–116.
+Ayat, S.O., Khalil-Hani, M., Ab Rahman, A.A.-H., Abdellatef, H., 2019. Spectralbased convolutional neural network without multiple spatial-frequency domain
+switchings. Neurocomputing 364, 152–167.
+Chen, Y., Shi, F., Christodoulou, A.G., Xie, Y., Zhou, Z., Li, D., 2018. Efficient and
+accurate MRI super-resolution using a generative adversarial network and 3D multilevel densely connected network. In: International Conference on Medical Image
+Computing and Computer-Assisted Intervention. Springer, pp. 91–99.
+Chen, E.Z., Wang, P., Chen, X., Chen, T., Sun, S., 2022. Pyramid convolutional RNN
+for MRI image reconstruction. IEEE Trans. Med. Imaging 41 (8), 2033–2047.
+Chi, L., Jiang, B., Mu, Y., 2020. Fast fourier convolution. Adv. Neural Inf. Process. Syst.
+33, 4479–4488.
+10
+
+Medical Image Analysis 99 (2025) 103349
+
+H. Sun et al.
+
+Sun, B., Zhang, Y., Jiang, S., Fu, Y., 2023. Hybrid pixel-unshuffled network for
+lightweight image super-resolution. In: Proceedings of the AAAI Conference on
+Artificial Intelligence. Vol. 37, pp. 2375–2383, no. 2.
+Touvron, H., Cord, M., Douze, M., Massa, F., Sablayrolles, A., Jégou, H., 2021. Training
+data-efficient image transformers & distillation through attention. In: International
+Conference on Machine Learning. PMLR, pp. 10347–10357.
+Wang, S., Cheng, H., Ying, L., Xiao, T., Ke, Z., Zheng, H., Liang, D., 2020. DeepcomplexMRI: Exploiting deep residual network for fast parallel MR imaging with
+complex convolution. Magn. Reson. Imaging 68, 136–147.
+Watanabe, T., Wolf, D.F., 2021. Image classification in frequency domain with 2SReLU:
+a second harmonics superposition activation function. Appl. Soft Comput. 112,
+107851.
+Wood, L., Larson, E.C., 2021. Parametric spectral filters for fast converging, scalable convolutional neural networks. In: ICASSP 2021-2021 IEEE International
+Conference on Acoustics, Speech and Signal Processing. ICASSP, IEEE, pp.
+2800–2804.
+Xiang, J., Dong, Y., Yang, Y., 2021. FISTA-net: Learning a fast iterative shrinkage
+thresholding network for inverse problems in imaging. IEEE Trans. Med. Imaging
+40 (5), 1329–1339.
+Yan, Y., Yang, T., Jiao, C., Yang, A., Miao, J., 2024. IWNeXt: an image-wavelet domain
+ConvNeXt-based network for self-supervised multi-contrast MRI reconstruction.
+Phys. Med. Biol. 69 (8), 085005.
+Yan, Y., Yang, T., Zhao, X., Jiao, C., Yang, A., Miao, J., 2023. DC-SiamNet: Deep
+contrastive siamese network for self-supervised MRI reconstruction. Comput. Biol.
+Med. 167, 107619.
+Yang, G., Yu, S., Dong, H., Slabaugh, G., Dragotti, P.L., Ye, X., Liu, F., Arridge, S.,
+Keegan, J., Guo, Y., et al., 2017. DAGAN: deep de-aliasing generative adversarial
+networks for fast compressed sensing MRI reconstruction. IEEE Trans. Med. Imaging
+37 (6), 1310–1321.
+Zbontar, J., Knoll, F., Sriram, A., Murrell, T., Huang, Z., Muckley, M.J., Defazio, A.,
+Stern, R., Johnson, P., Bruno, M., et al., 2018. fastMRI: An open dataset and
+benchmarks for accelerated MRI. arXiv preprint arXiv:1811.08839.
+Zhang, J., Ghanem, B., 2018. ISTA-net: Interpretable optimization-inspired deep network for image compressive sensing. In: Proceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition. pp. 1828–1837.
+Zhao, X., Yang, T., Li, B., Zhang, X., 2023. SwinGAN: A dual-domain swin transformerbased generative adversarial network for MRI reconstruction. Comput. Biol. Med.
+153, 106513.
+
+Quan, T.M., Nguyen-Duc, T., Jeong, W.-K., 2018. Compressed sensing MRI reconstruction using a generative adversarial network with a cyclic loss. IEEE Trans. Med.
+Imaging 37 (6), 1488–1497.
+Ran, M., Xia, W., Huang, Y., Lu, Z., Bao, P., Liu, Y., Sun, H., Zhou, J., Zhang, Y., 2020.
+MD-recon-net: a parallel dual-domain convolutional neural network for compressed
+sensing MRI. IEEE Trans. Radiat. Plasma Med. Sci. 5 (1), 120–135.
+Rao, Y., Zhao, W., Tang, Y., Zhou, J., Lim, S.N., Lu, J., 2022. Hornet: Efficient
+high-order spatial interactions with recursive gated convolutions. Adv. Neural Inf.
+Process. Syst. 35, 10353–10366.
+Ravishankar, S., Bresler, Y., 2010. MR image reconstruction from highly undersampled
+k-space data by dictionary learning. IEEE Trans. Med. Imaging 30 (5), 1028–1041.
+Rippel, O., Snoek, J., Adams, R.P., 2015. Spectral representations for convolutional
+neural networks. Adv. Neural Inf. Process. Syst. 28.
+Ronneberger, O., Fischer, P., Brox, T., 2015. U-net: Convolutional networks for biomedical image segmentation. In: Medical Image Computing and Computer-Assisted
+Intervention–MICCAI 2015: 18th International Conference, Munich, Germany,
+October 5-9, 2015, Proceedings, Part III 18. Springer, pp. 234–241.
+Roy, R., Kailath, T., 1989. ESPRIT-estimation of signal parameters via rotational
+invariance techniques. IEEE Trans. Acoust. Speech Signal Process. 37 (7), 984–995.
+Sandino, C.M., Cheng, J.Y., Chen, F., Mardani, M., Pauly, J.M., Vasanawala, S.S., 2020.
+Compressed sensing: From research to clinical practice with deep neural networks:
+Shortening scan times for magnetic resonance imaging. IEEE Signal Process. Mag.
+37 (1), 117–127.
+Schlemper, J., Caballero, J., Hajnal, J.V., Price, A., Rueckert, D., 2017. A deep cascade
+of convolutional neural networks for MR image reconstruction. In: Information
+Processing in Medical Imaging: 25th International Conference, IPMI 2017, Boone,
+NC, USA, June 25-30, 2017, Proceedings 25. Springer, pp. 647–658.
+Shannon, C.E., 1948. A mathematical theory of communication. Bell Syst. Tech. J. 27
+(3), 379–423.
+Sriram, A., Zbontar, J., Murrell, T., Defazio, A., Zitnick, C.L., Yakubova, N.,
+Knoll, F., Johnson, P., 2020a. End-to-end variational networks for accelerated MRI
+reconstruction. In: Medical Image Computing and Computer Assisted Intervention–
+MICCAI 2020: 23rd International Conference, Lima, Peru, October 4–8, 2020,
+Proceedings, Part II 23. Springer, pp. 64–73.
+Sriram, A., Zbontar, J., Murrell, T., Zitnick, C.L., Defazio, A., Sodickson, D.K., 2020b.
+GrappaNet: Combining parallel imaging with deep learning for multi-coil MRI
+reconstruction. In: Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition. pp. 14315–14322.
+Sun, J., Li, H., Xu, Z., et al., 2016. Deep ADMM-net for compressive sensing MRI. Adv.
+Neural Inf. Process. Syst. 29.
+
+11
+
+

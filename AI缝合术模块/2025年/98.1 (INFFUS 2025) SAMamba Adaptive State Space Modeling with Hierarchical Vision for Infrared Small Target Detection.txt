@@ -1,0 +1,1246 @@
+SAMamba: Adaptive State Space Modeling with
+Hierarchical Vision for Infrared Small Target Detection
+
+arXiv:2505.23214v1 [cs.CV] 29 May 2025
+
+Wenhao Xua , Shuchen Zhenga , Changwei Wangb,c,d,e , Zherui Zhanga ,
+Chuan Renf , Rongtao Xuc,d , Shibiao Xua,∗
+a
+
+School of Artificial Intelligence, Beijing University of Posts and Telecommunications,
+Beijing, 100083, China.
+b
+Key Laboratory of Computing Power Network and Information Security, Ministry of
+Education, Shandong Computer Science Center (National Supercomputer Center in
+Jinan), Qilu University of Technology (Shandong Academy of Sciences),Shandong,
+250353, China
+c
+The State Key Laboratory of Multimodal Artificial Intelligence Systems, Institute of
+Automation, Chinese Academy of Sciences, Beijing, 100190, China
+d
+School of Artificial Intelligence, University of Chinese Academy of Sciences, Beijing,
+100190, China.
+e
+Shandong Provincial Key Laboratory of Computer Networks, Shandong Fundamental
+Research Center for Computer Science, Shandong, 250353, China
+f
+School of Software Microelectronics, Peking University, Beijing, 100871, China.
+
+Abstract
+Infrared small target detection (ISTD) is vital for long-range surveillance
+systems, particularly in military defense, maritime monitoring, and early
+warning applications. Despite its strategic importance, ISTD remains challenging due to two fundamental limitations: targets typically occupy less
+than 0.15% of the image area and exhibit low distinguishability from complex
+backgrounds. While recent advances in deep learning have shown promise,
+existing methods struggle with information loss during downsampling and inefficient modeling of global context. This paper presents SAMamba, a novel
+framework that synergistically integrates SAM2’s hierarchical feature learning with Mamba’s selective sequence modeling to address these challenges.
+Our key innovations include: (1)Feature Selection Adapter (FS-Adapter)
+that enables efficient domain adaptation from natural to infrared imagery by
+employing a dual-stage selection mechanism, which includes token-level se∗
+1
+
+Corresponding author
+W.Xu and S.Zheng contributed equally to this work.
+
+Preprint submitted to Nuclear Physics B
+
+June 13, 2025
+
+lection via a learnable task embedding and channel-wise refinement through
+adaptive transformations; (2)Cross-Channel State-Space Interaction (CSI)
+module that achieves efficient global context modeling through selective state
+space modeling with linear complexity; and (3)Detail-Preserving Contextual Fusion (DPCF) module that adaptively combines multi-scale features
+through learnable fusion strategies, utilizing a gating mechanism to balance
+contributions from high-resolution and low-resolution features. SAMamba
+effectively addresses the core challenges of ISTD by bridging the domain
+gap, maintaining fine-grained target details, and efficiently modeling longrange dependencies. Extensive experiments on NUAA-SIRST, IRSTD-1k
+and NUDT-SIRST datasets demonstrate that SAMamba significantly outperforms state-of-the-art methods, particularly in challenging scenarios with
+heterogeneous backgrounds and varying target scales. Code is available at
+https://github.com/zhengshuchen/SAMamba.
+Keywords: Infrared small object detection, Segment Anything Model,
+Vision Mamba, Feature fusion
+1. Introduction
+Infrared small target detection (ISTD) plays a crucial role in long-range
+surveillance systems, particularly in military defense, maritime monitoring,
+and aerospace applications. Consider, for instance, the need to detect distant
+unmanned aerial vehicles (UAVs), monitor maritime traffic for small vessels,
+or identify potential aerial threats in complex environments. These applications rely on the ability to accurately detect targets that occupy a minuscule
+portion of the infrared sensor’s field of view, often under challenging conditions of low visibility and complex backgrounds. Such sensing capabilities
+are increasingly integrated into networked systems, where advancements in
+areas like deep learning are also being applied to optimize operational aspects
+such as energy efficiency in wireless sensor network frameworks (Alqaraghuli
+and Karan, 2024). However, ISTD faces two fundamental challenges arising
+from the inherent characteristics of infrared imaging: (1) the extreme scale
+discrepancy, where targets typically occupy less than 0.15% of the image area
+with minimal distinguishable features (Figure 1 (a)), and (2) the homogeneous thermal signatures between targets and complex backgrounds, leading
+to exceptionally low signal-to-clutter ratios (Figure 1 (b)).
+The development of ISTD methods has evolved through several stages.
+2
+
+Figure 1: Challenges in infrared small target detection. (a) Targets are too small, making
+them prone to being missed during detection. (b) Targets have low distinguishability from
+the background.
+
+Traditional approaches include filter-based methods(Zeng et al., 2006) that
+enhance local contrast through various filtering operations, human visual
+system-inspired methods(Chen et al., 2013; Liu et al., 2018) that mimic biological perception mechanisms, and low-rank-based algorithms (Gao et al.,
+2013; Zhang and Peng, 2019; Dai and Wu, 2017; Dai et al., 2016; Zhang
+et al., 2018) that decompose images into target and background components. While these methods established important theoretical foundations,
+their effectiveness is largely limited to controlled environments with relatively
+simple backgrounds, primarily due to their reliance on hand-crafted features
+and restrictive assumptions about background uniformity.
+Deep learning has revolutionized ISTD by introducing end-to-end trainable architectures. Early approaches focused on architectural innovations,
+such as adversarial frameworks for balancing missed detections and false
+alarms(Wang et al., 2019) and asymmetric context modulation for enhanced
+feature extraction(Dai et al., 2021a). More advanced methods have emphasized multi-scale representation and context modeling, including the integration of local contrast priors with deep features(Dai et al., 2021b), edgeaware designs with bidirectional attention(Zhang et al., 2022b), and detailguided feature compensation(Zhang et al., 2022a). Recent approaches have
+3
+
+explored dual U-Net architectures(Wu et al., 2023), hierarchical context fusion(Xu et al., 2024), and contrast-shape representation learning(Lin et al.,
+2024). However, these CNN-based methods face inherent limitations: multiple downsampling steps common in hierarchical architectures risk losing
+crucial spatial information vital for detecting diminutive targets, while the
+constrained local receptive field of convolutions limits their ability to effectively model the long-range dependencies necessary for distinguishing small
+targets from complex, spatially extensive background clutter.
+The emergence of Segment Anything Model v2 (SAM2) (Ravi et al.,
+2024) and Vision Mamba (Vim)(Zhu et al., 2024) presents new opportunities for ISTD. SAM2 provides robust multi-scale representations through
+its hierarchical architecture, crucial for handling extreme scale variations. Simultaneously, Mamba implements selective state-space modeling with linear
+computational complexity, enabling efficient modeling of long-range dependencies critical for target-background discrimination. However, directly applying these advances presents two key challenges: (1) the significant domain
+gap between natural images and infrared imagery requires careful adaptation
+strategies, and (2) the unique characteristics of infrared small targets - sparse
+spatial distribution and low feature distinctiveness - demand specialized architectural considerations.
+To address these limitations and leverage the potential of recent foundation models, we propose SAMamba, a novel framework that synergistically
+integrates SAM2 and Mamba for ISTD. Our approach differs significantly
+from existing solutions: unlike prior CNN-based methods that struggle with
+information loss and limited context, and distinct from naive applications
+of foundation models that overlook domain-specific needs and efficiency,
+SAMamba employs a tailored, synergistic design. Our approach is built
+on the insight that effective small target detection requires three complementary capabilities: (1) robust domain adaptation and task-specific feature
+selection, (2) efficient global context modeling for target-background discrimination, and (3) adaptive information preservation across scales. We achieve
+this through three key innovations: First, we introduce a Feature Selection Adapter (FS-Adapter) specifically designed to efficiently bridge the
+natural-to-infrared domain gap while selecting salient features for small targets, directly addressing the adaptation challenge. Second, we design a
+Cross-Channel State-Space Interaction (CSI) module that leverages
+Mamba’s selective state spaces for efficient global context modeling with
+linear complexity, tackling the long-range dependency limitation of CNNs
+4
+
+and the efficiency concerns of Transformers . Third, we propose a DetailPreserving Contextual Fusion (DPCF) module that adaptively combines multi-scale features through learnable fusion strategies, explicitly mitigating information loss during feature aggregation. While SAMamba demonstrates significant improvements, potential limitations include the computational resources required for the large foundation model backbone and potential sensitivity to the diversity and representativeness of the training data,
+particularly for unseen complex background types.
+Our primary contributions can be summarized as follows:
+1. We present a novel framework called SAMamba for integrating hierarchical vision and selective sequence modeling in the context of
+ISTD, synergistically combining SAM2’s hierarchical feature learning
+with Mamba’s adaptive processing to address fundamental challenges
+in small target detection.
+2. We propose the FS-Adapter module that enables efficient domain
+adaptation while preserving target-specific features through a dualstage selection mechanism, bridging the gap between natural and infrared imagery.
+3. We design the CSI module that leverages Mamba’s selective state
+spaces to achieve efficient and focused global context modeling, particularly suited for the sparse and low-contrast nature of infrared targets.
+4. We introduce the DPCF module that adaptively combines multi-scale
+features through learnable fusion strategies, significantly improving the
+preservation and integration of target-relevant information.
+5. Through extensive experiments on NUAA-SIRST, IRSTD-1k, and NUDTSIRST datasets, we demonstrate that SAMamba achieves significant
+improvements over state-of-the-art methods.
+The remainder of this paper is organized as follows: Section 2 provides a
+review of related work on infrared small target detection and relevant vision
+foundation models. Section 3 details the proposed SAMamba framework,
+including the FS-Adapter, CSI, and DPCF modules. Section 4 presents the
+experimental setup, evaluation metrics, main results, and ablation studies on
+benchmark datasets. Finally, Section 6 concludes the paper and summarizes
+our findings.
+
+5
+
+2. Related Work
+2.1. Infrared small target detection (ISTD)
+The evolution of ISTD methods can be traced through two major paradigms:
+traditional model-based approaches and deep learning methods.
+Traditional Methods. primarily rely on hand-crafted features and prior
+assumptions. Filter-based approaches (Zeng et al., 2006) enhance target
+saliency through local contrast manipulation but struggle with complex backgrounds. Human visual system-inspired methods (Chen et al., 2013; Liu
+et al., 2018) attempt to mimic biological perception mechanisms by incorporating directional sensitivity and weighted local contrast, showing improved
+robustness in scenarios with distinguishable targets. Low-rank-based methods (Gao et al., 2013; Zhang and Peng, 2019; Dai and Wu, 2017; Dai et al.,
+2016; Zhang et al., 2018) decompose images into target and background components through matrix/tensor factorization, achieving better performance
+in varying backgrounds. However, these methods often make strong assumptions about background uniformity and target characteristics, limiting their
+applicability in real-world scenarios.
+Deep Learning Methods. have significantly advanced ISTD performance
+through learned feature representations. Early approaches focused on improving feature extraction through architectural innovations, such as adversarial learning for balancing missed detections and false alarms (Wang et al.,
+2019), and asymmetric context modulation (Dai et al., 2021a) for enhanced
+feature discrimination. Recent works have explored the integration of traditional priors with deep features, exemplified by local contrast fusion (Dai
+et al., 2021b) and edge-aware feature extraction (Zhang et al., 2022b). Multiscale feature learning has emerged as a key direction, with methods like
+detail-guided feature compensation (Zhang et al., 2022a), resolution-preserving
+supervision (Wu et al., 2023), and hierarchical context fusion (Xu et al., 2024)
+addressing the scale variation challenge. Despite these advances, CNN-based
+approaches still face fundamental limitations in preserving small target information and capturing long-range dependencies.
+2.2. Vision Foundation Models for Dense Prediction
+Recent vision foundation models have demonstrated remarkable potential
+for dense prediction tasks, with SAM and Mamba representing two significant
+advances in architectural design.
+
+6
+
+SAM and Its Variants: The Segment Anything Model (SAM) (Kirillov
+et al., 2023) introduced a powerful ViT-based encoder that has been widely
+adapted across vision tasks. Key developments include adapter-based finetuning for high-frequency feature extraction (Chen et al., 2023; Gao et al.,
+2024), temporal-spatial consistency learning (Hui et al., 2024), and domainspecific adaptations (Luo et al., 2024; Cheng et al., 2024). The recent
+SAM2 (Ravi et al., 2024), featuring the Hiera (Ryali et al., 2023) hierarchical encoder, offers enhanced multi-resolution feature extraction capabilities.
+Notable applications have demonstrated its effectiveness in medical imaging (Chen et al., 2024) and multi-task scenarios (Xiong et al., 2024). These
+advances suggest the potential of hierarchical feature learning for small target
+detection, though domain adaptation remains challenging.
+Mamba-based Architectures: The Mamba architecture (Gu and Dao,
+2023) represents a paradigm shift in sequence modeling through selective
+state-space models (SSMs). Its linear computational complexity and superior long-range dependency modeling have sparked numerous visual computing innovations. Vision Mamba (ViM) (Zhu et al., 2024) adapted SSMs for
+high-resolution image processing through bidirectional modeling and positional embeddings. Subsequent works have explored various architectural
+integrations, including U-Net combinations for medical imaging (Ma et al.,
+2024; Liu et al., 2024), multi-directional scanning for underwater enhancement (An et al., 2024), and cross-modal fusion for object detection (Wang
+et al., 2024). Of particular relevance to ISTD is the impact of channel-wise
+processing on model efficiency (Wu et al., 2024) and the potential for global
+context modeling in high-resolution imagery (Zhao et al., 2024).
+3. Method
+3.1. Preliminaries
+Segment Anything Model v2: SAM2 advances vision foundation models
+through its hierarchical architecture, primarily through its Hiera backbone
+that enables systematic multi-scale feature extraction. Given an input image
+I ∈ R3×H×W , Hiera generates a sequence of hierarchical features:
+H
+
+W
+
+Xi ∈ RCi × 2i+1 × 2i+1 ,
+
+i ∈ 1, 2, 3, 4
+
+(1)
+
+where, channel dimensions follow Ci ∈ 96, 192, 384, 768 for the small variant.
+Unlike traditional vision transformers that maintain uniform resolution, this
+7
+
+hierarchical design systematically reduces spatial dimensions while increasing feature channels, enabling efficient multi-scale representation particularly
+beneficial for small target detection.
+Vision Mamba: Vision Mamba (ViM) extends the selective state space
+modeling paradigm to visual tasks through a bidirectional scanning mechanism. Given an input feature map F ∈ RH×W ×C , ViM processes it through
+state space transformations:
+ht = Aht−1 + Bxt ,
+
+yt = Cht ,
+
+(2)
+
+where, A ∈ RN ×N , B ∈ RN ×1 , and C ∈ R1×N are learned parameters.
+The model computes selective global convolution through a structured
+kernel:
+2
+M −1
+K = (CB, CAB, CA B, ..., CA
+B),
+(3)
+This formulation enables efficient sequence modeling with linear computational complexity while maintaining the ability to capture long-range dependencies. The output is computed through convolution:
+y = x ∗ K,
+
+(4)
+
+where, M is the length of the input sequence x, and K ∈ RM is a structured convolutional kernel. This architecture proves particularly effective for
+ISTD by enabling efficient global context modeling without the quadratic
+complexity of traditional attention mechanisms, crucial for discriminating
+small targets from complex backgrounds.
+3.2. Overview
+This section outlines the overall workflow of the proposed SAMamba network, illustrating how its components synergistically process infrared images
+for small target detection within a U-Net architectural framework (Figure 2).
+The process begins with the input image entering the encoder, which leverages the hierarchical SAM2 Hiera backbone. Crucially, before each Hiera
+block, features are processed by our lightweight Feature Selection Adapter
+(FS-Adapter) module, enabling parameter-efficient domain adaptation and
+focusing the powerful hierarchical feature extraction on ISTD-relevant characteristics. As the encoder progressively downsamples the feature maps,
+generating multi-scale representations, features from each scale are simultaneously passed through skip connections. Within these connections, the
+8
+
+Trainable
+
+Frozen
+
+×�
+
+FS-Adapter
+�����
+���������
+
+Encoder
+Block
+
++
+Norm
+Attention
+
+�������
+���������
+
+Encoder
+Block
+
++
+Norm
+MLP
+
+� �
+× × ��
+� �
+
+CSI
+
+Encoder
+Block
+
+�×�×�
+� �
+� �
+� �
+× × ���
+×
+× ���
+×
+×
+���
+� �
+�� ��
+�� ��
+
+CSI
+
+CSI
+
+� �
+× × ��
+� �
+
+DPCF
+
+Encoder
+Block
+
+� �
+× × ��
+� �
+
+DPCF
+
+CSI
+
+� �
+×
+× ��
+�� ��
+
+DPCF
+
+� �
+×
+× ��
+�� ��
+
+DPCF
+
++
+FS-Adapter
+
+�×�×�
+
+Hiera Block
+
+Figure 2: Overview of the proposed SAMamba framework. The architecture consists of
+three key components: Feature Selection Adapter (FS-Adapter) for domain-specific feature extraction,Cross-Channel State-Space Interaction (CSI) for long-range dependency
+modeling, and Detail-Preserving Contextual Fusion (DPCF) for multi-scale feature aggregation.
+
+Cross-Channel State-Space Interaction (CSI) module is employed. CSI utilizes Vision Mamba’s selective state-space modeling to efficiently capture
+long-range spatial dependencies and enhance the global context awareness of
+the encoder features before they reach the decoder. The decoder then progressively upsamples feature maps from the deepest layer. At each upsampling stage, the features are fused with the corresponding context-enhanced
+skip connection features processed by CSI. This fusion is mediated by the
+Detail-Preserving Contextual Fusion (DPCF) module, which adaptively balances the contribution of fine-grained details (from skip connections) and
+semantic context (from upsampled features) to mitigate information loss,
+particularly for small targets. Finally, the output feature map from the last
+decoder stage is passed through a segmentation head (typically convolutional
+layers followed by an activation function) to produce the final pixel-wise prediction mask identifying the infrared small targets. This integrated pipeline
+effectively combines hierarchical feature learning (adapted by FS-Adapter in
+the encoder), efficient global context modeling (via CSI in skip connections),
+and detail-preserving fusion (by DPCF in the decoder) to address the core
+9
+
+challenges of ISTD.
+
+Figure 3: Architecture of the Cross-Channel State-Space Interaction (CSI) module. The
+module integrates Vision Mamba blocks for efficient sequence modeling with cross-channel
+feature recombination and dual-attention refinement for enhanced target-background discrimination.
+
+3.3. Feature Selection Adapter (FS-Adapter)
+While SAM2 provides powerful hierarchical representations, directly applying its pre-trained features to ISTD poses two challenges: (1) the domain gap between natural images and infrared imagery, and (2) the need for
+task-specific feature emphasis on small targets. To address these challenges
+while maintaining computational efficiency, we propose the Feature Selection
+Adapter (FS-Adapter), a lightweight module inserted before each Hiera block
+in the encoder. It enables targeted adaptation of pre-trained features through
+dynamic token and channel selection, focusing the model on ISTD-relevant
+information. Given the relatively limited size of typical ISTD datasets, we
+leverage the pre-trained variant, SAM2 Hiera-S, and adopt a parameterefficient fine-tuning strategy. Specifically, we freeze the pre-trained Hiera
+parameters and integrate FS-Adapter modules before each block. The encoder generates four feature maps at distinct scales:
+H
+
+W
+
+(Fi )4i=1 ∈ R 2i+1 × 2i+1 ×Ci
+10
+
+(5)
+
+For Hiera-S, the channel dimensions are defined as: Ci ∈ {96, 192, 384, 768}.
+The FS-Adapter performs adaptive feature refinement through two key
+mechanisms: token-level selection and channel-wise refinement. For token
+selection, given an input feature Ft ∈ RH×W ×C reshaped to F′t ∈ RHW ×C ,
+we compute:
+t̂i = ti · sim(ti , ξ),
+(6)
+HW
+where, (t̂i )C
+represents the i-th token of the selected tokens F̂t ,
+i=1 ∈ R
+C
+HW
+(ti )i=1 ∈ R
+represents the i-th token of F′t , and ξ ∈ RC is a learnable task
+embedding that encodes ISTD-specific feature importance. The similarity
+function sim(·, ·) is implemented as normalized cosine similarity, ensuring
+stable training:
+aT b
+)
+(7)
+sim(a, b) = max(0,
+∥a∥∥b∥
+
+This step effectively re-weights each channel’s spatial map (ti ) based on its
+relevance to the ISTD task as encoded in ξ. The resulting weighted channel
+maps t̂i are reassembled into F̂′t ∈ RHW ×C .
+The weighted tokens F̂′t undergo channel-wise refinement. This involves
+a linear transformation using a learnable matrix P ∈ RC×C , which allows
+interaction and mixing of information across channels. The result is reshaped
+back to the spatial dimensions and added to the original input feature via a
+residual connection:
+Fo = Conv(Reshape(F̂′t P)) + Ft ,
+
+(8)
+
+where Conv represents a 1x1 convolution, and Reshape operations handle
+the transitions between sequence and spatial formats. The residual connection Ft is crucial for preserving the knowledge learned during pre-training
+while allowing the adapter to make task-specific adjustments. This dualstage selection mechanism effectively adapts SAM2 features for ISTD with
+minimal trainable parameters.
+3.4. Cross-Channel State-Space Interaction (CSI)
+Inspired by the recent success of state-space models (Gu and Dao, 2023),
+we adapt the Vision Mamba (ViM)(Zhu et al., 2024) architecture within our
+CSI module, placed in the skip connections, to effectively capture long-range
+dependencies while maintaining linear computational complexity. As shown
+in Figure 3, the CSI module performs the following steps:
+11
+
+The input feature map from the encoder skip connection undergoes a 1×1
+convolution for channel dimension alignment with the corresponding decoder
+stage. It is then spatially flattened into a sequence Fm ∈ RHW ×C . Recognizing the impact of input channel count on Mamba’s parameter growth (Wu
+et al., 2024), we employ a channel-wise parallel processing strategy. The
+sequence Fm is divided into four segments along the channel dimension:
+C
+(m′i )4i=1 ∈ RHW × 4 .
+Each segment m′i is processed independently by a dedicated Vision Mamba
+(VIM) block. This block consists of the core Mamba layer for sequence modeling, followed by Layer Normalization (LN) and a Multi-Layer Perceptron
+(MLP). A scaled residual connection, controlled by a learnable scaling factor
+γ, is added to facilitate information flow and stable training. The output
+C
+of each VIM block is mi , reshaped back to spatial dimensions RH×W × 4 .
+This parallel processing mitigates parameter explosion and enhances computational efficiency.
+mi = M LP (LN (M amba(m′i ))) + γm′i ,
+
+(9)
+
+where LN denotes Layer Normalization, and γ is a learnable scalar scaling
+factor.
+To enhance feature complementarity and allow interaction between the
+parallel streams, we introduce a cross-channel segmentation and recombination scheme (Figure 3). Each output feature map mi is further segC/4
+mented channel-wise into single-channel maps (mji )j=1 ∈ RH×W ×1 . Channels corresponding to the same channel index j but originating from different
+Mamba heads i are then concatenated together, forming C/4 feature groups
+C/4
+(hj )j=1 ∈ RH×W ×4 .
+hj = [mj1 , mj2 , mj3 , mj4 ] for j = 1, ..., C/4
+
+(10)
+
+These recombined groups are then concatenated back along the channel dimension: [h1 , h2 , ..., hC/4 ] ∈ RH×W ×C .
+A pointwise (1×1) convolution, denoted Wouter (representing its learnable
+weights), is applied to the fully recombined feature map. This lightweight
+step effectively fuses information across the recombined channels, followed by
+Batch Normalization (B) and SiLU activation (δ). This promotes a holistic
+representation and refines features, focusing on relevant information.
+Fo = δ(B(Wouter ([h1 , h2 , ..., hC/4 ]))),
+12
+
+(11)
+
+Figure 4: Illustration of the Detail-Preserving Contextual Fusion (DPCF) module. Lowres features (Fl ) are upsampled (interpolated) to match high-res features (Fh ). Both are
+split channel-wise into four segments. A learnable parameter α generates spatial gating
+weights β via sigmoid. These gates control the weighted sum of corresponding high-res
+(hi ) and low-res (li ) segments. The fused segments (o′i ) are concatenated and refined by
+a final convolution block.
+
+where Wouter applies the 1 × 1 convolution.
+Finally, we utilize sequential channel and spatial attention mechanisms
+(similar in principle to CBAM (Woo et al., 2018) but potentially with simpler implementations) to adaptively adjust feature importance. The output
+Fo ∈ RH×W ×C is first multiplied element-wise by a channel attention map
+Mc ∈ R1×1×C (computed from global pooling of Fo ), and the result is then
+multiplied by a spatial attention map Ms ∈ RH×W ×1 (computed via convolutions on pooled channel information). This highlights target-relevant
+channels and spatial locations while suppressing background noise.
+Fc = M c ⊙ Fo ,
+Fs = Ms ⊙ Fc ,
+
+(12)
+
+where Fs ∈ RH×W ×C is the final output of the CSI module, passed to the
+decoder.
+3.5. Detail-Preserving Contextual Fusion (DPCF)
+A critical challenge in ISTD is the potential for small target information in high-resolution feature maps to be diluted or lost when fused with
+lower-resolution, context-rich feature maps during decoder upsampling. To
+counteract this, we propose the Detail-Preserving Contextual Fusion (DPCF)
+13
+
+module, illustrated in Figure 4, used at each stage of the decoder where skip
+connection features are fused with upsampled deeper features. DPCF dynamically integrates features from these different scales using a learnable,
+spatially-adaptive gating mechanism. The process within DPCF is as follows:
+The low-resolution feature map from the deeper decoder layer, Fl ∈
+Hl ×Wl ×Cl
+R
+, is first upsampled using bilinear interpolation to match the spatial dimensions (H, W ) of the high-resolution feature map Fh ∈ RH×W ×C
+(typically coming from the CSI module via skip connection). Channels are
+also aligned, usually via 1 × 1 convolutions if needed, resulting in both maps
+having dimension RH×W ×C . Both aligned feature maps are then partitioned
+C
+along the channel dimension into four equal segments: (hi )4i=1 ∈ RH×W × 4
+C
+and (li )4i=1 ∈ RH×W × 4 , representing segments of the high-res and low-res
+features, respectively.
+A single learnable parameter α′ ∈ R1×1×1 is introduced. This parameter
+is expanded spatially and channel-wise to match the shape of the feature
+C
+segments, resulting in α ∈ RH×W × 4 . This expanded parameter is passed
+through a sigmoid function to generate gating weights β ∈ [0, 1] for each
+spatial position and channel segment.
+β = sigmoid(α),
+
+C
+
+β ∈ RH×W × 4
+
+(13)
+
+These weights β control the contribution of the low-resolution features, while
+(1 − β) controls the contribution of the high-resolution features for each
+corresponding segment i.
+The adaptive fusion is performed via a weighted sum for each segment:
+o′i = β ⊙ li + (1 − β) ⊙ hi ,
+
+(14)
+C
+
+where ⊙ denotes element-wise multiplication, and o′i ∈ RH×W × 4 is the selectively aggregated feature map for the i-th segment. This allows the network
+to learn, for each spatial location and channel group, whether to prioritize
+fine details from hi (when β is close to 0) or contextual information from li
+(when β is close to 1).
+The adaptively fused segments (o′i )4i=1 are concatenated back along the
+channel dimension to form F′o ∈ RH×W ×C . Finally, a convolutional block,
+typically consisting of a 3 × 3 convolution (Conv(·)), followed by Batch Normalization (B(·)) and a ReLU or SiLU activation (δ(·)), refines the fused
+14
+
+feature map, yielding the final output Fo ∈ RH×W ×C for that decoder stage.
+F′o = [o′1 , o′2 , o′3 , o′4 ],
+Fo = δ(B(Conv(F′o ))),
+
+(15)
+
+This mechanism empowers the network to selectively emphasize channels and
+spatial regions within both high- and low-dimensional features that are most
+discriminative for small targets, fostering a nuanced, detail-aware fusion with
+minimal computational overhead.
+3.6. Loss Function
+We apply Deconvolution and Convolution to the output of the final
+DPCF module to generate a predicted mask, which is compared with the
+ground truth for loss computation. The loss function consists of SoftIoU
+Loss(Rahman and Wang, 2016), Dice Loss(Milletari et al., 2016) and Focal
+Loss(Ross and Dollár, 2017):
+L = Sof tIoU (y, ŷ) + Dice(y, ŷ) + F ocal(y, ŷ),
+
+(16)
+
+where, ŷ represents the ground truth, y is the predicted mask, and L is the
+final loss.
+4. Experiments
+4.1. Experimental Setup
+We conduct extensive experiments to validate the effectiveness of SAMamba
+on three challenging ISTD benchmarks: NUAA-SIRST (Dai et al., 2021a),
+IRSTD-1k (Zhang et al., 2022c), and NUDT-SIRST (Li et al., 2022).
+• The NUAA-SIRST dataset contains 427 real infrared images where
+targets typically occupy less than 0.1% of the image area, featuring
+complex backgrounds with significant clutter.
+• The IRSTD-1k dataset comprises 1,001 real images from diverse operational scenarios including maritime, urban, and natural environments,
+presenting additional challenges through varied background textures
+and noise patterns.
+
+15
+
+Figure 5: Visual examples of representative methods are provided. Pink and green circles
+represent true-positive and false-positive objects, respectively. Objects marked within
+the pink rectangles are zoomed in for a clearer comparison of detection accuracy among
+different methods.
+
+16
+
+• The NUDT-SIRST dataset consists of 1327 high-quality synthetic images covering five typical background types and various target types. A
+significant portion (96%) are small targets (0.15% area), with 27% being extremely small (0.01% area), and many exhibiting low brightness,
+simulating real-world low signal-to-noise ratio challenges.
+SAMamba is implemented in PyTorch and trained on an NVIDIA RTX
+3090 GPU. All input images are processed at 1024×1024 resolution through
+dynamic scaling and cropping operations. The network is optimized using
+Adam (Kingma and Ba, 2014) with an initial learning rate of 1e-4, which is
+reduced by a factor of 0.1 every 100 epochs. Training proceeds for 300 epochs
+with a batch size of 2. For the Hiera backbone, we initialize with pre-trained
+SAM2-S weights and employ our proposed FS-Adapter for domain-specific
+fine-tuning.
+4.2. Evaluation Metrics
+We formulate ISTD as a semantic segmentation task and evaluate performance using three complementary metrics: Intersection over Union (IoU),
+normalized Intersection over Union (nIoU), and F1-score.
+The IoU metric, widely adopted in semantic segmentation, measures the
+overlap between predicted (P ) and ground truth (T ) target regions at the
+pixel level, aggregated over the dataset:
+PN
+Ainter
+i=1 T Pi
+,
+(17)
+= PN
+IoU =
+Aunion
+(T
++
+P
+−
+T
+P
+)
+i
+i
+i
+i=1
+where N is the number of test samples, T Pi is the number of true positive
+pixels for sample i, Ti is the number of ground truth target pixels, and Pi is
+the number of predicted target pixels.
+The nIoU metric (Dai et al., 2021a) extends IoU by averaging the IoU
+score calculated for each sample individually, which can better reflect performance on datasets with varying target sizes and numbers per image:
+N
+
+nIoU =
+
+1 X
+T Pi
+,
+N i=1 Ti + Pi − T Pi
+
+where the terms are defined per-sample as above.
+
+17
+
+(18)
+
+The F1-score is the harmonic mean of Precision (P) and Recall (R), providing a balanced measure, particularly useful in cases of class imbalance
+common in ISTD:
+N
+
+1 X
+P recisioni · Recalli
+F1 =
+2·
+,
+N i=1
+P recisioni + Recalli
+
+(19)
+
+Here, Precisioni = TPPi i , Recalli = TTPi i . Precision and Recall are typically
+calculated per image and then averaged.
+4.3. Main Results
+As observed in Table 1, traditional methods, relying on hand-crafted features and prior assumptions, exhibit limited performance across all datasets.
+Their IoU scores generally remain below 41%, nIoU below 51%, and F1 scores
+below 74%, particularly struggling with the complex backgrounds and target variations present in IRSTD-1k and NUDT-SIRST. This underscores the
+difficulty these methods face in adapting to diverse and challenging realworld and synthetic scenarios. Deep learning methods demonstrate substantial improvements across the board, showcasing the power of learned representations. Recent architectures like ISNet, UIUNet, and HCFNet achieve
+competitive results, often exceeding 75% IoU/nIoU and 80% F1 on NUAASIRST and showing strong performance on the other datasets. For instance,
+ISNet leverages edge awareness, HCFNet employs hierarchical context fusion, and UIUNet uses a dual U-Net structure, each contributing to advancements in the field. Crucially, our proposed SAMamba consistently achieves
+state-of-the-art performance across all three datasets and all three evaluation metrics. On NUAA-SIRST, SAMamba reaches 81.08% IoU, 79.17%
+nIoU, and 89.55% F1 . On the more diverse IRSTD-1k, it achieves 73.53%
+IoU, 68.99% nIoU, and 84.75% F1 , showing a significant margin over previous methods. Notably, on the challenging synthetic NUDT-SIRST dataset
+with extremely small and dim targets, SAMamba demonstrates remarkable
+robustness, achieving 93.13% IoU, 93.15% nIoU, and an impressive 96.44%
+F1-score. This consistent superiority across datasets with different characteristics (real vs. synthetic, varying complexity) and diverse metrics highlights
+the effectiveness and generalizability of SAMamba’s design, which synergistically combines hierarchical feature extraction (SAM2), efficient long-range
+dependency modeling (Mamba via CSI), domain adaptation (FS-Adapter),
+and detail-preserving fusion (DPCF).
+18
+
+Table 1: Comprehensive comparison of ISTD methods on three datasets. Performance
+measured by IoU(%), nIoU(%), and F1-Score(%).
+
+Method
+
+NUAA-SIRST
+IoU nIoU
+
+F1
+
+IRSTD-1k
+IoU nIoU
+
+F1
+
+NUDT-SIRST
+IoU nIoU
+
+F1
+
+Traditional Methods
+Top-HatIPT′ 2006 5.86 25.42 14.63 4.26 15.08 16.02 20.72 28.98 33.52
+LCMTGRS′ 2013
+6.84 8.96
+–
+4.45 4.73
+–
+–
+–
+–
+WLCMGRSL′ 2018 22.28 28.62 –
+9.77 16.07 –
+–
+–
+–
+NARMRS′ 2018
+25.95 32.23 –
+7.77 12.24 –
+6.93 6.19
+–
+PSTNNRS′ 2019
+39.44 47.72 68.00 16.44 25.91 27.48 27.72 39.80 43.41
+IPITIP′ 2013
+40.48 50.95 73.12 14.40 16.12 26.05 37.49 48.38 54.53
+RIPTJSTARS′ 2017 25.49 33.01 44.21 8.15 16.12 20.35 29.17 36.12 45.16
+NIPPSIPT′ 2016
+33.16 40.91 – 16.38 27.10 –
+–
+–
+–
+Deep Learning Methods
+MDvsFAICCV′ 2019 56.17 59.84 – 50.85 45.97 – 75.14 73.85 –
+ACMWACV′ 2021 72.45 72.15 80.87 63.38 60.80 77.59 68.48 69.26 81.29
+ALCNetTGRS′ 2021 74.31 73.12 82.92 62.05 59.58 75.47 81.40 80.71 78.59
+ISNetCVPR′ 2022
+80.02 78.12 81.49 68.77 64.84 81.49 84.94 84.13 85.23
+FC3-NetMM′ 2022 74.22 72.46 – 64.98 63.59 –
+–
+–
+–
+UIUNetTIP′ 2023 78.25 75.15 86.95 62.66 61.35 79.63 88.91 89.60 94.23
+CSRNetTIP′ 2024 77.93 78.72 – 65.87 66.70 –
+–
+–
+–
+HCFNetICME′ 2024 80.09 78.31 88.95 63.44 62.84 77.34 75.70 74.97 80.42
+Ours
+81.08 79.17 89.55 73.53 68.99 84.75 93.13 93.15 96.44
+
+19
+
+Visual comparisons in Figure 5 further validate these quantitative results.
+Compared to previous methods, SAMamba exhibits three key strengths: (1)
+improved target completeness with reduced false positives in sparse scenes
+(Figure 5 (a) and (b)), (2) robust discrimination against complex background
+clutter (Figure 5 (c) and (d)), and (3) enhanced preservation of fine-grained
+target characteristics (Figure 5 (e) and (f)). These capabilities directly address core ISTD challenges of scale variation and low target-background contrast.
+4.4. Ablation study
+To validate our architectural choices and understand the contribution and
+sensitivity of each component, we conduct systematic ablation studies and
+hyperparameter analyses on the NUAA-SIRST dataset.
+Component Contribution. Table 2 demonstrates the progressive performance improvement achieved by incrementally adding each key component
+to a baseline U-Net architecture. Starting from the baseline (71.20% IoU),
+incorporating the SAM2 Hiera-S encoder provides a substantial +4.23% IoU
+gain (reaching 75.43% IoU), confirming the benefit of its hierarchical features. Adding the FS-Adapter for parameter-efficient domain adaptation
+further improves performance by +0.89% IoU (reaching 76.32% IoU). Introducing the CSI module in the skip connections yields another significant gain
+of +2.47% IoU (reaching 78.79% IoU), highlighting the importance of its enhanced global context modeling. Finally, integrating the DPCF module for
+adaptive feature fusion in the decoder results in a final boost of +2.28% IoU,
+reaching our full model’s performance of 81.08% IoU and underscoring the
+effectiveness of preserving detail during fusion.
+Architectural Parameter Study. Parameter studies (Figure 6) reveal
+critical design insights regarding overall architecture choices. Resolution
+analysis (Fig 6(a)) shows performance improving with resolution up to 1024×1024,
+after which gains plateau while computational cost increases significantly.
+The analysis of the CSI module’s channel dimension (Fig 6(b)) indicates that
+128 channels achieve the optimal balance between feature capacity and efficiency for this task. Comparing different Hiera backbone variants (Fig 6(c))
+demonstrates that Hiera-S provides the best performance; Hiera-T is slightly
+less capable, while Hiera-L leads to performance degradation, likely due to
+overfitting on the relatively small ISTD datasets despite using PEFT.
+Hyperparameter Sensitivity Analysis. To further assess the robustness
+of our design choices within the CSI and DPCF modules, we analyze the
+20
+
+Table 2: Component Ablation Analysis of SAMamba. The baseline (Bas.) is built upon UNet architecture. Each component’s contribution is evaluated using IoU(%) and nIoU(%)
+metrics on the NUAA-SIRST dataset. Checkmarks (✓) indicate the presence of
+each component. Hiera∗ : SAM2’s hierarchical encoder.
+
+Base
+
+Hiera∗
+
+FS-Adapter
+
+✓
+✓
+✓
+
+✓
+✓
+
+✓
+
+✓
+✓
+
+✓
+✓
+
+✓
+✓
+
+(a)
+
+CSI
+
+✓
+✓
+
+(b)
+
+DPCF
+
+✓
+
+IoU (%)
+
+nIoU (%)
+
+71.20
+75.43
+76.32
+
+74.40
+75.20
+75.45
+
+78.79
+81.08
+
+78.35
+79.17
+
+(c)
+
+Figure 6: Impact of key architectural parameters on SAMamba’s performance. (a) Model
+performance across different input resolutions, showing the trade-off between spatial detail preservation and computational cost. (b) Analysis of CSI module channel dimensions,
+demonstrating the relationship between feature capacity and model efficiency. (c) Comparison of different Hiera backbone variants (Tiny, Small, Large), illustrating the impact of
+model capacity on detection performance. Results are reported on NUAA-SIRST dataset
+using both IoU and nIoU metrics.
+
+21
+
+Table 3: Hyperparameter Sensitivity Analysis on NUAA-SIRST Dataset. Performance
+is measured using IoU(%) and nIoU(%). Default configurations used in SAMamba
+are highlighted.
+
+Parameter Type
+
+Configuration
+
+IoU (%) nIoU (%)
+
+(a) Sensitivity to CSI Heads (Total Channels = 128):
+1
+79.05
+78.11
+2
+79.78
+78.85
+4
+81.08
+79.17
+8
+79.53
+78.60
+(b) Sensitivity to DPCF Segments:
+1
+2
+4
+8
+
+79.35
+79.91
+81.08
+80.02
+
+78.44
+79.03
+79.17
+79.11
+
+(c) Comparison of DPCF Fusion Strategies:
+Addition + Conv
+78.61
+Concatenation + Conv
+79.12
+Adaptive
+81.08
+
+77.75
+78.23
+79.17
+
+22
+
+model’s sensitivity to key internal hyperparameters. The results are presented in Table 3. First, we investigate the impact of the number of parallel
+Mamba heads used in the CSI module, keeping the total channel dimension
+fixed at 128. As shown in Table 3 (a), using 4 heads (our default configuration) yields the best performance (81.08% IoU). Performance decreases
+slightly with fewer heads (1 or 2), potentially due to reduced capacity for
+parallel processing of diverse channel information, and also degrades slightly
+with more heads (8), possibly due to fragmentation or increased optimization difficulty. Second, we examine the sensitivity to the number of channel
+segments used in the DPCF module for adaptive fusion, as shown in Table 3
+(b). The results indicate that performance is relatively stable for 2, 4, and 8
+segments, with 4 segments providing the marginal best result. Using only 1
+segment (equivalent to applying the same fusion weight across all channels)
+results in a noticeable drop in performance (79.35% IoU), confirming the benefit of channel-segmented adaptive fusion. Third, we compare our adaptive
+DPCF fusion strategy against simpler, fixed fusion methods: element-wise
+addition of the high-resolution and upsampled low-resolution features, and
+concatenation followed by a 3 × 3 convolution. The adaptive DPCF significantly outperforms both fixed strategies, demonstrating the value of learning
+context-aware fusion weights to dynamically balance detail preservation and
+context integration as shown in Table 3 (c). Overall, these analyses indicate
+that while performance is somewhat sensitive to these internal hyperparameters, our chosen configurations (4 heads for CSI, 4 segments for DPCF,
+adaptive fusion) are well-supported by the empirical results and provide a
+robust design.
+4.5. Computational Analysis
+To provide a comprehensive understanding of the resource requirements
+of SAMamba, we analyze its computational complexity, model size, and runtime performance. We report the number of trainable parameters, FLOPs
+calculated for a single 1024x1024 input image, and the inference speed measured in Frames Per Second (FPS) on an NVIDIA RTX 3090 GPU with a
+batch size of 1. Table 4 compares SAMamba with the baseline U-Net used
+in our ablation study and other representative deep learning methods.
+As shown in Table 4, SAMamba variants demonstrate an efficient computational profile despite their sophisticated architecture. The Hiera-T series variants maintain parameter counts (28.65-29.49M) comparable to the
+
+23
+
+Table 4: Computational Analysis of SAMamba and Other Methods. Parameters are in
+Millions (M), FLOPs are in GigaFLOPs (G) for a 1024 × 1024 input, and FPS is measured
+on an NVIDIA RTX 3090 (Batch Size=1).
+
+Method
+
+Params (M) FLOPs (G) FPS
+
+Existing Methods:
+U-Net (Ronneberger et al., 2015)
+
+31.04
+
+875.80
+
+11.86
+
+ACM (Dai et al., 2021a)
+
+0.52
+
+8.06
+
+44.49
+
+ISNet (Zhang et al., 2022b)†
+
+0.97
+
+490.10
+
+7.14
+
+FC3-Net (Zhang et al., 2022a)
+
+6.90
+
+42.29
+
+35.6
+
+UIUNet (Wu et al., 2022)
+
+50.54
+
+872.01
+
+7.56
+
+HCFNet (Xu et al., 2024)
+
+14.40
+
+372.45
+
+7.46
+
+SAMamba (CSI, c=32)
+
+28.65
+
+129.73
+
+7.32
+
+SAMamba (CSI, c=64)
+
+28.84
+
+196.14
+
+7.08
+
+SAMamba (CSI, c=128)
+
+29.49
+
+460.47
+
+6.64
+
+SAMamba (CSI, c=32)
+
+36.34
+
+163.09
+
+6.82
+
+SAMamba (CSI, c=64)
+
+36.53
+
+229.49
+
+6.61
+
+SAMamba (CSI, c=128)
+
+37.18
+
+493.82
+
+6.39
+
+SAMamba Variants:
+— Hiera-T Series —
+
+— Hiera-S Series —
+
+24
+
+baseline U-Net (31.04M), while the Hiera-S series exhibits a moderate increase (36.34-37.18M). Notably, all SAMamba variants achieve substantially
+reduced computational loads (129.73-493.82 GFLOPs) compared to the baseline U-Net (875.80 GFLOPs). This efficiency stems from the integration of
+parameter-efficient FS-Adapters and the linear complexity of Mamba blocks
+within the CSI module.
+The inference speed of SAMamba variants (6.39-7.32 FPS on an RTX
+3090) positions them competitively among specialized infrared small target
+segmentation models like ISNet (7.14 FPS) and HCFNet (7.46 FPS), though
+lighter architectures such as ACM (44.49 FPS) and FC3-Net (35.6 FPS)
+offer faster processing at the cost of reduced performance. This analysis
+demonstrates that SAMamba achieves state-of-the-art accuracy while maintaining reasonable computational requirements, effectively balancing performance gains with resource efficiency. The strategic combination of the Hiera
+backbone with selective Mamba integration proves to be both powerful and
+computationally feasible for practical applications.
+5. Limitations
+Despite its strong performance, SAMamba faces certain limitations inherent to challenging ISTD scenarios. Qualitative analysis reveals difficulties
+in two primary areas:
+Highly Complex Backgrounds. Targets embedded within intricate textures (e.g., dense cloud edges, complex ground clutter) can exhibit reduced
+feature discriminability, potentially leading to missed detections even with
+domain adaptation and global context modeling (Figure 7 (1) and (2)).
+Residual domain gap effects or fundamentally similar local statistics between
+target and clutter remain challenging.
+Extremely Low signal-to-clutter ratios (SCR). Targets with exceptionally low signal-to-clutter ratios or those significantly blended with uniform
+backgrounds approach fundamental detection thresholds (Figure 7 (3)). Inherent signal ambiguity can lead to non-detections, particularly under strict
+false alarm constraints.
+6. Conclusion
+We presented SAMamba, a novel framework for infrared small target detection that harmonizes SAM2’s hierarchical vision modeling with Mamba’s
+25
+
+(1)
+
+(2)
+
+(3)
+
+Image
+
+GT
+
+Ours
+
+Figure 7: Visualization of challenging scenarios illustrating potential limitations.
+
+selective state-space sequence processing. Through the integrated FS-Adapter,
+CSI, and DPCF modules, SAMamba adeptly addresses the dual challenges
+of extreme scale discrepancy and low signal-to-clutter ratio, while preserving
+computational efficiency. Our extensive evaluations on the NUAA-SIRST,
+IRSTD-1k, and NUDT-SIRST benchmarks demonstrate that SAMamba achieves significant performance improvements over existing methods, establishing its effectiveness for demanding perception tasks. Future work will focus on enhancing SAMamba’s capabilities. Key directions include: leveraging temporal information from video data to improve robustness via motion analysis; optimizing the model architecture for efficient deployment on
+resource-limited hardware through compression techniques; and exploring
+multi-modal sensor fusion to achieve superior detection performance under
+a wider range of environmental conditions.
+
+26
+
+References
+Alqaraghuli, S.M., Karan, O., 2024. Using deep learning technology based
+energy-saving for software defined wireless sensor networks (sdwsn) framework. Babylonian Journal of Artificial Intelligence 2024, 34–45.
+An, G., He, A., Wang, Y., Guo, J., 2024. Uwmamba: Underwater image
+enhancement with state space model. IEEE Signal Processing Letters .
+Chen, C.P., Li, H., Wei, Y., Xia, T., Tang, Y.Y., 2013. A local contrast
+method for small infrared target detection. IEEE transactions on geoscience and remote sensing 52, 574–581.
+Chen, T., Lu, A., Zhu, L., Ding, C., Yu, C., Ji, D., Li, Z., Sun, L., Mao, P.,
+Zang, Y., 2024. Sam2-adapter: Evaluating & adapting segment anything
+2 in downstream tasks: Camouflage, shadow, medical image segmentation,
+and more. arXiv preprint arXiv:2408.04579 .
+Chen, T., Zhu, L., Ding, C., Cao, R., Wang, Y., Zhang, S., Li, Z., Sun,
+L., Zang, Y., Mao, P., 2023. Sam-adapter: Adapting segment anything
+in underperformed scenes, in: 2023 IEEE/CVF International Conference
+on Computer Vision Workshops (ICCVW), pp. 3359–3367. doi:10.1109/
+ICCVW60793.2023.00361.
+Cheng, Z., Wei, Q., Zhu, H., Wang, Y., Qu, L., Shao, W., Zhou, Y., 2024.
+Unleashing the potential of sam for medical adaptation via hierarchical
+decoding, in: Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pp. 3511–3522.
+Dai, Y., Wu, Y., 2017. Reweighted infrared patch-tensor model with both
+nonlocal and local priors for single-frame small target detection. IEEE
+journal of selected topics in applied earth observations and remote sensing
+10, 3752–3767.
+Dai, Y., Wu, Y., Song, Y., 2016. Infrared small target and background
+separation via column-wise weighted robust principal component analysis.
+Infrared Physics & Technology 77, 421–430.
+Dai, Y., Wu, Y., Zhou, F., Barnard, K., 2021a. Asymmetric contextual
+modulation for infrared small target detection, in: Proceedings of the
+
+27
+
+IEEE/CVF Winter Conference on Applications of Computer Vision, pp.
+950–959.
+Dai, Y., Wu, Y., Zhou, F., Barnard, K., 2021b. Attentional local contrast networks for infrared small target detection. IEEE Transactions on Geoscience
+and Remote Sensing 59, 9813–9824. doi:10.1109/TGRS.2020.3044958.
+Gao, C., Meng, D., Yang, Y., Wang, Y., Zhou, X., Hauptmann, A., 2013.
+Infrared patch-image model for small target detection in a single image.
+IEEE Transactions on Image Processing 22, 4996–5009.
+Gao, D., Chen, C., Zhou, Y., Zhang, H., Hu, X., 2024. Ts-sam: Two small
+steps for sam, one giant leap for abnormal detections, in: 2024 IEEE
+International Conference on Multimedia and Expo (ICME), IEEE. pp. 1–
+6.
+Gu, A., Dao, T., 2023. Mamba: Linear-time sequence modeling with selective
+state spaces. arXiv preprint arXiv:2312.00752 .
+Hui, W., Zhu, Z., Zheng, S., Zhao, Y., 2024. Endow sam with keen eyes:
+Temporal-spatial prompt learning for video camouflaged object detection,
+in: Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pp. 19058–19067.
+Kingma, D.P., Ba, J., 2014. Adam: A method for stochastic optimization.
+arXiv preprint arXiv:1412.6980 .
+Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao,
+T., Whitehead, S., Berg, A.C., Lo, W.Y., et al., 2023. Segment anything,
+in: Proceedings of the IEEE/CVF International Conference on Computer
+Vision, pp. 4015–4026.
+Li, B., Xiao, C., Wang, L., Wang, Y., Lin, Z., Li, M., An, W., Guo, Y., 2022.
+Dense nested attention network for infrared small target detection. IEEE
+Transactions on Image Processing 32, 1745–1758.
+Lin, F., Bao, K., Li, Y., Zeng, D., Ge, S., 2024. Learning contrast-enhanced
+shape-biased representations for infrared small target detection. IEEE
+Transactions on Image Processing 33, 3047–3058. doi:10.1109/TIP.2024.
+3391011.
+
+28
+
+Liu, J., He, Z., Chen, Z., Shao, L., 2018. Tiny and dim infrared target
+detection based on weighted local contrast. IEEE Geoscience and Remote
+Sensing Letters 15, 1780–1784.
+Liu, J., Yang, H., Zhou, H.Y., Yu, L., Liang, Y., Yu, Y., Zhang, S., Zheng, H.,
+Wang, S., 2024. Swin-umamba†: Adapting mamba-based vision foundation
+models for medical image segmentation. IEEE Transactions on Medical
+Imaging .
+Luo, M., Zhang, T., Wei, S., Ji, S., 2024. Sam-rsis: Progressively adapting
+sam with box prompting to remote sensing image instance segmentation.
+IEEE Transactions on Geoscience and Remote Sensing .
+Ma, J., Li, F., Wang, B., 2024. U-mamba: Enhancing long-range dependency
+for biomedical image segmentation. arXiv preprint arXiv:2401.04722 .
+Milletari, F., Navab, N., Ahmadi, S.A., 2016. V-net: Fully convolutional neural networks for volumetric medical image segmentation, in: 2016 fourth
+international conference on 3D vision (3DV), Ieee. pp. 565–571.
+Rahman, M.A., Wang, Y., 2016. Optimizing intersection-over-union in deep
+neural networks for image segmentation, in: International symposium on
+visual computing, Springer. pp. 234–244.
+Ravi, N., Gabeur, V., Hu, Y.T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle,
+R., Rolland, C., Gustafson, L., et al., 2024. Sam 2: Segment anything in
+images and videos. arXiv preprint arXiv:2408.00714 .
+Ronneberger, O., Fischer, P., Brox, T., 2015. U-net: Convolutional networks for biomedical image segmentation, in: Medical image computing
+and computer-assisted intervention–MICCAI 2015: 18th international conference, Munich, Germany, October 5-9, 2015, proceedings, part III 18,
+Springer. pp. 234–241.
+Ross, T.Y., Dollár, G., 2017. Focal loss for dense object detection, in: proceedings of the IEEE conference on computer vision and pattern recognition, pp. 2980–2988.
+Ryali, C., Hu, Y.T., Bolya, D., Wei, C., Fan, H., Huang, P.Y., Aggarwal, V.,
+Chowdhury, A., Poursaeed, O., Hoffman, J., et al., 2023. Hiera: A hierarchical vision transformer without the bells-and-whistles, in: International
+Conference on Machine Learning, PMLR. pp. 29441–29454.
+29
+
+Wang, H., Zhou, L., Wang, L., 2019. Miss detection vs. false alarm: Adversarial learning for small object segmentation in infrared images, in: Proceedings of the IEEE/CVF International Conference on Computer Vision,
+pp. 8509–8518.
+Wang, S., Wang, C., Shi, C., Liu, Y., Lu, M., 2024. Mask-guided mamba fusion for drone-based visible-infrared vehicle detection. IEEE Transactions
+on Geoscience and Remote Sensing .
+Woo, S., Park, J., Lee, J.Y., Kweon, I.S., 2018. Cbam: Convolutional block
+attention module, in: Proceedings of the European conference on computer
+vision (ECCV), pp. 3–19.
+Wu, R., Liu, Y., Liang, P., Chang, Q., 2024. Ultralight vm-unet: Parallel vision mamba significantly reduces parameters for skin lesion segmentation.
+arXiv preprint arXiv:2403.20035 .
+Wu, X., Hong, D., Chanussot, J., 2022. Uiu-net: U-net in u-net for infrared
+small object detection. IEEE Transactions on Image Processing 32, 364–
+376.
+Wu, X., Hong, D., Chanussot, J., 2023. Uiu-net: U-net in u-net for infrared
+small object detection. IEEE Transactions on Image Processing 32, 364–
+376. doi:10.1109/TIP.2022.3228497.
+Xiong, X., Wu, Z., Tan, S., Li, W., Tang, F., Chen, Y., Li, S., Ma, J., Li, G.,
+2024. Sam2-unet: Segment anything 2 makes strong encoder for natural
+and medical image segmentation. arXiv preprint arXiv:2408.08870 .
+Xu, S., Zheng, S., Xu, W., Xu, R., Wang, C., Zhang, J., Teng, X., Li, A.,
+Guo, L., 2024. Hcf-net: Hierarchical context fusion network for infrared
+small object detection. arXiv preprint arXiv:2403.10778 .
+Zeng, M., xun Li, J., xiao Peng, Z., 2006. The design of top-hat morphological filter and application to infrared target detection. Infrared Physics &
+Technology 48, 67–76.
+Zhang, L., Peng, L., Zhang, T., Cao, S., Peng, Z., 2018. Infrared small
+target detection via non-convex rank approximation minimization joint l
+2, 1 norm. Remote Sensing 10, 1821.
+
+30
+
+Zhang, L., Peng, Z., 2019. Infrared small target detection based on partial
+sum of the tensor nuclear norm. Remote Sensing 11, 382.
+Zhang, M., Yue, K., Zhang, J., Li, Y., Gao, X., 2022a. Exploring feature compensation and cross-level correlation for infrared small target detection, in:
+Proceedings of the 30th ACM International Conference on Multimedia, pp.
+1857–1865.
+Zhang, M., Zhang, R., Yang, Y., Bai, H., Zhang, J., Guo, J., 2022b. Isnet:
+Shape matters for infrared small target detection, in: 2022 IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR), pp.
+867–876. doi:10.1109/CVPR52688.2022.00095.
+Zhang, M., Zhang, R., Yang, Y., Bai, H., Zhang, J., Guo, J., 2022c. Isnet:
+Shape matters for infrared small target detection, in: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp.
+877–886.
+Zhao, S., Chen, H., Zhang, X., Xiao, P., Bai, L., Ouyang, W., 2024. Rsmamba for large remote sensing image dense prediction. arXiv preprint
+arXiv:2404.02668 .
+Zhu, L., Liao, B., Zhang, Q., Wang, X., Liu, W., Wang, X., 2024. Vision
+mamba: Efficient visual representation learning with bidirectional state
+space model. arXiv preprint arXiv:2401.09417 .
+
+31
+
+

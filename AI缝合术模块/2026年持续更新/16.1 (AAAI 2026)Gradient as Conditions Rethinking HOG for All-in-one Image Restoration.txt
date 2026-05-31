@@ -1,0 +1,1756 @@
+Gradient as Conditions: Rethinking HOG for All-in-one Image Restoration
+Jiawei Wu1 , Zhifei Yang2 , Zhe Wang1 , Zhi Jin1,3 *,
+1
+
+arXiv:2504.09377v3 [cs.CV] 22 Dec 2025
+
+School of Intelligent Systems Engineering, Shenzhen Campus of Sun Yat-sen University, Guangdong, China.
+2
+School of Computer Science, Peking University, China.
+3
+Guangdong Provincial Key Laboratory of Fire Science and Intelligent Emergency Technology, Shenzhen, China.
+wujw97@mail2.sysu.edu.cn
+
+Abstract
+All-in-one image restoration (AIR) aims to address diverse
+degradations within a unified model by leveraging informative degradation conditions to guide the restoration process.
+However, existing methods often rely on implicitly learned
+priors, which may entangle feature representations and hinder performance in complex or unseen scenarios. Histogram
+of Oriented Gradients (HOG) as a classical gradient representation, we observe that it has strong discriminative capability across diverse degradations, making it a powerful
+and interpretable prior for AIR. Based on this insight, we
+propose HOGformer, a Transformer-based model that integrates learnable HOG features for degradation-aware restoration. The core of HOGformer is a Dynamic HOG-aware SelfAttention (DHOGSA) mechanism, which adaptively models
+long-range spatial dependencies conditioned on degradationspecific cues encoded by HOG descriptors. To further adapt
+the heterogeneity of degradations in AIR, we propose a Dynamic Interaction Feed-Forward (DIFF) module that facilitates channel–spatial interactions, enabling robust feature
+transformation under diverse degradations. Besides, we propose a HOG loss to explicitly enhance structural fidelity and
+edge sharpness. Extensive experiments on a variety of benchmarks, including adverse weather and natural degradations,
+demonstrate that HOGformer achieves state-of-the-art performance and generalizes well to complex real-world scenarios. Code is available at https://github.com/Fire-friend/
+HOGformer.
+
+Introduction
+Real-world images are frequently affected by diverse degradations such as blur, low-light, and adverse weather. While
+task-specific deep learning models have achieved remarkable progress in restoring images under individual degradations (He and Jin 2024; Wang, Wu, and Jin 2023; Jin et al.
+2025), they often require separate models, leading to high
+training and deployment overhead. AIR (Jiang et al. 2024a)
+offers a practical alternative by handling diverse degradations in a single model, which is critical for real-world applications like autonomous driving (Chen et al. 2024).
+A key challenge in AIR is designing a model that can
+adaptively respond to the specific degradation present in
+each input. To address this, recent works (Li et al. 2022;
+Potlapalli et al. 2023; Ai et al. 2024; Jiang et al. 2024b)
+have proposed shared backbone architectures modulated by
+
+degradation-aware conditional features, enabling a unified
+framework to handle diverse tasks. Among them, promptbased methods such as PromptIR (Potlapalli et al. 2023) inject degradation-specific prompts to guide the network behavior, while others exploit multimodal inputs (Ai et al.
+2024) to capture complementary degradation cues. Despite
+their promise, the success of these methods critically depends on the quality and reliability of the conditioning.
+In practice, such signals are often derived from implicitly
+learned priors, which operate as black boxes with limited
+interpretability. This lack of transparency makes it difficult
+to disentangle the underlying degradations, especially when
+they exhibit subtle or overlapping characteristics. Consequently, feature representations optimized for one degradation (e.g., denoising) may conflict with those required for
+another (e.g., dehazing), leading to feature entanglement
+and reduced generalization performance across tasks (Li
+et al. 2020). While alternative methods based on Mixture-ofExperts (MoE) (Zamfir et al. 2025; Ai, Huang, and He 2024)
+offer greater flexibility through expert routing, they come
+with substantial computational overhead, making them less
+suitable for efficient deployment. These limitations underscore the requirement for a conditional mechanism that is
+not only explicit and discriminative, but also computationally efficient and robust to diverse degradations.
+In this work, we revisit classical feature descriptors and
+identify the HOG (Dalal and Triggs 2005) features as a surprisingly effective and interpretable prior for AIR. As shown
+in Figure 1, we observe that the gradient patterns captured
+by HOG form distinct signatures for different degradations.
+For example, in the case of rain (Figure 1(a)), falling rain
+produces vertical streaks that are reflected as strong vertical
+gradients, while raindrop regions appear as isolated circular patches with low gradient magnitudes. In contrast, snow
+degradation introduces widespread high-magnitude gradients with low directional variance, forming dense and uniform textures. This discriminative behavior persists across
+both natural and adverse weather conditions (Figure 1(b)).
+The effectiveness of HOG stems from its two complementary components, i.e., gradient magnitude and orientation,
+which explicitly encode local intensity variations and directional structure. These observations raise a central question: Can the inherent degradation-discriminative property
+of HOG be leveraged to guide the design of AIR networks,
+
+(a)
+
+(b)
+
+Figure 1: Visualization of HOG feature distributions under various degradations. (a) Example images of different weather
+conditions with corresponding HOG feature visualizations. (b) HOG features for five natural degradations (Zheng et al. 2024)
+and three adverse weather degradations (Sun et al. 2024), using 100 randomly selected images for each degradation.
+enabling them to explicitly capture degradation-specific gradient patterns for more efficient AIR?
+To this end, we propose HOGformer, an AIR framework that integrates HOG as gradient priors in a principled and degradation-aware manner. Instead of incorporating the static handcrafted HOG feature, we reformulate it as
+a learnable and differentiable module that provides dynamic
+and context-aware guidance throughout the network. At the
+core of HOGformer lies the Dynamic HOG-aware SelfAttention (DHOGSA) mechanism, which integrates HOGderived cues into the self-attention process. This design enables the network to focus on degradation-specific patterns,
+such as rain streaks or haze-induced texture loss, by explicitly modulating attention maps based on gradient information. To further enhance the adaptability of feature representations, we introduce a Dynamic Interaction Feed-Forward
+(DIFF) module that facilitates effective channel–spatial interaction, allowing the model to robustly transform features
+under diverse and heterogeneous degradations. In addition,
+we propose a dedicated HOG supervision loss that directly
+constrains the reconstruction of gradient magnitude and orientation. This explicit guidance promotes sharper edges and
+better preservation of structural details. This unified design
+enables effective restoration across diverse degradations,
+achieving state-of-the-art (SOTA) performance on both adverse weather and natural image AIR tasks. Our main contributions are summarized as follows:
+• We identify that classical HOG features serve as an explicit and highly discriminative prior for distinguishing
+diverse degradations in AIR, offering a compelling alternative to implicit conditional mechanisms.
+• We propose HOGformer, an AIR network that embeds
+learnable HOG cues into core network components for
+degradation-aware adaptation. HOGformer integrates a
+dynamic HOG-aware self-attention (DHOGSA) mechanism, an efficient dynamic interaction feed-forward
+(DIFF) module, and a dedicated HOG supervision loss.
+• Extensive experiments show that HOGformer achieves
+
+state-of-the-art performance across various degradations,
+including adverse weather and natural conditions.
+
+Related Works
+Single-Task Image Restoration
+Image restoration is a fundamental problem in computer vision. Traditional methods constrain the solution space using human priors and handcrafted features (Banham and
+Katsaggelos 1997). With deep learning, various approaches
+have achieved strong performance across tasks (He and Jin
+2024; Wang, Wu, and Jin 2023; Qiu et al. 2023; Zamir
+et al. 2022a; Guo et al. 2024). Vision Transformers further improve restoration by modeling long-range dependencies (Liang et al. 2021; Zamir et al. 2022a; Wang et al.
+2022a). For example, Swin-IR (Liang et al. 2021) adopts a
+shifted window strategy for local-global context modeling,
+while Restormer (Zamir et al. 2022a) introduces a multistage attention design to balance accuracy and efficiency.
+Transformer-based models have also been applied to deraining (Chen et al. 2023), desnowing (Chen et al. 2022b),
+dehazing (Song et al. 2023; Zhang et al. 2024), deblurring
+(Liang et al. 2024; Kong et al. 2023), and low-light enhancement (Cai et al. 2023; Zhang, Meng, and Lam 2023).
+However, these methods require separate training, increasing computational and deployment costs (Sun et al. 2024).
+
+All-in-One Image Restoration
+AIR aims to handle diverse degradations using a single
+model without task-specific retraining (Jiang et al. 2024a;
+Li et al. 2022; Sun et al. 2024; Zheng et al. 2024). Typically, InstructIR (Conde, Geigle, and Timofte 2024) employs natural language instructions to specify restoration
+goals but incurs high data preparation costs. Methods such
+as Painter (Wang et al. 2023) and DA-CLIP (Luo et al.
+2024) leverage on-the-fly learning to adapt large models,
+while DiffUIR (Zheng et al. 2024) builds on residual diffusion to address diverse degradations. PromptIR (Potlapalli
+
+ℒ 𝑟𝑒𝑐
+
+×6
+
+×6
+
+HOGTB
+
+3 × 3 Conv
+
+DHOGSA
+DIFF
+
+PatchEmbed
+
+Skip Connection
+
+×8
+
+×6
+
+ℒ 𝐻𝑂𝐺
+ℒ 𝑐𝑜𝑟
+
+×6
+
+×4
+
+×4
+
+×4
+
+Loss Supervision
+
+Matrix
+Multiplication
+
+R Reshape
+
+-
+
+Subtract
+
+1×1 PConv
+
+PixelShuffle
+
+GELU
+
+1×1 PConv
+
+3 × 3 DWConv
+
+PixelShuffle
+
+DHOGSA
+Mish
+Activation
+
+5 × 5 DWConv
+
+R
+
+ChannelShuffle
+
+1×1 PConv
+
+Undo Sort
+1×1 PConv
+
+𝑉
+𝐾1
+
+R
+FHOGR
+
+R
+𝑄1
+
+1×1 PConv
+
+𝐾2
+Channel-wise
+Splitting
+
+R
+
+.
+-
+
+C Concatenation
+
+Gather
+
+Element-wise
+Addition
+
+R
+BHOGR
+
+.
+
+HOG-Guided
+Patch-level
+Gather
+Sort
+
+HOG-Guided
+Pixel-level
+Sort
+
+R
+
+.
+
+C
+
+3×3 DWConv
+
+Gather
+
+HOG
+Feature
+Extraction
+
+𝑄2
+
+Coarse Skip Connection
+
+𝛾𝑐
+
+.
+
+DIFF
+Element-wise
+Multiplication
+
+Upsample
+Downsample
+
+Figure 2: The overall architecture of our HOGformer. It includes the HOG Transformer block with the Dynamic HOG-aware
+Self-Attention (DHOGSA) module and Dynamic Interaction Feed-Forward (DIFF) module.
+et al. 2023) encodes degradation conditions into prompts to
+guide restoration. These approaches rely on implicitly constructed degradation-specific conditions to enable flexible
+inference. However, the construction of such conditions is
+often complex and lacks consistent priors. Recently, Histoformer (Sun et al. 2024) incorporates grayscale histogram
+priors into Transformer models and shows strong performance on adverse weather restoration. However, histogrambased features offer limited discriminative power; for example, blurry and clean images can share similar histograms.
+In this work, we observe that HOG offers a clearer way to
+distinguish between different degradations. Our method utilizes HOG features to provide explicit guidance that is aware
+of the degradation throughout the restoration process.
+
+Method
+Overall Architecture
+Motivated by the observation (Figure 1) that the HOG effectively captures degradation-specific patterns, we propose
+HOGformer, an AIR network that explicitly incorporates
+HOG-derived cues into the restoration process. As shown
+in Figure 2, HOGformer employs a multi-stage U-shaped
+encoder-decoder architecture to progressively model and restore diverse degradations within a single model.
+The encoder begins by applying a 3×3 convolution to extract shallow features from the input image I lq . These features are successively downsampled and enriched through
+stacked HOG Transformer Blocks (HOGTBs), which serve
+as the core feature extractors. To retain low-frequency priors
+and facilitate residual learning, coarse skip connections (Sun
+et al. 2024) are introduced to highlight degradation residuals, incorporating average pooling, pointwise convolution,
+
+and depthwise convolution. Downsampling and upsampling
+are achieved using pixel-unshuffle and pixel-shuffle, respectively, which ensure efficient resolution transitions while
+preserving structural consistency. Additionally, symmetric
+skip connections between the encoder and decoder further
+enhance information flow and detail recovery. The core of
+the HOGformer lies the HOGTBs, which incorporate dynamic HOG-aware self-attention (DHOGSA) and dynamic
+interaction feed-forward (DIFF) as illustrated in Figure 2.
+DHOGSA utilizes gradient information to adjust attention
+through HOG-guided sorting at both pixel- and patch-level.
+This facilitates selective focus on regions sensitive to degradation regions. DIFF facilitates effective channel–spatial interaction to enable robust transformation of features under diverse degradations. Each HOGTB employs a residual
+paradigm to ensure stable optimization as follows:
+F′l = Fl−1 + DHOGSA(LN(Fl−1 )),
+Fl = F′l + DIFF(LN(F′l )),
+
+(1)
+
+where Fl denotes the output of the l-th layer, LN is the layer
+normalization. This structured integration of HOG-guided
+attention and interaction enables efficient AIR.
+
+Dynamic HOG-aware Self-Attention (DHOGSA)
+The first core module in each HOGTB is DHOGSA, designed to capture long-range and degradation-specific dependencies using gradient-domain priors. Traditional selfattention mechanisms (Zamir et al. 2022a) typically operate within fixed windows or channel-wise structures, making
+them suboptimal for modeling the non-uniform and spatially
+varying patterns present in diverse degradations. DHOGSA
+overcomes this by leveraging differentiable HOG descriptors to explicitly sort features based on their gradient magni-
+
+tudes and orientations before computing attention. This sorting operation is conducted at both patch and pixel levels,
+grouping spatial locations with similar degradation patterns
+to facilitate more effective attention computation.
+Local Dynamic-range Convolution (LDRConv). To facilitate effective long-range modeling, we begin by enhancing local degradation structures through a Local DynamicRange Convolution (LDRConv) module. Unlike standard
+convolutions with fixed receptive fields, LDRConv dynamically reorganizes features based on their gradient distribution. Specifically, LDRConv performs HOG-guided patchlevel sorting, followed by modulation using learnable binwise HOG priors. This patch-wise operation groups regions
+with similar gradient properties while preserving global spatial consistency, in contrast to pixel-wise sorting which may
+disrupt the overall structure. This design ensures that the
+model retains critical semantic and geometric information,
+which is essential for image restoration tasks.
+Given input features F ∈ RC×H×W , we first compute the
+gradient magnitude m and orientation o using Sobel filters:
+
+
+q
+atan2(gy , gx ) + π
+m = gx 2 + g y 2 , o =
+Nbin , (2)
+2π
+where gx and gy are obtained directional gradients using
+Sobel operation, Nbin is the number of HOG bins. To preserving the original representation capacity, we split F into
+F1 , F2 and only apply HOG-guided patch-wise sorting (Figure 3(a)) to F1 , followed by modulation with learnable HOG
+priors HOGθ (F1 ) to enhance local gradient awareness under diverse degradations:
+F1 = Sortpatch (F1 ) + HOGθ (F1 ),
+p
+d
+F = Conv3×3
+(Conv1×1
+(Concat(F1 , F2 ))).
+
+(3)
+
+As shown in Figure 3(c), HOGθ (F1 ) is derived by computing gradient-based histograms over local patches, followed
+by feature projection, more details can be found in the supplementary material. LDRConv enhances degradation sensitivity while maintaining structural coherence, providing a
+strong basis for the subsequent self-attention mechanism.
+HOG-guided Self-Attention. With the enhanced representations from LDRConv, we effectively model the crucial long-range dependencies. Specifically, inspired by the
+observation that distant pixels affected by the same degradation often exhibit similar HOG responses, we sort pixels
+(Figure 3(b)) based on HOG descriptors (m · o). To spatially align features, we generate sorting indices from the
+information-rich value features V, and then use these indices to consistently sort the query (Q), key (K), and value
+(V) features. To capture multi-scale dependencies, we introduce two parallel attention branches with distinct histogram reshaping strategies. Bin-wise Histogram Reshaping
+(BHOGR) groups sorted pixels into fixed-size bins to extract coarse, large-scale features. Frequency-wise Histogram
+Reshaping (FHOGR) clusters pixels with similar HOG values to capture fine textures and local variations. BHOGR
+focuses on capturing large-scale structural artifacts, such as
+the spatially uniform distribution of haze, whereas FHOGR
+
+1 2 16 sorting order
+
+6 7 8 9
+10 11 12 13
+4 2 1 3
+5 16 15 14
+
+sorting region
+99 7 54 9
+66 11 12 67
+4 2 1 3
+5 98 15 21
+
+16 10 12 11
+2 15 6 1
+4 3 14 5
+8 9 7 13
+
+(a) HOG-guided Patch-level Sort vs. (b) HOG-guided Pixel-level Sort
+HOG Feature
+(One Patch)
+Magnitude
+
+𝑚
+𝑜
+
+Input Feature
+
+Orientation
+
+(c) HOG Feature
+
+Figure 3: HOG-guided mechanism: (a) Patch-level sorting.
+(b) Pixel-level sorting. (c) HOG feature extraction process.
+
+is tailored to detect fine-scale, repetitive degradations like
+rain streaks. Fusing both branches enables a comprehensive
+representation F. The entire process is as follows:
+
+
+idx = Sort RC×HW
+(o(V)
+·
+m(V))
+,
+C×H×W
+
+
+Q{·}∈{B,F } = Gather RC×HW
+C×H×W (Q{·} ), idx ,
+
+
+K{·}∈{B,F } = Gather RC×HW
+(K
+),
+idx
+,
+{·}
+C×H×W
+
+
+V = Gather RC×HW
+C×H×W (V), idx ,
+!
+R{·} (Q{·} )R{·} (K{·} )⊤
+√
+A{·}∈{B,F } = Softmax
+,
+K
+F = AB RB (V) ⊙ AF RF (V).
+(4)
+where K is the number of heads, Ri∈{B,F } represents the
+reshaping operation (BHOGR or FHOGR), and ⊙ is the
+Hadamard product.
+
+Dynamic Interaction Feed-Forward (DIFF)
+After DHOGSA aggregates spatial features guided by HOG
+cues, the resulting representations are fed into the proposed
+Dynamic Interaction Feed-Forward (DIFF) network. Unlike standard, content-agnostic FFNs, DIFF performs dynamic spatial-channel interaction to adaptively refine features based on the content, so that to enhance heavily degraded regions while preserving clean areas. Three complementary designs make it possible: firstly, multi-scale spatial context via parallel branches is captured; secondly, a
+pixel-wise gating mechanism modulates spatial responses
+conditioned on input features; thirdly, channel shuffling and
+aggregation promote cross-channel communication. Therefore, DIFF can achieve content-aware refinement across spatial and channel dimensions. Further details are provided in
+the supplementary material.
+
+Method
+RESCAN
+SnowGAN
+DDMSNet
+DTANet
+Restormer
+All-in-One
+TransWeather
+Chen et al.
+WGWSNet
+WeatherDiff64
+WeatherDiff128
+AWRCP
+GridFormer
+MoCE-IR
+Histoformer
+HOGformer-L
+
+Snow100K-S
+P↑
+S↑
+31.51 0.9032
+32.33 0.9500
+34.34 0.9445
+34.79 0.9497
+36.01 0.9579
+32.51 0.9341
+34.42 0.9469
+34.31 0.9460
+35.83 0.9566
+35.02 0.9516
+36.92 0.9652
+37.46 0.9640
+37.10 0.9654
+37.41 0.9656
+37.93 0.9685
+
+Snow100K-L
+P↑
+S↑
+26.08 0.8108
+27.17 0.8983
+28.85 0.8772
+30.06 0.9017
+30.36 0.9068
+28.33 0.8820
+29.31 0.8879
+30.22 0.9071
+30.16 0.9007
+30.09 0.9041
+29.58 0.8941
+31.92 0.9344
+31.71 0.9231
+31.88 0.9234
+32.16 0.9261
+32.41 0.9297
+
+Method
+HRGAN
+PCNet
+MPRNet
+NAFNet
+Restormer
+All-in-One
+TransWeather
+Chen et al.
+WGWSNet
+WeatherDiff64
+WeatherDiff128
+AWRCP
+GridFormer
+MoCE-IR
+Histoformer
+HOGformer-L
+
+Outdoor-Rain
+P↑
+S↑
+21.56 0.8550
+26.19 0.9015
+28.03 0.9192
+29.59 0.9027
+30.03 0.9215
+24.71 0.8980
+28.83 0.9000
+29.27 0.9147
+29.32 0.9207
+29.64 0.9312
+29.72 0.9216
+31.39 0.9329
+31.87 0.9335
+31.42 0.9334
+32.08 0.9389
+32.89 0.9460
+
+Method
+RaindropAttn
+AttentiveGAN
+IDT
+MAXIM
+Restormer
+All-in-One
+TransWeather
+Chen et al.
+WGWSNet
+WeatherDiff64
+WeatherDiff128
+AWRCP
+GridFormer
+MoCE-IR
+Histoformer
+HOGformer-L
+
+RainDrop
+P↑
+S↑
+31.44 0.9263
+31.59 0.9274
+31.87 0.9313
+31.87 0.9352
+32.18 0.9408
+31.12 0.9268
+30.41 0.9157
+31.81 0.9309
+32.38 0.9378
+30.71 0.9312
+29.66 0.9225
+31.93 0.9314
+32.39 0.9362
+32.23 0.9386
+33.06 0.9441
+32.72 0.9452
+
+Average
+P↑
+S↑
+30.27 0.9094
+31.43 0.9249
+31.54 0.9263
+31.57 0.9308
+30.99 0.9225
+33.04 0.9409
+33.36 0.9392
+33.16 0.9400
+33.67 0.9436
+33.99 0.9474
+
+Table 1: Quantitative comparisons of adverse weather restoration. The top half of the tables shows results from task-specific
+methods, while the bottom half displays evaluations of AIR methods. The best and second-best results are highlighted.
+
+Input
+
+Chen et al.
+
+TransWeather
+
+WGWSNet
+
+Histoformer
+
+Ours
+
+Clean
+
+Figure 4: Visual comparison for deraining (Sun et al. 2024; Özdenizci and Legenstein 2023). Zoom in for the best visualization.
+
+Loss Supervision
+To fully exploit the HOG-guided attention and dynamic feature interaction in HOGformer, we design a tailored optimization objective. While pixel-wise losses such as the
+L1 loss ensure reconstruction accuracy, they often overlook
+structural and textural fidelity, resulting in overly smooth
+outputs. To address this limitation, we formulate a composite loss that aligns with the architectural design:
+L = Lrec + αLcor + βLHOG ,
+
+(5)
+
+where α and β are weighting factors. Lrec denotes the L1
+loss for pixel-level accuracy, Lcor promotes global photometric consistency via Pearson correlation (Sun et al. 2024),
+and LHOG enforces structural alignment by minimizing the
+L2 distance of HOG features between the output and GT.
+More details are provided in the supplementary material.
+
+Figure 5: Comparisons on multiple degradations (rain-fogsnow). Top: PSNR and SSIM comparisons between Histformer and our method. Bottom: Visual results on a representative example.
+
+Experiments
+Experimental Setup
+We evaluate HOGformer in four standard AIR settings: (I)
+3-task adverse weather removal (Sun et al. 2024), including
+desnowing, draining&dehazing, and raindrop removal; and
+(II) 5-task general restoration (Zheng et al. 2024), including deraining, low-light enhancement, desnowing, dehazing, and deblurring. (III) 3-task general restoration following
+(Potlapalli et al. 2023; Cui et al. 2025). (IV) 5-task general
+restoration following (Potlapalli et al. 2023; Cui et al. 2025).
+One AIR model is trained for each setting.
+
+Datasets and Metrics. For Setting (I), we use the AllWeather dataset (Sun et al. 2024). For Setting (II), we use
+task-specific datasets: Merged rain dataset (Jiang et al. 2020;
+Wang et al. 2022b) for deraining, LOL (Wei et al. 2018)
+for low-light, Snow100K (Liu et al. 2018) for desnowing,
+RESIDE (Li et al. 2018a) for dehazing, and GoPro (Nah,
+Hyun Kim, and Mu Lee 2017) for deblurring. To evaluate
+generalization, we additionally test on real-world datasets:
+Practical (Yang et al. 2017), MEF (Ma, Zeng, and Wang
+2015), NPE (Wang et al. 2013), DICM (Lee, Lee, and Kim
+
+Method
+SwinIR
+MIRNet-v2
+Restormer
+MAXIM
+IR-SDE
+WeatherDiff
+RDDM
+AirNet
+Painter
+ProRes
+Prompt-IR
+DA-CLIP
+DiffUIR-S
+DiffUIR-L
+HOGformer-S
+HOGformer-L
+
+Rain (5 sets)
+P↑
+S↑
+30.78 0.923
+33.89 0.924
+33.96 0.935
+33.24 0.933
+30.74 0.903
+24.87 0.773
+29.49 0.868
+30.67 0.891
+29.56 0.888
+28.96 0.853
+30.25 0.893
+31.03 0.904
+30.75 0.901
+31.63 0.914
+
+Low-light
+P↑
+S↑
+17.81 0.723
+24.74 0.851
+20.41 0.806
+23.43 0.863
+23.22 0.899
+14.83 0.767
+22.40 0.872
+22.73 0.877
+22.89 0.847
+24.17 0.882
+23.52 0.895
+25.12 0.907
+25.36 0.915
+25.57 0.917
+
+Snow (2 sets)
+P↑
+S↑
+20.45 0.787
+33.51 0.939
+32.55 0.927
+27.63 0.860
+30.80 0.888
+31.45 0.915
+32.65 0.927
+32.72 0.929
+34.08 0.941
+
+Haze
+P↑
+S↑
+21.5
+0.891
+24.03 0.927
+30.87 0.969
+34.19 0.985
+30.78 0.953
+25.47 0.923
+32.02 0.952
+32.02 0.952
+31.39 0.983
+31.83 0.954
+32.94 0.956
+33.67 0.991
+36.60 0.994
+
+Blur
+P↑
+S↑
+24.52 0.773
+26.30 0.799
+32.92 0.961
+32.86 0.940
+30.70 0.901
+29.53 0.876
+26.92 0.811
+27.53 0.851
+27.21 0.817
+25.39 0.805
+27.79 0.830
+29.17 0.864
+28.37 0.840
+29.95 0.884
+
+Complexity
+Params (M) FLOPs (G)
+0.90
+752.13
+5.90
+140.92
+26.12
+141.00
+14.1
+216.00
+34.20
+98.30
+82.96
+36.26
+9.88
+8.93
+30.13
+307.00
+248.90
+307.00
+248.90
+35.59
+15.81
+174.10
+118.50
+3.27
+2.40
+36.26
+9.88
+2.91
+20.63
+16.64
+91.77
+
+Table 2: Quantitative results of all-in-one image restoration methods in five tasks. The best and second-best results are highlighted. The top is task-specific restoration methods, and the bottom is all-in-one restoration methods.
+Method
+BRDNet
+LPNet
+FDGAN
+MPRNet
+DL
+AirNet
+PromptIR
+AdaIR
+HOGformer-L
+
+Dehazing
+on SOTS
+P↑
+S↑
+23.23
+0.895
+20.84
+0.828
+24.71
+0.929
+25.28
+0.955
+26.92
+0.931
+27.94
+0.962
+30.58
+0.974
+31.06
+0.980
+31.91
+0.981
+
+Deraining
+on Rain100L
+P↑
+S↑
+27.42
+0.895
+24.88
+0.784
+29.89
+0.933
+33.57
+0.954
+32.62
+0.931
+34.90
+0.968
+36.37
+0.972
+38.64
+0.983
+38.50
+0.983
+
+σ = 15
+P↑
+S↑
+32.26
+0.898
+26.47
+0.778
+30.25
+0.910
+33.54
+0.927
+33.05
+0.914
+33.92
+0.933
+33.98
+0.933
+34.12
+0.935
+34.04
+0.935
+
+Denoising on BSD68
+σ = 25
+σ = 50
+P↑
+S↑
+P↑
+S↑
+29.76
+0.836
+26.34
+0.693
+24.77
+0.748
+21.26
+0.552
+28.81
+0.868
+26.43
+0.776
+30.89
+0.880
+27.56
+0.779
+30.41
+0.861
+26.90
+0.740
+31.26
+0.888
+28.00
+0.797
+31.31
+0.888
+28.06
+0.799
+31.45
+0.892
+28.19
+0.802
+31.40
+0.892
+28.16
+0.804
+
+Average
+P↑
+27.80
+23.64
+28.02
+30.17
+29.98
+31.20
+32.06
+32.69
+32.80
+
+S↑
+0.843
+0.738
+0.883
+0.899
+0.876
+0.910
+0.913
+0.918
+0.919
+
+Table 3: Comparisons under the three-degradation all-in-one setting.
+2013), HIDE (Shen et al. 2019), RealBlur (Rim et al. 2020),
+and T-OLED (Zhou et al. 2021). For Settings (III) and (IV),
+we adopt the same datasets as those used in prior studies
+(Potlapalli et al. 2023; Cui et al. 2025).
+For evaluation, we report PSNR (P↑) and SSIM (S↑) for
+standard metrics, LPIPS (L↓) (Zhang et al. 2018) for perceptual similarity, and NIQE (N↓) (Mittal, Soundararajan, and
+Bovik 2012) for no-reference assessment.
+
+Implementation Details
+We implement our model using PyTorch and conduct experiments on NVIDIA Tesla A100 GPUs. We apply random
+horizontal and vertical flips for data augmentation. Following Histoformer (Sun et al. 2024), α is set to 1, and B equals
+the number of attention heads. Nbin is set to 9 according to
+original HOG setting (Dalal and Triggs 2005). More details
+can be seen in the supplementary material.
+
+Comparison with State-of-the-Arts
+Setting (I). Table 1 compares HOGformer with task-specific
+(Li et al. 2018b; Yang et al. 2017; Zhang et al. 2021; Chen
+et al. 2022a; Zamir et al. 2022a; Li, Cheong, and Tan 2019;
+Li et al. 2016; Zamir et al. 2021; Chen et al. 2022b; Qian
+
+et al. 2018; Quan et al. 2021; Tu et al. 2022) and all-inone SOTA methods (Li, Tan, and Cheong 2020; Valanarasu,
+Yasarla, and Patel 2022; Chen et al. 2022c; Zhu et al. 2023;
+Özdenizci and Legenstein 2023; Ye et al. 2023; Wang et al.
+2024; Sun et al. 2024) on synthetic and real-world adverse
+weather datasets. For fairness, we retrain all-in-one baselines on AllWeather (Li, Tan, and Cheong 2020; Özdenizci
+and Legenstein 2023). HOGformer consistently outperforms
+existing methods across all degradations. As shown in Figure 4 and Figure 5, HOGformer also restores clearer details
+and better handles multiple degradations. This underscores
+the importance of natural discriminative HOG attributes to
+model degradations.
+Setting (II). Table 2 compares AIR methods under five natural degradations. HOGformer-S achieves competitive results in low-light enhancement, desnowing, and dehazing,
+outperforming larger models like DA-CLIP (174.1M). Besides, HOGformer-L achieves best results with reasonable
+parameters than counterparts (Liang et al. 2021; Zamir et al.
+2022b,a; Tu et al. 2022; Luo et al. 2023; Özdenizci and Legenstein 2023; Liu et al. 2024; Zamir et al. 2022a; Li et al.
+2022; Wang et al. 2023; Ma et al. 2023; Potlapalli et al.
+2023; Luo et al. 2024; Zheng et al. 2024). These results high-
+
+Method
+NAFNet
+HINet
+MPRNet
+DGUNet
+MIRNetV2
+SwinIR
+Restormer
+DL
+TransWeather
+TAPE
+AirNet
+IDR
+AdaIR
+HOGformer-L
+
+Dehazing
+on SOTS
+P↑
+S↑
+25.23
+0.939
+24.74
+0.937
+24.27
+0.937
+24.78
+0.940
+24.03
+0.927
+21.50
+0.891
+24.09
+0.927
+20.54
+0.826
+21.32
+0.885
+22.16
+0.861
+21.04
+0.884
+25.24
+0.943
+30.53
+0.978
+31.16
+0.979
+
+Deraining
+on Rain100L
+P↑
+S↑
+35.56
+0.967
+35.67
+0.969
+38.16
+0.981
+36.62
+0.971
+33.89
+0.954
+30.78
+0.923
+34.81
+0.962
+21.96
+0.762
+29.43
+0.905
+29.67
+0.904
+32.98
+0.951
+35.63
+0.965
+38.02
+0.981
+38.05
+0.981
+
+Denoising
+on BSD68
+P↑
+S↑
+31.02
+0.883
+31.00
+0.881
+31.35
+0.889
+31.10
+0.883
+30.97
+0.881
+30.59
+0.868
+31.49
+0.884
+23.09
+0.745
+29.00
+0.841
+30.18
+0.855
+30.91
+0.882
+31.60
+0.887
+31.35
+0.889
+31.19
+0.884
+
+Deblurring
+on GoPro
+P↑
+S↑
+26.53
+0.808
+26.12
+0.788
+26.87
+0.823
+27.25
+0.837
+26.30
+0.799
+24.52
+0.773
+27.22
+0.829
+19.86
+0.672
+25.12
+0.757
+24.47
+0.763
+24.35
+0.781
+27.87
+0.846
+28.12
+0.858
+28.62
+0.867
+
+Low-Light
+on LOL
+P↑
+S↑
+20.49
+0.809
+19.47
+0.800
+20.84
+0.824
+21.87
+0.823
+21.52
+0.815
+17.81
+0.723
+20.41
+0.806
+19.83
+0.712
+21.21
+0.792
+18.97
+0.621
+18.18
+0.735
+21.34
+0.826
+23.00
+0.845
+24.46
+0.858
+
+Average
+P↑
+27.76
+27.40
+28.27
+28.32
+27.34
+25.04
+27.60
+21.05
+25.22
+25.09
+25.49
+28.34
+30.20
+30.70
+
+S↑
+0.881
+0.875
+0.890
+0.891
+0.875
+0.835
+0.881
+0.743
+0.836
+0.801
+0.846
+0.893
+0.910
+0.914
+
+Table 4: Comparisons for five-degradation all-in-one restoration. Denoising results are reported at a noise level of σ = 25.
+Methods in the top super-row represent general image restoration methods, while the remaining methods are all-in-one methods.
+
+Method
+WeatherDiff
+CLIP-LIT
+Restormer
+RDDM
+AirNet
+Prompt-IR
+DA-CLIP
+DiffUIR-L
+HOGformer-L
+
+Rain
+N↓
+3.50
+3.34
+3.55
+3.52
+3.42
+3.38
+3.31
+
+Low-light
+N↓
+3.70
+3.80
+3.57
+3.45
+3.31
+3.56
+3.14
+3.08
+
+Snow
+N↓
+2.96
+2.76
+2.75
+2.79
+2.72
+2.74
+2.69
+
+Blur
+P↑
+S↑
+32.12 0.926
+30.74 0.894
+16.78 0.628
+22.48 0.770
+17.51 0.667
+30.63 0.890
+30.92 0.907
+
+Table 5: Quantitative results of known task generalization.
+The best and second-best results are highlighted. The top is
+task-specific methods, and the bottom is AIR methods.
+light its balance between performance and complexity.
+Setting (III). Table 3 presents quantitative comparisons under the three-degradation all-in-one setting, including dehazing, deraining, and denoising with different noise levels. HOGformer achieves the best average PSNR and SSIM
+among all methods, and consistently delivers top or near-top
+performance across all degradation types and noise levels.
+Compared with recent all-in-one restoration methods such
+as PromptIR and AdaIR, HOGformer demonstrates superior
+overall restoration capability and robustness, highlighting its
+effectiveness in handling multiple degradations within a unified framework.
+Setting (IV). Table 4 reports quantitative comparisons of
+general image restoration methods and all-in-one methods
+across five degradations, including dehazing, deraining, denoising, deblurring, and low-light enhancement. Among allin-one approaches, HOGformer consistently achieves the
+best or highly competitive PSNR and SSIM on all datasets,
+and obtains the highest average performance overall. Compared with both general restoration models and recent
+AIR methods, HOGformer demonstrates superior restoration quality across diverse degradations, highlighting its
+strong generalization ability and balanced effectiveness.
+
+Method
+NAFNet
+MPRNet
+SwinIR
+Restormer
+RDDM
+AirNet
+IDR
+Prompt-IR
+DA-CLIP
+DiffUIR-L
+HOGformer-L
+
+P↑
+26.89
+23.33
+17.72
+20.98
+17.00
+22.73
+27.91
+20.47
+15.74
+29.55
+29.33
+
+S↑
+0.774
+0.807
+0.661
+0.632
+0.626
+0.739
+0.793
+0.669
+0.606
+0.887
+0.889
+
+L↓
+0.346
+0.383
+0.519
+0.360
+0.545
+0.374
+0.346
+0.462
+0.472
+0.281
+0.271
+
+Table 6: Quantitative results of unknown task on T-OLED.
+The best and second-best results are highlighted. The top is
+task-specific methods, and the bottom is AIR methods.
+LDRConv DHOGSA DIFF LHOG P ↑
+S ↑ Params ↓
+×
+×
+×
+×
+30.14 0.9258 14.65M
+✓
+×
+×
+×
+30.49 0.9261 14.67M
+31.68 0.9358 16.77M
+✓
+✓
+×
+×
+✓
+✓
+✓
+×
+32.40 0.9421 16.64M
+✓
+✓
+✓
+✓
+32.89 0.9460 16.64M
+
+Table 7: Ablation study on the proposed core components.
+
+Generalization. To further assess generalizability, we evaluate HOGformer on both seen and unseen degradations. As
+shown in Table 5, HOGformer consistently outperforms previous state-of-the-art methods on seen tasks. In Table 6,
+HOGformer delivers comparable results on T-OLED with
+unseen degradations, confirming its robustness and adaptability beyond trained scenarios. This generalization likely
+stems from the intrinsic properties of HOG features. Unlike
+learned priors prone to overfitting, HOG captures fundamental structural cues common to many degradations. Therefore, the HOG-guided mechanism can highlight such patterns even in real-world degradations.
+
+P↑
+S↑
+
+w/o FHOGR
+32.59
+0.9432
+
+w/o BHOGR
+31.83
+0.9386
+
+DHOGSA
+32.89
+0.9460
+
+Table 8: Ablation study on the FHOGR and BHOGR.
+
+P↑
+S↑
+
+13 Bins
+32.93
+0.9464
+
+9 Bins
+32.89
+0.9460
+
+5 Bins
+32.64
+0.9433
+
+1 Bin
+32.32
+0.9417
+
+Table 9: Ablation study on the number of bins in extracted
+HOG features.
+
+Ablation Studies
+
+33.0
+
+Ablation studies on Outdoor-Rain are conducted to evaluate
+our methods and to determine optimal hyperparameters.
+Effectiveness of Core Components. As shown in Table 7, adding LDRConv significantly improves PSNR and
+SSIM. This performance gain is attributable to it models
+local dynamic-range variations commonly found in complex degradations. Introducing DHOGSA further boosts performance by embedding HOG-based priors into the attention mechanism. The reason is that HOG features capture
+gradient cues that vary across degradations, allowing the
+model to adjust attention weights adaptively based on perceived degradation as shown in Figure 6. The DIFF module brings additional gains by enabling dynamic feature
+transformation. The reason is that it enhances the ability
+of model to process regions with varying degradation levels
+through spatial-channel interaction. Table 8 shows that both
+BHOGR and FHOGR are beneficial. We attribute this improvement to BHOGR captures inter-interval dependencies
+while FHOGR focuses on intra-interval structures. Combining all components yields the best performance, confirming
+their complementary roles in AIR.
+Hyperparameters of HOG Bins. Table 9 analyzes the effect of the number of bins in extracted HOG features. A
+small number of bins leads to poor performance because
+it fails to capture essential gradient orientations necessary
+for identifying degradations. Increasing the number of bins
+beyond a certain threshold offers only minor improvements
+while imposing greater computational overhead. To balance
+accuracy and efficiency, we set the number of bins to 9.
+Hyperparameters of Local Dynamic-range Convolution.
+Figure 7 (a) shows that LDRConv with patch size 8 achieves
+the best performance (32.89dB PSNR, 0.9460 SSIM), outperforming the baseline by +0.68dB and +0.0067 SSIM.
+Smaller patches offer limited context, while overly large
+patches (e.g., size 16) degrade structural fidelity.
+Hyperparameters of HOG Loss. As illustrated in Figure 7
+
+32.8
+
+0.9460
+
+33.0
+
+0.946
+
+32.6
+
+0.9446
+
+32.89
+
+0.9444
+
+32.8
+
+0.9453
+
+0.9460
+
+0.9432
+
+32.4
+
+32.75
+
+32.6
+
+0.942
+
+32.39
+
+32.2
+
+32.21 32.24
+0.9393
+0.9392
+32.0
+PSNR (dB)
+31.8
+SSIM
+Vanilla 2
+4
+
+32.4
+
+32.2
+0.938
+
+8
+
+16
+
+32.0
+
+0.936
+
+0.942
+0.940
+
+0.940
+
+Patch Size
+
+(a)
+
+32.59
+
+32.54
+
+0.946
+0.944
+
+32.89
+
+0.944
+
+32.70
+
+0.9447
+
+0.938
+
+PSNR (dB)
+SSIM
+w/o HOG =0.1
+
+=1
+
+=10
+
+0.936
+
+HOG Loss Weight ( )
+
+(b)
+
+Figure 7: Ablation studies on the patch size of LDRConv (a)
+and the weight of HOG loss (b).
+(b), setting β = 1 yields the highest performance (32.89dB
+PSNR, 0.9460 SSIM). A small weight (β = 0.1) offers
+marginal gains, while an excessive weight (β = 10) hampers performance, indicating the need to balance gradient
+emphasis and overall fidelity.
+
+Conclusion
+In this paper, we present HOGformer, an AIR model that
+leverages the power of HOG features. Through a Dynamic
+HOG-aware Self-Attention (DHOGSA) mechanism and innovative network components, HOGformer effectively handles diverse image degradations. Our approach demonstrates
+superior performance while maintaining computational efficiency. Besides, extracting HOG features explicitly helps
+the model identify various degradations from a gradient perspective and eliminate interfering factors like lighting. This
+further enhance the generalizability of our method. Future
+research directions include exploring HOG-based mechanisms in conjunction with emerging architectures (e.g.,
+Mamba) to address the AIR task.
+
+References
+
+Figure 6: Visualization of the DHOGSA output from the
+second-to-last HOGTB, highlighting its ability to accurately
+activate degraded regions.
+
+Ai, Y.; Huang, H.; and He, R. 2024. LoRA-IR: Taming LowRank Experts for Efficient All-in-One Image Restoration.
+arXiv preprint arXiv:2410.15385.
+Ai, Y.; Huang, H.; Zhou, X.; Wang, J.; and He, R. 2024.
+Multimodal prompt perceiver: Empower adaptiveness generalizability and fidelity for all-in-one image restoration. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 25432–25444.
+Banham, M. R.; and Katsaggelos, A. K. 1997. Digital image
+restoration. IEEE signal processing magazine, 14(2): 24–41.
+Cai, Y.; Bian, H.; Lin, J.; Wang, H.; Timofte, R.; and Zhang,
+Y. 2023. Retinexformer: One-stage retinex-based trans-
+
+former for low-light image enhancement. In Proceedings of
+the IEEE/CVF international conference on computer vision,
+12504–12513.
+Chen, L.; Chu, X.; Zhang, X.; and Sun, J. 2022a. Simple
+baselines for image restoration. In European conference on
+computer vision, 17–33. Springer.
+Chen, L.; Wu, P.; Chitta, K.; Jaeger, B.; Geiger, A.; and Li,
+H. 2024. End-to-end autonomous driving: Challenges and
+frontiers. IEEE Transactions on Pattern Analysis and Machine Intelligence.
+Chen, S.; Ye, T.; Liu, Y.; Chen, E.; Shi, J.; and Zhou, J.
+2022b. Snowformer: Scale-aware transformer via context
+interaction for single image desnowing. arXiv preprint
+arXiv:2208.09703, 2.
+Chen, W.-T.; Huang, Z.-K.; Tsai, C.-C.; Yang, H.-H.; Ding,
+J.-J.; and Kuo, S.-Y. 2022c. Learning multiple adverse
+weather removal via two-stage knowledge learning and
+multi-contrastive regularization: Toward a unified model. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 17653–17662.
+Chen, X.; Li, H.; Li, M.; and Pan, J. 2023. Learning a sparse
+transformer network for effective image deraining. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, 5896–5905.
+Conde, M. V.; Geigle, G.; and Timofte, R. 2024. Instructir: High-quality image restoration following human instructions. In European Conference on Computer Vision, 1–21.
+Springer.
+Cui, Y.; Zamir, S. W.; Khan, S.; Knoll, A.; Shah, M.; and
+Khan, F. S. 2025. Adair: Adaptive all-in-one image restoration via frequency mining and modulation. In 13th International Conference on Learning Representations, ICLR 2025,
+57335–57356. International Conference on Learning Representations, ICLR.
+Dalal, N.; and Triggs, B. 2005. Histograms of oriented gradients for human detection. In 2005 IEEE computer society conference on computer vision and pattern recognition
+(CVPR’05), volume 1, 886–893. Ieee.
+Guo, H.; Li, J.; Dai, T.; Ouyang, Z.; Ren, X.; and Xia, S.T. 2024. Mambair: A simple baseline for image restoration
+with state-space model. In European conference on computer vision, 222–241. Springer.
+He, Z.; and Jin, Z. 2024. Latent modulated function for computational optimal continuous image representation. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, 26026–26035.
+Jiang, J.; Zuo, Z.; Wu, G.; Jiang, K.; and Liu, X. 2024a. A
+survey on all-in-one image restoration: Taxonomy, evaluation and future trends. arXiv preprint arXiv:2410.15067.
+Jiang, K.; Wang, Z.; Yi, P.; Chen, C.; Huang, B.; Luo, Y.;
+Ma, J.; and Jiang, J. 2020. Multi-scale progressive fusion network for single image deraining. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, 8346–8355.
+
+Jiang, Y.; Zhang, Z.; Xue, T.; and Gu, J. 2024b. Autodir:
+Automatic all-in-one image restoration with latent diffusion. In European Conference on Computer Vision, 340–
+359. Springer.
+Jin, Z.; Qiu, Y.; Zhang, K.; Li, H.; and Luo, W. 2025. MBTaylorFormer V2: improved multi-branch linear transformer
+expanded by Taylor formula for image restoration. IEEE
+Transactions on Pattern Analysis and Machine Intelligence.
+Kong, L.; Dong, J.; Ge, J.; Li, M.; and Pan, J. 2023. Efficient frequency domain-based transformers for high-quality
+image deblurring. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 5886–
+5895.
+Lee, C.; Lee, C.; and Kim, C.-S. 2013. Contrast enhancement based on layered difference representation of 2D histograms. IEEE transactions on image processing, 22(12):
+5372–5384.
+Li, B.; Liu, X.; Hu, P.; Wu, Z.; Lv, J.; and Peng, X. 2022.
+All-in-one image restoration for unknown corruption. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 17452–17462.
+Li, B.; Ren, W.; Fu, D.; Tao, D.; Feng, D.; Zeng, W.; and
+Wang, Z. 2018a. Benchmarking single-image dehazing and
+beyond. IEEE Transactions on Image Processing, 28(1):
+492–505.
+Li, R.; Cheong, L.-F.; and Tan, R. T. 2019. Heavy rain image restoration: Integrating physics model and conditional
+adversarial learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 1633–
+1642.
+Li, R.; Tan, R. T.; and Cheong, L.-F. 2020. All in one bad
+weather removal using architectural search. In Proceedings
+of the IEEE/CVF conference on computer vision and pattern
+recognition, 3175–3185.
+Li, X.; Jin, X.; Lin, J.; Liu, S.; Wu, Y.; Yu, T.; Zhou, W.;
+and Chen, Z. 2020. Learning disentangled feature representation for hybrid-distorted image restoration. In European
+conference on computer vision, 313–329. Springer.
+Li, X.; Wu, J.; Lin, Z.; Liu, H.; and Zha, H. 2018b. Recurrent squeeze-and-excitation context aggregation net for single image deraining. In Proceedings of the European conference on computer vision (ECCV), 254–269.
+Li, Y.; Tan, R. T.; Guo, X.; Lu, J.; and Brown, M. S. 2016.
+Rain streak removal using layer priors. In Proceedings of
+the IEEE conference on computer vision and pattern recognition, 2736–2744.
+Liang, J.; Cao, J.; Sun, G.; Zhang, K.; Van Gool, L.; and
+Timofte, R. 2021. Swinir: Image restoration using swin
+transformer. In Proceedings of the IEEE/CVF international
+conference on computer vision, 1833–1844.
+Liang, P.; Jiang, J.; Liu, X.; and Ma, J. 2024. Image deblurring by exploring in-depth properties of transformer. IEEE
+Transactions on Neural Networks and Learning Systems.
+Liu, J.; Wang, Q.; Fan, H.; Wang, Y.; Tang, Y.; and Qu, L.
+2024. Residual denoising diffusion models. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2773–2783.
+
+Liu, Y.-F.; Jaw, D.-W.; Huang, S.-C.; and Hwang, J.-N.
+2018. Desnownet: Context-aware deep network for snow
+removal. IEEE Transactions on Image Processing, 27(6):
+3064–3073.
+Luo, Z.; Gustafsson, F. K.; Zhao, Z.; Sjölund, J.; and Schön,
+T. B. 2023. Image restoration with mean-reverting stochastic
+differential equations. arXiv preprint arXiv:2301.11699.
+Luo, Z.; Gustafsson, F. K.; Zhao, Z.; Sjölund, J.; and Schön,
+T. B. 2024. Controlling vision-language models for universal image restoration. In International Conference on Learning Representations.
+Ma, J.; Cheng, T.; Wang, G.; Zhang, Q.; Wang, X.; and
+Zhang, L. 2023. Prores: Exploring degradation-aware visual prompt for universal image restoration. arXiv preprint
+arXiv:2306.13653.
+Ma, K.; Zeng, K.; and Wang, Z. 2015. Perceptual quality
+assessment for multi-exposure image fusion. IEEE Transactions on Image Processing, 24(11): 3345–3356.
+Mittal, A.; Soundararajan, R.; and Bovik, A. C. 2012. Making a “completely blind” image quality analyzer. IEEE Signal processing letters, 20(3): 209–212.
+Nah, S.; Hyun Kim, T.; and Mu Lee, K. 2017. Deep multiscale convolutional neural network for dynamic scene deblurring. In Proceedings of the IEEE conference on computer vision and pattern recognition, 3883–3891.
+Özdenizci, O.; and Legenstein, R. 2023. Restoring vision
+in adverse weather conditions with patch-based denoising
+diffusion models. IEEE Transactions on Pattern Analysis
+and Machine Intelligence, 45(8): 10346–10357.
+Potlapalli, V.; Zamir, S. W.; Khan, S. H.; and Shahbaz Khan,
+F. 2023. Promptir: Prompting for all-in-one image restoration. Advances in Neural Information Processing Systems,
+36: 71275–71293.
+Qian, R.; Tan, R. T.; Yang, W.; Su, J.; and Liu, J. 2018. Attentive generative adversarial network for raindrop removal
+from a single image. In Proceedings of the IEEE conference
+on computer vision and pattern recognition, 2482–2491.
+Qiu, Y.; Zhang, K.; Wang, C.; Luo, W.; Li, H.; and Jin, Z.
+2023. Mb-taylorformer: Multi-branch efficient transformer
+expanded by taylor formula for image dehazing. In Proceedings of the IEEE/CVF International Conference on Computer Vision, 12802–12813.
+Quan, R.; Yu, X.; Liang, Y.; and Yang, Y. 2021. Removing raindrops and rain streaks in one go. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, 9147–9156.
+Rim, J.; Lee, H.; Won, J.; and Cho, S. 2020. Real-world
+blur dataset for learning and benchmarking deblurring algorithms. In Computer Vision–ECCV 2020: 16th European
+Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part XXV 16, 184–201. Springer.
+Shen, Z.; Wang, W.; Lu, X.; Shen, J.; Ling, H.; Xu, T.; and
+Shao, L. 2019. Human-aware motion deblurring. In Proceedings of the IEEE/CVF international conference on computer vision, 5572–5581.
+
+Song, Y.; He, Z.; Qian, H.; and Du, X. 2023. Vision transformers for single image dehazing. IEEE Transactions on
+Image Processing, 32: 1927–1941.
+Sun, S.; Ren, W.; Gao, X.; Wang, R.; and Cao, X. 2024.
+Restoring images in adverse weather conditions via histogram transformer. In European Conference on Computer
+Vision, 111–129. Springer.
+Tu, Z.; Talebi, H.; Zhang, H.; Yang, F.; Milanfar, P.; Bovik,
+A.; and Li, Y. 2022. Maxim: Multi-axis mlp for image processing. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, 5769–5780.
+Valanarasu, J. M. J.; Yasarla, R.; and Patel, V. M. 2022.
+Transweather: Transformer-based restoration of images degraded by adverse weather conditions. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, 2353–2363.
+Wang, C.; Wu, H.; and Jin, Z. 2023. Fourllie: Boosting lowlight image enhancement by fourier frequency information.
+In Proceedings of the 31st ACM International Conference
+on Multimedia, 7459–7469.
+Wang, S.; Zheng, J.; Hu, H.-M.; and Li, B. 2013. Naturalness preserved enhancement algorithm for non-uniform illumination images. IEEE transactions on image processing,
+22(9): 3538–3548.
+Wang, T.; Zhang, K.; Shao, Z.; Luo, W.; Stenger, B.; Lu, T.;
+Kim, T.-K.; Liu, W.; and Li, H. 2024. Gridformer: Residual dense transformer with grid structure for image restoration in adverse weather conditions. International Journal of
+Computer Vision, 132(10): 4541–4563.
+Wang, X.; Wang, W.; Cao, Y.; Shen, C.; and Huang, T. 2023.
+Images speak in images: A generalist painter for in-context
+visual learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 6830–
+6839.
+Wang, Z.; Cun, X.; Bao, J.; Zhou, W.; Liu, J.; and Li, H.
+2022a. Uformer: A general u-shaped transformer for image
+restoration. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, 17683–17693.
+Wang, Z.; Zhang, J.; Chen, R.; Wang, W.; and Luo, P. 2022b.
+Restoreformer: High-quality blind face restoration from undegraded key-value pairs. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+17512–17521.
+Wei, C.; Wang, W.; Yang, W.; and Liu, J. 2018. Deep retinex
+decomposition for low-light enhancement. arXiv preprint
+arXiv:1808.04560.
+Yang, W.; Tan, R. T.; Feng, J.; Liu, J.; Guo, Z.; and Yan, S.
+2017. Deep joint rain detection and removal from a single
+image. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, 1357–1366.
+Ye, T.; Chen, S.; Bai, J.; Shi, J.; Xue, C.; Jiang, J.; Yin, J.;
+Chen, E.; and Liu, Y. 2023. Adverse weather removal with
+codebook priors. In Proceedings of the IEEE/CVF international conference on computer vision, 12653–12664.
+
+Zamfir, E.; Wu, Z.; Mehta, N.; Tan, Y.; Paudel, D. P.; Zhang,
+Y.; and Timofte, R. 2025. Complexity Experts are TaskDiscriminative Learners for Any Image Restoration. In
+CVPR. Springer.
+Zamir, S. W.; Arora, A.; Khan, S.; Hayat, M.; Khan, F. S.;
+and Yang, M.-H. 2022a. Restormer: Efficient transformer
+for high-resolution image restoration. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, 5728–5739.
+Zamir, S. W.; Arora, A.; Khan, S.; Hayat, M.; Khan, F. S.;
+Yang, M.-H.; and Shao, L. 2021. Multi-stage progressive
+image restoration. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, 14821–
+14831.
+Zamir, S. W.; Arora, A.; Khan, S.; Hayat, M.; Khan, F. S.;
+Yang, M.-H.; and Shao, L. 2022b. Learning enriched features for fast image restoration and enhancement. IEEE
+transactions on pattern analysis and machine intelligence,
+45(2): 1934–1948.
+Zhang, K.; Li, R.; Yu, Y.; Luo, W.; and Li, C. 2021. Deep
+dense multi-scale network for snow removal using semantic
+and depth priors. IEEE Transactions on Image Processing,
+30: 7419–7431.
+Zhang, R.; Isola, P.; Efros, A. A.; Shechtman, E.; and Wang,
+O. 2018. The unreasonable effectiveness of deep features as
+a perceptual metric. In Proceedings of the IEEE conference
+on computer vision and pattern recognition, 586–595.
+Zhang, S.; Meng, N.; and Lam, E. Y. 2023. LRT: an efficient
+low-light restoration transformer for dark light field images.
+IEEE Transactions on Image Processing, 32: 4314–4326.
+Zhang, X.; Xie, F.; Ding, H.; Yan, S.; and Shi, Z. 2024.
+Proxy and Cross-Stripes Integration Transformer for Remote Sensing Image Dehazing. IEEE Transactions on Geoscience and Remote Sensing.
+Zheng, D.; Wu, X.-M.; Yang, S.; Zhang, J.; Hu, J.-F.; and
+Zheng, W.-S. 2024. Selective hourglass mapping for universal image restoration based on diffusion model. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 25445–25455.
+Zhou, Y.; Ren, D.; Emerton, N.; Lim, S.; and Large, T. 2021.
+Image restoration for under-display camera. In Proceedings
+of the ieee/cvf conference on computer vision and pattern
+recognition, 9179–9188.
+Zhu, Y.; Wang, T.; Fu, X.; Yang, X.; Guo, X.; Dai, J.; Qiao,
+Y.; and Hu, X. 2023. Learning weather-general and weatherspecific features for image restoration under multiple adverse weather conditions. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+21747–21758.
+
+

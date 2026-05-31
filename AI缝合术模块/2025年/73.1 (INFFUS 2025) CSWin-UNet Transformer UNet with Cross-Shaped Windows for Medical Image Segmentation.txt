@@ -1,0 +1,1653 @@
+CSWin-UNet: Transformer UNet with Cross-Shaped
+Windows for Medical Image Segmentation
+
+arXiv:2407.18070v3 [eess.IV] 19 Sep 2024
+
+Xiao Liu , Peng Gao , Tao Yu , Fei Wang , Ru-Yue Yuan
+Qufu Normal University
+Harbin Institute of Technology Shenzhen
+
+Abstract
+Deep learning, especially convolutional neural networks (CNNs) and Transformer
+architectures, have become the focus of extensive research in medical image segmentation, achieving impressive results. However, CNNs come with inductive
+biases that limit their effectiveness in more complex, varied segmentation scenarios.
+Conversely, while Transformer-based methods excel at capturing global and longrange semantic details, they suffer from high computational demands. In this study,
+we propose CSWin-UNet, a novel U-shaped segmentation method that incorporates
+the CSWin self-attention mechanism into the UNet to facilitate horizontal and vertical stripes self-attention. This method significantly enhances both computational
+efficiency and receptive field interactions. Additionally, our innovative decoder
+utilizes a content-aware reassembly operator that strategically reassembles features,
+guided by predicted kernels, for precise image resolution restoration. Our extensive empirical evaluations on diverse datasets, including synapse multi-organ CT,
+cardiac MRI, and skin lesions, demonstrate that CSWin-UNet maintains low model
+complexity while delivering high segmentation accuracy. Codes are available at
+https://github.com/eatbeanss/CSWin-UNet.
+
+1
+
+Introduction
+
+Medical image segmentation is an essential research topic of medical image computing and computer
+assisted intervention, primarily by processing images to obtain helpful information, such as the shape,
+size, and structure of diseased organs or tissues, providing more accurate and detailed diagnostic and
+treatment recommendations[1, 2].
+Deep learning-based medical image segmentation methods can directly classify the entire image at
+the pixel level and have been widely applied in multiple medical fields[3, 4], including lung computed
+tomography (CT) image segmentation, brain magnetic resonance image (MRI) segmentation, and
+cardiac ultrasound image segmentation. These methods not only improve segmentation accuracy
+but also further advance the field of medical imaging. Convolutional neural network (CNN) is
+one of the most widely used deep learning technologies in the field of computer vision. The fully
+convolutional network (FCN)[5], an extension of CNN, promotes the development of the field of
+medical image segmentation. Existing studies have proposed extended convolution and context
+learning methods to address the limited receptive field of conventional convolutional operations[6, 7,
+8]. Moreover, UNet[9], with its innovative U-shaped encoder-decoder design and skip connections,
+and merges feature maps from the encoder and decoder to preserve critical spatial details from shallow
+layers. This architecture has become a staple in image segmentation. Enhanced derivatives of UNet,
+such as UNet++ [10], AttentionUNet[11], and ResUNet[12], have further refined the segmentation
+capabilities, offering improved performance across a spectrum of imaging modalities.
+Despite the successes of CNN-based methods in medical image segmentation, they are challenged
+by their limited capacity to capture global and long-range semantic information and inherent inductive biases[13, 14, 15]. Inspired by the transformative impact of the Transformer architecture in
+
+natural language processing (NLP)[16], researchers have begun to apply this technology to computer vision tasks, aiming to mitigate some limitations of CNNs[17, 18, 19]. At the core of the
+Transformer architecture is the self-attention mechanism, which processes embedded information
+from all positions within the input sequence in parallel, rather than sequentially. This mechanism
+allows the Transformer to adeptly manage long-range information dependencies and adapt to varying
+input sequence lengths. A specific adaptation for image processing, the Vision Transformer[20],
+exemplifies this by segmenting the input image into a series of fixed patches, each converted into a
+vector that is then processed by a Transformer encoder. Through the encoding stage, self-attention
+establishes inter-patch relationships, capturing comprehensive contextual information. The resultant
+encoded features are subsequently utilized in tasks such as object detection and image segmentation,
+utilizing decoders or classifiers. The introduction of the Vision Transformer has not only infused fresh
+perspectives into image processing but also achieved results that rival or surpass those of traditional
+CNNs[21, 22, 23, 24]. Although the Transformer architecture excels in processing global and longrange semantic information, its computational efficiency is often compromised due to the extensive
+nature of its self-attention mechanisms. Addressing this inefficiency, the Swin Transformer[25]
+innovated with a window self-attention mechanism that limits attention to discrete windows within
+the image, drastically reducing computational complexity. However, this approach somewhat restricts
+the interaction among receptive fields. To overcome this, the CSWin Transformer[26] proposed
+the cross-shaped window (CSWin) self-attention, which can compute self-attention horizontally
+and vertically in parallel, achieving better results at a lower computational cost. Additionally, the
+CSWin Transformer introduced local-enhanced positional encoding (LePE), which imposes positional
+information on each Transformer block. Unlike previous positional encoding methods[27, 28], LePE
+directly manipulates the results of attention weights rather than being added to the computation of
+attention. LePE makes the CSWin Transformer more effective for object detection and image segmentation. As the development of Transformers progresses, many studies have combined CNNs with
+Transformer blocks. TransUNet[13] and LeViT-UNet[29] integrated UNet with Transformers and
+achieved competitive results on abdominal multi-organ and cardiac segmentation datasets. In addition,
+some researchers have developed segmentation models using pure Transformers. Swin-UNet[30]
+employed Swin Transformer blocks to construct encoders and decoders in an UNet-like architecture,
+showing improved performance compared to TransUNet[31]. However, this segmentation method
+based on Swin Transformer still has limitations in receptive field interaction, and the computational
+cost is also relatively high.
+Medical images usually have high resolution and contain many interrelated delicate structures. One
+of our primary concerns is how to better handle long-range dependencies in medical images with
+less computational resource consumption. Furthermore, accurate boundary segmentation in medical
+images is crucial for diagnosis and treatment compared to semantic segmentation. Therefore, another
+focus of our study is how to retain more detailed information and provide more explicit boundaries
+during the segmentation process. Inspired by the innovative CSWin Transformer[26], we introduce
+a novel Transformer-based method, dubbed CSWin-UNet, for medical image segmentation. This
+method is designed to reduce computational costs while simultaneously enhancing segmentation
+accuracy. Unlike TransUNet[13], a CNN-Transformer hybrid architecture, CSWin-UNet, similar
+to Swin-UNet[30], is a pure Transformer-based U-shaped architecture. The critical difference between CSWin-UNet and Swin-UNet is that the former equipped CSWin Transformer blocks in both
+the encoder and decoder and designed different numbers of blocks according to different scales.
+Moreover, we introduced the CARAFE (Content-Aware ReAssembly of FEatures) layer[31] for
+upsampling in the decoder. Initially, input medical images are transformed into convolutional token
+embeddings, which are then processed by the encoder to extract contextual features. These features
+are subsequently upsampled by the CARAFE layer, which enables precise feature reassembly. Additionally, skip connections are employed to fuse high-level semantic information with low-level
+spatial details continuously. The process culminates in the transformation of feature embeddings
+into a segmentation mask that matches the original input sizes. Through cross-shaped window
+self-attention, our method can maintain the efficient feature extraction capability for medical images
+while reducing computational complexity. Additionally, by combining the classic architecture of
+UNet, it can effectively integrate features of different scales in the encoder and decoder, thereby
+improving segmentation accuracy. Finally, the introduction of the CARAFE layer for upsampling can
+more effectively preserve the edges and detailed features of the segmentation objects. Experimental
+evaluations of our CSWin-UNet method reveal superior segmentation accuracy and robust generalization capabilities compared to other existing methods. Furthermore, it showcases considerable
+
+2
+
+Next
+Block
+
+hN
+
+hN
+
+(a) Full attention
+
+hN
+h1
+
+h1
+
+h1
+
+(b) Shifted local
+
+Next
+Block
+
+hN
+
+hN
+
+hN
+
+h1
+
+h1
+
+(c) Criss-cross
+
+h1
+
+(d) Sequential axial
+
+Figure 1: Illustration of different self-attention mechanisms. hi denotes the i-th attention head.
+advantages in reducing computational complexity for medical image segmentation tasks. The key
+contributions of this study are detailed below:
+• We developed a novel U-shaped encoder-decoder network architecture, CSWin-UNet, utilizing CSWin Transformer blocks specifically tailored for medical image segmentation.
+• The CSWin self-attention mechanism was incorporated to implement horizontal and vertical
+stripes self-attention learning. This enhancement significantly broadens the focus area for
+each token, facilitating more comprehensive analysis and contextual integration.
+• In the decoder, the CARAFE layer was employed as an alternative to the traditional transposed convolution or interpolation strategies for upsampling. This choice allows for more
+accurate pixel-level segmentation masks.
+• Comprehensive experimental results validate that CSWin-UNet is not only lightweight but
+also demonstrates efficient performance, surpassing existing methods in both computational
+efficiency and segmentation accuracy.
+The structure of this paper is organized as follows. Section 2 reviews recent works and developments
+in the field of medical image segmentation, setting the context for the innovations introduced in this
+study. Section 3 describes in detail the methodology of the newly proposed CSWin-UNet, highlighting
+the novel aspects of the architecture and its components. Section 4 presents the experimental
+results, demonstrating the effectiveness and efficiency of CSWin-UNet compared to existing methods.
+Section 5 concludes the paper.
+
+2
+
+Related works
+
+2.1
+
+Self-attention mechanisms in image segmentation
+
+The application of self-attention mechanisms in image segmentation has been widely studied. Research in [32, 33, 34] demonstrates that designing different self-attention mechanisms for suitable
+scenarios can significantly improve segmentation performance. Medical image segmentation tasks
+often involve subtle but critical structures, and self-attention mechanisms can better capture the
+relationships between these complex structures, making the design of effective and appropriate
+self-attention mechanisms particularly important. However, many existing vision Transformers still
+use global attention mechanisms with high computational complexity, as shown in Fig.1(a). To
+address this issue, Swin Transformer[25] adopts a shifted version of the local self-attention mechanism, as depicted in Fig.1(b), achieving interactions between different windows through a sliding
+3
+
+window mechanism. Additionally, axial self-attention[35] and criss-cross attention[36] calculate
+attention within stripes along horizontal and vertical directions, as shown in Fig.1(c) and (d), respectively. Nevertheless, axial self-attention is limited by the sequential mechanism and window
+size, while criss-cross attention performs poorly in specific applications due to overlapping windows.
+CSWin Transformer[26] introduces cross-shaped window (CSWin) self-attention, which can compute
+self-attention for horizontal and vertical stripe regions in parallel. Compared to previous attention
+mechanisms, this attention mechanism is more general and effective in handling image processing
+tasks.
+2.2
+
+CNN-based medical image segmentation
+
+In medical image segmentation, CNNs are predominantly employed, with several vital architectures
+driving advancements in the field. Among these, FCN[5] stands out as an end-to-end architecture that
+classifies pixels directly, converting fully connected layers to convolutional ones to accommodate
+images of any size. The UNet[9] model, featuring a symmetric U-shaped encoder-decoder architecture, excels in delivering accurate segmentation of medical images. Building on the foundation
+laid by FCN and UNet, several enhanced methods have been proposed. For instance, SegNet[37]
+incorporates ideas from both FCN and UNet, utilizing max-pooling operators to refine the accuracy of
+segmentation masks, and has been effectively applied in diverse medical segmentation tasks[38, 39].
+UNet++[10] extends the original UNet design by integrating densely nested skip connections, which
+minimize information loss between the encoder and decoder, thereby improving segmentation performance. AttentionUNet[11] augments the UNet architecture with attention mechanisms to increase
+both accuracy and robustness. Lastly, nnU-Net[40] introduces an adaptive approach to network
+architecture selection, automatically optimizing model configurations based on specific task requirements and dataset characteristics, thus enhancing adaptability across various segmentation challenges.
+Additionally, MRNet[41] proposed a multi-rater agreement model to calibrate segmentation results,
+and Pan et al. [42] designed a hybrid-supervised learning strategy to address the issue of scarce
+medical image labels.
+2.3
+
+Transformer-based medical image segmentation
+
+Given the high resolution and complexity of medical images, which encompass a vast number of
+pixels and intricate local features, traditional CNN-based medical image segmentation methods, while
+effective at capturing detailed image information, often fall short in accessing global and long-range
+semantic contexts. In contrast, with their global contextual modeling capabilities, Transformers play a
+pivotal role in boosting segmentation performance by effectively encoding larger receptive fields and
+learning relationships between distant pixels. This advantage has spurred researchers to incorporate
+Transformers into medical image segmentation frameworks. For example, TransUNet[13] employs
+a Transformer as the encoder to derive contextual representations from medical images, coupled
+with a UNet-based decoder for precise pixel-level segmentation. This combination illustrates the
+enhanced ability of Transformers to capture global contextual information, leading to improved
+segmentation accuracy. Similarly, TransFuse[43] integrates CNN and Transformer branches within a
+single framework, using a specialized module to merge outputs from both pathways to produce final
+segmentation masks. Further, UNetR[44] utilizes a Transformer to encode input 3D images, paired
+with a CNN decoder to complete the segmentation process, while MT-UNet[45] introduces a hybrid
+Transformer architecture that learns both intra- and inter-sample relationships. HiFormer[46] presents
+another hybrid model, combining two CNNs with a Swin Transformer module and a dual-level
+fusion module to integrate and transfer multi-scale feature information to the decoder. Among purely
+Transformer-based methods, Swin-UNet[30] uses a Swin Transformer[25] as the encoder to capture
+global contextual embeddings, which are then progressively upsampled by a UNet decoder, leveraging
+skip connections to enhance detail preservation. Additionally, DFQ [47] introduced decoupled feature
+queries within a Vision Transformer (ViT) framework, enabling segmentation models to adapt more
+broadly to different tasks.
+Inspired by the advancements in multi-head self-attention mechanisms, specifically the CSWin
+Transformer[26], we developed CSWin-UNet, a medical image segmentation method based on CSWin
+self-attention. This model further conserves computational resources while elevating segmentation
+accuracy, representing a significant stride forward in the application of Transformers to medical
+image segmentation.
+4
+
+Convolutional Token
+Embedding
+(7×7, stride 4)
+
+CSWin Transformer
+Block ×1
+
+Linear Projection
+Carafe Layer(4×)
+Skip Connection
+
+Convolution Layer
+CSWin Transformer
+Block ×2
+
+Carafe Layer
+Skip Connection
+
+Convolution Layer
+CSWin Transformer
+Block ×9
+
+CSWin Transformer
+Block ×1
+
+CSWin Transformer
+Block ×2
+Carafe Layer
+
+Skip Connection
+
+CSWin Transformer
+Block ×9
+
+Convolution Layer
+
+Carafe Layer
+
+CSWin Transformer
+Block ×1
+
+CSWin Transformer
+Block ×1
+
+Figure 2: Overview of the proposed CSWin-UNet. The decoder and encoder are symmetrical and
+each consists of four stages.
+
+3
+
+Methodology
+
+The overall architecture of CSWin-UNet is illustrated in Fig.2, which consists of an encoder, a
+decoder, and skip connections, with the basic unit being the CSWin Transformer block. For medical
+images with an input dimension of H × W × 3, similar to CvT[34], we utilize convolutional token
+embedding (with a 7 × 7 kernel and a stride of 4) to obtain H/4 × W/4 patch tokens with C channels.
+Both the encoder and decoder are consisted of four stages. Like UNet[5], skip connections are
+employed to merge features at each stage of the encoder and decoder to retain contextual information
+better. In the encoder, convolutional layers (with a 3 × 3 kernel and a stride of 2) are used for
+downsampling, reducing the resolution to half of its input size while doubling the channel count.
+Upsampling in the decoder is performed through the CARAFE Layer, increasing the resolution to
+twice its input size while halving the channel count. Finally, a 4× CARAFE upsampling operation
+is performed to restore the resolution to the input resolution H × W , and a linear layer is used to
+convert the feature map into a segmentation mask.
+3.1
+
+CSWin Transformer block
+
+With its self-attention mechanism, the traditional Transformer architecture excels in establishing
+global semantic dependencies by processing all pixel positions, which, however, leads to high
+computational costs in high-resolution medical imaging. The Swin Transformer[25] mitigates these
+costs with a shifted window attention mechanism that divides the image into distinct, non-overlapping
+windows, allowing for localized self-attention. This adaptation helps manage the high resolution
+of images while controlling computational complexity. Yet, the effectiveness of this approach
+depends on the window size; smaller windows might miss some global information, while larger
+ones could unnecessarily raise computational demands and storage. Contrasting with the shifted
+window attention mechanism, CSWin self-attention organizes attention into horizontal and vertical
+stripes, enhancing parallel computation capabilities. This structure not only conserves computational
+resources but also broadens the interaction within receptive fields. As depicted in Fig.3, the CSWin
+5
+
+MLP
+LN
+
+Cross-Shaped
+Window Self-Attention
+
+LN
+
+Figure 3: Pipeline of the CSWin Transformer Block.
+
+Split Head
+
+sw
+
+hN/2
+
+hN
+
+h1
+
+hN/2+1
+
+sw
+Concat
+Figure 4: Illustration of the CSWin self-attention mechanism. First, split the multiple heads
+{h1 , h2 , . . . , hN } into two groups {h1 , h2 , . . . , hN/2 } and {hN/2+1 , hN/2+2 , . . . , hN }, performing self-attention in parallel on the horizontal and vertical stripes, respectively, and concatenate the
+outputs. Next, the width of the stripe sw can be adjusted to achieve optimal performance. Generally,
+choose a smaller sw for higher resolutions and a larger sw for lower resolutions.
+Transformer block, built on this innovative self-attention design, includes a CSWin self-attention
+module, a LayerNorm (LN) layer, a multi-layer perceptron (MLP), and skip connections. This
+configuration optimally balances local and global information processing, significantly improving
+efficiency and effectiveness in complex medical image segmentation tasks.
+In the multi-head self-attention mechanism, the input feature X ∈ RH×W ×C undergoes an initial
+transformation where it is linearly mapped across N heads, with N typically chosen as an even
+number. Distinct from conventional self-attention and the shifted window-based multi-head selfattention, the CSWin self-attention uniquely facilitates local self-attention learning within divided
+horizontal or vertical stripes, as depicted in Fig.4. This configuration allows each head to compute
+self-attention within its designated stripe either horizontally or vertically. These operations are
+performed in parallel, effectively broadening the scope of the attention computation area while
+simultaneously reducing the overall computational complexity.
+In the horizontal stripes self-attention configuration of the CSWin Transformer, the input feature X is
+systematically divided into M non-overlapping horizontal stripes, represented as [Xh1 , Xh2 , . . . , XhM ],
+where each stripe has a width sw, and M is determined by the ratio H/sw. The parameter sw is
+adjustable and critical for balancing computational complexity with the model’s learning capability.
+Specifically, a larger sw enhances the model’s ability to explore long-range pixel correlations within
+each stripe, potentially capturing more extensive contextual information. Consider the computation
+within a specific head, denoted as the n-th head. In this scenario, the dimensions of the queries (Q),
+6
+
+keys (K), and values (V) are each dn = C/N , where C is the number of channels, and N is the total
+number of heads. The self-attention output Yni for the n-th head within the i-th horizontal stripe is
+calculated as follows:
+Qin = WnQ Xhi
+Kni = WnK Xhi
+Vni = WnV Xhi
+
+(1)
+
+Qin (Kni )T
+√
+Yni = Softmax
+Vni
+dn
+where Xhi ∈ Rsw×W ×C is the feature map of the i-th horizontal stripe; WnQ ∈ RC×dn , WnK ∈
+RC×dn , and WnV ∈ RC×dn represent the weight matrix of Q, K and V of the n-th head. This
+operation is performed separately and in parallel for each stripe to allow self-attention within that
+specific horizontal stripe. The self-attention from M horizontal stripes are concatenated to construct
+the horizontal self-attention H-Attentionn for the n-th head:
+
+
+X = [Xh1 , Xh2 , . . . , XhM ]
+H-Attentionn (X) = [Yn1 , Yn2 , . . . , YnM ]
+
+(2)
+
+Similar to horizontal stripes self-attention, the input feature X ∈ RH×W ×C is evenly divided into S
+non-overlapping vertical stripes [Xv1 , Xv2 , . . . , XvS ] for vertical self-attention, where the stripe width
+is also sw, and S = W/sw. Considering the n-th attention head as an example, where the dimensions
+of Q, K, and V are dn = C/N . The self-attention output Yni for the n-th head within the i-th vertical
+stripe can be computed as follows:
+Qin = WnQ Xvi
+Kni = WnK Xvi
+Vni = WnV Xvi
+Yni = Softmax
+
+(3)
+
+
+
+Qin (Kni )T
+√
+Vni
+dn
+
+where Xvi ∈ RH×sw×C is the feature map of the i-th vertical stripe. The self-attention from S
+vertical stripes are concatenated to construct the vertical self-attention V-Attentionn for the n-th head:
+X = [Xv1 , Xv2 , . . . , XvS ]
+V-Attentionn (X) = [Yn1 , Yn2 , . . . , YnS ]
+
+(4)
+
+We split the N heads into two groups, each containing N/2 heads. Each head within these groups
+generates its self-attention output. The first group is tasked with learning horizontal stripes selfattention, while the second group learns vertical stripes self-attention. After computing the selfattention separately, the outputs from these two groups are concatenated. This concatenation is
+performed along the channel dimension as:
+
+H-Attentionn (X), n = 1, 2, . . . , N/2
+hn =
+V-Attentionn (X), n = N/2 + 1, N/2 + 2, . . . , N
+(5)
+o
+CSWin-Attention(X) = concat(h1 , h2 , . . . , hN )W
+where hn denotes the n-th attention head; W o ∈ RC×C is a weight matrix used to linearly transform
+the concatenated output of the multi-head self-attention mechanism to produce the final attention
+output, this linear transformation can help to learn the relationship between different heads and fuse
+the attention information. The concatenated output effectively incorporates horizontal and vertical
+contextual information, comprehensively learning the spatial relationships within the input image.
+Based on the above self-attention mechanism, the CSWin Transformer block can be defined as:
+
+X̂ l = CSWin-Attention LN(X l−1 ) + X l−1
+
+
+(6)
+X l = MLP LN(X̂ l ) + X̂ l
+where X l represents the output of the l-th CSWin Transformer block or the precedent convolutional
+layer of each stage.
+7
+
+3.2
+
+Encoder
+
+In the encoder, the input image dimensions are H/4 × W/4 × C, which then enter four stages for
+feature extraction. Downsampling operations accompany the first three stages. The number of CSWin
+Transformer blocks varies across the four stages, and details on block count settings will be discussed
+later. The downsampling layer is implemented by a convolutional layer with a kernel size of 3 × 3
+and a stride of 2, which reduces the resolution to half of its input size while doubling the number of
+channels. The stripe width sw changes according in different stages. As the resolution continuously
+decreases and the channel number increases, a smaller sw is chosen in stages with larger resolutions
+and a larger sw in stages with smaller resolutions, effectively enlarging the attention region of each
+token in stages with smaller resolutions. Additionally, the input image resolution is 224 × 224. To
+ensure the mediate feature map size of the input image can be divided by sw, we set sw for the four
+stages are 1, 2, 7, and 7.
+3.3
+
+Decoder
+
+Corresponding to the encoder, the decoder also has four stages. Image resolution and channel number
+increases are achieved through the CARAFE layer in the last three stages. The number of CSWin
+Transformer blocks and the stripe width sw for attention learning in the four stages are consistent
+with those set in the encoder. Commonly used upsampling methods include linear interpolation and
+transposed convolution. Bilinear interpolation only considers adjacent pixels and may blur the edges
+of the image, leading to unclear boundaries in the segmentation results, whereas the receptive field of
+transposed convolution is usually constrained by the kernel size and stride, not only limiting its ability
+to represent local variations but also requiring the learning of the weights and biases of the transposed
+convolution kernels. Unlike these methods, we use the CARAFE[31] to achieve upsampling.
+The CARAFE layer is an advanced upsampling mechanism comprising two principal components: a
+kernel prediction module and a content-aware reassembly module. The kernel prediction module
+initiates with a convolution layer tasked with predicting the reassembly kernels from the encoded
+features. It includes three sub-modules: channel compressor, context encoder, and kernel normalizer.
+The channel compressor reduces the dimensionality of the channel space in the input feature map
+X ∈ RH×W ×C , thereby lowering computational complexity and focusing on essential feature
+information. Following channel compression, the context encoder processes the reduced feature
+map to encode contextual information, which is instrumental in generating the reassembly kernels.
+Each predicted reassembly kernel undergoes normalization through a Softmax function in the kernel
+normalizer to ensure that the output distribution of the weights is probabilistic and sums to one,
+enhancing the stability and performance of the upsampling process. With an upsampling ratio σ
+(where σ is an integer), CARAFE aims to generate an expanded feature map X ′ ∈ RσH×σW ×C .
+For each pixel l′ = (i′ , j ′ ) in X ′ , it corresponds to a specific pixel l = (i, j) in X, determined by
+i = ⌊i′ /d⌋ and j = ⌊j ′ /d⌋. The kernel prediction moduleψ predicts a unique reassembly kernel Wl′
+for each pixel l′ based on the neighborhood N (Xl , k), which is a k × k region centered around pixel
+l on X. This neighborhood extracts localized features, which the predicted kernel uses to effectively
+reassemble and upsample the feature map.
+Wl′ = ψ (N (Xl , kencoder ))
+
+(7)
+
+where kencoder denotes the receptive filed of the content encoder.
+The second step is content-aware reassembly, where the input features are reassembled using a
+convolutional layer, and the content-aware reassembly module ϕ reassembles N (Xl , k) with the
+reassembly kernel Wl′ :
+Xl′′ = ϕ (N (Xl , kup ), Wl′ )
+(8)
+where kup is the size of reassembly kernel. For each reassembly kernel Wl′ , the content-aware
+reassembly module reassembles the features within the local square region. The module ϕ performs a
+weighted summation. For a pixel position l and its centered neighborhood N (Xl , kup ), the reassembly
+process is as follows:
+r
+r
+X
+X
+Wl′ (n,m) · X(i+n,j+m)
+(9)
+Xl′′ =
+n=−r m=−r
+
+where r = ⌊kup /2⌋.
+8
+
+Each pixel within N (Xl , kup ) contributes differently to the upsampled pixel l′ . The reassembled
+feature map can enhance the focus on relevant information within the local area, providing more
+robust semantic information than the original feature map. Additionally, similar to UNet[9], we
+use skip connections to merge the feature maps outputted from the encoder and decoder, thereby
+providing more prosperous and more accurate spatial information that helps recover image detail.
+Subsequently, a 1 × 1 convolution kernel is used to reduce the number of channels after concatenation,
+ensuring consistency with the number of feature channels in the upsampling process.
+
+4
+
+Experiments
+
+4.1
+
+Implementation details
+
+CSWin-UNet is implemented using Python and the PyTorch framework. The model training and
+evaluation are conducted on an NVIDIA® GeForce RTXTM 3090 GPU with 24GB VRAM. We
+initialize the CSWin Transformer blocks with pretrained weights from ImageNet[48] to leverage
+prior knowledge and accelerate the convergence process. For data augmentation, schemes such as
+flipping and rotation are employed to enhance the diversity of the training dataset, thereby helping
+the model generalize better to unseen data. During the training phase, the batch size is set to 24,
+and we use a learning rate of 0.05. Optimization is performed using the stochastic gradient descent
+(SGD) method with a momentum of 0.9 and a weight decay factor of 10−4 . This setup is chosen to
+optimize the balance between rapid learning and convergence stability. Furthermore, to effectively
+train CSWin-UNet, we employ a combined loss function that integrates Dice and cross-entropy losses,
+defined as follows:
+Loss = αLossDice + βLosscross
+(10)
+where α and β are two hyperparameters used to balance the impact of LossDice and Losscross
+on the final loss, respectively. This combined loss targets both pixel-level accuracy and holistic
+segmentation quality, ensuring robust learning and improved performance across varied medical
+image segmentation tasks.
+4.2
+
+Datasets and metrics
+
+4.2.1
+
+Synapse dataset
+
+The synapse multi-organ segmentation dataset includes 30 CT scans from the MICCAI 2015 MultiAtlas Abdominal Organ Segmentation Challenging, encompassing a total of 3779 abdominal CT
+images. Each CT scan consists of 85 to 198 slices with 512 × 512 pixels each, and each voxel
+measures ([0.54, 0.54] × [0.98, 0.98] × [2.5, 5.0])mm3 . Following the settings in literature[49, 13],
+18 sets are selected for training and 12 for evaluation. The segmentation performance on eight types
+of abdominal organs (aorta, gallbladder, left kidney, right kidney, liver, pancreas, spleen, stomach) is
+evaluated using the mean Dice-similarity coefficient (DSC) and the mean Hausdorff Distance (HD)
+as metrics.
+4.2.2
+
+ACDC dataset
+
+The Automated Cardiac Diagnosis Challenge (ACDC) dataset was released during the 2017 ACDC
+challenge and raised a multi-category cardiac 3D MRI dataset that includes 100 sets of short-axis
+MR cardiac images obtained through cine MR 1.5T and 3T scanners. Medical experts provided
+annotations for three cardiac structures: the right ventricle (RV), myocardium (MYO), and left
+ventricle (LV) [50]. We randomly selected 70 sets of MR images for training, 10 for validation,
+and 20 for evaluation. The ACDC dataset uses the mean DSC as an evaluation metric to assess the
+segmentation results of the three cardiac structures.
+4.2.3
+
+Skin lesion segmentation datasets
+
+We conducted experiments on the ISIC2017[51], ISIC2018[52], and PH2 [53] datasets. The ISIC
+datasets include a large number of dermoscopic images, covering various skin lesions. Following
+the settings in HiFormer[46], we used 1400 images for training, 200 images for validation, and 400
+images for testing in the ISIC2017 dataset; 1815 images for training, 259 images for validation, and
+520 images for testing in the ISIC2018 dataset; and 80 images for training, 20 images for validation,
+9
+
+Table 1: Detailed comparisons with recent medical image segmentation methods in terms of DSC
+and HD on the Synapse dataset. The first and second best values are highlighted in red and blue
+fonts, respectively.
+Backbone
+
+DSC ↑
+
+HD ↓
+
+Aorta
+
+Gallbladder
+
+Kidney (L)
+
+Kidney (R)
+
+Liver
+
+Pancreas
+
+Spleen
+
+Stomach
+
+CNN
+CNN
+CNN
+CNN
+CNN+Transformer
+CNN+Transformer
+CNN+Transformer
+Transformer
+Transformer
+
+68.81
+69.77
+76.85
+77.77
+80.39
+78.59
+77.48
+79.13
+81.12
+
+39.70
+36.02
+14.70
+26.59
+31.69
+21.55
+18.86
+
+75.34
+74.74
+89.07
+89.55
+86.21
+87.92
+87.23
+85.47
+87.13
+
+51.87
+53.77
+69.72
+68.88
+65.69
+64.99
+63.13
+66.53
+67.85
+
+77.10
+72.31
+77.77
+77.98
+85.23
+81.47
+81.87
+83.28
+83.51
+
+80.75
+73.24
+68.60
+71.11
+79.77
+77.29
+77.02
+79.61
+78.53
+
+87.84
+94.08
+93.43
+93.57
+94.61
+93.06
+94.08
+94.29
+95.23
+
+40.05
+54.18
+53.98
+58.04
+59.52
+59.46
+55.86
+56.58
+65.94
+
+80.56
+89.90
+86.67
+87.30
+90.99
+87.75
+85.08
+90.66
+89.05
+
+56.98
+45.96
+75.58
+75.75
+81.08
+76.81
+75.62
+76.60
+81.74
+
+Methods
+V-Net[54]
+DARR[49]
+UNet[9]
+Att-UNet[11]
+HiFormer-B[46]
+MT-UNet[45]
+TransUNet[13]
+Swin-UNet[30]
+CSWin-UNet
+
+100
+
+Mean ± 95% CI
+
+80
+60
+40
+20
+
+ch
+ma
+Sto
+
+n
+lee
+Sp
+
+as
+cre
+Pa
+n
+
+er
+Liv
+
+Kid
+ne
+y
+
+Rig
+ht
+
+Le
+ft
+
+Kid
+
+ne
+
+y
+
+r
+de
+
+a
+
+llb
+lad
+
+Ga
+
+Ao
+rt
+
+HD
+
+DS
+
+C
+
+0
+
+Figure 5: Error bars (95% confidence interval) of mean DSC, mean HD, and DSC for each organ on
+the Synapse dataset.
+
+and 100 images for testing in the PH2 dataset. We evaluated the skin lesion segmentation task using
+mean DSC, sensitivity (SE), specificity (SP), and accuracy (ACC) as metrics.
+
+4.3
+
+Results on Synapse dataset
+
+As shown in Table 1, our proposed method on the Synapse dataset has improved the mean DSC and
+HD. Meanwhile, we represent error bars (95% confidence interval) of mean DSC, mean HD, and
+DSC for each organ in Fig.5. Compared to TransUNet[13] and Swin-UNet[30], our mean DSC has
+increased by 3.64% and 1.99%, respectively, and the mean HD has improved by 12.83% and 2.69%.
+Notably, in the segmentation of the pancreas, the DSC of CSWin-UNet is significantly higher than
+that of other segmentation methods. Unlike other organs, the pancreas has blurry boundaries and
+variability, and our method achieved more precise segmentation results for the pancreas, indicating
+that our CSWin-UNet provides higher segmentation accuracy in complex segmentation environments.
+To more intuitively evaluate the proposed method, we conducted a visual analysis of the segmentation
+results. Fig.6 displays the comparative results on the Synapse dataset. The first row shows that
+Swin-UNet and HiFormer-B exhibit significant errors in segmenting small organs like the gallbladder
+(green label), with Swin-UNet[30] failing to delineate boundaries accurately and HiFormer-B[46]
+mistakenly identifying other areas as the gallbladder. The second row indicates that Swin-UNet,
+TransUNet[13], HiFormer-B, and UNet[9] all fail to segment the stomach (orange label) completely.
+The third row reveals that Swin-UNet and HiFormer-B incorrectly label large areas of other organs as
+the pancreas (yellow label). Considering the quantitative metrics and visual results, our proposed
+CSWin-UNet achieves accurate segmentation of refined and complex organs, produces more accurate
+segmentation results, demonstrates greater robustness against complex backgrounds, and performs
+superior edge structure handling.
+10
+
+ $ R U W D
+ * D O O E O D G G H U
+
+ * U R X Q G  7 U X W K
+
+ / H I W  . L G Q H \
+ 5 L J K W  . L G Q H \
+
+ & 6 : L Q  8 1 H W   2 X U V 
+
+ 6 Z L Q  8 1 H W
+
+ / L Y H U
+ 3 D Q F U H D V
+
+ 6 S O H H Q
+ 6 W R P D F K
+
+ 7 U D Q V 8 1 H W
+
+ + L ) R U P H U
+
+ 8  1 H W
+
+Figure 6: Segmentation results of eight abdominal organs (aorta, gallbladder, left kidney, right kidney,
+liver, pancreas, spleen, stomach) in the Synapse dataset using different methods.
+
+Backbone
+
+DSC ↑
+
+RV
+
+MYO
+
+LV
+
+CNN
+CNN
+CNN
+CNN+Transformer
+CNN+Transformer
+Transformer
+Transformer
+
+87.55
+86.75
+90.91
+88.61
+89.71
+90.00
+91.46
+
+87.10
+87.58
+89.21
+85.29
+88.86
+88.55
+89.68
+
+80.63
+79.20
+90.20
+86.52
+84.53
+85.62
+88.94
+
+94.92
+93.47
+93.35
+94.02
+95.73
+95.83
+95.76
+
+o
+
+LV
+
+Table 2: Comparison results of top-tier medical image segmentation methods on the ACDC dataset.
+The first and second best values are highlighted in red and blue fonts, respectively.
+Methods
+UNet[9]
+Att-UNet[11]
+nnUNet[40]
+UNetR[44]
+TransUNet[13]
+Swin-UNet[30]
+CSWin-UNet
+
+100
+
+Mean ± 95% CI
+
+95
+90
+85
+80
+75
+
+My
+
+RV
+
+DS
+C
+
+70
+
+Figure 7: Error bars (95% confidence interval) of mean DSC and DSC for each cardiac structure on
+the ACDC dataset.
+4.4
+
+Results on ACDC dataset
+
+Table 2 presents the experimental results of our proposed CSWin-UNet on the ACDC dataset and
+compares them with other advanced methods. Fig.7 represents the error bars (95% confidence
+interval) of mean DSC and DSC for each cardiac structure. In the table, RV represents the right
+11
+
+Table 3: Comparative results of the proposed CSWin-UNet with other state-of-the-art methods on
+three skin lesion segmentation datasets. The first and second best values are highlighted in red and
+blue fonts, respectively.
+Method
+
+Backbone
+
+UNet[9]
+Att-UNet[11]
+TransUNet[13]
+HiFormer-B[46]
+Swin-UNet[30]
+CSWin-UNet
+
+CNN
+CNN
+CNN+Transformer
+CNN+Transformer
+Transformer
+Transformer
+
+DSC ↑
+81.59
+80.82
+81.23
+92.53
+91.83
+91.47
+
+ISIC2017[51]
+SE ↑
+SP ↑
+81.72 96.80
+79.98 97.76
+82.63 95.77
+91.55 98.40
+91.42 97.98
+93.79 98.56
+
+DSC
+
+100
+
+ACC ↑
+91.64
+91.45
+92.07
+97.02
+97.01
+97.26
+
+SE
+
+DSC ↑
+85.45
+85.66
+84.99
+91.02
+89.46
+91.11
+
+SP
+
+ISIC2018[52]
+SE ↑
+SP ↑
+88.00 96.97
+86.74 98.63
+85.78 96.53
+91.19 97.55
+90.56 97.98
+92.31 97.88
+
+ACC
+
+ACC ↑
+94.04
+93.76
+94.52
+96.21
+96.45
+95.25
+
+DSC ↑
+89.36
+90.03
+88.40
+94.60
+94.49
+94.29
+
+PH2 [53]
+SE ↑
+SP ↑
+91.25 95.88
+92.05 96.40
+90.63 94.27
+94.20 97.72
+94.10 95.64
+95.63 97.82
+
+ACC ↑
+92.33
+92.76
+92.00
+96.61
+96.78
+96.82
+
+Mean ± 95% CI
+
+95
+90
+85
+80
+75
+70
+
+ISIC2017
+
+ISIC2018
+
+PH²
+
+Figure 8: Error bars (95% confidence interval) of DSC, SE, SP, and ACC on ISIC2017, ISIC2018,
+and PH2 datasets.
+Table 4: Computational efficiency of different medical image segmentation methods on the Synapse
+dataset. The first and second best values are highlighted in red and blue fonts, respectively.
+Model
+TransUNet[13]
+UNetR[44]
+HiFormer-B[46]
+Swin-UNet[30]
+CSWin-UNet
+
+Backbone
+
+#Params (M)
+
+FLOPs (G)
+
+DSC↑
+
+HD↓
+
+CNN+Transformer
+CNN+Transformer
+CNN+Transformer
+Transformer
+Transformer
+
+96.07
+86.00
+25.51
+27.17
+23.57
+
+88.91
+54.70
+8.05
+6.16
+4.72
+
+77.48
+79.56
+80.39
+79.13
+81.12
+
+31.69
+22.97
+14.70
+21.55
+18.86
+
+ventricle, MYO represents the myocardium, and LV represents the left ventricle. The results indicate
+that the proposed CSWin-UNet achieves better identification and segmentation of these organs, with
+an accuracy rate of 91.40%, demonstrating good generalization capabilities and robustness.
+4.5
+
+Results on skin lesion segmentation datasets
+
+Table 3 shows the experimental results, and Fig.8 shows the error bars (95% confidence interval) of
+DSC, SE, SP, and ACC on three skin lesion segmentation datasets. The experimental results indicate
+that the proposed CSWin-UNet outperforms other methods in most evaluation metrics. Notably,
+CSWin-UNet achieves better performance than Swin-UNet[30] in most metrics, demonstrating
+satisfactory generalization capability. We also visualized the skin lesion segmentation results in Fig.9.
+Compared to Swin-UNet[30], our CSWin-UNet has certain advantages in preserving the edges and
+detailed features of the segmented objects. However, in cases of low contrast or occlusion, as shown
+in Fig.9(d), the segmentation produces significant errors.
+4.6
+
+Comparison of computational efficiency
+
+An essential objective for neural network model design is to reduce the parameter count and computational complexity as much as possible while maintaining its performance. This reduction is crucial
+12
+
+ D 
+
+ E 
+
+ F 
+
+ G 
+ , Q S X W  , P D J H
+
+ * U R X Q G  7 U X W K
+
+ & 6 : L Q  8 1 H W   2 X U V 
+
+ 6 Z L Q  8 1 H W
+
+Figure 9: Visual comparison of segmentation results of CSWin-UNet and Swin-UNet on the ISIC2017
+dataset. The ground truth and the predicted segmentation boundaries are shown in red and blue,
+respectively.
+Table 5: Ablation study of different upsampling strategies on the Synapse dataset. The first and
+second best values are highlighted in red and blue fonts, respectively.
+Strategies
+Bilinear
+interpolation
+Transposed
+convolution
+CARAFE
+
+DSC ↑
+
+Aorta
+
+Gallbladder
+
+Kidney (L)
+
+Kidney (R)
+
+Liver
+
+Pancreas
+
+Spleen
+
+Stomach
+
+#Params(M)
+
+FLOPs(G)
+
+78.82
+
+85.32
+
+57.09
+
+82.68
+
+75.14
+
+94.35
+
+65.12
+
+88.86
+
+81.98
+
+23.39
+
+4.38
+
+80.31
+
+86.06
+
+65.10
+
+85.77
+
+79.79
+
+94.58
+
+61.73
+
+89.68
+
+79.79
+
+26.03
+
+8.88
+
+81.12
+
+87.13
+
+67.85
+
+83.51
+
+78.53
+
+95.23
+
+65.94
+
+89.05
+
+81.74
+
+23.57
+
+4.72
+
+for enabling more efficient model training and deployment in devices with limited computational
+resources. Therefore, in evaluating a model, it is necessary to consider not only its accuracy and
+generalizability but also its parameter count and computational complexity. Here, we use FLOPs and
+parameters (in millions, M) to measure computational complexity. The performance comparison on
+the Synapse dataset is shown in Table 4. The results demonstrate that the proposed CSWin-UNet
+achieves excellent segmentation performance under conditions of the lowest complexity.
+
+4.7
+
+Ablation studies
+
+In this section, we conducted an ablation study on the performance of CSWin-UNet on the Synapse
+dataset. Specifically, we explored the effects of different upsampling strategies in the decoder, the
+number of skip connections, different network architecture, and different hyperparameters in the
+combined loss function on the performance.
+13
+
+Table 6: Ablation study of different numbers of skip connection on the Synapse dataset. The first and
+second best values are highlighted in red and blue fonts, respectively.
+# Skip connection
+
+DSC ↑
+
+Aorta
+
+Gallbladder
+
+Kidney (L)
+
+Kidney (R)
+
+Liver
+
+Pancreas
+
+Spleen
+
+Stomach
+
+0
+1
+2
+3
+
+65.41
+76.19
+79.85
+81.12
+
+62.22
+84.53
+86.21
+87.13
+
+49.25
+65.51
+64.98
+67.85
+
+69.89
+77.18
+81.60
+83.51
+
+66.60
+71.50
+76.10
+78.53
+
+90.21
+93.75
+94.27
+95.23
+
+39.10
+54.32
+62.59
+65.94
+
+77.57
+86.75
+90.66
+89.05
+
+68.42
+75.98
+82.44
+81.74
+
+Table 7: Ablation study of different numbers of CSWin Transformer blocks of each stage on the
+Synapse dataset. The first and second best values are highlighted in red and blue fonts, respectively.
+
+4.7.1
+
+# Blocks
+
+# Params (M)
+
+FLOPs (G)
+
+DSC↑
+
+HD↓
+
+[1, 2, 6, 1]
+[1, 2, 9, 1]
+[1, 2, 12, 1]
+
+18.82
+23.57
+28.32
+
+3.79
+4.72
+5.65
+
+79.19
+81.12
+80.15
+
+24.88
+18.86
+20.43
+
+Upsampling strategy
+
+In the encoder, downsampling is performed using a convolutional layer with a stride of 2, and
+correspondingly, upsampling is needed in the decoder to upsample the feature maps, thereby preserving more information. In this paper, we introduce the CARAFE layer to achieve upsampling
+and increase feature channels, which uses the content of the input features themselves to guide the
+upsampling process for more accurate and efficient feature reassembly. To verify the effectiveness of
+the CAREFE layer, we conducted experiments on the Synapse dataset with bilinear interpolation,
+transposed convolution, and CARAFE layer in CSWin-UNet, as shown in Table 5. Upsampling with
+the CAREFE layer achieved the highest segmentation accuracy. Moreover, compared to transposed
+convolution, CAREFE introduces very little computational overhead. Experimental results indicate
+that the CSWin-UNet combined with the CARAFE layer can achieve optimal performance.
+4.7.2
+
+Skip connection
+
+Similar to the UNet, we also introduced skip connections to enhance finer segmentation details
+by restoring low-level spatial information. In CSWin-UNet, skip connections are positioned at the
+resolution scales of 1/4, 1/8, and 1/16. We sequentially reduced the skip connections at the scales of
+1/16, 1/8, and 1/4, setting the number of skip connections to 3, 2, 1, and 0 to explore the impact of
+varying numbers of skip connections on segmentation accuracy. As shown in Table 6, segmentation
+accuracy generally improves with an increase in the number of skip connections. Notably, CSWinUNet achieved more significant improvements in segmentation accuracy on smaller organs (such as
+the aorta, gallbladder, kidneys, and pancreas) than on larger organs (such as the liver, spleen, and
+stomach). Therefore, to achieve optimal performance, we set the number of skip connections to 3.
+4.7.3
+
+Network architecture
+
+Neural networks with too few layers can result in insufficiently rich and accurate feature representations, making it difficult to understand the image context, thereby leading to poor segmentation
+performance. Conversely, having too many layers increases the computational burden and makes
+it difficult for the network to converge. Therefore, when designing the network architecture, a
+balance was struck between network depth and model performance, enabling the model to achieve
+high segmentation accuracy with limited computational resources. Additionally, to prevent nonconvergence issues due to excessive depth[55], the block count in the final stage is set to one. By
+comparing the number of parameters and computational costs of other Transformer-based medical
+image segmentation methods, we set the block numbers in the four stages to [1, 2, 6, 1], [1, 2, 9, 1],
+and [1, 2, 12, 1], with encoder and decoder blocks symmetrically arranged. As shown in Table 7, the
+network architecture with block settings of [1, 2, 9, 1] achieved the best performance.
+14
+
+Table 8: Ablation study of different hyperparameters of the combined loss function on the Synapse
+dataset. The first and second best values are highlighted in red and blue fonts, respectively.
+
+4.7.4
+
+α
+
+β
+
+DSC↑
+
+HD↓
+
+1
+0
+0.5
+0.4
+0.6
+
+0
+1
+0.5
+0.6
+0.4
+
+76.18
+80.28
+80.79
+81.12
+80.27
+
+33.97
+29.19
+25.65
+18.86
+27.55
+
+Combined loss function
+
+We explored the impact of different hyperparameters of the combined loss function on segmentation
+accuracy. Here, we set α and β in Eq.10 to [1, 0], [0, 1], [0.5, 0.5], [0.4, 0.6], and [0.3, 0.7]. We
+conducted an ablation study on the Synapse dataset, and the experimental results showed that using
+the combined loss function resulted in higher segmentation accuracy than using either Dice or crossentropy losses alone, especially in the case of using only Dice loss without cross-entropy loss. Table
+8 shows that the segmentation performance was optimal when α and β were set to [0.4, 0.6].
+4.8
+
+Discussions
+
+Our comprehensive experimental results on three different types of medical image segmentation
+datasets, including CT, MRI, and skin lesion images, demonstrate that the proposed CSwin-UNet
+is more advanced and suitable for medical images of various modalities than other state-of-the-art
+medical image segmentation methods. However, our method shows some deficiencies in some
+challenging cases, such as significant differences in segmentation accuracy for different samples
+of the gallbladder and kidney regions in the Synapse dataset, as shown in Fig.6. According to the
+visualization results in Fig.9, there is still much room for improvement in segmentation performance
+when dealing with low-contrast images in the skin lesion segmentation datasets. Additionally, the
+pre-training of the model dramatically impacts its performance. In our study, we initialized the
+encoder and decoder with the weights trained by the CSwin Transformer[26] on ImageNet[48].
+Therefore, exploring end-to-end medical image segmentation methods is one of the research topics
+we are striving to pursue in the future.
+
+5
+
+Conclusion
+
+In this paper, we address the limitations of receptive field interactions in previous Transformer-based
+medical image segmentation models by introducing an efficient and lightweight method, CSWinUNet. Utilizing the CSWin self-attention mechanism from the CSWin Transformer, we incorporate
+this technology into a U-shaped encoder-decoder architecture. This integration not only reduces
+computational costs but also improves receptive field interactions and segmentation accuracy. In the
+decoder, the CARAFE layer is employed for upsampling, which helps retain intricate details and
+enhances the precision of organ edge segmentation. Comprehensive evaluations on three large-scale
+medical image segmentation datasets illustrate that CSWin-UNet surpasses other state-of-the-art
+methods in segmentation accuracy. Furthermore, CSWin-UNet is more lightweight regarding model
+parameters and computational load, suggesting significant potential for further optimizations and
+enhancements in deep learning applications for complex medical image segmentation tasks.
+
+References
+[1] S. Asgari Taghanaki, K. Abhishek, J. P. Cohen, J. Cohen-Adad, G. Hamarneh, Deep semantic
+segmentation of natural and medical images: a review, Artificial Intelligence Review 54 (2021)
+137–178.
+[2] G. Zhao, Y. Zhang, M. Ge, M. Yu, Bilateral u-net semantic segmentation with spatial attention
+mechanism, CAAI Transactions on Intelligence Technology 8 (2) (2023) 297–307.
+[3] R. Wang, T. Lei, R. Cui, B. Zhang, H. Meng, A. K. Nandi, Medical image segmentation using
+deep learning: A survey, IET Image Processing 16 (5) (2022) 1243–1267.
+15
+
+[4] I. Qureshi, J. Yan, Q. Abbas, K. Shaheed, A. B. Riaz, A. Wahid, M. W. J. Khan, P. Szczuko,
+Medical image segmentation using deep semantic-based methods: A review of techniques,
+applications and emerging trends, Information Fusion 90 (2023) 316–352.
+[5] J. Long, E. Shelhamer, T. Darrell, Fully convolutional networks for semantic segmentation, in:
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2015,
+pp. 3431–3440.
+[6] F. Yu, V. Koltun, Multi-scale context aggregation by dilated convolutions, arXiv preprint
+arXiv:1511.07122.
+[7] H. Zhao, J. Shi, X. Qi, X. Wang, J. Jia, Pyramid scene parsing network, in: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2017, pp. 2881–2890.
+[8] L.-C. Chen, G. Papandreou, I. Kokkinos, K. Murphy, A. L. Yuille, Deeplab: Semantic image
+segmentation with deep convolutional nets, atrous convolution, and fully connected crfs, IEEE
+transactions on pattern analysis and machine intelligence 40 (4) (2017) 834–848.
+[9] O. Ronneberger, P. Fischer, T. Brox, U-net: Convolutional networks for biomedical image
+segmentation, in: Proceedings of the International Conference on Medical Image Computing
+and Computer Assisted Intervention, 2015, pp. 234–241.
+[10] Z. Zhou, M. M. Rahman Siddiquee, N. Tajbakhsh, J. Liang, Unet++: A nested u-net architecture
+for medical image segmentation, in: Proceedings of the International Conference on Medical Image Computing and Computer Assisted Intervention, International Workshop of Deep
+Learning in Medical Image Analysis and Multimodal Learning for Clinical Decision Support,
+Springer, 2018, pp. 3–11.
+[11] O. Oktay, J. Schlemper, L. L. Folgoc, M. Lee, M. Heinrich, K. Misawa, K. Mori, S. McDonagh,
+N. Y. Hammerla, B. Kainz, et al., Attention u-net: Learning where to look for the pancreas,
+arXiv preprint arXiv:1804.03999.
+[12] F. I. Diakogiannis, F. Waldner, P. Caccetta, C. Wu, Resunet-a: A deep learning framework for
+semantic segmentation of remotely sensed data, ISPRS Journal of Photogrammetry and Remote
+Sensing 162 (2020) 94–114.
+[13] J. Chen, Y. Lu, Q. Yu, X. Luo, E. Adeli, Y. Wang, L. Lu, A. L. Yuille, Y. Zhou, Transunet: Transformers make strong encoders for medical image segmentation, arXiv preprint
+arXiv:2102.04306.
+[14] R. Azad, A. R. Fayjie, C. Kauffmann, I. Ben Ayed, M. Pedersoli, J. Dolz, On the texture
+bias for few-shot cnn segmentation, in: Proceedings of the IEEE/CVF Winter Conference on
+Applications of Computer Vision, 2021, pp. 2674–2683.
+[15] M. Wen, Q. Zhou, B. Tao, P. Shcherbakov, Y. Xu, X. Zhang, Short-term and long-term memory
+self-attention network for segmentation of tumours in 3d medical images, CAAI Transactions
+on Intelligence Technology 8 (4) (2023) 1524–1537.
+[16] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, I. Polosukhin,
+Attention is all you need, Advances in Neural Information Processing Systems 30.
+[17] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, S. Zagoruyko, End-to-end object
+detection with transformers, in: European Conference on Computer Vision, Springer, 2020, pp.
+213–229.
+[18] L. Ye, M. Rochan, Z. Liu, Y. Wang, Cross-modal self-attention network for referring image
+segmentation, in: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 2019, pp. 10502–10511.
+[19] X. Yu, J. Wang, Y. Zhao, Y. Gao, Mix-vit: Mixing attentive vision transformer for ultra-finegrained visual categorization, Pattern Recognition 135 (2023) 109131.
+[20] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani,
+M. Minderer, G. Heigold, S. Gelly, et al., An image is worth 16×16 words: Transformers for
+image recognition at scale, arXiv preprint arXiv:2010.11929.
+[21] Y. Fang, B. Liao, X. Wang, J. Fang, J. Qi, R. Wu, J. Niu, W. Liu, You only look at one sequence:
+Rethinking transformer in vision through object detection, Advances in Neural Information
+Processing Systems 34 (2021) 26183–26197.
+16
+
+[22] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, J. Dai, Deformable detr: Deformable transformers for
+end-to-end object detection, arXiv preprint arXiv:2010.04159.
+[23] R. Strudel, R. Garcia, I. Laptev, C. Schmid, Segmenter: Transformer for semantic segmentation,
+in: Proceedings of the IEEE/CVF International Conference on Computer Vision, 2021, pp.
+7262–7272.
+[24] R. Guo, D. Niu, L. Qu, Z. Li, Sotr: Segmenting objects with transformers, in: Proceedings of
+the IEEE/CVF International Conference on Computer Vision, 2021, pp. 7157–7166.
+[25] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, B. Guo, Swin transformer: Hierarchical
+vision transformer using shifted windows, in: Proceedings of the IEEE/CVF International
+Conference on Computer Vision, 2021, pp. 10012–10022.
+[26] X. Dong, J. Bao, D. Chen, W. Zhang, N. Yu, L. Yuan, D. Chen, B. Guo, Cswin transformer:
+A general vision transformer backbone with cross-shaped windows, in: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2022, pp. 12124–12134.
+[27] X. Chu, Z. Tian, B. Zhang, X. Wang, X. Wei, H. Xia, C. Shen, Conditional positional encodings
+for vision transformers, arXiv preprint arXiv:2102.10882.
+[28] P. Shaw, J. Uszkoreit, A. Vaswani, Self-attention with relative position representations, arXiv
+preprint arXiv:1803.02155.
+[29] G. Xu, X. Zhang, X. He, X. Wu, Levit-unet: Make faster encoders with transformer for medical
+image segmentation, in: Proceedings of the Chinese Conference on Pattern Recognition and
+Computer Vision, Springer, 2023, pp. 42–53.
+[30] H. Cao, Y. Wang, J. Chen, D. Jiang, X. Zhang, Q. Tian, M. Wang, Swin-unet: Unet-like pure
+transformer for medical image segmentation, in: European Conference on Computer Vision,
+Springer, 2022, pp. 205–218.
+[31] J. Wang, K. Chen, R. Xu, Z. Liu, C. C. Loy, D. Lin, Carafe: Content-aware reassembly of
+features, in: Proceedings of the IEEE/CVF International Conference on Computer Vision, 2019,
+pp. 3007–3016.
+[32] B. Cheng, I. Misra, A. G. Schwing, A. Kirillov, R. Girdhar, Masked-attention mask transformer
+for universal image segmentation, in: Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, 2022, pp. 1290–1299.
+[33] Q. Bi, S. You, T. Gevers, Learning content-enhanced mask transformer for domain generalized
+urban-scene segmentation, in: Proceedings of the AAAI Conference on Artificial Intelligence,
+Vol. 38, 2024, pp. 819–827.
+[34] Q. Bi, S. You, T. Gevers, Learning generalized segmentation for foggy-scenes by bi-directional
+wavelet guidance, in: Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 38,
+2024, pp. 801–809.
+[35] J. Ho, N. Kalchbrenner, D. Weissenborn, T. Salimans, Axial attention in multidimensional
+transformers, arXiv preprint arXiv:1912.12180.
+[36] Z. Huang, X. Wang, Y. Wei, L. Huang, H. Shi, W. Liu, T. S. Huang, Ccnet: Criss-cross attention
+for semantic segmentation, IEEE Transactions on Pattern Analysis and Machine Intelligence
+45 (6) (2020) 6896–6908.
+[37] V. Badrinarayanan, A. Kendall, R. Cipolla, Segnet: A deep convolutional encoder-decoder
+architecture for image segmentation, IEEE Transactions on Pattern Analysis and Machine
+Intelligence 39 (12) (2017) 2481–2495.
+[38] S. Almotairi, G. Kareem, M. Aouf, B. Almutairi, M. A.-M. Salem, Liver tumor segmentation in
+ct scans using modified segnet, Sensors 20 (5) (2020) 1516.
+[39] S. Alqazzaz, X. Sun, X. Yang, L. Nokes, Automated brain tumor segmentation on multi-modal
+mr image using segnet, Computational visual media 5 (2019) 209–219.
+[40] F. Isensee, P. F. Jaeger, S. A. Kohl, J. Petersen, K. H. Maier-Hein, nnu-net: a self-configuring
+method for deep learning-based biomedical image segmentation, Nature Methods 18 (2) (2021)
+203–211.
+[41] W. Ji, S. Yu, J. Wu, K. Ma, C. Bian, Q. Bi, J. Li, H. Liu, L. Cheng, Y. Zheng, Learning
+calibrated medical image segmentation via multi-rater agreement modeling, in: Proceedings
+17
+
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2021, pp. 12341–
+12351.
+[42] J. Pan, Q. Bi, Y. Yang, P. Zhu, C. Bian, Label-efficient hybrid-supervised learning for medical
+image segmentation, in: Proceedings of the AAAI Conference on Artificial Intelligence, Vol. 36,
+2022, pp. 2026–2034.
+[43] Y. Zhang, H. Liu, Q. Hu, Transfuse: Fusing transformers and cnns for medical image segmentation, in: Proceedings of the International Conference on Medical Image Computing and
+Computer Assisted Intervention, Springer, 2021, pp. 14–24.
+[44] A. Hatamizadeh, Y. Tang, V. Nath, D. Yang, A. Myronenko, B. Landman, H. R. Roth, D. Xu,
+Unetr: Transformers for 3d medical image segmentation, in: Proceedings of the IEEE/CVF
+Winter Conference on Applications of Computer Vision, 2022, pp. 574–584.
+[45] H. Wang, S. Xie, L. Lin, Y. Iwamoto, X.-H. Han, Y.-W. Chen, R. Tong, Mixed transformer
+u-net for medical image segmentation, in: Proceedings of the IEEE international conference on
+acoustics, speech and signal processing, IEEE, 2022, pp. 2390–2394.
+[46] M. Heidari, A. Kazerouni, M. Soltany, R. Azad, E. K. Aghdam, J. Cohen-Adad, D. Merhof,
+Hiformer: Hierarchical multi-scale representations using transformers for medical image segmentation, in: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer
+Vision, 2023, pp. 6202–6212.
+[47] Q. Bi, J. Yi, H. Zheng, W. Ji, Y. Huang, Y. Li, Y. Zheng, Learning generalized medical image
+segmentation from decoupled feature queries, in: Proceedings of the AAAI Conference on
+Artificial Intelligence, Vol. 38, 2024, pp. 810–818.
+[48] O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, S. Ma, Z. Huang, A. Karpathy,
+A. Khosla, M. Bernstein, et al., Imagenet large scale visual recognition challenge, International
+Journal of Computer Vision 115 (2015) 211–252.
+[49] S. Fu, Y. Lu, Y. Wang, Y. Zhou, W. Shen, E. Fishman, A. Yuille, Domain adaptive relational
+reasoning for 3d multi-organ segmentation, in: Proceedings of the International Conference on
+Medical Image Computing and Computer Assisted Intervention, Springer, 2020, pp. 656–666.
+[50] O. Bernard, A. Lalande, C. Zotti, F. Cervenansky, X. Yang, P.-A. Heng, I. Cetin, K. Lekadir,
+O. Camara, M. A. G. Ballester, et al., Deep learning techniques for automatic mri cardiac
+multi-structures segmentation and diagnosis: is the problem solved?, IEEE transactions on
+medical imaging 37 (11) (2018) 2514–2525.
+[51] N. C. Codella, D. Gutman, M. E. Celebi, B. Helba, M. A. Marchetti, S. W. Dusza, A. Kalloo,
+K. Liopyris, N. Mishra, H. Kittler, et al., Skin lesion analysis toward melanoma detection: A
+challenge at the 2017 international symposium on biomedical imaging, in: IEEE International
+Symposium on Biomedical Imaging, IEEE, 2018, pp. 168–172.
+[52] N. Codella, V. Rotemberg, P. Tschandl, M. E. Celebi, S. Dusza, D. Gutman, B. Helba, A. Kalloo,
+K. Liopyris, M. Marchetti, et al., Skin lesion analysis toward melanoma detection 2018: A challenge hosted by the international skin imaging collaboration, arXiv preprint arXiv:1902.03368.
+[53] T. Mendonça, P. M. Ferreira, J. S. Marques, A. R. Marcal, J. Rozeira, Ph 2-a dermoscopic
+image database for research and benchmarking, in: Annual International Conference of the
+IEEE Engineering in Medicine and Biology Society, IEEE, 2013, pp. 5437–5440.
+[54] F. Milletari, N. Navab, S.-A. Ahmadi, V-net: Fully convolutional neural networks for volumetric
+medical image segmentation, in: Proceedings of the International Conference on 3D Vision,
+Ieee, 2016, pp. 565–571.
+[55] H. Touvron, M. Cord, A. Sablayrolles, G. Synnaeve, H. Jégou, Going deeper with image
+transformers, in: Proceedings of the IEEE/CVF International Conference on Computer Vision,
+2021, pp. 32–42.
+
+18
+
+

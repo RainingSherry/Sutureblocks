@@ -1,0 +1,1670 @@
+1
+
+ELGC-Net: Efficient Local-Global Context
+Aggregation for Remote Sensing Change Detection
+Mubashir Noman1 Mustansar Fiaz2 Hisham Cholakkal1 Salman Khan1,3 and Fahad Shahbaz Khan1,4
+1 Mohamed bin Zayed University of AI
+
+2 IBM Research
+
+3 Australian National University
+
+arXiv:2403.17909v1 [cs.CV] 26 Mar 2024
+
+4 Linköping University
+
+Abstract—Deep learning has shown remarkable success in
+remote sensing change detection (CD), aiming to identify semantic change regions between co-registered satellite image pairs
+acquired at distinct time stamps. However, existing convolutional
+neural network (CNN) and transformer-based frameworks often
+struggle to accurately segment semantic change regions. Moreover, transformers-based methods with standard self-attention
+suffer from quadratic computational complexity with respect to
+the image resolution, making them less practical for CD tasks
+with limited training data. To address these issues, we propose
+an efficient change detection framework, ELGC-Net, which
+leverages rich contextual information to precisely estimate change
+regions while reducing the model size. Our ELGC-Net comprises
+a Siamese encoder, fusion modules, and a decoder. The focus of
+our design is the introduction of an Efficient Local-Global Context Aggregator (ELGCA) module within the encoder, capturing
+enhanced global context and local spatial information through a
+novel pooled-transpose (PT) attention and depthwise convolution,
+respectively. The PT attention employs pooling operations for
+robust feature extraction and minimizes computational cost with
+transposed attention. Extensive experiments on three challenging
+CD datasets demonstrate that ELGC-Net outperforms existing
+methods. Compared to the recent transformer-based CD approach (ChangeFormer), ELGC-Net achieves a 1.4% gain in
+intersection over union (IoU) metric on the LEVIR-CD dataset,
+while significantly reducing trainable parameters. Our proposed
+ELGC-Net sets a new state-of-the-art performance in remote
+sensing change detection benchmarks. Finally, we also introduce
+ELGC-Net-LW, a lighter variant with significantly reduced computational complexity, suitable for resource-constrained settings,
+while achieving comparable performance. Our source code is
+publicly available at https://github.com/techmn/elgcnet.
+Index Terms—Remote sensing, change detection, transformers,
+local and global context aggregation.
+
+I. I NTRODUCTION
+
+R
+
+EMOTE sensing change detection is a challenging task
+where the objective is to detect semantic changes between satellite image pairs taken at different time stamps. It
+finds diverse applications such as environmental monitoring,
+urban planning [1], land cover mapping, and disaster assessment [2]. With the increasing availability of high-resolution
+satellite imagery, the demand for efficient and accurate change
+detection methods to process this huge amount of data has
+grown significantly in recent years.
+Remote sensing change detection faces several challenges,
+such as environmental variations, complex and irregular geometrical structures, variations in object scales [3], and the
+high-resolution nature of satellite imagery. These challenges
+introduce various complexities when accurately identifying
+
+changes between image pairs. For instance, Fig. 1 (columns
+1-3) illustrates semantically irrelevant changes that need to be
+ignored by the change detection (CD) algorithm (indicated by
+red boxes), such as (i) shadows and illumination variations,
+(ii) displacement of movable objects like cars and roof color
+changes, and (iii) seasonal variations in land coverings, while
+(iv) accurately segmenting both subtle and major semantic
+changes between image pairs (indicated by green boxes in
+the last column). Thus, it is desired to develop an accurate CD
+method that can effectively learn the semantic information and
+accurately detect the change regions while suppressing irrelevant ones. Traditional approaches utilize feature difference
+technique and obtain binary mask via thresholding [4], [5].
+However, such approaches are unable to capture the underlying
+characteristics of the objects and fail to discriminate between
+the semantic and noisy changes. Numerous methods have
+been proposed that are based on hand-crafted features and
+utilize different classifiers including decision trees [6], change
+vector analysis [7], support vector machine [8], and clustering
+approaches [9], [10] for better discrimination. Nevertheless,
+these classical approaches exhibit various limitations and are
+incapable of capturing rich feature representations.
+On the other hand, convolutional neural network (CNN)
+based CD methods [11], [12], [13], [14], [15] utilize Siamese
+architecture to address the CD problem. These approaches
+typically exploit architectural components such as dilated
+convolutions, multi-scale features, and attention mechanisms
+in their framework. However, these CNN-based approaches
+often struggle to capture global contextual representations,
+which is likely to deteriorate the CD performance. In contrast,
+transformer-based approaches [16], [17] employing standard
+self-attention [18] often struggles to effectively incorporate local contextual information for accurate segmentation of subtle
+changes at irregular boundaries. Furthermore, while state-ofthe-art transformer-based change detection frameworks [16]
+have achieved impressive results, they come with inherent
+challenges. These approaches generally rely on standard selfattention, which exhibits quadratic complexity with the number of tokens in the encoder. Consequently, the requirement
+for a large number of parameters, extensive memory usage,
+and high FLOPs (floating-point operations per second) make
+these methods less suitable for practical remote sensing change
+detection applications. Hence, it is desired to capture both local
+and global contextual information to effectively detect subtle
+as well as significant structural changes between image pairs.
+In order to handle the above mentioned challenges, we
+
+Ground Truth
+
+Post-Change Image
+
+Pre-Change Image
+
+2
+
+Levir=350
+
+(i) Shadows and illumination
+variations
+
+LEVIr=114
+
+CDD = 74
+
+(iii) Seasonal variations
+
+(ii) Cars and roof color
+
+DSIFN=99
+
+(iv) Subtle and Large
+changes
+
+Fig. 1: Example image pairs depicting various challenges related to remote sensing change detection and the corresponding
+ground-truth segmentation masks. It is highly challenging to ignore semantically irrelevant changes (shown in red boxes) such
+as (i) shadows and illumination variations, (ii) movable cars and building roof changes (iii) seasonal variations, while accurately
+segmenting (iv) subtle and large semantic changes (shown in green box).
+
+propose a Siamese-based efficient change detection framework
+named ELGC-Net to accurately identify semantic changes
+in satellite image pairs taken at different time stamps. The
+focus of our design is to the introduction of a novel efficient local-global context aggregator (ELGCA) module that
+can capture both local and global contextual information
+while addressing the limitations of standard self-attention.
+Specifically, our ELGCA strives to (i) capture global contextual information through pooled-transpose (PT) attention,
+(ii) encode local spatial context using depth-wise convolution,
+and (iii) multi-channel feature aggregation. The PT attention
+leverages pooling operations for robust feature extraction and
+reduces the computational cost with transposed attention.
+We extensively evaluate ELGC-Net on three diverse change
+detection benchmark datasets, validating its superiority over
+existing methods in literature. Our method achieves state-ofthe-art performance while significantly reducing the model
+size, as demonstrated by the comprehensive quantitative and
+qualitative analysis. In addition to the ELGC-Net, we introduce
+its lightweight variant called ELGC-Net-LW that requires only
+6.78M parameters while achieving comparable performance
+to recent ChangeFormer [16], which utilizes 41M parameters
+
+(as shown in Fig. 2 in the manuscript). ELGC-Net-LW serves
+as a resource-efficient alternative, catering to scenarios with
+limited computational resources without compromising on CD
+accuracy. The key contributions of our method are summarized
+as:
+We propose a Siamese-based efficient change detection
+framework named as ELGC-Net to accurately identify
+semantic changes between the bi-temporal satellite images.
+• Instead of modeling dense dependencies, our ELGCA
+module proposes to capture both local and global relationships through depthwise convolution and pooledtranspose attention, respectively, while reducing computational complexity.
+• Our extensive experiments on three CD datasets demonstrate the robustness and efficiency of our approach while
+achieving state-of-the-art performance. Moreover, our
+lightweight variant called ELGC-Net-LW obtains comparable performance compared to recent ChangeFormer
+[16] requiring only 6.78M parameters.
+•
+
+The remainder of this paper is structured as follows. Section
+
+3
+
+(Change Class) IoU %
+
+84
+
+82
+Method
+STANet [15]
+SNUNet [19]
+BiT [20]
+DTCDSCN [21]
+H-TransCD [22]
+ChangeFormer [16]
+TransUNetCD [3]
+ELGC-Net-LW (Ours)
+ELGC-Net (Ours)
+
+80
+
+78
+
+Params (M)
+16.93
+12.03
+18.78
+41.07
+183.83
+41.03
+95.49
+6.78
+10.57
+
+IoU
+77.40
+78.83
+80.68
+78.05
+81.92
+82.48
+83.67
+82.36
+83.83
+
+F1
+87.30
+88.18
+89.31
+87.67
+90.06
+90.40
+91.11
+90.33
+91.20
+
+76
+0
+
+50
+100
+150
+200
+No. of Parameters (M)
+Fig. 2: Accuracy (IoU) vs. model size (params) comparison
+with existing methods on on LEVIR-CD. Our ELGCNet
+achieves state-of-the-art performance while having 9× less
+number of model parameters compared to the existing stateof-the-art TransUNetCD [3].
+
+II presents the related works and Section III discusses about
+the baseline framework. Section IV presents an in-depth discussion of the proposed method and our Efficient Local-Global
+Context Aggregator (ELGCA) module. Section V presents the
+experimental setup, results, and performance comparison with
+existing methods, and finally, Section VI concludes the paper.
+II. R ELATED W ORK
+As mentioned earlier, the automatic CD has been widely
+studied over the past decade and various CD methods have
+been proposed [23], [24], [25]. Earlier, conventional methods strive to identify the changes via computing the image
+difference techniques [4], [5], in the bi-temporal images. To
+do so, these approaches typically generate a change map by
+identifying the pixels that have substantial differences and
+then employ a threshold to finally obtain the segmentation
+mask. Nevertheless, these approaches exhibit few benefits
+due to the incapabilities of the RGB features to discriminate
+between semantic and irrelevant changes. In addition, different
+classification approaches have been proposed which employ
+hand-crafted features [25] and discriminate the change features
+from the temporal images via considering statistical modeling
+[26], [27], decision tree [6], change vector analysis [7], support
+vector machine [8], and clustering approaches [9], [10].
+Later, deep learning approaches based on deep Convolutional Neural Networks (CNNs) have shown significant
+performance improvement on numerous computer vision task
+such as segmentation [28], [29], object tracking [30], action
+recognition [31] and many more. The CNNs have shown their
+capability to better capture the underlying characteristics and
+are the key factor in utilizing them for the remote sensing
+change detection field [32]. Various deep learning methods
+have also been explored in the field of remote sensing change
+detection [33], [34], [35], [36], [37], [11], [38]. Ham et al.
+[35] used a deconvolutional network as a semantic segmentation algorithm to detect unregistered buildings from UAVs
+
+(Unmanned Aerial Vehicles) images. Zhao et al. [33] and
+Liu et al. [34] employed Mask-RCNN method for semantic
+segmentation of buildings and outdoor sports venues, respectively. BiDateNet [38] proposed a deep learning framework
+based on U-Net architecture to obtain a change map. Guo
+et al. [39] configured a Fully Convolutional Network in the
+form of a Siamese Network to detect changes in continuous
+images. Khan et al. [36] used a CNN-based weakly supervised
+technique to directly detect and localize the change detection
+for the input image pairs. CDNet [37], FC-EF, FC-Siamdiff, and FC-Siam-Conc [11] employed boundary decisions
+to obtain the change map.
+Although CNN methods exhibit better performance in the
+field, they strive to capture the long-range dependencies
+whereas transformers may struggle in capturing accurate localization due to lack of fine details [3]. This motivated the
+researchers to combine the large receptive fields of transformers with the local contextual features of convolutions to obtain
+discriminative feature representations [40], [41]. Jiang et al.
+[42] introduce a co-attention module to enhance the features
+for better detection of change regions. The authors utilize the
+Siamese network in encoder-decoder architecture and use the
+VGG-16 network as a backbone feature extractor. Afterward,
+extracted features are enhanced by utilizing the co-attention
+module and input to the decoder for change map prediction.
+Lie et al. [3] propose a hybrid transformer model that uses a
+Siamese CNN encoder to extract features and concatenate the
+encoded feature of two streams. Then, they capture the global
+contextual information using a transformer and use a cascading
+up-sampling decoder to predict the change map. Chen et al.
+[20] propose a bi-temporal image transformer (BIT) network
+to model the long-range context information for CD task. The
+BIT utilizes the ResNet18 [43] to extract features from bitemporal images followed by a transformer encoder to capture
+global context relationships in bi-temporal images. A decoder
+then projects back the encoded features to spatial space and
+obtains a binary change map.
+Song et al. [44] introduce a hybrid model based on
+ResNet18 [43] backbone feature extractor and multiscale
+SwinTransformer [45] for enhancing the extracted feature
+maps. Ke et al. [22] propose a hybrid transformer module
+to leverage the Siamese-based CNN backbone. Extracted features from the CNN backbone are enhanced using a hybrid
+transformer and a cascade decoder predicts the change map.
+Bandara et al. [16] introduce a transformer-based encoder to
+capture better feature representation at multiple scales. The
+decoder fuses the multiscale features from the bi-temporal
+image and predicts the binary change mask. Chen et al. [13]
+introduce a dual attention mechanism to capture the discriminative features for better detection of CD regions. Fang et al.
+[19] propose an ensemble channel attention module (ECAM)
+to aggregate and refine features at multiple levels to get better
+CD results. Zhang et al. [14] propose a deeply supervised
+difference discrimination network that takes the extracted
+bi-temporal features and utilizes a difference discrimination
+network to predict a change map. Chen et al. [15] propose a
+basic and pyramid spatio-temporal attention module to obtain
+better discriminative features for CD task.
+
+4
+
+(b) Encoder Block
+
+Pre-change
+Image
+
+3
+𝑋෠𝑝𝑟𝑒
+
+෡ 𝒊 ∈ ℛ 𝐻×𝑊×𝐶
+𝑿𝒊 , ഥ
+𝑿𝒊 , 𝑿
+𝐶
+
+ഥ 𝒊𝒍𝒐 ∈ ℛ 𝐻×𝑊×2
+𝑿𝒊𝒍𝒐 , 𝑿𝒊𝒈𝒍 , 𝑿
+
+Convolutional MLP
+
+𝑿𝒊
+
+ELGCA Module
+
+Patch Embed
+
+2
+𝑋෠𝑝𝑟𝑒
+
+1
+𝑋෠𝑝𝑟𝑒
+
+×3
+
+𝐻 𝑊
+×
+× 𝐶4
+32 32
+
+Encoder Block
+
+×4
+
+𝐻 𝑊
+×
+× 𝐶3
+16 16
+
+Encoder Block
+
+×3
+
+𝐻 𝑊
+× × 𝐶2
+8 8
+
+Patch Embed
+
+Patch Embed
+
+Patch Embed
+
+Encoder Block
+
+×3
+
+𝐻×𝑊×3
+
+𝐻 𝑊
+× × 𝐶1
+4 4
+
+Encoder Block
+
+Encoder
+
+𝐶
+
+𝒁𝒊 , 𝑨𝒊𝒂𝒕𝒕 , 𝑸𝒊 , 𝑲𝒊 , 𝑽𝒊 ∈ ℛ 𝐻×𝑊×4
+𝐻 𝑊 𝐶
+
+෡𝒊
+𝑿
+
+4
+𝑋෠𝑝𝑟𝑒
+
+ഥ 𝒊, 𝑲
+ഥ 𝒊 ∈ ℛ 2 × 2 ×4
+𝑸
+
+σ :Softmax
+× :Matrix multiplication
+:Concatenation
+:Element-wise addition
+
+Fusion Module
+Fusion Module
+Fusion Module
+
+Channel split
+
+𝑿𝒊𝒍𝒐
+
+Decoder
+
+𝑿𝒊𝒈𝒍
+
+1x1 Conv
+
+Fusion Module
+
+3
+𝑋෠𝑝𝑜𝑠𝑡
+
+2
+𝑋෠𝑝𝑜𝑠𝑡
+
+3x3 DW Conv
+
+𝑸𝒊
+1
+𝑋෠𝑝𝑜𝑠𝑡
+
+4
+𝑋෠𝑝𝑜𝑠𝑡
+
+Post-change
+Image
+
+×3
+
+Encoder
+
+𝐻 𝑊
+× × 𝐶1
+4 4
+
+×3
+
+𝐻 𝑊
+× × 𝐶2
+8 8
+
+×4
+
+𝐻 𝑊
+×
+× 𝐶3
+16 16
+
+Encoder Block
+
+Patch Embed
+
+Encoder Block
+
+Patch Embed
+
+Encoder Block
+
+Patch Embed
+
+Encoder Block
+
+Patch Embed
+
+𝐻×𝑊×3
+
+×3
+
+𝑲𝒊
+Max Pool
+
+Avg Pool
+
+ഥ𝒊
+𝑸
+
+𝑽𝒊
+
+ഥ𝒊
+𝑲
+
+PT Attention
+
+Shared Weights
+
+𝑿𝒊
+
+𝑮
+ഥ 𝒊, 𝑲
+ഥ 𝒊 )]
+ഥ 𝒊 , 𝑽𝒊 ) = 𝑽𝒊 ×[σ((𝑲
+ഥ 𝒊 )𝑻 × 𝑸
+G(𝑸
+
+𝐻 𝑊
+×
+× 𝐶4
+32 32
+
+Change map M
+
+(a) Overall ELGC-Net Framework
+
+ഥ 𝒊𝒍𝒐
+𝑿
+
+𝒁𝒊
+
+ഥ𝒊
+𝑿
+
+𝑨𝒊𝒂𝒕𝒕
+
+(c) ELGCA Module
+
+Fig. 3: Overall architecture of the proposed CD framework. (a) The complete network architecture is presented, illustrating
+the pre- and post-change input images to the shared encoder. The encoder blocks extract features at four stages and these
+features are merged by a simple fusion module comprising linear projection, feature concatenation, and a 1 × 1 convolution.
+These fused feature maps at each stage are then merged in the decoder, which includes several convolutions and transposed
+convolution layers to obtain upsampled features. The upsampled feature maps are used in the prediction layer to obtain the
+final change map. (b) The structure of our Encoder block is shown, featuring the Efficient Local-Global Context Aggregation
+(ELGCA) module and a convolutional MLP. (c) A detailed view of the proposed ELGCA module performing the following
+i
+key operations: (i) capturing local spatial context using a 3x3 depth-wise convolution (X̄lo
+) and (ii) global context aggregation
+(Aiatt ) through a pooled-transpose (PT) attention operation, and multi-channel feature aggregation using a 1x1 convolution
+(Z i ). To enhance the efficiency of our PT attention, we perform transposed attention (G) having linear complexity with the
+number of tokens, on pooled Qi and K i tokens (denoted as Q̄i , K̄ i ) on a sub-set of channels (C/4). The aforementioned
+operations within our ELGCA module are performed in parallel on different groups (subsets) of channels obtained through
+channel splitting, leading to improved computational efficiency.
+
+Contrary to the above, we propose an efficient global
+and local context aggregator that combines the features from
+different context aggregators in a parallel manner to obtain rich
+feature representations while maintaining fewer parameters at
+multi-scale levels that can discriminate the complex change
+regions with better accuracy.
+III. BASE F RAMEWORK
+Our base framework is a transformer-based Siamese network consisting of an encoder, fusion modules, and a decoder.
+The encoder comprises four stages, each incorporating multihead self-attention layers followed by a convolutional MLP
+(multi-layer perceptron) network. This base framework takes
+pre- and post-change images as input and extracts corresponding feature pairs at different stages using a shared encoder.
+At each stage, the extracted features undergo a linear layer
+transformation before being fed to a fusion module. The fusion
+module encodes the semantic changes between the image pairs
+i
+i
+by concatenating the features, denoted as X̂pre
+and X̂post
+,
+across the channel dimension. Subsequently, a convolutional
+
+layer is employed to reduce the number of channels, followed
+by an activation layer.
+The fused features from all stages are then passed to a
+decoder, where these features are merged and further processed
+through several convolutions and transposed convolution layers to obtain higher-resolution feature maps. Finally, these
+upsampled feature maps are utilized in a prediction layer to
+obtain the final change map.
+IV. M ETHOD
+This section describes the overall architecture of the network
+and explains the ELGCA module in detail.
+A. Overall Architecture
+The overall network architecture of the proposed change
+detection (CD) framework, named as ELGC-Net, is illustrated
+in Fig. 3-(a). Similar to the baseline framework, the proposed
+CD framework consists of a Siamese encoder, fusion modules,
+and a decoder. The Siamese encoder takes a pair of satellite
+
+5
+
+B. Efficient Local-Global Context Aggregation (ELGCA)
+Module
+Our ELGCA module strives for capturing local and global
+context information while reducing the computational complexity compared to self-attention through careful design
+choices. Motivated by the inception module [46] that stacks
+multiple convolution operators of different kernel sizes in
+parallel, we split the channels into different groups and perform diverse operations on each channel split (see Fig. 3-(c)).
+Specifically, we channel-wise split the input features and input
+them into two separate context aggregators to obtain local
+i
+i
+i
+and global contextual information. Let X i ∈ RH ×W ×C
+be the input feature to the ELGCA module at the ith stage,
+where (H i , W i , C i ) denote its height, width, and channels,
+respectively. We first perform channel-wise splitting of input
+i
+i
+Ci
+i
+i
+feature X i , resulting in Xgl
+, Xlo
+∈ RH ×W × 2 from which
+inputs to our PT attention and local context aggregator are
+obtained. i.e,
+
+Change Map
+
+3x3 Conv
+
+3x3 Conv
+
+3x3 Conv
+
+Transpose Conv
+
+3x3 Conv
+
+3x3 Conv
+
+Transpose Conv
+
+1x1 Conv
+
+2
+𝑋෠𝑓𝑢𝑠𝑒
+
+3
+𝑋෠𝑓𝑢𝑠𝑒
+
+4
+𝑋෠𝑓𝑢𝑠𝑒
+
+Decoder
+
+1
+𝑋෠𝑓𝑢𝑠𝑒
+
+i
+images as input and outputs multi-scale feature maps X̂pre
+and
+i
+X̂post at its four stages i = 1, 2, 3, 4. At each stage, the feature
+maps are initially down-sampled through a patch embedding
+layer and then passed through a series of encoder blocks. The
+structure of our encoder block is shown in Fig. 3-(b) which
+comprises our novel efficient local-global context aggregator
+(ELGCA) module and a convolutional MLP layer.
+The focus of our design is the introduction of an efficient local-global context aggregator (ELGCA) module within
+the encoder block. Our ELGCA module aims to leverage
+the benefits of both convolution and self-attention [18] to
+aggregate local and global context, thereby improving the
+accuracy of predicted change maps while reducing the number
+of parameters and FLOPs. At each stage, similar to the base
+framework, the feature pairs from the encoder blocks are fused
+through fusion modules performing simple linear projection,
+feature concatenation, and a 1 × 1 convolution operation to
+reduce the number of channels. These fused features are
+subsequently passed to a decoder for change map prediction.
+Decoder Architecture: Similar to the baseline, our ELGCNet utilizes a decoder composed of several convolution and
+transpose convolution layers as illustrated in Fig. 4. The
+multi-scale fused features (X̂fi used where i ∈ 1, 2, 3, 4) from
+four stages are concatenated along channel dimension and
+fed to a 1 × 1 convolution layer. Afterwards, we apply the
+transpose convolution to increase the spatial resolution of the
+feature maps. Then, a residual block comprising of two 3 × 3
+convolution layers is utilized to enhance the feature maps.
+The transpose convolution, cascaded with a residual block,
+is utilized twice to obtain the same spatial dimension as the
+input of the model. Finally, we apply a convolution layer to
+obtain prediction scores consisting of two channels where the
+first channel corresponds to no-change and the second channel
+corresponds to change class scores. The binary change map
+is obtained by using the argmax operation along the channel
+dimension.
+Next, we present a detailed discussion of our ELGCA
+module.
+
+Fig. 4: ELGC-Net decoder takes fused features X̂fi used from
+the four stages (where i = 1, 2, 3, 4) and concatenates them
+along the channel dimension. Then, it utilizes 1×1 convolution
+to project features. Afterward, the upsampling is performed
+twice to obtain the same spatial dimension as the model input
+using cascaded transpose convolution and a residual block
+composed of two convolution layers. Finally, a convolution
+layer is utilized to obtain the prediction scores having two
+channels.
+
+  X^i_{gl}, X^i_{lo} = Split(X^i) 
+
+(1)
+
+Next, we describe the PT attention and local context aggregation within our ELGCA module.
+Pooled-transpose (PT) Attention: As mentioned earlier, the
+standard self-attention has quadratic computational complexity
+with respect to number of tokens, whereas the proposed PT
+attention has only linear complexity with respect to tokens.
+i
+We perform a 1 × 1 convolution on Xgl
+and split it into
+i
+i
+i
+i
+Z , Q , K , and V features, respectively. Here, Qi , K i , and
+V i are used as query, key, and value for our PT attention
+capturing global contextual information, whereas Z i performs
+multi-channel feature aggregation. The key steps of our PT
+attention are the following:
+At first, our PT attention performs average- and maxpooling operations over the Qi and K i features, respectively
+to obtain pooled features Q̄i and K̄ i that are robust to slight
+variations. Specifically, we perform 3 × 3 average (Avg)
+pooling with stride 2 on Qi to capture mean features Q̄i , and
+employ a 2 × 2 max (Max) pooling with stride 2 on K i to
+obtain dominant features K̄ i .
+Secondly, we employ transposed attention (G), between Q̄i ,
+i
+K̄ , and V i embedding, having linear complexity with respect
+to the number of tokens on a subset of feature channels (C/4).
+Our PT attention operations to obtain feature representation
+Aiatt can be summarized as follows:
+  {A^i}_{att} = V^i \times [\sigma (\bar {K^i}^T \times \bar {Q}^i)], 
+
+(2)
+
+where × indicates matrix multiplication and σ represents the Softmax operations, respectively. Here, Q̄i , K̄ i
+i
+i
+Hi W i
+Ci
+Ci
+∈ R 2 2 × 4 , and V i ∈ RH W × 4 . Our PT attention leads
+to improved performance and generalization capabilities, while
+simultaneously reducing the convergence time and computational cost.
+Local Contextual Aggregation: In order to capture spatially
+and channel-wise local contextual information, we perform
+
+6
+
+i
+3 × 3 depthwise convolution on input Xlo
+, resulting in feai
+ture representations X̄lo . This depthwise convolution based
+local context aggregation effectively captures local contextual
+information with the minimum number of model parameters
+and FLOPs, and it alleviates the requirement of positional
+embedding [47].
+Finally, the local and global context aggregated features
+i
+with various receptive fields (such as X̄lo
+, Z i , and Aiatt ) are
+merged using concatenation operation to obtain enriched localglobal contextual aggregated feature (X̄ i ). In contrast to [48],
+[49], [50], where context aggregators are employed in a sequential manner, our ELGCA module exploits multiple context
+aggregators at different subsets of the channels in a parallel
+fashion which leads to reduced computational complexity.
+In summary, our ELGC-Net CD framework employs the
+ELGCA module at different stages of the encoder block and
+i
+i
+generates pre- and post-change feature maps (X̂pre
+and X̂post
+)
+i
+i
+from the two streams. These X̂pre and X̂post features at each
+stage are fused (X̂fi use ) using a fusion module and then taken
+as input to a decoder for obtaining the final change map
+predictions.
+
+V. E XPERIMENTS
+A. Datasets and Evaluation Protocols
+In our experiments, we use three public remote sensing
+change detection datasets to verify the effectiveness of the
+proposed network.
+1) LEVIR-CD [15]: is a large-scale building change detection dataset. It consists of 637 high-resolution (0.5 m/pixel)
+image pairs of spatial size 1024 × 1024 taken from Google
+Earth. The time span of these image pairs ranges from 5 to 14
+years. The dataset focuses on the changes related to building
+construction and demolition. In our experiments, we used the
+cropped version of the dataset having non-overlapping cropped
+patches of size 256 × 256. Following [16], we utilize the
+default data split of size 7120, 1024, and 2048 image pairs
+for train, validation and test sets respectively.
+2) DSIFN-CD [14]: is another binary change detection
+dataset that is collected from Google Earth. The dataset
+contains 6 high-resolution bi-temporal images covering six
+cities of China. The dataset is available in cropped sub-image
+pairs of size 256 × 256 with train, validation, and test split of
+14400, 1360, and 28 image pairs, respectively.
+3) CDD-CD [51]: is a well-known remote sensing change
+detection dataset that contains 11 seasonal varying image pairs.
+Among these, 7 image pairs have a spatial size of 4725×2700
+pixels while 4 image pairs are of size 1900 × 1000 pixels. The
+dataset has been used in the clipped form ([13], [3]) of size
+256 × 256 pixels and contains 10000, 3000, and 3000 image
+pairs in train, validation, and test sets respectively.
+Evaluation Protocol: Similar to the [16], we evaluate the
+change detection results using change class intersection over
+union (IoU), change class F1-score, and overall accuracy (OA)
+protocols on all the datasets.
+B. Implementation Details
+The encoder of the proposed ELGC-Net is composed of
+four stages having 3,3,4,3 encoder blocks and outputs feature
+
+maps that have channel dimensions of 64, 96, 128, and 256,
+respectively. The input to the encoder is a pair of co-registered
+images with the size of 256×256×3. The decoder outputs the
+binary change map of the same spatial resolution. Furthermore,
+random flip, scale crop, color jitter, and Gaussian blur data
+augmentations are used in the training process. The network
+is trained on 4 Nvidia A100 GPUs and model weights are
+randomly initialized. We set the learning rate equal to 3.1e-4
+and train the model for 300 epochs. The value of the learning
+rate is selected empirically. We linearly decay the learning rate
+till the last epoch. Following [16], we use AdamW optimizer
+having weight decay of 0.01 and beta values of (0.9, 0.999).
+During inference, we freeze the model weights and pass
+the input image pair to the model. The network outputs
+the probability change map having two channels. A binary
+change map is obtained through the argmax operation along
+the channel dimension.
+Loss Function: During training, we utilize pixel-wise crossentropy loss to measure the performance of the network. For
+binary change detection problem, cross-entropy loss function
+is mathematically expressed as:
+  Loss = -\frac {1}{N}\sum _{i=1}^{N} {y_i} {log(\hat {y}_i)} + {(1 - y_i)} {log(1 - \hat {y}_i)} 
+
+(3)
+
+where y is the ground truth class label, ŷ is the prediction
+probability and N is the number of pixels.
+C. State-of-the-art Quantitative Comparison
+We present a quantitative comparison of our approach with
+state-of-the-art (SOTA) methods over LEVIR-CD, DSIFN-CD,
+and CDD-CD datasets in Table I.
+Tab. I shows that BIT [20], H-TransCD [22], ChangeFormer
+[16], and TransUNetCD [3] perform better on LEVIR-CD
+dataset by achieving IoU score of 80.68%, 81.92%, 82.48%
+and 83.67% respectively. Our ELGC-Net achieves superior
+performance in terms of all metrics against the compared
+methods while obtaining the IoU gain of 1.4% and 0.2%
+over ChangeFormer [16] and TransUNetCD [3], respectively.
+Noted, our method surpasses the state-of-the-art methods without using a pre-trained backbone. Furthermore, we introduce
+ELGC-Net-LW which comprises a lightweight decoder. The
+aim is to further reduce the trainable parameters as the
+decoder is performing operations on high-resolution feature
+maps. ELGC-Net-LW replaces the transpose convolution with
+bilinear interpolation operation and utilizes a combination of
+depthwise and standard convolution operations in place of
+computationally expensive residual modules. Despite having
+fewer trainable parameters, our lightweight ELGC-Net-LW
+also performs better compared to SOTA methods except for
+TransUNetCD and ChangeFormer which have slightly better
+IoU scores. However, TransUNetCD and ChangeFormer have
+significantly higher numbers of trainable parameters as listed
+in Tab. I.
+Similar to the LEVIR-CD, our method demonstrates favorable performance over the DSIFN-CD dataset as shown
+in Tab. I. We notice that our ELGC-Net achieves favorable
+performance against the state-of-the-art approaches. It is worth
+
+7
+
+TABLE I: State-of-the-art comparison on LEVIR-CD, DSIFN-CD, and CDD-CD. The results are reported in terms of the
+change class IoU, change class F1, and overall accuracy (OA) metrics. Our ELGC-Net efficiently combines the global and
+local contextual features and achieves superior performance in terms of all metrics over these datasets. Here, the best two
+results are highlighted in red and blue colors, respectively.
+Method
+
+Params (M)
+
+BIT [20]
+FC-Siam-diff [11]
+FC-Siam-conc [11]
+DTCDSCN [21]
+SNUNet [19]
+STANet [15]
+H-TransCD [22]
+IFNet [14]
+MSTDSNet [44]
+TransUNetCD [3]
+ChangeFormer [16]
+ELGC-Net-LW (Ours)
+ELGC-Net (Ours)
+
+Pre-Change Image
+
+18.78
+–
+–
+41.07
+12.03
+16.93
+183.83
+35.99
+–
+95.49
+41.03
+6.78
+10.57
+
+Post-Change Image
+
+FC-Siam-diff
+
+IoU
+80.68
+75.92
+71.96
+78.05
+78.83
+77.40
+81.92
+78.77
+78.73
+83.67
+82.48
+82.36
+83.83
+
+LEVIR-CD
+F1
+89.31
+86.31
+83.69
+87.67
+88.16
+87.30
+90.06
+88.13
+88.10
+91.11
+90.40
+90.33
+91.20
+
+STANet
+
+OA
+98.92
+98.67
+98.49
+98.77
+98.82
+98.66
+99.00
+98.87
+98.56
+–
+99.04
+99.03
+99.12
+
+IoU
+51.22
+48.44
+44.33
+48.46
+47.13
+45.12
+–
+43.28
+–
+–
+53.26
+57.92
+58.42
+
+DTCDSCN
+
+BIT
+
+DSIFN-CD
+F1
+67.74
+65.26
+61.43
+65.29
+64.07
+62.19
+–
+60.42
+–
+–
+69.50
+73.35
+73.76
+
+OA
+89.72
+89.06
+84.51
+88.14
+86.54
+85.00
+–
+84.41
+–
+–
+90.56
+91.57
+92.68
+
+IoU
+80.01
+54.57
+60.14
+85.34
+72.11
+72.22
+–
+71.91
+–
+94.50
+81.53
+93.48
+94.50
+
+ChangeFormer
+
+CDD-CD
+F1
+88.90
+70.61
+75.11
+92.09
+83.89
+84.12
+–
+90.30
+–
+97.17
+89.83
+96.63
+97.17
+
+Ours
+
+OA
+97.47
+94.95
+94.95
+98.16
+96.23
+96.13
+–
+97.71
+–
+–
+97.68
+99.21
+99.33
+
+Ground Truth
+
+11
+
+19
+
+21
+
+Fig. 5: Qualitative results on the LEVIR-CD dataset. We present comparison with the best five existing change detection
+methods in literature, whose codebases are publicly available. The highlighted region shows that our method (ELGC-Net) is
+better at detecting the change regions as compared to CNN-based including FC-Siam-diff [11], STANet [15], DTCDSCN [21]
+and transformer-based such as BIT [20] and ChangeFormer [16] methods.
+TABLE II: Ablation study over the LEVIR-CD. We present the impact of our contributions including local contextual
+aggregation, multi-channel aggregation, and PT attention (global contextual aggregation) by replacing the self-attention of
+the baseline. The local contextual aggregation using depthwise convolution (row 1) has the least parameters. PT attention (row
+3) presents a significant improvement over local contextual aggregation (row 1) and multi-channel aggregation (row 2) in terms
+of IoU while having increased parameters. Our final approach (row 7) aggregates all contextual information results in optimal
+IoU score while having comparable parameters to local contextual aggregation (row 1). The best results are shown in bold
+text.
+Local Contextual Aggregation
+✓
+✗
+✗
+✓
+✓
+✗
+✓
+
+Context Aggregators
+Multi-channel Aggregation
+✗
+✓
+✗
+✓
+✗
+✓
+✓
+
+mentioning that ELGC-Net-LW, having very few parameters
+and without using any pre-trained backbone, performs outstandingly on DSIFN-CD.
+
+PT Attention
+✗
+✗
+✓
+✗
+✓
+✓
+✓
+
+Params (M)
+
+IoU
+
+F1
+
+OA
+
+10.43
+10.72
+11.32
+10.50
+10.65
+11.02
+10.57
+
+81.69
+81.24
+82.55
+82.18
+83.13
+82.72
+83.83
+
+89.93
+89.65
+90.44
+90.21
+90.79
+90.54
+91.20
+
+98.98
+98.97
+99.02
+99.00
+99.08
+99.04
+99.12
+
+We also report the state-of-the-art comparison over the
+CDD-CD dataset in Tab. I. We observe that CNN-based
+DTCDSCN [21] obtains a 85.34% IoU score. However, our
+
+8
+
+Pre-Change Image
+
+Post-Change Image
+
+FC-Siam-diff
+
+STANet
+
+DTCDSCN
+
+BIT
+
+ChangeFormer
+
+Ours
+
+Ground Truth
+
+Fig. 6: Qualitative results on the DSIFN-CD dataset with a comparison presented with the best five existing change detection
+methods in the literature, whose codebases are publicly available. The highlighted region in red box shows that ELGC-Net is
+better to identify the change regions as compared to the CNN-based FC-Siam-diff [11], STANet [15], DTCDSCN [21] as well
+as transformer-based BIT [20] and ChangeFormer [16] methods.
+Pre-Change Image
+
+Post-Change Image
+
+FC-Siam-diff
+
+STANet
+
+DTCDSCN
+
+BIT
+
+ChangeFormer
+
+Ours
+
+Ground Truth
+
+42
+
+130
+
+37
+
+Fig. 7: Qualitative results on the CDD-CD dataset. We show the comparison with the best five existing change detection
+approaches in the literature, whose codebases are publicly available. The highlighted region in the red box shows that ELGCNet is better to detect the change regions with clear boundaries between the pre- and post-change images.
+
+method achieves a significant gain and provides a 94.50%
+score of IoU. On the other hand, transformer-based TransUNetCD [3] provides the best performance on CDD-CD by
+achieving an IoU score of 94.50%. Our ELGC-Net is also
+obtaining the same score compared to the TransUNetCD [3].
+Notably, our ELGC-Net does not use any pre-trained backbone
+feature extractor and still achieves the same results as the
+state-of-the-art method. This demonstrates the proficiency of
+our proposed efficient context aggregator to better capture the
+local and global contextual information for the CD task.
+D. Qualitative Comparison
+We present the qualitative results of ELGC-Net in Fig. 5,
+Fig. 6, and Fig. 7 for LEVIR-CD, DSIFN-CD, and CDD-CD
+datasets, respectively. Fig. 5 shows that ELGC-Net is able to
+
+detect the small change (see first row) that is not detected by
+CNN-based FC-Siam-diff [11], STANet [15], DTCDSCN [21]
+as well as transformer-based BIT [20] and ChangeFormer [16]
+methods. Similarly, in the second and third rows, our method
+accurately detects the change regions while ChangeFormer
+[16] and BIT [20] methods strive to identify the changes
+precisely.
+In Fig. 6, our ELGC-Net is able to detect the true change
+regions while suppressing the false detections whereas both
+CNN-based and transformer-based including FC-Siam-diff
+[11], STANet [15], DTCDSCN [21], BIT [20] and ChangeFormer [16] have more false change detections in addition to
+the true change regions. The reason is that our ELGC-Net has
+better capability to capture the discriminative features at local
+and global context levels and possesses the properties of both
+
+9
+
+TABLE III: Comparison of parameters, FLOPs, memory consumption, and change class IoU metric on LEVIR-CD. ELGC-Net
+has fewer parameters and FLOPs as compared to the baseline and ChangeFormer. The best results are shown in bold text.
+Method
+Params (M)
+FLOPs (M)
+ChangeFormer [16]
+41.03
+138803.4
+Baseline
+11.63
+138557.9
+ELGC-Net (SA)†
+10.57
+127133.5
+ELGC-Net-LW (Ours)
+6.78
+19815
+ELGC-Net (Ours)
+10.57
+123590.5
+† represents PT attention is replaced with self-attention.
+
+convolution and self-attention operations that complement
+each other for the detection of subtle and large change regions.
+Fig. 7 shows the performance comparison among CNNbased including FC-Siam-diff [11], STANet [15], DTCDSCN
+[21] and transformer-based such as BIT [20] and ChangeFormer [16] with our ELGC-Net over the CDD-CD dataset.
+We see that the proposed ELGC-Net is capable of detecting
+subtle changes considerably better than the SOTA method
+(first row). Furthermore, the BIT [20] and ChangeFormer [16]
+approaches struggle to detect the change region accurately in
+the bottom-right of the second row which is precisely detected
+by our ELGC-Net.
+E. Ablation Study
+1) Ablation of contextual features in ELGCA module: We
+evaluate the effectiveness of our contributions including local
+contextual aggregation, multi-channel aggregation, and PT
+attention (global contextual aggregation) over the LEVIR-CD
+dataset. To do so, we iteratively apply different combinations
+of our contributions and present their parameters, and IoU
+scores as shown in Tab. II. Although the local contextual information using depthwise convolutions has minimum parameters
+(10.43M) compared to other variants ( as illustrated in Tab. II
+row 1), it has reduced IoU score of 81.69%. Whereas PT
+attention has an IoU score of 82.55% while having increased
+parameters. Nevertheless, our final network aggregating all the
+contextual information provides the best IoU score of 83.83%,
+with comparable parameters compared to row 1 as displayed
+in the last row in Tab. II. It is evident that our final ELGCA
+module exhibits reduced parameters and better IoU score while
+leveraging the aggregation of different context aggregators in
+a parallel fashion.
+2) Comparison of Parameters and FLOPs: We present the
+comparison of the parameters and FLOPs of our ELGC-Net
+with ChangeFormer [16] and baseline. Tab. III shows that
+ELGC-Net has fewer parameters and FLOPs compared to
+state-of-the-art ChangeFormer [16] while it outperforms on
+all three datasets. We also demonstrate the effectiveness of
+our pooled-transpose (PT) attention to have linear complexity
+with respect to tokens ( as shown in Tab. III row 3). To do
+so, we replace the PT attention with standard self-attention
+and observed that our PT attention exhibits fewer FLOPs
+while enhancing the IoU score. Furthermore, the peak memory
+usage during the inference stage also shows that ELGCNet consumes lesser memory. Additionally, we present the
+results of ELGC-Net-LW that utilizes a light-weight decoder
+in Tab. III. Although, the IoU score of ELGC-Net-LW is
+
+Memory (MBs)
+989
+2087
+1540
+704
+722.5
+
+IoU
+82.48
+81.93
+83.10
+82.36
+83.83
+
+F1
+90.40
+90.07
+90.77
+90.33
+91.20
+
+OA
+99.04
+99.00
+99.08
+99.03
+99.12
+
+TABLE IV: Comparison of different attention layers and
+ELGCA module on LEVIR-CD. The best results are shown
+in bold text.
+Layers
+Self Attention (Baseline)
+Separable Attention [52]
+EfficientFormer Attention [53]
+ELGCA
+
+Params (M)
+11.63
+11.32
+15.07
+10.57
+
+FLOPs (M)
+138557.9
+124104.8
+267518.1
+123590.5
+
+IoU
+81.93
+83.13
+81.64
+83.83
+
+F1
+90.07
+90.78
+89.89
+91.20
+
+OA
+99.00
+99.07
+98.99
+99.12
+
+TABLE V: Ablation study of different pooling layers in selfattention of ELGCA module on LEVIR-CD. Average and
+maximum pooling is applied to the query and key features of
+the self-attention before computing the matrix multiplication.
+An optimal combination of average and maximum pooling
+gives the best performance highlighted in bold.
+Pooling applied to
+Query Features
+Key Features
+Avg Pool
+Avg Pool
+Max Pool
+Max Pool
+Max Pool
+Avg Pool
+Avg Pool
+Max Pool
+
+IoU
+
+F1
+
+OA
+
+82.80
+83.30
+83.00
+83.24
+83.83
+
+90.59
+90.89
+90.71
+90.85
+91.20
+
+99.05
+99.08
+99.06
+99.08
+99.12
+
+slightly reduced, however, the number of trainable parameters
+and FLOPs are considerably lower than the baseline and
+ChangeFormer which further demonstrates the effectiveness
+of the ELGCA module.
+3) Comparison between other context aggregators and
+Our’s ELGCA : In Tab. IV, we present the comparison of the
+ELGCA module with self-attention, separable attention [52],
+and EfficientFormer attention [53] layer on LEVIR-CD. We
+replaced the ELGCA module in the proposed network with
+the self-attention, separable attention, and EfficientFormer attention layer, and train the network with the same hyperparameters. Tab. IV shows that self-attention and separable attention
+[52] have 11.63 and 11.32 million parameters respectively, and
+separable attention [52] performs better as compared to selfattention [16] and EfficientFormer attention [53] by achieving
+IoU score of 83.13%. However, the proposed ELGCA module
+performs remarkably better compared to these attention layers
+by obtaining an IoU score of 83.83% while having less number
+of trainable parameters and FLOPs.
+4) Ablation of pooling layers in ELGCA: Fig. 3-(c) shows
+the architecture of the proposed ELGCA module. As discussed
+earlier in the ELGCA module, First, average and maximum
+pooling operations are applied on the query and key features
+to obtain slightly robust features against minor variations.
+Secondly, we employ the transposed attention having linear
+
+10
+
+TABLE VI: Comparison of loss functions on LEVIR-CD
+applied during the training of our model. The best results are
+highlighted in bold text.
+Loss Function
+Focal Loss
+mIoU Loss
+Cross-Entropy Loss
+
+IoU
+79.27
+77.51
+83.83
+
+F1
+88.44
+87.32
+91.20
+
+OA
+98.84
+98.75
+99.12
+
+complexity with respect to tokens, to reduce the computational
+cost of matrix multiplication. We conduct various experiments
+with different pooling layers and present the results in Tab. V.
+We notice that comparable performance is achieved without
+applying pooling operations for key and query. However, we
+notice from Tab. V that the optimal combination of average
+and maximum pooling operations provides the best IoU score
+as 83.83% where we use average pooling operation for query
+feature maps and maximum pooling operation for key feature
+maps.
+5) Ablation of losses applied during training of ELGCA:
+Finally, we perform an ablation study to show the impact of
+different losses utilized during the training of our proposed
+model. From Tab. VI, it is notable that cross-entropy (CE)
+loss is more suitable to train our model compared to other
+losses.
+VI. C ONCLUSION
+In this work, we present an efficient global and local
+context aggregation network (ELGC-Net) for remote sensing
+change detection problem. ELGC-Net utilizes the local and
+global contextual representations in an efficient way to capture
+enhanced semantic information while reducing the number of
+trainable parameters. Additionally, ELGC-Net does not require
+the use of a pre-trained backbone feature extractor. Extensive
+experimental results show the effectiveness of our approach.
+The proposed ELGC-Net outperforms on three challenging
+datasets and achieves state-of-the-art results. In addition, our
+lighter variant provides comparable performance while having
+reduced parameters and FLOPs. The prospective future direction is to further increase the efficiency of the network and
+adapt the model for real-time change detection task on edge
+devices.
+R EFERENCES
+[1] J. Yin, J. Dong, N. A. Hamm, Z. Li, J. Wang, H. Xing, and P. Fu,
+“Integrating remote sensing and geospatial big data for urban land use
+mapping: A review,” International Journal of Applied Earth Observation
+and Geoinformation, vol. 103, p. 102514, 2021. 1
+[2] M. Kucharczyk and C. H. Hugenholtz, “Remote sensing of natural
+hazard-related disasters with small drones: Global trends, biases, and
+research opportunities,” Remote Sensing of Environment, vol. 264, p.
+112577, 2021. 1
+[3] Q. Li, R. Zhong, X. Du, and Y. Du, “Transunetcd: A hybrid transformer
+network for change detection in optical remote-sensing images,” IEEE
+Transactions on Geoscience and Remote Sensing, vol. 60, pp. 1–19,
+2022. 1, 3, 6, 7, 8
+[4] P. Rosin, “Thresholding for change detection,” in Sixth International
+Conference on Computer Vision (IEEE Cat. No. 98CH36271). IEEE,
+1998, pp. 274–279. 1, 3
+[5] P. L. Rosin and E. Ioannidis, “Evaluation of global image thresholding
+for change detection,” Pattern recognition letters, vol. 24, no. 14, pp.
+2345–2356, 2003. 1, 3
+
+[6] J. Im and J. R. Jensen, “A change detection model based on neighborhood correlation image analysis and decision tree classification,” Remote
+Sensing of Environment, vol. 99, no. 3, pp. 326–340, 2005. 1, 3
+[7] F. Bovolo, S. Marchesi, and L. Bruzzone, “A framework for automatic
+and unsupervised detection of multiple changes in multitemporal images,” IEEE Transactions on Geoscience and Remote Sensing, vol. 50,
+no. 6, pp. 2196–2212, 2011. 1, 3
+[8] M. Volpi, D. Tuia, F. Bovolo, M. Kanevski, and L. Bruzzone, “Supervised change detection in vhr images using contextual information
+and support vector machines,” International Journal of Applied Earth
+Observation and Geoinformation, vol. 20, pp. 77–85, 2013. 1, 3
+[9] B. Aiazzi, L. Alparone, S. Baronti, A. Garzelli, and C. Zoppetti,
+“Nonparametric change detection in multitemporal sar images based
+on mean-shift clustering,” IEEE transactions on geoscience and remote
+sensing, vol. 51, no. 4, pp. 2022–2031, 2013. 1, 3
+[10] R. Shang, L. Qi, L. Jiao, R. Stolkin, and Y. Li, “Change detection in
+sar images by artificial immune multi-objective clustering,” Engineering
+Applications of Artificial Intelligence, vol. 31, pp. 53–67, 2014. 1, 3
+[11] R. C. Daudt, B. Le Saux, and A. Boulch, “Fully convolutional siamese
+networks for change detection,” in ICIP. IEEE, 2018, pp. 4063–4067.
+1, 3, 7, 8, 9
+[12] M. Zhang, G. Xu, K. Chen, M. Yan, and X. Sun, “Triplet-based semantic
+relation learning for aerial remote sensing image change detection,”
+IEEE Geoscience and Remote Sensing Letters, vol. 16, no. 2, pp. 266–
+270, 2018. 1
+[13] J. Chen, Z. Yuan, J. Peng, L. Chen, H. Huang, J. Zhu, Y. Liu, and H. Li,
+“Dasnet: Dual attentive fully convolutional siamese networks for change
+detection in high-resolution satellite images,” IEEE Journal of Selected
+Topics in Applied Earth Observations and Remote Sensing, vol. 14, pp.
+1194–1206, 2020. 1, 3, 6
+[14] C. Zhang, P. Yue, D. Tapete, L. Jiang, B. Shangguan, L. Huang, and
+G. Liu, “A deeply supervised image fusion network for change detection
+in high resolution bi-temporal remote sensing images,” ISPRS Journal
+of Photogrammetry and Remote Sensing, vol. 166, pp. 183–200, 2020.
+1, 3, 6, 7
+[15] H. Chen and Z. Shi, “A spatial-temporal attention-based method and
+a new dataset for remote sensing image change detection,” Remote
+Sensing, vol. 12, no. 10, p. 1662, 2020. 1, 3, 6, 7, 8, 9
+[16] W. G. C. Bandara and V. M. Patel, “A transformer-based siamese
+network for change detection,” arXiv preprint arXiv:2201.01293, 2022.
+1, 2, 3, 6, 7, 8, 9
+[17] T. Yan, Z. Wan, and P. Zhang, “Fully transformer network for change
+detection of remote sensing images,” arXiv preprint arXiv:2210.00757,
+2022. 1
+[18] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez,
+Ł. Kaiser, and I. Polosukhin, “Attention is all you need,” NeurIPS,
+vol. 30, 2017. 1, 5
+[19] S. Fang, K. Li, J. Shao, and Z. Li, “Snunet-cd: A densely connected
+siamese network for change detection of vhr images,” IEEE Geoscience
+and Remote Sensing Letters, vol. 19, pp. 1–5, 2022. 3, 7
+[20] H. Chen, Z. Qi, and Z. Shi, “Remote sensing image change detection
+with transformers,” IEEE Transactions on Geoscience and Remote
+Sensing, vol. 60, pp. 1–14, 2021. 3, 6, 7, 8, 9
+[21] Y. Liu, C. Pang, Z. Zhan, X. Zhang, and X. Yang, “Building change
+detection for remote sensing images using a dual-task constrained deep
+siamese convolutional network model,” IEEE Geoscience and Remote
+Sensing Letters, vol. 18, no. 5, pp. 811–815, 2020. 3, 7, 8, 9
+[22] Q. Ke and P. Zhang, “Hybrid-transcd: A hybrid transformer remote
+sensing image change detection network via token aggregation,” ISPRS
+International Journal of Geo-Information, vol. 11, no. 4, p. 263, 2022.
+3, 6, 7
+[23] C. P, J. I, N. K, M. B, and L. E, “Digital change detection methods
+in ecosystem monitoring: a review,” International Journal of Remote
+Sensing, vol. 25, no. 9, p. 1565, 2004. 3
+[24] A. Singh, “Review article digital change detection techniques using
+remotely-sensed data,” International journal of remote sensing, vol. 10,
+no. 6, pp. 989–1003, 1989. 3
+[25] R. J. Radke, S. Andra, O. Al-Kofahi, and B. Roysam, “Image change
+detection algorithms: a systematic survey,” IEEE transactions on image
+processing, vol. 14, no. 3, pp. 294–307, 2005. 3
+[26] Y. Bazi, L. Bruzzone, and F. Melgani, “An unsupervised approach
+based on the generalized gaussian model to automatic change detection
+in multitemporal sar images,” IEEE Transactions on Geoscience and
+Remote Sensing, vol. 43, no. 4, pp. 874–887, 2005. 3
+[27] M. Zanetti, F. Bovolo, and L. Bruzzone, “Rayleigh-rice mixture parameter estimation via em algorithm for change detection in multispectral
+
+11
+
+images,” IEEE Transactions on Image Processing, vol. 24, no. 12, pp.
+5004–5016, 2015. 3
+[28] J. Long, E. Shelhamer, and T. Darrell, “Fully convolutional networks
+for semantic segmentation,” in CVPR, 2015, pp. 3431–3440. 3
+[29] M. Fiaz, A. Mahmood, and S. K. Jung, “Video object segmentation
+using guided feature and directional deep appearance learning,” in DAVIS
+Challenge on Video Object Segmentation—CVPR, Workshops, vol. 19,
+2020. 3
+[30] M. Fiaz, A. Mahmood, K. Y. Baek, S. S. Farooq, and S. K. Jung,
+“Improving object tracking by added noise and channel attention,”
+Sensors, vol. 20, no. 13, p. 3780, 2020. 3
+[31] C. Feichtenhofer, A. Pinz, and R. P. Wildes, “Spatiotemporal multiplier
+networks for video action recognition,” in CVPR, 2017, pp. 4768–4777.
+3
+[32] W. Shi, M. Zhang, R. Zhang, S. Chen, and Z. Zhan, “Change detection
+based on artificial intelligence: State-of-the-art and challenges,” Remote
+Sensing, vol. 12, no. 10, p. 1688, 2020. 3
+[33] K. Zhao, J. Kang, J. Jung, and G. Sohn, “Building extraction from
+satellite images using mask r-cnn with building boundary regularization.”
+in CVPR Workshops, 2018, pp. 247–251. 3
+[34] Y. Liu, J. Liu, H. Pu, Y. Liu, S. Song et al., “Instance segmentation
+of outdoor sports ground from high spatial resolution remote sensing
+imagery using the improved mask r-cnn,” International Journal of
+Geosciences, vol. 10, no. 10, p. 884, 2019. 3
+[35] S. Ham, Y. Oh, K. Choi, and I. Lee, “Semantic segmentation and
+unregistered building detection from uav images using a deconvolutional
+network,” International Archives of the Photogrammetry, Remote Sensing and Spatial Information Sciences, vol. 42, no. 2, 2018. 3
+[36] S. Khan, X. He, F. Porikli, M. Bennamoun, F. Sohel, and R. Togneri,
+“Learning deep structured network for weakly supervised change detection,” in IJCAI, 2017, pp. 2008–2015. 3
+[37] P. F. Alcantarilla, S. Stent, G. Ros, R. Arroyo, and R. Gherardi, “Streetview change detection with deconvolutional networks,” Autonomous
+Robots, vol. 42, no. 7, pp. 1301–1322, 2018. 3
+[38] M. Papadomanolaki, S. Verma, M. Vakalopoulou, S. Gupta, and
+K. Karantzalos, “Detecting urban changes with recurrent neural networks from multitemporal sentinel-2 data,” in IGARSS. IEEE, 2019,
+pp. 214–217. 3
+[39] E. Guo, X. Fu, J. Zhu, M. Deng, Y. Liu, Q. Zhu, and H. Li, “Learning to
+measure change: Fully convolutional siamese metric networks for scene
+change detection,” arXiv preprint arXiv:1810.09111, 2018. 3
+[40] M. Noman, M. Fiaz, H. Cholakkal, S. Narayan, R. M. Anwar, S. Khan,
+and F. S. Khan, “Remote sensing change detection with transformers
+trained from scratch,” arXiv preprint arXiv:2304.06710, 2022. 3
+[41] A. A. Aleissaee, A. Kumar, R. M. Anwer, S. Khan, H. Cholakkal, G.S. Xia, and F. S. Khan, “Transformers in remote sensing: A survey,”
+Remote Sensing, vol. 15, no. 7, 2023. 3
+[42] H. Jiang, X. Hu, K. Li, J. Zhang, J. Gong, and M. Zhang, “Pgasiamnet: Pyramid feature-based attention-guided siamese network for
+remote sensing orthoimagery building change detection,” Remote Sensing, vol. 12, no. 3, p. 484, 2020. 3
+[43] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in CVPR, 2016, pp. 770–778. 3
+[44] F. Song, S. Zhang, T. Lei, Y. Song, and Z. Peng, “Mstdsnet-cd:
+Multiscale swin transformer and deeply supervised network for change
+detection of the fast-growing urban regions,” IEEE Geoscience and
+Remote Sensing Letters, vol. 19, pp. 1–5, 2022. 3, 7
+[45] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and
+B. Guo, “Swin transformer: Hierarchical vision transformer using shifted
+windows,” in ICCV, 2021. 3
+[46] C. Szegedy, W. Liu, Y. Jia, P. Sermanet, S. Reed, D. Anguelov, D. Erhan,
+V. Vanhoucke, and A. Rabinovich, “Going deeper with convolutions,”
+in CVPR, 2015, pp. 1–9. 5
+[47] X. Chu, Z. Tian, B. Zhang, X. Wang, X. Wei, H. Xia, and C. Shen, “Conditional positional encodings for vision transformers,” arXiv preprint
+arXiv:2102.10882, 2021. 6
+[48] T. Xiao, M. Singh, E. Mintun, T. Darrell, P. Dollár, and R. Girshick,
+“Early convolutions help transformers see better,” NeurIPS, vol. 34, pp.
+30 392–30 400, 2021. 6
+[49] Z. Tu, H. Talebi, H. Zhang, F. Yang, P. Milanfar, A. Bovik, and Y. Li,
+“Maxvit: Multi-axis vision transformer,” in ECCV, 2022, pp. 459–479.
+6
+[50] M. Fiaz, H. Cholakkal, R. M. Anwer, and F. S. Khan, “Sat: Scaleaugmented transformer for person search,” in WACV, 2023, pp. 4820–
+4829. 6
+
+[51] M. Lebedev, Y. V. Vizilter, O. Vygolov, V. A. Knyaz, and A. Y. Rubis,
+“Change detection in remote sensing images using conditional adversarial networks,” The International Archives of the Photogrammetry,
+Remote Sensing and Spatial Information Sciences, 2018. 6
+[52] S. Mehta and M. Rastegari, “Mobilevit: Light-weight, general-purpose,
+and mobile-friendly vision transformer,” in ICLR, 2022. 9
+[53] Y. Li, G. Yuan, Y. Wen, J. Hu, G. Evangelidis, S. Tulyakov, Y. Wang,
+and J. Ren, “Efficientformer: Vision transformers at mobilenet speed,”
+arXiv preprint arXiv:2206.01191, 2022. 9
+
+

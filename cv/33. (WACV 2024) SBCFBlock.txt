@@ -1,0 +1,1616 @@
+SBCFormer: Lightweight Network Capable of Full-size ImageNet Classiﬁcation
+at 1 FPS on Single Board Computers
+
+1
+
+Xiangyong Lu1 Masanori Suganuma1,2 Takayuki Okatani1,2
+Graduate School of Information Sciences, Tohoku University 2 RIKEN Center for AIP
+{xylu,suganuma,okatani}@vision.is.tohoku.ac.jp
+
+Abstract
+
+for mobile devices [4, 8, 42, 65]. The current trend involves
+developing CNN-ViT hybrid models [20,21,35,50]. Thanks
+to these studies, while ViTs were previously considered
+slow and lightweight CNNs were the only viable option for
+mobile devices, recent hybrid models for mobile devices
+surpass CNNs in the trade-off between computational efﬁciency and inference accuracy [14, 31, 32, 44].
+Previous studies have mainly focused on smartphones
+as “mobile/edge” devices. Although processors in smartphones are less powerful than GPUs/TPUs found in servers,
+they are still quite powerful and would be considered in
+the mid-range on the spectrum of processors. There are
+“low-end” processors such as CPUs/MPUs for embedded
+systems, which usually have by far limited computational
+power. Nonetheless, these processors have been utilized
+in various real-world applications such as smart agriculture
+[41, 69] and AI applications for ﬁshery [60] and livestock
+management [2,30], where limited computational resources
+are sufﬁcient. For example, in object detection to prevent
+damage by wild animals, processing dozens of frames per
+second may not be necessary [1]. In many cases, processing at around one frame per second is practical. In fact,
+lightweight models, such as MobileNet and YOLO, have
+been quite popular in such applications, often implemented
+using a camera-equipped single board computer (SBC).
+This study focuses on low-end processors, which have
+been underexplored in the development of lightweight networks. Given their constraints, we introduce an architectural design named SBCFormer. A central question guiding
+our research is the suitability of either convolution or the
+Transformer’s attention mechanism for SBCs. As outlined
+in [14], convolution requires complex memory access patterns, necessitating high IO throughput for efﬁcient processing, whereas attention is comparatively simpler. Additionally, both are translated to matrix multiplications, and attention usually deals with smaller matrix dimensions compared
+to the traditional im2col convolution approach.
+Considering that SBCs are inferior to GPUs in parallel computation resources and memory bandwidth, attention emerges as the preferred foundational building block
+
+Computer vision has become increasingly prevalent in
+solving real-world problems across diverse domains, including smart agriculture, ﬁshery, and livestock management. These applications may not require processing many
+image frames per second, leading practitioners to use single board computers (SBCs). Although many lightweight
+networks have been developed for “mobile/edge” devices,
+they primarily target smartphones with more powerful processors and not SBCs with the low-end CPUs. This paper
+introduces a CNN-ViT hybrid network called SBCFormer,
+which achieves high accuracy and fast computation on such
+low-end CPUs. The hardware constraints of these CPUs
+make the Transformer’s attention mechanism preferable to
+convolution. However, using attention on low-end CPUs
+presents a challenge: high-resolution internal feature maps
+demand excessive computational resources, but reducing
+their resolution results in the loss of local image details.
+SBCFormer introduces an architectural design to address
+this issue. As a result, SBCFormer achieves the highest
+trade-off between accuracy and speed on a Raspberry Pi 4
+Model B with an ARM-Cortex A72 CPU. For the ﬁrst time,
+it achieves an ImageNet-1K top-1 accuracy of around 80%
+at a speed of 1.0 frame/sec on the SBC. Code is available at
+https://github.com/xyongLu/SBCFormer.
+
+1. Introduction
+Deep neural networks have been used in various computer vision tasks across different settings, which require
+running them for inference on diverse hardware. To meet
+this demand, numerous designs of deep neural networks
+have been proposed for mobile and edge devices. Since the
+introduction of MobileNet [27], many researchers have proposed various architectural designs of convolutional neural
+networks (CNNs) for mobile devices [46, 49, 68]. Moreover, following the introduction of the vision transformer
+(ViT) [12], several attempts have been made to adapt ViT
+1
+
+80
+
+Top-1 Accuracy (%)
+
+78
+
+NesT-T T2T-ViT-14 Twins-SVT-S
+
+CrossViT-S
+SBCFormer-L
+SBCFormer-B LeViT-192
+DeiT-S
+
+PVT-S
+
+EfficientFormer-L1
+LeViT-128 MobileFormer-294
+SBCFormer-S
+
+EdgeViT-S Twins-PCPVT-S
+
+MobileFormer-508
+
+78
+
+EdgeViT-XS
+
+LeViT-128S T2T-ViT-12
+EfficientNet-B0
+MobileNetV3
+SBCFormer-XS T2T-ViT-10
+MnasNet
+CNN
+ShuffleNetV2-x2.0
+MobileViT-XS
+Hybrid
+EdgeViT-XXS
+74
+
+MobileViT-XXS
+
+1
+
+1.5
+
+2
+
+2.5
+
+3
+
+Latency on ARM CPU (s)
+
+3.5
+
+4
+
+MobileViT-S
+
+SBCFormer-XS
+
+70
+
+CNN
+Hybrid
+SBCFormer
+ViT
+
+MobileViT-XS
+
+DeiT-T
+
+72
+
+10M
+15M
+20M
+25M
+
+ShuffleNetV2-x1.0
+
+MobileFormer-294
+EdgeViT-XS
+SBCFormer-S
+LeViT-128S T2T-ViT-12
+
+EfficientNet-B0
+MnasNet
+MobileNetV3
+T2T-ViT-10
+ShuffleNetV2-x2.0 EdgeViT-XXS
+74
+
+Params
+
+MobileNetV2
+
+0.5
+
+76
+
+SBCFormer
+ViT
+
+DeiT-T
+
+70
+
+80
+
+PVTv2-B1
+
+MobileViT-S
+
+76
+
+72
+
+Twins-SVT-S
+T2T-ViT-14
+NesT-T
+LeViT-256
+EdgeViT-S
+Twins-PCPVT-S CrossViT-S
+LeViT-192 SBCFormer-L DeiT-S
+SBCFormer-B MobileFormer-508
+PVT-S
+PVTv2-B1
+LeViT-128
+EfficientFormer-L1
+
+82
+
+Top-1 Accuracy (%)
+
+LeViT-256
+
+82
+
+Params
+
+MobileNetV2
+
+10M
+15M
+20M
+25M
+
+ShuffleNetV2-x1.0
+MobileViT-XXS
+
+4.5
+
+2
+
+4
+
+6
+
+8
+
+10
+
+12
+
+14
+
+16
+
+18
+
+Latency on Intel CPU (x10ms)
+
+20
+
+22
+
+24
+
+26
+
+Figure 1. Accuracy vs. Latency. All models are trained on ImageNet-1K classiﬁcation and measured the latency performance on ARM
+and Intel CPUs.
+
+for SBCs. Nonetheless, the attention computation carries
+a computational complexity that’s quadratic to the number
+of tokens. Thus, it’s crucial to maintain a low spatial resolution in feature maps to ensure computational efﬁciency
+and reduced latency. (Note that a feature map with a spatial
+resolution of H × W corresponds to HW tokens.)
+
+cal and global information, primed for the subsequent layer.
+Furthermore, we have reﬁned the Transformer’s attention
+mechanism to offset any diminished representational capacity from concentrating on smaller feature maps.
+Our experiments demonstrate the effectiveness of SBCFormer; see Fig. 1. As a result of the advancements mentioned above, SBCFormer achieves the highest accuracyspeed trade-off on a widely used single board computer
+(SBC), namely a Raspberry Pi 4 Model B with an ARM
+Cortex-A72 CPU. In fact, SBCFormer attains an ImageNet1K top-1 accuracy close to 80.0% at a speed of 1.0 frame
+per second on the SBC, marking the ﬁrst time this level of
+performance has been achieved.
+
+Using the ViT architecture, which keeps consistent resolution feature maps across all layers, leads to a loss of local
+details from the input image because of the coarse feature
+maps. In response, recent models aiming for computational
+efﬁciency, especially CNN-ViT hybrids [32, 40, 42, 54],
+adopt a foundation more like CNNs. In these models,
+feature maps reduce their spatial resolutions via downsampling from input to output. Given that applying attention to all layers can greatly increase computational costs,
+especially in layers with high spatial resolutions, these models use attention mechanisms only in the upper layers. This
+design takes advantage of the Transformer’s attention mechanism, known for its strength in global interaction of image
+features, while retaining local details in the feature maps.
+However, for SBCs, convolutions in the lower layers might
+become problematic, causing longer computational times.
+
+2. Related Work
+2.1. Convolutional Networks for Mobile Devices
+In recent years, there has been a growing demand for
+deep neural networks in vision applications across various
+ﬁelds, urging researchers to pay their attention towards efﬁcient neural network design. One approach involves making convolutions computationally more efﬁcient, as demonstrated by works like SqueezeNet [28] and so on. MobileNet [27] introduces depth-wise separable convolutions
+to alleviate the expensive computational cost of a standard
+convolutional layer, to meet the resource constraints of edge
+devices. MobileNetV2 [46] improves the design, introducing the inverted residual block. Our proposed SBCFormer
+employs the block as a primary building block for convolutional operation.
+Another approach aimed at efﬁcient designs of convolutional neural networks (CNN) architectures, as demon-
+
+To tackle the challenge of preserving local information
+while optimizing attention computation, our SBCFormer
+employs a two-stream block structure. The ﬁrst stream
+shrinks the input feature map, applies attention to the reduced number of tokens, and then reverts the map to its
+initial size, ensuring efﬁcient attention computation. Recognizing the potential loss of local information from downsizing, the second stream acts as a ’pass-through’ to retain
+local information in the input feature map. These streams
+converge, generating a feature map enriched with both lo2
+
+strated in works such as Inception [47] and MnasNet [48].
+Other studies have proposed lightweight models, including ShufﬂeNetv1 [68], ESPNetv2 [43], GhostNet [17], MobileNeXt [71], EfﬁcientNet [49], and TinyNet [18], among
+others.
+It is worth noting that CNNs, including those previously
+mentioned, can only capture local spatial correlations in images at each layer and do not account for global interactions.
+Another important point to consider is that convolution with
+standard-sized images can be computationally expensive for
+CPUs since it requires large matrix multiplications. These
+are areas where Vision Transformer (ViT) [12].
+
+(i.e., inference time) as the primary metric for evaluating efﬁciency, which will be discussed later. Secondly, low-end
+CPUs are often excluded from these studies, with the targets limited to smartphones’ CPUs/NPUs and Intel CPUs
+at best. LeViT, for example, was evaluated on an ARM
+CPU, speciﬁcally the ARM Graviton 2, which is designed
+for cloud servers.
+
+2.3. Evaluation Metrics
+There are multiple metrics for assessing computational
+efﬁciency, including the number of model parameters, operations (i.e., FLOPs), inference time or latency, and memory
+usage. While all of these metrics are relevant, latency is of
+particular interest in the context of this study. It is noteworthy that Dehghani et al. [10] and Vasu et al. [55] show that
+efﬁciency in terms of latency does not correlate well with
+the number of FLOPs and parameters.
+As mentioned earlier, several studies have focused on developing lightweight and efﬁcient CNNs. However, only
+a handful of them, such as MNASNet [48], MobileNetv3
+[26], and ShufﬂeNetv2 [39], have directly optimized for latency. The same holds true for studies on CNN-ViT hybrids, where some are primarily designed for mobile devices [8, 42]; most of these studies did not prioritize latency
+as a target but instead focused on metrics like FLOPs [8].
+Latency is often avoided in such studies for a good reason. It is because the instruction set of each processor
+and the compilers used with it heavily inﬂuence latency.
+Therefore, obtaining practical evaluation results necessitates choosing speciﬁc processors at the expense of general
+discussion. In this paper, we select CPUs used in a single board computer, such as Raspberry Pi, as our primary
+target, which is widely employed in various ﬁelds for edge
+applications. It is equipped with a microprocessor, ARM
+Cortex-A72, speciﬁcally designed for mobile platforms as
+part of the ARM Cortex-A series.
+
+2.2. ViTs and CNN-ViT Hybrids for Mobile Devices
+Thanks to the self-attention mechanism [56] and largescale image datasets, Vision Transformer (ViT) [12] and
+related ViT-based architectures [3, 6, 29, 52, 72] have attained state-of-the-art inference accuracy in various visual
+recognition tasks [16, 67]. Nevertheless, to fully leverage
+their potential, ViT-based models typically require signiﬁcant computational and memory resources, which have limited their deployment on edge devices that have resource
+constraints. Subsequently, a series of studies have focused
+on enhancing the efﬁciency of ViTs from various perspectives. Inspired by hierarchical designs in convolutional architectures, some works have developed new architectures
+for ViTs [24,58,62,66]. Neural architecture search methods
+have been also utilized to optimize ViT-based architectures
+[7, 13]. Additionally, to reduce the computational complexity of ViTs, some researchers have proposed efﬁcient selfattention mechanisms [5, 15, 25, 57], while others focus on
+utilizing new parameter efﬁciency strategies [23, 51].
+Subsequent studies have demonstrated that incorporating
+convolutions in Transformer blocks can improve both the
+performance and efﬁciency of ViT-based models. For example, LeViT [14] reintroduces a convolutional stem at the
+beginning of the network to learn low-resolution features,
+rather than using the patchy stem in ViT [12]. EdgeViT
+[44] introduces Local-Global-Local blocks to better integrate self-attention and convolution, allowing the model to
+capture spatial tokens with varying ranges and exchange
+information between them. MobileFormer [8] parallelizes
+MobileNet and Transformer to encode both local and global
+features and fuses the two branches through a bidirectional
+bridge. MobileViT [42] treats Transformer blocks as convolutions and develops a MobileViT block to effectively
+learn both local and global information. Finally, EfﬁcientFormer [32] employs a hybrid approach that combines convolutional layers and self-attention layers to achieve a balance between accuracy and efﬁciency.
+Despite active research in developing hybrid models for
+mobile devices, there are still several issues that need to be
+addressed. Firstly, many of these studies do not use latency
+
+3. CNN-ViT Hybrid for Low-end CPUs
+We aim to develop a CPU-friendly ViT-CNN hybrid network that achieves a better trade off between test-time latency and inference accuracy.
+
+3.1. Principle of Design
+We adopt the fundamental architecture that is commonly
+used in recent CNN-ViT hybrids. The network’s initial
+stage comprises a set of standard convolution layers, which
+excel at converting the input image into a feature map
+[14,32,63], rather than a linear mapping from image patches
+to tokens in ViT [12, 51]. The main section of the network
+is divided into multiple stages, and the feature maps are
+reduced in size between consecutive stages. This results
+in a pyramid structure of feature maps with dimensions of
+H/8 × W/8, H/16 × W/16, H/32 × W/32, and so on.
+3
+
+The computational complexity of the Transformer attention mechanism increases quadratically with the number of
+tokens, i.e., the size h × w of the input feature map. Then,
+the lower stages with larger-sized feature maps need more
+computational cost. Some studies have addressed this issue
+by applying attention only to sub-regions/tokens of the feature maps [19, 36, 45, 53]. Studies targeting mobile devices
+typically adopt attention only in high layers [32, 40, 54].
+While avoiding the increased computational cost, this leads
+to suboptimal inference accuracy as it gives up on one of the
+most important properties of ViT, i.e., aggregating global
+information in images.
+Taking these considerations into account, we propose a
+method of downsizing the input feature map, applying attention to the downsized feature map, and then upsizing the
+resulting feature map. In our experiments, we downsized
+the feature map to 7 × 7 regardless of the stage, for an input
+image of size 224 × 224. This hourglass design allows us
+to aggregate global information from the entire image while
+minimizing computational costs.
+However, downsizing the feature map to this small size
+can lead to a loss of local information. To address this issue,
+we design a block with two parallel streams: one for local
+features and the other for global features. Speciﬁcally, we
+maintain the original feature map size for the local stream
+and do not perform an attention operation. For the global
+stream, we employ the above hourglass design of attention,
+which ﬁrst downsizes the feature map, applies attention, and
+then upsizes it to the original size. The outputs from the two
+streams are merged and transferred to the next block. More
+details are given in Sec. 3.3. Additionally, to compensate
+for the loss of representational power due to the hourglass
+design, we propose a modiﬁed attention mechanism. See
+Sec. 3.4.
+
+To start the block, we place mi consecutive inverted
+residual blocks [46], which is ﬁrst used in MobileNetV2
+[46]. We use a variant with a GeLU activation function,
+which consists of a point-wise convolution, a GeLU activation function, and a depth-wise convolution with a 3 × 3
+ﬁlter. We call this InvRes in what follows. They convert the
+input map Xi into Xli as
+mi
+Xli = FInvRes
+(Xi ),
+
+(1)
+
+where F mi (·) indicates the application of mi consecutive
+InvRes blocks to the input.
+As shown in Fig. 2, the updated feature Xli is transferred
+to two different branches, local and global streams. For the
+local stream, Xli is passed through to the end section of the
+block. For the global stream, Xli is ﬁrst downsized to h × w
+by an average pooling layer, denoted as ‘Pool’ in Fig. 2. We
+set it to 7 × 7 regardless of stages in our experiments. The
+downsized map is then passed to a block consisting of two
+consecutive InvRes blocks, denoted as ‘Mixer’ in the diagram and next to a stack of attention blocks named ‘MAttn.’
+The output feature map is then upsized followed by convolution, which is denoted by ‘ConvT.’ These operations proi+2
+i+2
+vide a feature map Xgi ∈ R(H/2 )×(W/2 )×Ci as
+Li
+Xgi = ConvT FMAttn
+,
+[Mixer[Pool(Xli )]]
+
+(2)
+
+Li
+where FMAttn
+(·) indicates the application of Li consecutive
+MAttn blocks to the input.
+In the last section of the block, the local stream feature
+Xli and global stream feature Xgi are fused to obtain a new
+feature map, as shown in Fig. 2. To fuse the two, we ﬁrst
+modulate Xli with a weight map created from Xgi . Speciﬁi+2
+i+2
+cally, we compute Wig ∈ R(H/2 )×(W/2 )×Ci as
+
+3.2. Overall Design of SBCFormer
+
+Wig = Sigmoid [Proj(Xgi )] ,
+
+Figure 2 shows the overall architecture of the proposed
+SBCFormer. The network begins with an initial section (labeled as ‘Stem’ in the diagram) that consists of three convolution layers with 3 × 3 kernels and stride = 2, which
+converts an input image into a feature map. The main section comprises three stages, each of which is connected to
+the next stage by a single convolution layer (labeled as ‘Embedding’ in the diagram). This layer uses a stride-two 3 × 3
+convolution to halve the size of the input feature map. Regarding the output section, we employ global average pooling followed by a fully-connected linear layer for the ﬁnal
+layer of the network, speciﬁcally for image classiﬁcation
+tasks.
+
+(3)
+
+where Proj indicates a point-wise convolution followed by
+batch normalization. We then multiply it to Xli and concatenate the resulting map with Xgi in the channel dimension as
+Xui = [Xli
+
+Wig , Xgi ]
+
+(4)
+
+where is the Hadamard product. Finally, the fused feature
+Xui is passed through another projection block to halve the
+channels, yielding the output of this block.
+
+3.4. Modiﬁed Attention Mechanism
+The above two-stream design will compensate for the
+loss of local information caused by the proposed hourglass
+attention computation. However, as the attention operates
+on a very low-resolution (or equivalently, small-sized) feature map, the attention computation itself must lose its representational power. To compensate for the loss, we make a
+
+3.3. SBCFormer Block
+We denote the input feature map to the block at i-th stage
+i+2
+i+2
+by Xi ∈ R(H/2 )×(W/2 )×Ci .
+4
+
+SBCFormer Block
+C
+
+Proj
+
+L1
+
+MAttn
+
+Q
+
+n u hw u d
+
+Global
+
+
+
+KT
+
+V
+
+BN
+
+h u w u 2nd
+
+×
+
+bias
+
++
+×
+
+GeLU
+
+FFN
+
+Mixer
+
+·
+
+PW-Conv
+
+Pool
+
+h u w u C1
+
+S
+
+n u hw u d
+
+Linear
+
+Local
+
+MAttn
+
+h u w u C1
+
+Proj
+
+InvRes
+
+m1
+
+Output
+
+H /32 u W /32 u C 3
+
+H /16 u W /16 u C 2
+
+softmax
+
+H /8 u W /8 u C1
+
+SBCFormer
+Block
+
+Linear
+
+SBCFormer
+Block
+
+Global Pool
+
+Embedding
+
+Embedding
+
+SlenderViT
+SBCFormer
+Block
+Block
+
+Stage3:
+
+DW-Conv
+
+H uW u 3
+
+Stage2:
+
+ConvT
+
+Input
+
+Stem
+
+Stage1:
+
+Figure 2. Overview of SBCFormer. The architecture of the network is hierarchical. See Sec. 3.2 for the overall design, Sec. 3.3 for the
+SBCFormer block, and Sec. 3.4 for the modiﬁed attention mechanism (‘MAttn’ in the diagram), respectively.
+
+few modiﬁcations to the Transformer attention mechanism;
+see ‘MAttn’ in Fig. 2.
+The main concept is to utilize the standard computation
+tuple of a CNN for an input to attention, speciﬁcally a 3 × 3
+(depth-wise) convolution, a GeLU activation function, and
+batch normalization. The input to attention is composed of
+query, key, and value, and we apply the tuple to value since
+it forms the basis for the attention’s output. Our objective
+is to enhance the representational power by facilitating the
+aggregation of spatial information in the input feature map,
+while simultaneously reducing the training difﬁculty. To
+offset the increase in computational cost, we eliminate the
+independent linear transformations applied to query and key
+and instead apply the identical point-wise convolution to all
+three components.
+The details of the modiﬁed attention computation are as
+follows. Let X ∈ Rh×w×Ci denote the input to the attention
+mechanism. The output X ∈ Rh×w×Ci is computed as
+
+where d is the channel number of each head in query and
+key; b ∈ Rhw is a learnable bias acting as positional encoding [14, 32]; 1 ∈ Rhw is an all-one vector; Y is deﬁned
+by
+Y = DW-ConvG (BN(Y)) + Y,
+(8)
+where DW-ConvG indicates a depth-wise convolution followed by GeLU and BN is batch normalization applied in
+the same way as that in CNNs.
+
+4. Experimental Results
+We conduct experiments to evaluate SBCFormer and
+compare it with existing networks on two tasks, image classiﬁcation using ImageNet1K [11] and object detection using the COCO dataset [34].
+
+4.1. Experimental Settings
+SBCFormer primarily targets low-end CPUs that are
+commonly used in single board computers. Additionally,
+we evaluate its performance on an Intel CPU commonly
+found in edge devices, as well as on a GPU used in desktop
+PCs. We use the following three processors and platforms
+for our experiments.
+
+(5)
+
+X = FFN(X ) + X ,
+
+where FFN stands for a feed-forward network as in ViTs
+[12, 51] and X is deﬁned to be
+X = Linear(MHSA(PW-Conv(X))) + X,
+
+• An ARM Cortex-A72 processor running at 1.5 GHz
+on a single board computer, Raspberry PI 4 model B.
+While it is classiﬁed as low-end, ARM Cortex-A72 is
+a quad-core 64-bit processor that supports the ARM
+Neon instruction set. We used the 32-bit Raspberry Pi
+OS and PyTorch ver 1.6.0 to run networks.
+
+(6)
+
+where Linear is a linear layer with learnable weights and
+PW-Conv indicates a point-wise convolution; MHSA is
+deﬁned by
+MHSA(Y) = Softmax
+
+Y·Y
+√
+d
+
++b·1
+
+• An Intel Core i7-3520M processor running at 2.9 GHz.
+It is a dual-core processor that is commonly used in
+
+· Y , (7)
+5
+
+Table 1. Design of SBCFormer variants with different model sizes.
+
+Stage
+stem
+1
+
+Type
+Patch Embed.
+SBCFormer
+Block
+Patch Embed.
+
+2
+
+SBCFormer
+Block
+Patch Embed.
+
+3
+
+SBCFormer
+Block
+
+Resolution
+
+SBCFormer
+
+Block
+
+XS
+
+H/8 × W/8
+
+Embedding
+
+H/8 × W/8
+
+InvRes
+Mixer
+MAttn
+
+H/32 × W/32
+H/16 × W/16
+
+Embedding
+
+H/16 × W/16
+
+InvRes
+Mixer
+MAttn
+
+H/32 × W/32
+H/32 × W/32
+
+Embedding
+
+H/32 × W/32
+
+InvRes
+Mixer
+MAttn
+
+H/32 × W/32
+
+dim. 96
+×2
+×1
+×2
+dim. 160
+×2
+×1
+×3
+dim. 288
+×1
+×1
+×2
+
+S
+
+B
+
+× 3 (k = 3 × 3, s = 2)
+dim. 96
+dim. 128
+×2
+×2
+×1
+×1
+×2
+×2
+× 1 (k = 3 × 3, s = 2)
+dim. 192
+dim. 256
+×2
+×2
+×1
+×1
+×4
+×4
+× 1 (k = 3 × 3, s = 2)
+dim. 320
+dim. 384
+×1
+×1
+×1
+×1
+×3
+×3
+
+L
+dim. 192
+×2
+×1
+×2
+dim. 288
+×2
+×1
+×4
+dim. 384
+×1
+×1
+×3
+
+4.2. ImageNet-1K
+
+mobile devices such as laptops and tablets. It supports
+a variety of instruction sets including Intel Advanced
+Vector Extensions (AVX) and AVX2, which provide
+improved performance for vector and matrix operations. We used Ubuntu ver 18.04.5 LTS and PyTorch
+ver 1.10.1 to run networks.
+
+We ﬁrst evaluate the networks on the most standard task,
+image classiﬁcation of ImageNet-1K.
+4.2.1
+
+Training
+
+We train SBCFormer and existing networks from scratch
+for 300 epochs on the training split of ImageNet-1K dataset,
+which consists of 1.28 million images across 1,000 classes.
+We consider the four variants with different model size,
+SBCFormer-XS, -S, -B, and -L, as shown in Table 1. All
+models are trained and tested at the standard resolution of
+224 × 224.
+We followed the original author’s code to train the existing networks. For training SBCFormer, we used the recipe
+from DeiT [51], which is summarized as follows. We employed the AdamW [38] optimizer with cosine learning rate
+scheduling [37], and applied a linear warm-up for the ﬁrst
+ﬁve epochs. The initial learning rate was set to 2.5 × 10−4 ,
+and the minimum value was set to 10−5 . The weight decay and momentum were set to 5 × 10−2 and 0.9, respectively, and a batch size of 200 was used. Data augmentation
+techniques, including random cropping, random horizontal
+ﬂipping, mixup, random erasing, and label-smoothing, were
+applied during training, following [44, 51]. Random cropping was applied to the input image during training to obtain
+an image size of 224×224 pixels, while a single center crop
+of the same size was used during testing.
+
+• A GeForce RTX 2080Ti on a desk-top PC equipped
+with an Intel Xeon CPU E5-1650 v3. We used Ubuntu
+18.04.6 LTS and PyTorch ver 1.10.1.
+We implemented and tested all the networks using the
+PyTorch framework (version 1.10) and the Timm library
+[61]. For each of the existing networks we compare, we
+employ the author’s ofﬁcial code but a few networks1 . We
+follow previous studies [32, 44] to measure the inference
+time (i.e., latency) required to process a single input image. Speciﬁcally, setting the batch size to 1, we recorded
+the clock time on each platform. To ensure accuracy, we
+performed 300 inferences and reported the average latency
+in seconds. During measurement, we terminated any irrelevant applications that could interfere with the results. All
+computations used 32-bit ﬂoating point numbers. Since our
+focus is on inference speed rather than training, we trained
+all networks on a GPU server with eight Nvidia 2080Ti
+GPUs, and then evaluated their inference time on each platform.
+1 Their GitHub repositories are as follows:
+DeitT: https://github.com/facebookresearch/deit,
+LeViT: https://github.com/facebookresearch/LeViT,
+NesT: https://github.com/google-research/nested-transformer,
+PVT/PVTv2: https://github.com/whai362/PVT,
+T2T-ViT: https://github.com/yitu-opensource/T2T-ViT,
+Twins: https://github.com/Meituan-AutoML/Twins,
+EfﬁcientFormer: https://github.com/snap-research/EfﬁcientFormer,
+EdgeViT: https://github.com/saic-ﬁ/edgevit.
+
+4.2.2
+
+Results
+
+Table 2 shows the results of variants of SBCFormer
+with different model sizes and the current state-of-the-art
+lightweight networks targeting mobile/edge devices from
+6
+
+Table 2. Performance of different networks on ImageNet-1K classiﬁcation. Values are averaged over 300 runs.
+Inference Latency
+GPU(ms) Intel(ms) ARM(s)
+
+Model
+
+Type
+
+Params(M)
+
+GMACs
+
+Top-1(%)
+
+ShufﬂeNetV2-x1.0 [39]
+MobileNetV2 [46]
+MobileNetV3 [26]
+EfﬁcientNet-B0 [49]
+
+CNN
+CNN
+CNN
+CNN
+
+7.4
+3.5
+5.4
+5.3
+
+0.6
+0.3
+0.2
+0.4
+
+75.0
+72.0
+75.2
+76.3
+
+9.7
+9.8
+12.1
+16.8
+
+33.3
+48.6
+49.3
+110.3
+
+1.63
+1.66
+2.66
+4.05
+
+DeiT-T [51]
+DeiT-S [51]
+T2T-ViT-14 [64]
+
+ViT
+ViT
+ViT
+
+5.7
+22.5
+21.5
+
+1.3
+4.5
+4.8
+
+72.2
+79.9
+81.5
+
+11.1
+11.5
+15.2
+
+80.1
+160.5
+176.7
+
+1.50
+2.30
+2.86
+
+EfﬁcientFormer-L1 [32]
+MobileFormer-294 [8]
+LeViT-256 [14]
+EdgeViT-XS [44]
+MobileViT-XXS [42]
+MobileFormer-508 [8]
+NesT-T [70]
+PVT-Small [58]
+MobileViT-XS [42]
+EdgeViT-S [44]
+Twins-SVT-S [9]
+MobileViT-S [42]
+PVTv2-B1 [59]
+
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+
+12.2
+11.4
+18.9
+6.7
+1.3
+14.0
+17.1
+24.5
+2.3
+11.1
+24.1
+5.6
+14.0
+
+1.2
+0.3
+1.1
+1.1
+0.4
+0.5
+5.8
+3.8
+0.9
+1.9
+2.8
+1.8
+2.1
+
+79.2
+77.9
+81.6
+77.5
+69.0
+79.3
+81.5
+79.8
+74.8
+81.0
+81.7
+78.4
+78.7
+
+11.6
+38.1
+15.8
+13.8
+15.6
+38.3
+12.1
+20.1
+15.8
+21.5
+20.8
+16.5
+12.8
+
+113.6
+87.1
+128.2
+96.6
+85.6
+112.0
+254.2
+177.6
+165.7
+154.2
+147.3
+254.9
+209.5
+
+1.39
+1.81
+1.92
+2.04
+2.26
+2.33
+2.51
+2.58
+2.76
+3.26
+3.31
+3.53
+4.38
+
+SBCFormer-XS
+SBCFormer-S
+SBCFormer-B
+SBCFormer-L
+
+Hybrid
+Hybrid
+Hybrid
+Hybrid
+
+5.6
+8.5
+13.8
+18.5
+
+0.7
+0.9
+1.6
+2.7
+
+75.8
+77.7
+80.0
+81.1
+
+15.8
+18.0
+18.1
+18.2
+
+47.8
+55.8
+76.6
+111.4
+
+0.61
+0.73
+0.93
+1.33
+
+three categories, CNNs, ViT variants, and CNN-ViT hybrids.
+It is observed that SBCFormer variants with different
+model sizes achieve a higher trade-off between accuracy
+and latency on CPUs; ses also Fig. 1. The performance
+gap between SBCFormer and the other models is more pronounced on ARM CPUs than on Intel CPUs. Notably, SBCFormer only achieves mediocre or inferior trade-offs on the
+GPU. These results are consistent with our design goal, as
+SBCFormer is optimized for running faster on CPUs with
+limited computational resources.
+Additional observations from the results on CPUs shown
+in Fig. 1 are as follows. Firstly, the popular lightweight
+CNNs, such as MobileNetV2/V3 [26, 46], ShufﬂeNetV2
+[39], and EfﬁcientNet [49], tend to be insufﬁcient in terms
+of inference accuracy. They attain relatively low accuracy
+at the same level of speed as the recent hybrids. This
+well demonstrates the difﬁculty of adopting convolution in
+CPUs.
+In addition, some of the ViT-CNN hybrids that have been
+
+developed for mobile applications are slower than CNNs
+with similar levels of inference accuracy. Examples of such
+hybrids include MobileViT and EdgeViT. There are various
+reasons for this. Firstly, some of these hybrids use FLOPs
+and/or parameter size as efﬁciency metrics, which do not
+necessarily correspond to lower latency. Secondly, some
+hybrids are intended for the latest models of smartphones,
+which have more powerful CPUs/NPUs than those used in
+our experiments. This can result in seemingly inconsistent
+ﬁndings compared to prior research.
+Table 3. Ablation test with respect to the two key components of
+SBCFormer.
+Models
+SBCFormer-B
+w/o local stream
+w/ standard attn.
+
+7
+
+Params(M) GMACs Top-1 acc.(%)
+13.8
+13.6
+12.8
+
+1.6
+1.5
+1.5
+
+80.0
+78.2
+77.8
+
+Table 4. Performance of different visual backbones using RetinaNet on COCO val2017 object detection. “#P(M)”shows the
+number of parameters in million.
+
+4.2.3 Ablation Test
+SBCFormer introduces two novel components, namely the
+block design with global and local streams (Sec. 3.3) and
+the modiﬁed attention mechanism (Sec. 3.4). To assess their
+effectiveness, we conducted an ablation test. Speciﬁcally,
+we chose SBCFormer-B and created two ablated models.
+The ﬁrst is SBCFormer with the local stream removed from
+all SBCFormer blocks, while the second replaced the modiﬁed attention mechanism with the standard Transformer attention mechanism. We trained all models for 300 epochs.
+Table 3 shows the results, which conﬁrm the efﬁcacy of both
+introduced components.
+
+Backbone
+
+4.3. Detection and Segmentation
+Besides image classiﬁcation, object detection is the most
+popular application. Thus, we test the performance of SBCFormer on object detection. Speciﬁcally, following the standard method, we employ SBCFormer as a backbone and
+place task-speciﬁc architecture on top of it to build models.
+
+RetinaNet 1×
+#P(M) AP AP50 AP75 APS APM APL
+
+PVTv2-B0 [59]
+EdgeViT-XXS [44]
+ResNet18 [22]
+SBCFormer-B
+
+13.0
+13.1
+21.3
+22.1
+
+37.2
+38.7
+31.8
+39.3
+
+57.2
+59.0
+49.6
+59.8
+
+39.5
+41.0
+33.6
+41.5
+
+23.1
+22.4
+16.3
+21.9
+
+40.4
+42.0
+34.3
+42.7
+
+49.7
+51.6
+43.2
+53.3
+
+PVT-Tiny [58]
+PVTv2-B1 [59]
+PVT-Small [58]
+ResNet-50 [22]
+SBCFormer-L
+
+23.0
+23.8
+34.2
+37.7
+26.8
+
+36.7
+41.2
+40.4
+36.3
+41.1
+
+56.9
+61.9
+61.3
+55.3
+62.3
+
+38.9
+43.9
+43.0
+38.6
+43.3
+
+22.6
+25.4
+25.0
+19.3
+24.7
+
+38.8
+44.5
+42.9
+40.0
+44.3
+
+50.0
+54.3
+55.7
+48.8
+56.0
+
+low-end CPUs, commonly found in single-board computers
+(SBCs). These CPUs are not efﬁcient at performing large
+matrix multiplications, making the Transformer’s attention
+mechanism more attractive than CNNs. However, attention
+is computationally expensive when applied to large feature
+maps. SBCFormer mitigates this cost by ﬁrst reducing the
+input feature map size, applying attention to the smaller
+map, and then restoring it to its original size. However,
+this approach has side effects, such as the loss of local image information and limited representation ability of smallsize attention. To address these issues, we introduced two
+novel designs. First, we add a parallel stream to the attention computation, which passes through the input feature
+map, allowing it to retain local image information. Second, we enhance the attention mechanism by incorporating
+standard CNN components. Our experiments have shown
+that SBCFormer achieves a good trade-off between accuracy and speed on a popular SBC, the Raspberry-PI 4 Model
+B with an ARM-Cortex A72 CPU.
+
+4.3.1 Dataset and Experimental Conﬁgurations
+We employ the COCO 2017 dataset [34] for evaluation. It
+consists of a training set of 118,000 images and a validation
+set of 5,000 images.
+We select a basic network for object detection, i.e., RetinaNet [33]. We integrate several backbones to RetinaNet.
+We select SBC-Former-B and -L and choose a few baselines
+having approximately the same model size, from PVT [58],
+PVTv2 [59], and ResNet18 [22].
+We train these backbones on the ImageNet-1K dataset.
+For the training of RetinaNet with different backbones, we
+adopt the standard protocol [9, 44, 59]. The images are resized so that the shorter side is 800 pixels while ensuring
+that the longer side is smaller than 1333 pixels. We employ
+the AdamW optimizer [38] with an initial learning rate of
+1 × 10−4 and train the models for 12 epochs, with a batch
+size of 16. During testing, the image size is re-scaled to 800
+× 800.
+
+Limitation: For our experiments, we selected speciﬁc processors, namely two CPUs and a GPU, and measured the
+latency on each of them. Although these processors are
+representative in their categories, different results could be
+obtained with other processors. Additionally, our primary
+metric is inference latency. It can vary depending on several factors, including code optimization, compilers, deep
+learning frameworks, operating systems, and more. As a
+result, our experimental outcomes may not be reproducible
+in a different environment.
+
+4.3.2 Results
+Table 4 shows the results. It can be seen that models with
+SBCFormer backbones show comparable or better performance than the baselines. As shown in Fig. 1 and Table 2,
+PVT, PVTv2, and ResNet18 exhibit signiﬁcantly slower inference speed, which can be a bottleneck for these detectors
+utilizing them as backbones.
+
+5. Conclusions
+
+Acknowledgments
+
+We have proposed a new deep network design, called
+SBCFormer, that achieves a favorable balance between inference accuracy and computational speed when used with
+
+This work was partly supported by JSPS KAKENHI
+Grant Number 23H00482 and 20H05952.
+8
+
+References
+
+[13] Chengyue Gong, Dilin Wang, Meng Li, Xinlei Chen,
+Zhicheng Yan, Yuandong Tian, Qiang Liu, and Vikas Chandra. Nasvit: Neural architecture search for efﬁcient vision
+transformers with gradient conﬂict aware supernet training.
+In The Tenth International Conference on Learning Representations, ICLR, 2022. 3
+[14] Benjamin Graham, Alaaeldin El-Nouby, Hugo Touvron,
+Pierre Stock, Armand Joulin, Hervé Jégou, and Matthijs
+Douze. Levit: a vision transformer in convnet’s clothing for
+faster inference. In Proceedings of the IEEE/CVF international conference on computer vision, pages 12259–12269,
+2021. 1, 3, 5, 7
+[15] Dongchen Han, Xuran Pan, Yizeng Han, Shiji Song, and
+Gao Huang. Flatten transformer: Vision transformer using
+focused linear attention. arXiv preprint arXiv:2308.00442,
+2023. 3
+[16] Kai Han, Yunhe Wang, Hanting Chen, Xinghao Chen,
+Jianyuan Guo, Zhenhua Liu, Yehui Tang, An Xiao, Chunjing Xu, Yixing Xu, et al. A survey on vision transformer.
+IEEE transactions on pattern analysis and machine intelligence, 45(1):87–110, 2022. 3
+[17] Kai Han, Yunhe Wang, Qi Tian, Jianyuan Guo, Chunjing
+Xu, and Chang Xu. Ghostnet: More features from cheap
+operations. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 1580–1589,
+2020. 3
+[18] Kai Han, Yunhe Wang, Qiulin Zhang, Wei Zhang, Chunjing
+Xu, and Tong Zhang. Model rubik’s cube: Twisting resolution, depth and width for tinynets. Advances in Neural
+Information Processing Systems, 33:19353–19364, 2020. 3
+[19] Ali Hassani, Steven Walton, Jiachen Li, Shen Li, and
+Humphrey Shi. Neighborhood attention transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 6185–6194, 2023. 4
+[20] Ali Hatamizadeh, Greg Heinrich, Hongxu Yin, Andrew Tao,
+Jose M Alvarez, Jan Kautz, and Pavlo Molchanov. Fastervit:
+Fast vision transformers with hierarchical attention. arXiv
+preprint arXiv:2306.06189, 2023. 1
+[21] Junjie He, Pengyu Li, Yifeng Geng, and Xuansong Xie.
+Fastinst: A simple query-based model for real-time instance
+segmentation. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 23663–
+23672, 2023. 1
+[22] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pages 770–778, 2016. 8
+[23] Xuehai He, Chunyuan Li, Pengchuan Zhang, Jianwei Yang,
+and Xin Eric Wang. Parameter-efﬁcient model adaptation
+for vision transformers. In Brian Williams, Yiling Chen,
+and Jennifer Neville, editors, Thirty-Seventh AAAI Conference on Artiﬁcial Intelligence, AAAI 2023, pages 817–825.
+AAAI Press, 2023. 3
+[24] Byeongho Heo, Sangdoo Yun, Dongyoon Han, Sanghyuk
+Chun, Junsuk Choe, and Seong Joon Oh. Rethinking spatial dimensions of vision transformers. In Proceedings of
+the IEEE/CVF International Conference on Computer Vision, pages 11936–11945, 2021. 3
+
+[1] Davide Adami, Mike O Ojo, and Stefano Giordano. Design,
+development and evaluation of an intelligent animal repelling
+system for crop protection based on embedded edge-ai. IEEE
+Access, 9:132125–132139, 2021. 1
+[2] Najla Al-Thani, Alreem Albuainain, Fatima Alnaimi, and
+Nizar Zorba. Drones for sheep livestock monitoring. In
+2020 IEEE 20th Mediterranean Electrotechnical Conference
+(MELECON), pages 672–676. IEEE, 2020. 1
+[3] Lucas Beyer, Pavel Izmailov, Alexander Kolesnikov,
+Mathilde Caron, Simon Kornblith, Xiaohua Zhai, Matthias
+Minderer, Michael Tschannen, Ibrahim Alabdulmohsin, and
+Filip Pavetic. Flexivit: One model for all patch sizes. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 14496–14506, 2023. 3
+[4] Han Cai, Chuang Gan, and Song Han. Efﬁcientvit: Enhanced
+linear attention for high-resolution low-computation visual
+recognition. arXiv preprint arXiv:2205.14756, 2022. 1
+[5] Chun-Fu Chen, Rameswar Panda, and Quanfu Fan. Regionvit: Regional-to-local attention for vision transformers. In
+The Tenth International Conference on Learning Representations, ICLR, 2022. 3
+[6] Chun-Fu Richard Chen, Quanfu Fan, and Rameswar Panda.
+Crossvit: Cross-attention multi-scale vision transformer for
+image classiﬁcation. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 357–366,
+2021. 3
+[7] Minghao Chen, Houwen Peng, Jianlong Fu, and Haibin
+Ling. Autoformer: Searching transformers for visual recognition. In Proceedings of the IEEE/CVF international conference on computer vision, pages 12270–12280, 2021. 3
+[8] Yinpeng Chen, Xiyang Dai, Dongdong Chen, Mengchen
+Liu, Xiaoyi Dong, Lu Yuan, and Zicheng Liu. Mobileformer: Bridging mobilenet and transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 5270–5279, 2022. 1, 3, 7
+[9] Xiangxiang Chu, Zhi Tian, Yuqing Wang, Bo Zhang, Haibing Ren, Xiaolin Wei, Huaxia Xia, and Chunhua Shen.
+Twins: Revisiting the design of spatial attention in vision
+transformers. Advances in Neural Information Processing
+Systems, 34:9355–9366, 2021. 7, 8
+[10] Mostafa Dehghani, Yi Tay, Anurag Arnab, Lucas Beyer, and
+Ashish Vaswani. The efﬁciency misnomer. In The Tenth International Conference on Learning Representations ICLR,
+2022. 3
+[11] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,
+and Li Fei-Fei. Imagenet: A large-scale hierarchical image
+database. In 2009 IEEE conference on computer vision and
+pattern recognition, pages 248–255. Ieee, 2009. 5
+[12] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale. In 9th International Conference on Learning Representations ICLR, 2021. 1, 3, 5
+
+9
+
+[25] Byeongho Heo, Sangdoo Yun, Dongyoon Han, Sanghyuk
+Chun, Junsuk Choe, and Seong Joon Oh. Rethinking spatial dimensions of vision transformers. In Proceedings of
+the IEEE/CVF International Conference on Computer Vision, pages 11936–11945, 2021. 3
+[26] Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh
+Chen, Bo Chen, Mingxing Tan, Weijun Wang, Yukun Zhu,
+Ruoming Pang, et al. Searching for mobilenetv3. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 1314–1324, 2019. 3, 7
+[27] Andrew G Howard, Menglong Zhu, Bo Chen, Dmitry
+Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig Adam. Mobilenets: Efﬁcient convolutional neural networks for mobile vision applications. arXiv
+preprint arXiv:1704.04861, 2017. 1, 2
+[28] Forrest N Iandola, Song Han, Matthew W Moskewicz,
+Khalid Ashraf, William J Dally, and Kurt Keutzer.
+Squeezenet: Alexnet-level accuracy with 50x fewer parameters and¡ 0.5 mb model size.
+arXiv preprint
+arXiv:1602.07360, 2016. 2
+[29] Jiayu Jiao, Yu-Ming Tang, Kun-Yu Lin, Yipeng Gao, Jinhua Ma, Yaowei Wang, and Wei-Shi Zheng. Dilateformer:
+Multi-scale dilated transformer for visual recognition. IEEE
+Transactions on Multimedia, 2023. 3
+[30] Cheng Yu Kuan, Yu Chi Tsai, Jih Tay Hsu, Shih Torng Ding,
+and Ta Te Lin. An imaging system based on deep learning
+for monitoring the feeding behavior of dairy cows. In 2019
+ASABE Annual International Meeting, page 1. American Society of Agricultural and Biological Engineers, 2019. 1
+[31] Yanyu Li, Ju Hu, Yang Wen, Georgios Evangelidis, Kamyar
+Salahi, Yanzhi Wang, Sergey Tulyakov, and Jian Ren. Rethinking vision transformers for mobilenet size and speed.
+arXiv preprint arXiv:2212.08059, 2022. 1
+[32] Yanyu Li, Geng Yuan, Yang Wen, Eric Hu, Georgios Evangelidis, Sergey Tulyakov, Yanzhi Wang, and Jian Ren. Efﬁcientformer: Vision transformers at mobilenet speed. arXiv
+preprint arXiv:2206.01191, 2022. 1, 2, 3, 4, 5, 6, 7
+[33] Tsung-Yi Lin, Priya Goyal, Ross Girshick, Kaiming He, and
+Piotr Dollár. Focal loss for dense object detection. In Proceedings of the IEEE international conference on computer
+vision, pages 2980–2988, 2017. 8
+[34] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays,
+Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence
+Zitnick. Microsoft coco: Common objects in context. In
+Computer Vision–ECCV 2014: 13th European Conference,
+Zurich, Switzerland, September 6-12, 2014, Proceedings,
+Part V 13, pages 740–755. Springer, 2014. 5, 8
+[35] Xinyu Liu, Houwen Peng, Ningxin Zheng, Yuqing Yang,
+Han Hu, and Yixuan Yuan. Efﬁcientvit: Memory efﬁcient
+vision transformer with cascaded group attention. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 14420–14430, 2023. 1
+[36] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF international conference on
+computer vision, pages 10012–10022, 2021. 4
+
+[37] Ilya Loshchilov and Frank Hutter. SGDR: stochastic gradient
+descent with warm restarts. In 5th International Conference
+on Learning Representations, ICLR, 2017. 6
+[38] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. In 7th International Conference on Learning
+Representations, ICLR, 2019. 6, 8
+[39] Ningning Ma, Xiangyu Zhang, Hai-Tao Zheng, and Jian Sun.
+Shufﬂenet v2: Practical guidelines for efﬁcient cnn architecture design. In Proceedings of the European conference on
+computer vision (ECCV), pages 116–131, 2018. 3, 7
+[40] Muhammad Maaz, Abdelrahman Shaker, Hisham
+Cholakkal, Salman Khan, Syed Waqas Zamir, Rao Muhammad Anwer, and Fahad Shahbaz Khan. Edgenext: efﬁciently
+amalgamated cnn-transformer architecture for mobile vision
+applications. In Computer Vision–ECCV 2022 Workshops:
+Tel Aviv, Israel, October 23–27, 2022, Proceedings, Part
+VII, pages 3–20. Springer, 2023. 2, 4
+[41] Vittorio Mazzia, Aleem Khaliq, Francesco Salvetti, and Marcello Chiaberge. Real-time apple detection system using embedded systems with hardware accelerators: An edge ai application. IEEE Access, 8:9102–9114, 2020. 1
+[42] Sachin Mehta and Mohammad Rastegari. Mobilevit: Lightweight, general-purpose, and mobile-friendly vision transformer. In The Tenth International Conference on Learning
+Representations, 2022. 1, 2, 3, 7
+[43] Sachin Mehta, Mohammad Rastegari, Linda Shapiro, and
+Hannaneh Hajishirzi. Espnetv2: A light-weight, power efﬁcient, and general purpose convolutional neural network.
+In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 9190–9200, 2019. 3
+[44] Junting Pan, Adrian Bulat, Fuwen Tan, Xiatian Zhu, Lukasz
+Dudziak, Hongsheng Li, Georgios Tzimiropoulos, and Brais
+Martinez.
+Edgevits: Competing light-weight cnns on
+mobile devices with vision transformers. arXiv preprint
+arXiv:2205.03436, pages 1–6, 2022. 1, 3, 6, 7, 8
+[45] Xuran Pan, Tianzhu Ye, Zhuofan Xia, Shiji Song, and Gao
+Huang. Slide-transformer: Hierarchical vision transformer
+with local self-attention. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pages 2082–2091, 2023. 4
+[46] Mark Sandler, Andrew Howard, Menglong Zhu, Andrey
+Zhmoginov, and Liang-Chieh Chen. Mobilenetv2: Inverted residuals and linear bottlenecks. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 4510–4520, 2018. 1, 2, 4, 7
+[47] Christian Szegedy, Vincent Vanhoucke, Sergey Ioffe, Jon
+Shlens, and Zbigniew Wojna. Rethinking the inception architecture for computer vision. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+pages 2818–2826, 2016. 3
+[48] Mingxing Tan, Bo Chen, Ruoming Pang, Vijay Vasudevan,
+Mark Sandler, Andrew Howard, and Quoc V Le. Mnasnet: Platform-aware neural architecture search for mobile.
+In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 2820–2828, 2019. 3
+[49] Mingxing Tan and Quoc Le. Efﬁcientnet: Rethinking model
+scaling for convolutional neural networks. In International
+
+10
+
+Conference on Machine Learning, pages 6105–6114. PMLR,
+2019. 1, 3, 7
+[50] Chen Tang, Li Lyna Zhang, Huiqiang Jiang, Jiahang Xu,
+Ting Cao, Quanlu Zhang, Yuqing Yang, Zhi Wang, and Mao
+Yang. Elasticvit: Conﬂict-aware supernet training for deploying fast vision transformer on diverse mobile devices.
+arXiv preprint arXiv:2303.09730, 2023. 1
+[51] Hugo Touvron, Matthieu Cord, Matthijs Douze, Francisco
+Massa, Alexandre Sablayrolles, and Hervé Jégou. Training
+data-efﬁcient image transformers & distillation through attention. In International Conference on Machine Learning,
+pages 10347–10357. PMLR, 2021. 3, 5, 6, 7
+[52] Hugo Touvron, Matthieu Cord, Alexandre Sablayrolles,
+Gabriel Synnaeve, and Hervé Jégou. Going deeper with image transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), pages 32–42,
+2021. 3
+[53] Zhengzhong Tu, Hossein Talebi, Han Zhang, Feng Yang,
+Peyman Milanfar, Alan Bovik, and Yinxiao Li. Maxvit:
+Multi-axis vision transformer. In Computer Vision–ECCV
+2022: 17th European Conference, Tel Aviv, Israel, October 23–27, 2022, Proceedings, Part XXIV, pages 459–479.
+Springer, 2022. 4
+[54] Pavan Kumar Anasosalu Vasu, James Gabriel, Jeff Zhu, Oncel Tuzel, and Anurag Ranjan. Fastvit: A fast hybrid vision transformer using structural reparameterization. arXiv
+preprint arXiv:2303.14189, 2023. 2, 4
+[55] Pavan Kumar Anasosalu Vasu, James Gabriel, Jeff Zhu,
+Oncel Tuzel, and Anurag Ranjan. Mobileone: An improved one millisecond mobile backbone. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 7907–7917, 2023. 3
+[56] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. Advances in neural
+information processing systems, 30, 2017. 3
+[57] Sinong Wang, Belinda Z Li, Madian Khabsa, Han Fang, and
+Hao Ma. Linformer: Self-attention with linear complexity.
+arXiv preprint arXiv:2006.04768, 2020. 3
+[58] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao
+Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao.
+Pyramid vision transformer: A versatile backbone for dense
+prediction without convolutions. In Proceedings of the
+IEEE/CVF international conference on computer vision,
+pages 568–578, 2021. 3, 7, 8
+[59] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao
+Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao. Pvt
+v2: Improved baselines with pyramid vision transformer.
+Computational Visual Media, 8(3):415–424, 2022. 7, 8
+[60] Jun-Ichiro Watanabe, Yang Shao, and Naoto Miura. Underwater and airborne monitoring of marine ecosystems and
+debris. Journal of Applied Remote Sensing, 13(4):044509,
+2019. 1
+[61] Ross Wightman.
+Pytorch image models.
+https :
+/ / github . com / rwightman / pytorch - image models, 2019. 6
+[62] Haiping Wu, Bin Xiao, Noel Codella, Mengchen Liu,
+Xiyang Dai, Lu Yuan, and Lei Zhang. Cvt: Introducing
+
+convolutions to vision transformers. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 22–31, 2021. 3
+[63] Tete Xiao, Mannat Singh, Eric Mintun, Trevor Darrell, Piotr
+Dollár, and Ross Girshick. Early convolutions help transformers see better. Advances in neural information processing systems, 34:30392–30400, 2021. 3
+[64] Li Yuan, Yunpeng Chen, Tao Wang, Weihao Yu, Yujun Shi,
+Zi-Hang Jiang, Francis EH Tay, Jiashi Feng, and Shuicheng
+Yan. Tokens-to-token vit: Training vision transformers from
+scratch on imagenet. In Proceedings of the IEEE/CVF international conference on computer vision, pages 558–567,
+2021. 7
+[65] Jiangning Zhang, Xiangtai Li, Jian Li, Liang Liu, Zhucun
+Xue, Boshen Zhang, Zhengkai Jiang, Tianxin Huang, Yabiao
+Wang, and Chengjie Wang. Rethinking mobile block for efﬁcient neural models. arXiv preprint arXiv:2301.01146, 2023.
+1
+[66] Qinglong Zhang and Yu-Bin Yang. Rest: An efﬁcient transformer for visual recognition. Advances in Neural Information Processing Systems, 34:15475–15485, 2021. 3
+[67] Wenqiang Zhang, Zilong Huang, Guozhong Luo, Tao Chen,
+Xinggang Wang, Wenyu Liu, Gang Yu, and Chunhua Shen.
+Topformer: Token pyramid transformer for mobile semantic
+segmentation. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 12083–
+12093, 2022. 3
+[68] Xiangyu Zhang, Xinyu Zhou, Mengxiao Lin, and Jian Sun.
+Shufﬂenet: An extremely efﬁcient convolutional neural network for mobile devices. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+pages 6848–6856, 2018. 1, 3
+[69] Yanchao Zhang, Jiya Yu, Yang Chen, Wen Yang, Wenbo
+Zhang, and Yong He. Real-time strawberry detection using
+deep neural networks on embedded system (rtsd-net): An
+edge ai application. Computers and Electronics in Agriculture, 192:106586, 2022. 1
+[70] Zizhao Zhang, Han Zhang, Long Zhao, Ting Chen, Sercan Ö
+Arik, and Tomas Pﬁster. Nested hierarchical transformer:
+Towards accurate, data-efﬁcient and interpretable visual understanding. In Proceedings of the AAAI Conference on Artiﬁcial Intelligence, volume 36, pages 3417–3425, 2022. 7
+[71] Daquan Zhou, Qibin Hou, Yunpeng Chen, Jiashi Feng, and
+Shuicheng Yan. Rethinking bottleneck structure for efﬁcient
+mobile network design. In Computer Vision–ECCV 2020:
+16th European Conference, Glasgow, UK, August 23–28,
+2020, Proceedings, Part III 16, pages 680–697. Springer,
+2020. 3
+[72] Lei Zhu, Xinjiang Wang, Zhanghan Ke, Wayne Zhang, and
+Rynson WH Lau. Biformer: Vision transformer with bi-level
+routing attention. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages
+10323–10333, 2023. 3
+
+11
+
+

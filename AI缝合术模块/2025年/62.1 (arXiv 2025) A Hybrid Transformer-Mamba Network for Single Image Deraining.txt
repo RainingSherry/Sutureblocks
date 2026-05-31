@@ -1,0 +1,2164 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+1
+
+A Hybrid Transformer-Mamba Network for Single
+Image Deraining
+
+arXiv:2409.00410v1 [cs.CV] 31 Aug 2024
+
+Shangquan Sun, Wenqi Ren, Juxiang Zhou, Jianhou Gan, Rui Wang, Xiaochun Cao, Senior Member, IEEE
+
+Abstract—Existing deraining Transformers employ selfattention mechanisms with fixed-range windows or along channel
+dimensions, limiting the exploitation of non-local receptive fields.
+In response to this issue, we introduce a novel dual-branch hybrid
+Transformer-Mamba network, denoted as TransMamba, aimed
+at effectively capturing long-range rain-related dependencies.
+Based on the prior of distinct spectral-domain features of
+rain degradation and background, we design a spectral-banded
+Transformer blocks on the first branch. Self-attention is executed
+within the combination of the spectral-domain channel dimension
+to improve the ability of modeling long-range dependencies. To
+enhance frequency-specific information, we present a spectral
+enhanced feed-forward module that aggregates features in the
+spectral domain. In the second branch, Mamba layers are
+equipped with cascaded bidirectional state space model modules
+to additionally capture the modeling of both local and global
+information. At each stage of both the encoder and decoder,
+we perform channel-wise concatenation of dual-branch features
+and achieve feature fusion through channel reduction, enabling
+more effective integration of the multi-scale information from
+the Transformer and Mamba branches. To better reconstruct
+innate signal-level relations within clean images, we also develop
+a spectral coherence loss. Extensive experiments on diverse
+datasets and real-world images demonstrate the superiority of
+our method compared against the state-of-the-art approaches.
+We have released the codes and pre-trained models on Github.
+Index Terms—Single image deraining, Rain streak removal,
+Image restoration, Spectral domain, Transformer, State space
+model, Hybrid model
+
+(a) Input
+
+(b) DualGCN [1]
+
+(c) SPDNet [2]
+
+(d) Restormer [3]
+
+(e) IDT [4]
+
+(f) DRSformer [5]
+
+(g) UDR-S2 Former- [6]
+
+(h) NeRD- [7]
+
+(i) Ours
+
+Fig. 1. Visual comparisons among the state-of-the-art Transformer deraining
+methods and ours on real-world rainy Internet-Data [8]. All model weights
+for real-world deraining are trained on SPA-Data [8]. The samples from (b)
+to (h) are DualGCN [1], SPDNet [2], Restormer [3], IDT [4], DRSformer [5],
+UDR-S2 Former [6], and NeRD [7]. Our method produces the most visually
+pleasing result on the real-world rainy image.
+
+I. I NTRODUCTION
+Rain, as a common adverse weather, severely degrades
+outdoor vision and thus rain streak removal is a vital low-level
+vision task to recover rainy images into clean ones. Early
+works leverage physical priors to design their models such
+as sparse coding [9], low-rank model [10], Gaussian mixture
+model [11], etc. However, these models heavily rely on the
+manual tuning of hyper-parameters and thus cannot remove
+rains of complex appearances and various scales.
+This paper was produced by the IEEE Publication Technology Group. They
+are in Piscataway, NJ.
+Manuscript received April 19, 2021; revised August 16, 2021.
+Shangquan Sun and Rui Wang are with the State Key Laboratory of
+Information Security, Institute of Information Engineering, Chinese Academy
+of Sciences, Beijing 100093, China. Shangquan Sun is also with the School of
+Cyber Security, University of Chinese Academy of Sciences, Beijing 100049,
+China.
+Wenqi Ren and Xiaochun Cao are with the School of Cyber Science and
+Technology, Shenzhen Campus of Sun Yat-sen University, Shenzhen 518107,
+China. (E-mail: renwq3@mail.sysu.edu.cn
+Juxiang Zhou and Jianhou Gan are with the Key Laboratory of Education
+Information for Nationalities, Yunnan Normal University, Ministry of Education, Kunming 650031, China.
+
+Recently, convolutional neural networks (CNNs) have outperformed traditional models in modeling complex patterns.
+Various CNN architectures have been developed for single
+image deraining [12]–[16], [16]–[23]. Nonetheless, CNNs fail
+to learn long-range dependencies due to the limited-range
+receptive field of convolutional layers. To overcome this issue,
+Transformers [3]–[6], [24]–[27] have been employed to learn
+non-local representations based on the self-attention mechanism for rain streak removal. However, the quadratic computational complexity of the self-attention mechanism compromises the choices of token selection. The existing deraining Transformers thus require self-attention either restricted
+within each channel dimension or fixed-size blocks, limiting
+their ability to fully leverage long-range dependencies. The
+setting also neglects the innate coherence between rain streaks
+dynamically located but closely correlated in appearance.
+To address the challenge of efficiently removing rain
+streaks from images, we propose a dual-branch hybrid
+Transformer-Mamba (TransMamba) network. Our model
+consists of two branches: a Transformer branch and a Mamba
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+branch, each serving distinct yet complementary roles in the
+deraining process.
+Rain streaks present unique challenges due to their frequency characteristics in the spectral domain. We observe
+that each token in the spectral domain represents a sinusoidal
+component of the original 2D image, offering a globally
+decomposed representation of specific frequency bands. The
+lower-frequency components primarily encode the rain streaks,
+which typically appear as repeated, texture-free areas. In
+contrast, high-frequency components represent background
+regions with richer textures. To leverage this observation,
+we first transform images into the spectral domain using the
+Fast Fourier Transform (FFT). This transformation allows us
+to perform self-attention in the spectral domain, capturing
+global dependencies more effectively based on frequency
+decomposition. By isolating the tokens into distinct frequency
+bands, we introduce spectral banding self-attention (SBSA),
+which selectively reallocates attention based on the band’s
+significance. The low-frequency bands containing rain streaks
+receive reduced attention, while high-frequency bands that
+encode background textures receive enhanced attention. This
+selective attention enables effective rain streak removal by
+attenuating low-frequency rain signals and preserving highfrequency image details.
+To further refine feature extraction in the spectral domain,
+we introduce a spectral enhanced feed-forward (SEFF) module. This module capitalizes on the property that elementwise multiplication in the frequency space is analogous to
+convolution in the spatial domain. Within our dual-branch architecture, we apply pixel-wise weights and biases to spectraldomain features, enhancing frequency-specific information.
+The SiLU activation in one branch acts as a gating mechanism,
+controlling the output of the other branch to achieve optimal
+spectral enhancement.
+While the Transformer branch focuses on capturing global
+information, our Mamba branch is designed to enhance sequence coherence. Comprising bi-directional state space model
+(SSM) modules, this branch ensures that linear dependencies
+between image sequences are preserved. We leverage the
+coherence measure from signal processing, which quantifies
+the linear relationship between two signals, to introduce a
+spectral coherence loss function. This loss function ensures
+that the reconstructed image maintains the linear relationships
+inherent in the clean image, resulting in a more accurate and
+consistent derained output.
+In summary, our contributions are in three folds:
+• We propose a dual-branch hybrid Transformer-Mamba
+network. Its first Transformer branch enables a comprehensive information modeling, conducting attention
+across spectral-domain tokens into bands of different frequencies. The second Mamba branch is equipped with bidirectional SSM modules to enhance sequence coherence.
+• To better extract frequency-specific features, we develop
+a spectral enhanced feed-forward module. By introducing
+a spectral coherence loss function, we ensure the reconstruction of the signal-level linear relationship.
+• By conducting extensive experiments on various benchmarks and real-world images, we show that our method
+
+2
+
+Rainy Image
+FFT
+
+IFFT
+
+FFT
+
+IFFT
+
+Clean Image
+
+Fig. 2. Demonstration that spectral bands of different frequencies separately
+encode background and rain streaks. The process of replacing the lowfrequency band of the rainy signal with that of the clean signal, results in
+the easy removal of rain streaks. Inspired by the phenomenon, we propose
+allocating various attention across bands, taking advantage of the distinct
+information encoding in different frequency bands.
+
+obtains more favourable deraining performance than the
+state-of-the-art methods.
+II. R ELATED W ORK
+Single Image Deraining. Early methods have tried tackling
+single image deraining by employing various physical priors
+of rain streaks [9], [11], [28]–[30]. But they generally require
+empirically tuning handcrafted hyper-parameters and cannot
+adapt to complex rainy scenarios.
+In recent years, deep learning methods such as CNNs [31],
+[32] have outperformed traditional methods in many vision
+tasks including single image deraining [33]–[39]. Many networks designs are proposed, such as encoder-decoder [40],
+detail network [41], [42], recurrent network [12]–[14], spiking
+network [43], neural representation learning [7], generative
+adversarial network [44], multi-scale structure [16]–[18], variational auto-encoder [15], fractal band learning [45], progressive learning [16], [22], [23], [46], and semi-supervised transfer learning [19]–[21]. Other methods combine deep learning
+with traditional priors to achieve better deraining effect [47],
+[48]. To enable the training of CNN, many datasets have been
+collected, including those with synthetic rain streaks [12], [42],
+[49] and real-world rain [8], [50], [51]. Despite surpassing
+traditional approaches, CNN-based methods have a restricted
+receptive field and thus are difficult to effectively capture longrange dependencies.
+Vision Transformer. More recently, Transformers [52], [53]
+have been adopted into computer vision and show better
+performance than CNNs [54]–[60]. To enable flexible shape of
+input and scalable inference, other works combine convolution
+and Transformer [61]–[63]. For single image deraining, Jiang
+et al. [26] propose a deraining network unifying CNN and
+Transformer. Xiao et al. [4] design a pure Transformer with
+window-based and spatial self-attention to effectively remove
+rain streaks. To better model rain-induced degradation relationship, sparse Transformers [5], [6] have also been proposed.
+However, the existing Transformer-based deraining methods
+are confined to self-attention along each channel dimension
+or fixed-range windows, disregarding that rain streaks are
+diversely located but similar in terms of appearance and
+thus closely correlated in the spectral domain. To this end,
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+we propose a spectral-domain banding Transformer that pays
+adaptive attention to background features encoded in high
+frequency components and rain-degraded pixels embedded
+in low frequency components, and obtain superior deraining
+performance.
+Transformer in the Spectral Domain. Several works
+explore to combine Transformer architecture and frequencydomain representation to address magnetic resonance super
+resolution [64], music information retrieval [65], fault diagnosis [66], video super resolution [67], [68] and deblurring [69].
+Some works in hyperspectral image analysis have the name of
+spectral Transformer but are not related to transforming spatial
+RGB images into spectral or frequency domain [70]–[73].
+Fang et al. [64] compute the gradient map of input images
+to embed high-frequency prior before feeding them into
+Transformer. Ding at al. [66] apply one-dimensional frequency
+transformation along time dimension to better encode longrange sequence. Another work [67] employs Discrete Cosine
+Transform within self-attention module, disregarding the complex part of original image signal. Kong et al. [69] replace the
+tensor multiplication in the spatial domain within self-attention
+module with element-wise product among Query, Key and
+Value patches in frequency domain. The existing Transformers
+in the frequency domain either calculate single dimensional
+frequency along time dimension for processing sequence
+data or merely compute patch-level frequency representation,
+unable to capture global spatial dependencies. We thus
+develop an image-level SBSA for global feature extraction
+and an SEFF to better reweigh extracted information.
+Image Restoration in the Spectral Domain. Several works
+have introduced spectral-domain operations to tackle the tasks
+of image restoration, including super-resolution [64], video
+super resolution [67], [68], deblurring [69], [74], and general
+restoration [75]. However, they disregard the the spectraldomain prior of rain streak and thus are not efficiently adaptive
+to single image deraining.
+Vision Mamba. Most recently, state space models [76]–[79]
+like Mamba [80], [81] show their ability in the efficiency of
+long-range modeling. Though several works have explored
+their ability in vision tasks [82]–[85], some other work points
+out that attention-based and CNN models are still superior to
+Mambas in local and short-sequence [86]. To further enhance
+global modeling capacity,the existing Mamba-based deraining
+works [82], [84], [85] all transform images and perform
+computation in frequency domain by chance. In this work,
+we alternatively experiment on combining CNN, Transformer
+and Mamba in frequency domain to equip the model with the
+ability of both local and global modeling.
+III. M ETHOD
+A. Overall Network Architecture
+The general network architecture of our proposed TransMamba, illustrated in Figure 3, follows a symmetrical multilevel dual-branch encoder-decoder structure. Consider the input as a rainy image denoted as R ∈ R3×H×W , where H and
+W represent the image’s height and width, respectively. We
+employ a 3 × 3 convolution to generate the overlapping embedding of image patches. Within the blocks in the first branch
+
+3
+
+of the encoder-decoder, we incorporate multiple SDTBs to
+capture intricate features and discern dynamically distributed
+rain-related factors. For the second branch, we leverage multiple CBSMs to supplement the missing information for the
+first branch of Transformer blocks. The output features of two
+branches are merged at each level by concatenation and pointwise convolution. Within the same level, encoders and decoders are interconnected through skip-connections, aligning
+with prior studies [3], [4], [87], to bolster the training process’s
+stability. Between each level, we employ pixel-unshuffle and
+pixel-shuffle operations, serving the purpose of feature downsampling and up-sampling, respectively.
+B. Spectral-Domain Transformer Block
+At each level of our TransMamba, multiple SDTBs are
+cascaded and the pipeline of SDTB can be expressed by the
+following equations:
+Fn = Fn−1 + SBSA [LayerNorm (Fn−1 )] ,
+
+(1)
+
+Fn = Fn + SEFF [LayerNorm (Fn )] ,
+
+(2)
+
+where LayerN orm denotes layer normalization, and Fn
+represents the feature at the n-th level. It comprises two
+sub-modules, i.e., SBSA for attaining long-range and local
+dependency extraction in both the spectral and spatial domains,
+and SEFF for augmenting frequency-specific information of
+rain streaks. The details of these sub-modules are elaborated
+in the subsequent sections.
+1) Spectral Banding Self-Attention Module: To better
+capture dynamically distributed rain-induced degradation, we
+introduce a spectral banding self-attention (SBSA) module.
+This module encompasses a sequence involving a group of
+separable convolutions, consisting of a point-wise convolution
+and a depth-wise convolution, a 2D FFT operation, and a
+spectral banding attention mechanism. Separable convolutions
+are employed to extract rain-related degradation features of
+Query, Key, and Value. This extraction allows the subsequent
+attention mechanism to weigh the values of feature tokens
+effectively. The operation of FFT transforms spatial-domain
+features into the spectral domain, where each pixel embeds
+a sinusoidal component of the original spatial features with
+a specific frequency. Due to the decomposition property,
+modifying a single token in the spectral domain yields a
+global signal alteration of the original image. We thus argue
+that each spectral-domain token encodes partial dependencies
+of global knowledge, and the extraction of the tokens enables
+the capture of long-range information. By employing the
+aforementioned process of feature extraction, our SBSA
+achieves a combination of global and local dynamic feature
+aggregation. This process is articulated as follows:
+[FQ , FK , FV ] = Conv1×1 (Fn ),
+d
+Fi∈{Q,K,V } = C2R(F(Conv3×3
+(Fi ))),
+
+(3)
+
+d
+where Conv3×3
+is the 3 × 3 depth-wise convolution,
+Conv1×1 represents the point-wise convolution, F denotes
+the operation of 2D FFT, C2R represents the complex-to-real
+operation achieved by view_as_real in PyTorch, and
+
+Cascaded Bi-directional SSM Module
+(CBSM)
+
+C H W
+
+2C H/2 W/2
+
+SDTB
+
+SDTB
+
+4C H/4 W/4
+
+SDTB
+
+LN
+
+SEFF
+
+LN
+
+SBSA
+
+4C H/4 W/4
+
+8C H/8 W/8
+
+SDTB
+
+2C H/2 W/2
+
+SDTB
+Patch Embedding
+
+C
+
+DWConv2d
+
+DWConv2d
+
+Channel
+Attention
+
+C
+
+C
+
+C
+
+Spatial
+Attention
+
+C
+
+C
+
+gather&split
+
+R2C
+
+IFFT
+
+Mesh Index
+Scatter
+
+Reshape
+
+softmax
+
+SSM
+
+Flip
+
+DWConv2d
+
+DWConv2d
+
+Channel
+Attention
+
+Spatial
+Attention
+
+IFFT
+
+Weight
+FFT
+
+Dilated
+DWConv
+
+High frequency
+
+Derained
+
+MambaLayer
+
+MambaLayer
+
+MambaLayer
+
+CBSM
+
+LayerNorm
+
+CBSM
+
+MambaLayer
+
+MambaLayer
+
+Mamba Layer
+
+SBR
+SBR
+
+C2R
+
+C2R
+
+MambaLayer
+FFT
+
+LayerNorm
+
+DWConv1d
+
+FFT
+
+DWConv
+
+4
+
+Spectral-Domain Transformer Block
+
+Rainy
+
+DWConv
+
+SDTB
+
+C H W
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+Bias
+
+DWConv1d
+
+C
+
+Bias
+
+Spectral Feature
+
+SiLU
+
+Pixel-wise
+multiplication
+
+Fast Fourier
+Transform
+
+Inverse FFT
+
+Real to
+Complex
+
+C2R
+
+Addition
+
+R2C
+
+Matrix
+multiplication
+
+IFFT
+
+Concat
+
+FFT
+
+C
+
+Spectral Enhanced Feed-Forward
+
+Spectral Banding Reorganization (SBR)
+
+Complex
+to Real
+
+Downsample
+
+Upsample
+
+Interpolation
+
+LN
+
+Spectral Banding Self-Attention
+
+SSM
+
+IFFT
+
+FFT
+
+DWConv
+
+SBR
+
+C2R
+
+FFT
+
+DWConv
+
+Weight
+Low frequency
+
+Layer Normalization
+
+Fig. 3. The architecture of our hybrid Transformer-Mamba network (TransMamba) follows a dual-branch structure containing four levels. Each level consists
+of Ni spectral-domain Transformer Blocks (SDTBs) and Li spatial-domain Mamba layers. Each SDTB is composed of spectral banding self-attention (SBSA)
+and spectral enhanced feed-forward (SEFF). Within SBSA, we present spectral banding reorganization (SBR) to categorize high and low frequency features.
+Each Mamba layer contains multiple cascaded Bi-directional SSM modules (CBSMs).
+
+Fi∈{Q,K,V } ∈ RC×H×W are the Query, Key, and Value
+features in the spectral domain.
+Existing vision Transformers [3]–[5], [87], [88] typically
+rely on a fixed range of attention or attention solely along
+the channel dimension due to computational and memory efficiency compromises. However, this fixed setting restricts selfattention from adaptively spanning long ranges to associate
+desired features. In contrast, we observe that rain-induced
+degradation results in repetitive textures encoded within the
+restricted range of low frequency in the spectral domain, and
+pixels of different frequencies are better assigned with varying
+extents of attention. Therefore, we propose a spectral banding
+reorganization (SBR) to categorize spectral-domain elements
+into bands of different frequencies and allocate varying attentions across them. We first gather the tokens according to
+a mesh index sorting the spectral features from high to low
+frequency. The reordered spectral-domain features are then
+categorized into band sequences with the same length and concatenated across bands. For the sake of parallel computing, we
+restrict that each band contains an identical number of pixels
+during implementation. The process of SBR is expressed as
+Fi∈{Q,K,V } = Reorganize(gather(Fi ; M)),
+
+(4)
+
+where Reorganize represents the operation of reorganizing
+features from RC×HW to RCb×HW/b , and gather(·; M) is
+the gathering operation following the mesh index of M. The
+index M is pre-computed as a form of mesh grid for a specific
+
+shape of H×W such that its center items possess small indices
+indicating higher frequencies while the outer indices indicating
+lower frequencies are ordered at last. To extract both longrange and local information, we mix the channel dimension,
+involving rich information of local representation, and the
+band dimension, encoding the dynamic-range dependencies.
+The reorganized features are then fed into the self-attention
+mechanism, and the process can be formulated as below:
+
+
+⊤
+FQ FK
+(5)
+√
+Fn = softmax
+FV ,
+k
+where k is the number of heads. After obtaining spectraldomain attentive feature, we output the spatial feature by
+
+Fn = Conv1×1 F −1 (R2C (Scatter (R(Fn ); M))) ,
+where F −1 is the process of 2D inverse FFT, R2C
+represents the real-to-complex operation achieved by
+view_as_complex in PyTorch, Scatter denotes the
+token retrieval step based on the index M, and R is the
+dimension-reshaping operation.
+2) Spectral Enhanced Feed-Forward Module: Previous
+studies [3]–[5], [87] typically rely on single-range or singlescale convolution in the feed-forward network to enhance local
+context. However, these methods often overlook correlations
+among dynamically distributed rain-induced degradation of
+different ranges and scales. In practice, multi-scale information
+can be extracted not only by enlarging the kernel size but also
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+by leveraging the dilation mechanism [89]–[91]. Consequently,
+we integrate two distinct multi-range depth-wise convolution
+pathways in our feed-forward module. We also capitalize on
+the property that convolution in the spatial domain is equivalent to element-wise product in the spectral domain, leading to
+the conception of the spectral enhanced feed-forward (SEFF)
+module. In SEFF, a pair of weights and biases is resized
+and broadcast to act as a biased filter on the spectral-domain
+features. This enables each token, representing a frequency
+component, to be adaptively enhanced or filtered, such that
+rain-related and background tokens can be better separated.
+Given an input tensor Fn ∈ RC×H×W , we initially employ
+a point-wise convolution operation to augment the channel
+dimension by a factor of r. Following this augmentation,
+the expanded tensor is directed into two parallel branches.
+Throughout the feature transformation process, 3 × 3 and
+dilated 3×3 depth-wise convolutions are employed to enhance
+the extraction of multi-range information. The features on both
+branches are then transformed into the spectral domain and
+enhanced by a pair of learnable weight and bias variables,
+such that the spectral-domain information is enhanced. The
+weight has a predefined size, but can be interpolated to a shape
+fitting the input feature and acts like an adaptive-frequencypass filter, remaining background tokens and filtering out rainrelated degradation. Following the gating mechanism [92], the
+activated output of one branch with the receptive field of
+longer range acts as a gating unit for the other branch. Thus,
+the complete feature fusion process within the SEFF module
+is formulated as follows:
+[F1 , F2 ] = Conv1×1 (Fn ),
+d,dilated
+d
+F1 = Conv3×3
+(F1 ), F2 = Conv3×3
+(F2 ),
+↑
+↑
+F1 = W1 ⊙ F(F1 ) + B1 , F2 = W2 ⊙ F(F2 ) + B2 ,
+
+Fn = Conv1×1 SiLU(F −1 (F2 )) ⊙ F −1 (F1 ) ,
+d,dilated
+where Conv3×3
+is 3 × 3 dilated depth-wise convolution,
+↑
+Wi∈{1,2} ∈ CC×H×W represents the interpolated feature map
+of spectral-domain weight, Bi∈{1,2} ∈ RC×1×1 is the bias
+
+feature map, and SiLU is the SiLU activation [93].
+C. Cascaded Bidirectional SSM Modules
+Inspired by [79], we propose leveraging cascaded bidirectional SSM modules to further enhance the sequential
+coherence. The expression of forward direction can be formulated as below,
+[F1 , F2 ] = Conv1×1 (Fn ),
+d
+F1 = SSM(σ(Conv1dd (SA(Conv5×5
+(F1 ))))),
+
+5
+
+where Flip is the flip operation along channel dimension.
+With the channel-flipping operation, the convolution and SSM
+processes are reversed from the forward direction to the
+backward direction. Cascading the forward- and backwarddirectional CBSMs forms the bi-directional SSM module. The
+bi-directional strategy can alleviate the forgetting of long range
+feature of SSM modules, better enhancing the long range
+information extraction.
+D. Reconstruction Loss and Coherence Loss
+To supervise the training of our TransMamba, we employ
+L1 norm between the derained image B̃ and clean background
+B as the reconstruction loss, which is expressed as follows:
+Lrec = B̃ − B
+
+.
+
+(6)
+
+1
+
+Furthermore, we notice that the Lrec only regulates the
+pixel-level similarity between the derained image and the
+ground-truth, while disregarding the global coherence between
+them from the perspective of signal. The innate relationships
+of signal components in the spectral domain within the image
+are disrupted by the patterns of rain degradation. By emulating
+the original signal relationships within the ground-truth, we
+compel the signal representation of degraded images to recover
+to their original sinusoidal signals of the clean background.
+Consequently, we introduce the coherence [95] between image
+spectra as a means to regulate the comprehensive linear
+relationship, expressed as follows:
+
+
+F(B̃)F(B)
+
+
+
+2
+1
+
+G B̃, B =
+F(B̃)F(B̃)
+
+,
+
+(7)
+
+F(B)F(B)
+1
+
+1
+
+where F denotes the conjugate component of a signal F ,
+F(F )F(F )
+is the spectral density of a signal F , and
+1
+
+2
+
+the numerator F(B̃)F(B) represents the squared cross1
+spectral density between the derained and clean image signals.
+The value of Eq. 7 falls within the range of [0, 1]. When two
+image signals exhibit irrelevant coherence, Eq. 7 reaches a
+value of 0, while in the case of perfectly linear coherence,
+it obtains a value of 1. Hence, we formulate the spectral
+coherence loss as follows:
+r 
+
+Lcoh = 1 − G B̃, B .
+(8)
+The final loss function is thus expressed as:
+L = Lrec + αLcoh ,
+
+(9)
+
+where α is the weight of spectral coherence loss.
+
+d
+F3 = F1 · σ(CA(Conv5×5
+(F2 ))),
+
+where SA and CA denote the spatial attention and channel
+attention [94] respectively. The expression of backward direction can be formulated as below,
+[F4 , F5 ] = Conv1×1 (Flip(F3 )),
+d
+F4 = SSM(σ(Conv1dd (SA(Conv5×5
+(F4 ))))),
+d
+Fo = F4 · σ(CA(Conv5×5
+(F5 ))),
+
+IV. E XPERIMENT
+A. Experimental Setting
+a) Implementation Details.: In our model, the numbers
+of SDTBs Ni∈{1,2,3,4} and CMSMs Li∈{1,2,3,4} in Figure 3
+are set to (1, 3, 4, 4) respectively. The numbers of attention
+heads for SDTBs at four levels are set to (1, 2, 4, 8). The initial
+channel Cf is set to 36. Regarding SBSA, we set b = 2 for the
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+6
+
+TABLE I
+Q UANTITATIVE C OMPARISON AMONG OUR SDBF ORMER AND THE EXISTING METHODS ON BOTH SYNTHETIC AND REAL RAIN DATASETS . T HE BOTTOM
+HALF OF THE TABLE CONTAINS THE T RANSFORMER - BASED METHODS , WHILE THE UPPER HALF CONTAINS THE OTHERS . T HE VALUES IN BOLD AND
+UNDERLINED ARE THE BEST AND THE SECOND BEST RESULTS .
+Datasets
+Type
+
+Rain200H
+
+Rain200L
+
+DID-Data
+
+DDN-Data
+
+SPA-Data
+
+Methods
+Venue
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+Prior
+
+DSC [29]
+GMM [11]
+
+ICCV’15
+CVPR’16
+
+14.73
+14.50
+
+0.3815
+0.4164
+
+27.16
+28.66
+
+0.8663
+0.8652
+
+24.24
+25.81
+
+0.8279
+0.8344
+
+27.31
+27.55
+
+0.8373
+0.8479
+
+34.95
+34.30
+
+0.9416
+0.9428
+
+CNN
+
+DDN [42]
+RESCAN [13]
+PReNet [22]
+MSPFN [16]
+RCDNet [48]
+MPRNet [23]
+DualGCN [1]
+SPDNet [2]
+
+CVPR’17
+ECCV’18
+CVPR’19
+CVPR’20
+CVPR’20
+CVPR’21
+AAAI’21
+ICCV’21
+
+26.05
+26.75
+29.04
+29.36
+30.24
+30.67
+31.15
+31.28
+
+0.8056
+0.8353
+0.8991
+0.9034
+0.9048
+0.9110
+0.9125
+0.9207
+
+34.68
+36.09
+37.80
+38.58
+39.17
+39.47
+40.73
+40.50
+
+0.9671
+0.9697
+0.9814
+0.9827
+0.9885
+0.9825
+0.9886
+0.9875
+
+30.97
+33.38
+33.17
+33.72
+34.08
+33.99
+34.37
+34.57
+
+0.9116
+0.9417
+0.9481
+0.9550
+0.9532
+0.9590
+0.9620
+0.9560
+
+30.00
+31.94
+32.60
+32.99
+33.04
+33.10
+33.01
+33.15
+
+0.9041
+0.9345
+0.9459
+0.9333
+0.9472
+0.9347
+0.9489
+0.9457
+
+36.16
+38.11
+40.16
+43.43
+43.36
+43.64
+44.18
+43.20
+
+0.9457
+0.9707
+0.9816
+0.9843
+0.9831
+0.9844
+0.9902
+0.9871
+
+Transformer
+
+Uformer [87]
+Restormer [3]
+IDT [4]
+DRSformer [5]
+UDR-S2 Former [6]
+NeRD-Rain [7]
+
+CVPR’22
+CVPR’22
+PAMI’22
+CVPR’23
+ICCV’23
+CVPR’24
+
+30.80
+32.00
+32.10
+32.17
+32.59
+32.40
+
+0.9105
+0.9329
+0.9344
+0.9326
+0.9374
+0.9373
+
+40.20
+40.99
+40.74
+41.23
+40.96
+41.71
+
+0.9860
+0.9890
+0.9884
+0.9894
+0.9892
+0.9903
+
+35.02
+35.29
+34.89
+35.35
+35.29
+35.53
+
+0.9621
+0.9641
+0.9623
+0.9646
+0.9628
+0.9659
+
+33.95
+34.20
+33.84
+34.35
+34.41
+34.45
+
+0.9545
+0.9571
+0.9549
+0.9588
+0.9573
+0.9596
+
+46.13
+47.98
+47.35
+48.54
+48.57
+49.58
+
+0.9913
+0.9921
+0.9930
+0.9924
+0.9917
+0.9940
+
+Mamba
+
+DFSSM [82]
+
+ArXiv’24
+
+32.90
+
+0.9394
+
+41.73
+
+0.9900
+
+-
+
+-
+
+-
+
+-
+
+48.83
+
+0.9944
+
+Hybrid
+
+Ours
+
+-
+
+32.96
+
+0.9409
+
+41.92
+
+0.9938
+
+35.63
+
+0.9657
+
+34.72
+
+0.9603
+
+49.72
+
+0.9968
+
+(a) Input
+
+(b) [3]
+
+(c) [4]
+
+(d) [5]
+
+(e) [6]
+
+(f) [7]
+
+(g) Ours
+
+(h) Clean
+
+Fig. 4. Visual comparisons of deraining on Rain200L (1st row) and Rain200H (2nd row) [12]. The sample from (b) to (f) are Restormer [3], IDT [4],
+DRSformer [5], UDR-S2 Former [6], and NeRD-Rain [7], respectively. Please zoom in for a better view.
+
+number of bands based on the ablation studies in Section IV-D.
+In terms of SEFF, the channel expansion factor r is set to
+2.667 and the predefined weight has the size of 48×48. During
+training, we use the AdamW optimizer [96] with a progressive
+training [3] of an initial batch size 8 and initial patch size 128.
+The total number of iterations is 300, 000. The initial learning
+rate is set to 3 × 10−4 for the first 92, 000 iterations, and then
+reduced to 1×10−6 for the remaining 208, 000 iterations using
+the cosine annealing scheme [97]. For data augmentation, we
+use random vertical and horizontal flips. The experiments are
+all implemented on NVIDIA Tesla V100 GPU using PyTorch.
+
+b) Benchmarks.: We conduct experiments on five commonly used deraining datasets, namely Rain200H [12],
+Rain200L [12], DID-Data [49], DDN-Data [42] and SPAData [8]. Both Rain200H and Rain200L are introduced by
+Yang et al. [12] and represent two benchmarks with images
+featuring heavy and light rain streaks, respectively. Each of
+them comprises 1800 synthetic training pairs and 200 test
+images. DID-Data [42] consists of 12000 synthetic training
+pairs characterized by three distinct rain-density levels, alongside 1200 pairs of test images. DDN-Data [42] is created
+by synthesizing 14000 pairs of rainy data based on 1000
+images drawn from UCID [98], BSD [99], and Google-
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+(a) Input
+
+(b) [3]
+
+(c) [4]
+
+7
+
+(d) [5]
+
+(e) [6]
+
+(f) [7]
+
+(g) Ours
+
+(h) Clean
+
+Fig. 5. Visual comparisons of deraining on DID-Data [49] (1st row) and DDN-Data [42] (2nd row). The sample from (b) to (f) are Restormer [3], IDT [4],
+DRSformer [5], UDR-S2 Former [6], and NeRD-Rain [7], respectively. Please zoom in for a better view.
+
+(a) Input
+
+(b) [2]
+
+(c) [3]
+
+(d) [4]
+
+(e) [5]
+
+(f) [6]
+
+(g) Ours
+
+(h) Clean
+
+Fig. 6. Visual comparisons of deraining on two samples from SPA-Data [8]. The sample from (b) to (f) are SPDNet [2], Restormer [3], IDT [4], DRSformer [5],
+and UDR-S2 Former [6], respectively. Please zoom in for a better view.
+
+searched images. SPA-Data [8], is a large-scale real-world
+rainy dataset, encompassing a vast array of 638,464 rainy/clean
+image patches for training and 1000 image pairs for testing.
+We also utilize Internet-Data [8], including 147 real-world
+rainy images, for qualitative comparison.
+c) Baselines.: We compare our TransMamba with two
+optimization-based models, i.e., DSC [29] and GMM [11],
+eight CNN methods including DDN [42], RESCAN [13],
+PReNet [22], MSPFN [16], RCDNet [48], MPRNet [23],
+DualGCN [1] and SPDNet [2], and five Transformer-based
+approaches including Uformer [87], Restormer [3], IDT [4],
+DRSFormer [5], UDR-S2 Former [6], and NeRD-Rain [7].
+B. Comparisons with the State-of-the-Arts
+a) Quantitative Evaluation.: In our study, we present a
+comprehensive comparative analysis on both synthetic and real
+rainy datasets, as summarized in Table I. As indicated, our
+proposed method consistently outperforms all other deraining
+methods, achieving superior results in terms of PSNR. For
+instance, TransMamba surpasses the state-of-the-art approach
+UDR-S2 Fromer by an average of 0.32 dB. The model size, and
+complexity, inference runtime and The non-reference image
+quality results on the unpaired dataset Internet-Data [8] are
+reported in the supplementary materials.
+
+As the ground truths of real-world rainy images in InternetData [8] are missing, we conduct the qualitative comparison
+by computing non-reference image quality assessment metrics
+including NIQE [100] and BRISQUE [101] on 20 randomly
+sampled images. The results are shown in Table II. As seen,
+our method achieves the best image qualities in terms of both
+non-reference metrics.
+b) Qualitative Evaluation.: Furthermore, we conduct a
+visual comparison on the six datasets, and the deraining results
+are depicted in Figures 4-7. Figure 4 and Figure 5 showcase
+the deraining results on synthetic datasets, while Figure 6 and
+Figure 7 present the deraining outcomes on real-world datasets
+SPA-Data [8] and Internet-Data [8], respectively. These visual
+results highlight the efficacy of our method in comprehensively
+eliminating rain degradation, including both small and large
+rain streaks, in both simulated and real-world rainy images.
+C. Performance and Complexities
+We also compare our method with the recent deraining
+models in terms of model size and computation complexities.
+Additionally, we present the deraining results in terms of
+PSNR on Rain200L [12] for convenient reference to their
+performances. The values of complexities are shown in Table III. As shown, our method has comparable model size
+and computation overhead as the previous methods. Note that
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+(a) Input
+
+(b) [3]
+
+8
+
+(c) [4]
+
+(d) [5]
+
+(e) [6]
+
+(f) [7]
+
+(g) Ours
+
+Fig. 7. Visual comparisons of deraining on two samples from Internet-Data [8]. All model weights for real-world deraining are trained on SPA-Data [8]. The
+sample from (b) to (f) are Restormer [3], IDT [4], DRSformer [5], and UDR-S2 Former [6], NeRD [7], respectively. Please zoom in for a better view.
+TABLE II
+T HE METRICS COMPARISON OF REAL - WORLD DERAINING INVOLVES NON - REFERENCE IMAGE QUALITY ASSESSMENT ON I NTERNET-DATA [8].
+
+NIQE↓
+BRISQUE↓
+
+Rainy
+
+SPDNet [2]
+
+Uformer [87]
+
+Restormer [3]
+
+IDT [4]
+
+DRSformer [5]
+
+UDR-S2 Former [6]
+
+NeRD [7]
+
+Ours
+
+3.66
+22.47
+
+3.88
+27.64
+
+4.21
+25.62
+
+3.62
+24.25
+
+3.71
+22.94
+
+4.03
+26.23
+
+3.52
+20.65
+
+3.49
+20.13
+
+3.31
+18.51
+
+TABLE III
+T HE PERFORMANCE EVALUATIONS OF DERAINING METHODS ENCOMPASSING PSNR, MODEL SIZE , COMPUTATIONAL COMPLEXITY, AND RUNTIME ARE
+CONDUCTED . PSNR VALUES ARE ASSESSED ON R AIN 200L [12], AND FLOP S RESULTS ARE COMPUTED ON INPUT IMAGES OF DIMENSIONS 256×256.
+T HE VALUES OF RUNTIME ARE TESTED ON A N VIDIA T ESLA V100 GPU.
+SPDNet [2]
+
+Uformer [87]
+
+Restormer [3]
+
+IDT [4]
+
+DRSformer [5]
+
+UDR-S2 Former [6]
+
+NeRD [7]
+
+Ours
+
+40.50
+3.32M
+96.29
+0.24
+
+40.20
+20.63M
+43.86G
+0.19
+
+40.99
+26.10M
+140.99G
+0.28
+
+40.74
+16.42M
+61.90G
+0.28
+
+41.23
+33.70M
+242.9G
+0.59
+
+40.96
+8.53M
+21.58G
+0.12
+
+41.71
+22.89M
+156.3G
+0.42
+
+41.92
+16.74M
+45.67G
+0.13
+
+PSNR
+#Parameter
+FLOPs
+Runtime
+
+TABLE IV
+TABLE V
+A BLATION STUDIES ON THE CHOICE
+A BLATION STUDIES ON THE
+OF THE SELF - ATTENTION TYPE .
+NUMBER OF CHANNELS AND BANDS .
+
+TABLE VII
+A BLATION STUDIES ON STATE
+
+TABLE VI
+A BLATION STUDIES ON
+FEED - FORWARD MODULE
+
+SPACE MODULE
+
+Self-Attention
+
+PSNR
+
+SSIM
+
+(Cf , b)
+
+PSNR
+
+SSIM
+
+Feed-Forward
+
+PSNR
+
+SSIM
+
+SSM
+
+PSNR
+
+SSIM
+
+MDTA [3]
+FSAS [69]
+TKSA [5]
+w/o SBR
+SBSA
+
+32.37
+32.47
+32.54
+32.64
+32.96
+
+0.9351
+0.9364
+0.9371
+0.9383
+0.9409
+
+(72,1)
+(36,2)
+(18,4)
+(9,8)
+(4,18)
+
+32.74
+32.96
+32.78
+32.33
+31.72
+
+0.9393
+0.9409
+0.9392
+0.9349
+0.9293
+
+FN [102]
+GDFN [3]
+DFFN [69]
+MSFN [5]
+SEFF
+
+32.47
+32.58
+32.70
+32.81
+32.96
+
+0.9367
+0.9372
+0.9384
+0.9391
+0.9409
+
+VSSM [83]
+For.+For.
+Back.+Back.
+Back.+For.
+For.+Back.
+
+32.79
+32.85
+32.83
+32.94
+32.96
+
+0.9388
+0.9402
+0.9399
+0.941
+0.9409
+
+the spectral-domain weights are defined in complex space and
+their complexities could be compressed by pruning them into
+real space. We will tackle the issue of model efficiency based
+on the techniques in model compression like pruning and
+quantization. Generally, our method achieves a fair balance
+between the deraining performance and model complexity.
+D. Ablation Studies
+To assess the effectiveness of each ingredient within TransMamba, we conduct ablation studies on Rain200H [12].
+Specifically, we investigate the impact of the ingredients
+including the self-attention choice, the number of channels
+and bands in SBSA, the feed-forward choice, and the weight
+of spectral coherence loss.
+
+TABLE VIII
+A BLATION STUDIES ON THE SETTING OF CORRELATION LOSS
+Coherence Loss
+
+α
+
+PSNR
+
+SSIM
+
+w/o Lcoh
+
+0
+
+32.75
+
+0.9389
+
+w/ Lcoh
+
+0.1
+1
+5
+10
+
+32.78
+32.86
+32.96
+32.85
+
+0.9394
+0.9401
+0.9409
+0.9398
+
+a) SBSA.: To substantiate the effectiveness of the proposed SBSA, we conduct a comparison with three baselines:
+the multi-Dconv head transposed attention (MDTA) [3], the
+frequency domain-based self-attention solver (FSAS) [69],
+and the top-k sparse attention (TKSA) [5]. Additionally,
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+we explore an additional setting of SBSA by excluding the
+SBR step. The quantitative analysis results are presented in
+Table IV. FSAS employs point-wise product in the frequency
+domain to replace conventional tensor multiplication during
+the generation of attention maps, resulting in the loss of global
+information that should have been captured by tensor multiplication. Although TKSA integrates rich local information
+across channels, it may lead to a loss in the extraction of
+long-range dependencies in the spectral domain. In contrast,
+our SBSA powered by SBR is capable of extracting long-range
+dependencies both in spectral and spatial domains, resulting
+in a PSNR improvement of 0.47 dB compared to TKSA.
+b) Number of Channels and Bands.: To evaluate the
+impact of the number of feature channels (Cf ) and spectral
+bands (b) in SBSA, we conduct experiments with five different
+configurations, i.e., (72, 1), (36, 2), (18, 4), (9, 8), and (4, 18).
+Their product is constrained to be within 72 due to limited
+memory. The results are presented in Table V. It is observed
+that, although decreasing the number of channels diminishes the learning capacity of the network, the configuration
+of (18, 4) still provides comparable performance to that of
+(72, 1), indicating the effectiveness of our SBSA. When the
+combination of (Cf , b) reaches (36, 2), it leads to the best
+result among all the configurations.
+c) SEFF.: To evaluate the efficacy of the proposed
+SEFF, we conduct a comparative analysis with four alternatives: (1) the vanilla feed-forward network (FN) [102], (2)
+the gated-Dconv feed-forward network (GDFN) [3], (3) the
+discriminative frequency domain-based feed-forward network
+(DFFN) [69], and (4) the mixed-scale feed-forward network
+(MSFN) [5]. The quantitative results are shown in Table VI.
+While DFFN is capable of extracting frequency-based features,
+it falls short in leveraging multi-range spatial knowledge
+and enhancing frequency-specific information. Despite MSFN
+integrating mixed-scale information, it may still overlook the
+exploitation of multi-range spatial knowledge and the feature
+exploitation in the spectral domain. Through the incorporation
+of FFT and feature aggregation across different ranges in
+both spatial and spectral domains, our SEFF module further
+enhances performance, resulting in a PSNR gain of 0.14 dB
+over MSFN.
+d) SSM.: To evaluate the efficacy of the proposed CBSM,
+we conduct a comparative analysis with five settings: (1)
+the Vision State-Space Module (VSSM) [83], (2) the two
+cascaded forward-directional CBSM, (3) the two cascaded
+backward-directional CBSM, (4) the cascaded backward- and
+forward-directional CBSM, and (5) the cascaded forward- and
+backward-directional CBSM (ours). As shown in Table VII,
+the bi-directional settsings of (4) and (5) are the best.
+e) Spectral Coherence Loss.: Table VIII illustrates the
+efficacy of the spectral coherence loss Lcor and examines the
+impact of varying loss weight values. It is apparent that the
+incorporation of Lcoh consistently enhances performance, with
+the optimal result achieved when its loss weight α attains a
+value of 5.
+
+9
+
+TABLE IX
+D ERAINING AND SUBSEQUENT DETECTION RESULTS BY A PRETRAINED
+YOLOV 3 ON COCO350/BDD350.
+Rain
+
+DRSformer UDR-S2Former
+
+Precision (%) 24.13/37.56 33.41/41.29
+Recall (%)
+29.82/41.93 39.97/50.74
+IoU (%)
+56.51/60.44 62.03/62.14
+
+33.58/41.65
+40.23/51.04
+62.32/62.47
+
+Ours
+34.04/41.77
+40.99/52.17
+62.82/62.97
+
+E. Real-World Application
+To further show the practical application of TransMamba
+in real-world deraining and its capacity to enhance the downstream detection task, we present two examples in Figure 8.
+As illustrated, all rain streaks are removed from the scene,
+thereby aiding the detector in accurately identifying previously
+obscured objects such as shoes and handbags.
+a) Downstream Task.: To more extensively assess the
+impact of image deraining on downstream vision application
+of object detection, we utilize the popular object detection
+model YOLOv3 [103] to evaluate the derained results on
+COCO350 and BDD350 datasets [16], [104]. Table IX illustrates that our TransMamba yields the best object detection
+performance among deraining methods. Visual comparisons
+of two instances in Figure 9 demonstrate that TransMamba
+derained images exhibit the best results in image quality and
+detection accuracy.
+F. Limitation and Future Work
+Due to the powerful ability of removing rain accumulation,
+our TransMamba may make restored background over-smooth.
+We will leverage diffusion model to alleviate the issue. Besides, we are developing algorithms of model compression
+and acceleration to enable the real-time usage of rain streak
+removal models.
+V. C ONCLUSION
+In this work, we propose a spectral-domain banding Transformer to efficiently remove rain streaks in single images.
+We leverage the inherent decomposed information of spectraldomain tokens for capturing global dependencies and thus
+propose self-attention in spectral space. Observing that spectral
+bands intrinsically separate backgrounds of detailed textures
+and rain streaks of repeated patterns, we propose a spectral
+banding self-attention to allocate varying attention to different
+bands. Additionally, we present a spectral enhanced feedforward module for better extracting frequency-specific information. To better reconstruct innate relations within clean
+image signals, we also develop a spectral coherence loss.
+Extensive experiments on both synthetic benchmarks and realworld rainy images show the superiority of our method.
+R EFERENCES
+[1] X. Fu, Q. Qi, Z. Zha, Y. Zhu, and X. Ding, “Rain streak removal via
+dual graph convolutional network,” in AAAI, 2021. 1, 6, 7
+[2] Q. Yi, J. Li, Q. Dai, F. Fang, G. Zhang, and T. Zeng, “Structurepreserving deraining with residue channel prior guidance,” in ICCV,
+2021. 1, 6, 7, 8
+
+11/13/23, 5:33 AM
+
+Try it! | Cloud Vision API | Google Cloud
+
+11/13/23, 5:34 AM
+
+Try it! | Cloud Vision API | Google Cloud
+
+API8, AUGUST 2021
+JOURNAL OF LATEX CLASS FILES, VOL.Try
+14,the
+NO.
+Faces
+
+Objects
+
+Labels
+
+Text
+
+Properties
+
+Try the API
+Faces
+
+Objects
+142_crop.jpg
+
+Labels
+
+(a) Input
+
+Safe Search
+
+Faces
+
+Objects
+
+Labels
+
+10
+
+Text
+
+Properties
+
+90%
+
+Bench
+
+90%
+
+Person
+
+88%
+
+Umbrella
+
+90%
+
+Bench
+
+88%
+
+Bench
+
+89%
+
+Person
+Try it! | Cloud Vision API | Google
+Cloud
+
+89%
+
+Jeans
+
+89%
+
+Handbag
+
+84%
+
+11/13/23, 86%
+4:24 AM
+
+Bench
+
+83%
+
+Jeans
+
+83%
+
+Properties
+
+Safe Search
+
+RESET
+
+Show JSON
+
+Person
+
+Try the API
+Faces
+
+NEW FILE
+89%
+
+Objects
+142_crop.png
+
+Labels
+
+Properties
+
+Safe Search
+
+(b) Derained by ours
+
+Umbrella
+
+RESET
+
+NEW FILE
+90%
+
+Show JSON
+
+Umbrella
+
+87%
+
+Umbrella
+
+90%
+
+Umbrella
+
+86%
+
+Person
+
+89%
+
+Person
+
+85%
+
+Person
+
+87%
+
+Person
+
+83%
+
+Umbrella
+
+87%
+
+Pants
+
+86%
+
+Pants
+
+81%
+
+https://cloud.google.com/vision/docs/drag-and-drop
+
+https://cloud.google.com/vision/docs/drag-and-drop
+2/3
+
+27.jpg
+
+Person
+
+82%
+
+Person
+
+80%
+
+2/3
+
+27.png
+
+(c) Input
+
+(d) Derained by ours
+
+JSON
+RESET
+NEW FILE
+Fig. 8. Show
+Deraining
+result on two real-world rainy images from
+Internet-Data
+[8] Show
+andJSON
+their detection results by Google API.
+
+RESET
+
+Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License
+
+Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License
+
+(https://creativecommons.org/licenses/by/4.0/), and code samples are licensed under the Apache 2.0 License
+
+(https://creativecommons.org/licenses/by/4.0/), and code samples are licensed under the Apache 2.0 License
+
+https://cloud.google.com/vision/docs/drag-and-drop
+
+Input
+
+Safe Search
+
+Umbrella
+
+Person
+Try it! | Cloud Vision API | Google
+Cloud
+
+11/13/23, 4:25 AM
+
+Try the API
+
+NEW FILE
+
+https://cloud.google.com/vision/docs/drag-and-drop
+2/3
+
+DRSformer
+
+UDR-S2 Former
+
+2/3
+
+Ours
+
+Clean
+
+Fig. 9. Comparison of deraining and detection by YOLOv3. Only ours removes all rain streaks and helps detect “bicycle” and 2 more “cars”.
+
+[3] S. W. Zamir, A. Arora, S. Khan, M. Hayat, F. S. Khan, and M.H. Yang, “Restormer: Efficient transformer for high-resolution image
+restoration,” in CVPR, 2022. 1, 3, 4, 6, 7, 8, 9
+[4] J. Xiao, X. Fu, A. Liu, F. Wu, and Z.-J. Zha, “Image de-raining
+transformer,” IEEE TPAMI, 2022. 1, 2, 3, 4, 6, 7, 8
+[5] X. Chen, H. Li, M. Li, and J. Pan, “Learning a sparse transformer
+network for effective image deraining,” in CVPR, 2023. 1, 2, 4, 6, 7,
+8, 9
+[6] S. Chen, T. Ye, J. Bai, E. Chen, J. Shi, and L. Zhu, “Sparse sampling
+transformer with uncertainty-driven ranking for unified removal of
+raindrops and rain streaks,” in ICCV, 2023. 1, 2, 6, 7, 8
+[7] X. Chen, J. Pan, and J. Dong, “Bidirectional multi-scale implicit neural
+representations for image deraining,” in CVPR, 2024. 1, 2, 6, 7, 8
+[8] T. Wang, X. Yang, K. Xu, S. Chen, Q. Zhang, and R. W. Lau, “Spatial
+attentive single-image deraining with a high quality real rain dataset,”
+in CVPR, 2019. 1, 2, 6, 7, 8, 10
+[9] L.-W. Kang, C.-W. Lin, and Y.-H. Fu, “Automatic single-image-based
+rain streaks removal via image decomposition,” IEEE TIP, 2011. 1, 2
+[10] Y.-L. Chen and C.-T. Hsu, “A generalized low-rank appearance model
+for spatio-temporally correlated rain streaks,” in ICCV, 2013. 1
+[11] Y. Li, R. T. Tan, X. Guo, J. Lu, and M. S. Brown, “Rain streak removal
+using layer priors,” in CVPR, 2016. 1, 2, 6, 7
+[12] W. Yang, R. T. Tan, J. Feng, J. Liu, Z. Guo, and S. Yan, “Deep joint
+rain detection and removal from a single image,” in CVPR, 2017. 1,
+2, 6, 7, 8
+[13] X. Li, J. Wu, Z. Lin, H. Liu, and H. Zha, “Recurrent squeeze-andexcitation context aggregation net for single image deraining,” in
+ECCV, 2018. 1, 2, 6, 7
+[14] W. Yang, R. T. Tan, J. Feng, Z. Guo, S. Yan, and J. Liu, “Joint rain
+detection and removal from a single image with contextualized deep
+networks,” IEEE TPAMI, 2019. 1, 2
+
+[15] Y. Du, J. Xu, X. Zhen, M.-M. Cheng, and L. Shao, “Conditional
+variational image deraining,” IEEE TIP, 2020. 1, 2
+[16] K. Jiang, Z. Wang, P. Yi, C. Chen, B. Huang, Y. Luo, J. Ma, and
+J. Jiang, “Multi-scale progressive fusion network for single image
+deraining,” in CVPR, 2020. 1, 2, 6, 7, 9
+[17] R. Yasarla and V. M. Patel, “Uncertainty guided multi-scale residual
+learning-using a cycle spinning cnn for single image de-raining,” in
+CVPR, 2019. 1, 2
+[18] ——, “Confidence measure guided single image de-raining,” IEEE TIP,
+2020. 1, 2
+[19] R. Yasarla, V. A. Sindagi, and V. M. Patel, “Syn2real transfer learning
+for image deraining using gaussian processes,” in CVPR, 2020. 1, 2
+[20] W. Wei, D. Meng, Q. Zhao, Z. Xu, and Y. Wu, “Semi-supervised
+transfer learning for image rain removal,” in CVPR, 2019. 1, 2
+[21] H. Huang, A. Yu, and R. He, “Memory oriented transfer learning for
+semi-supervised image deraining,” in CVPR, 2021. 1, 2
+[22] D. Ren, W. Zuo, Q. Hu, P. Zhu, and D. Meng, “Progressive image
+deraining networks: A better and simpler baseline,” in CVPR, 2019. 1,
+2, 6, 7
+[23] S. W. Zamir, A. Arora, S. Khan, M. Hayat, F. S. Khan, M.-H. Yang,
+and L. Shao, “Multi-stage progressive image restoration,” in CVPR,
+2021. 1, 2, 6, 7
+[24] H. Chen, Y. Wang, T. Guo, C. Xu, Y. Deng, Z. Liu, S. Ma, C. Xu,
+C. Xu, and W. Gao, “Pre-trained image processing transformer,” in
+CVPR, 2021. 1
+[25] X. Chen, J. Pan, J. Lu, Z. Fan, and H. Li, “Hybrid cnn-transformer
+feature fusion for single image deraining,” in AAAI, 2023. 1
+[26] K. Jiang, Z. Wang, C. Chen, Z. Wang, L. Cui, and C.-W. Lin, “Magic
+elf: Image deraining meets association learning and transformer,” arXiv
+preprint arXiv:2207.10455, 2022. 1, 2
+[27] S. Sun, W. Ren, X. Gao, R. Wang, and X. Cao, “Restoring images in
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+adverse weather conditions via histogram transformer,” arXiv preprint
+arXiv:2407.10172, 2024. 1
+[28] S. Gu, D. Meng, W. Zuo, and L. Zhang, “Joint convolutional analysis
+and synthesis sparse representation for single image layer separation,”
+in ICCV, 2017. 2
+[29] Y. Luo, Y. Xu, and H. Ji, “Removing rain from a single image via
+discriminative sparse coding,” in ICCV, 2015. 2, 6, 7
+[30] H. Zhang and V. M. Patel, “Convolutional sparse and low-rank codingbased rain streak removal,” in WACV, 2017. 2
+[31] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in CVPR, 2016. 2
+[32] S. Sun, W. Ren, T. Wang, and X. Cao, “Rethinking image restoration
+for object detection,” NeurIPS, vol. 35, pp. 4461–4474, 2022. 2
+[33] W. Yang, R. T. Tan, S. Wang, Y. Fang, and J. Liu, “Single image deraining: From model-based to data-driven and beyond,” IEEE TPAMI,
+2020. 2
+[34] S. Li, W. Ren, F. Wang, I. B. Araujo, E. K. Tokuda, R. H. Junior, R. M.
+Cesar-Jr, Z. Wang, and X. Cao, “A comprehensive benchmark analysis
+of single image deraining: Current challenges and future perspectives,”
+IJCV, 2021. 2
+[35] H. Wang, Q. Xie, Y. Wu, Q. Zhao, and D. Meng, “Single image rain
+streaks removal: a review and an exploration,” International Journal of
+Machine Learning and Cybernetics, vol. 11, pp. 853–872, 2020. 2
+[36] Z. Zhang, Y. Wei, H. Zhang, Y. Yang, S. Yan, and M. Wang, “Datadriven single image deraining: A comprehensive review and new
+perspectives,” Pattern Recognition, p. 109740, 2023. 2
+[37] X. Chen, J. Pan, J. Dong, and J. Tang, “Towards unified deep
+image deraining: A survey and a new benchmark,” arXiv preprint
+arXiv:2310.03535, 2023. 2
+[38] S. Li, W. Ren, J. Zhang, J. Yu, and X. Guo, “Single image rain removal
+via a deep decomposition–composition network,” CVIU, 2019. 2
+[39] R. Quan, X. Yu, Y. Liang, and Y. Yang, “Removing raindrops and rain
+streaks in one go,” in CVPR, 2021. 2
+[40] G. Li, X. He, W. Zhang, H. Chang, L. Dong, and L. Lin, “Non-locally
+enhanced encoder-decoder network for single image de-raining,” in
+ACMMM, 2018, pp. 1056–1064. 2
+[41] X. Fu, J. Huang, X. Ding, Y. Liao, and J. Paisley, “Clearing the skies:
+A deep network architecture for single-image rain removal,” IEEE TIP,
+2017. 2
+[42] X. Fu, J. Huang, D. Zeng, Y. Huang, X. Ding, and J. Paisley,
+“Removing rain from single images via a deep detail network,” in
+CVPR, 2017. 2, 6, 7
+[43] T. Song, G. Jin, P. Li, K. Jiang, X. Chen, and J. Jin, “Learning a spiking
+neural network for efficient image deraining,” IJCAI, 2024. 2
+[44] H. Zhang, V. Sindagi, and V. M. Patel, “Image de-raining using a
+conditional generative adversarial network,” IEEE TCSVT, 2019. 2
+[45] W. Yang, S. Wang, and J. Liu, “Removing arbitrary-scale rain streaks
+via fractal band learning with self-supervision,” IEEE TIP, 2020. 2
+[46] S. Sun, W. Ren, J. Li, K. Zhang, M. Liang, and X. Cao, “Event-aware
+video deraining via multi-patch progressive learning,” IEEE TIP, 2023.
+2
+[47] R. Li, L.-F. Cheong, and R. T. Tan, “Heavy rain image restoration:
+Integrating physics model and conditional adversarial learning,” in
+CVPR, 2019. 2
+[48] H. Wang, Q. Xie, Q. Zhao, and D. Meng, “A model-driven deep neural
+network for single image rain removal,” in CVPR, 2020. 2, 6, 7
+[49] H. Zhang and V. M. Patel, “Density-aware single image de-raining
+using a multi-stream dense network,” in CVPR, 2018. 2, 6, 7
+[50] Y. Guo, X. Xiao, Y. Chang, S. Deng, and L. Yan, “From sky to the
+ground: A large-scale benchmark and simple baseline towards real rain
+removal,” in ICCV, 2023. 2
+[51] Y. Ba, H. Zhang, E. Yang, A. Suzuki, A. Pfahnl, C. C. Chandrappa,
+C. M. de Melo, S. You, S. Soatto, A. Wong et al., “Not just streaks:
+Towards ground truth for single image deraining,” in ECCV, 2022. 2
+[52] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N.
+Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,”
+NeurIPS, 2017. 2
+[53] J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, “Bert: Pre-training
+of deep bidirectional transformers for language understanding,” arXiv
+preprint arXiv:1810.04805, 2018. 2
+[54] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly et al.,
+“An image is worth 16x16 words: Transformers for image recognition
+at scale,” arXiv preprint arXiv:2010.11929, 2020. 2
+[55] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and
+B. Guo, “Swin transformer: Hierarchical vision transformer using
+shifted windows,” in ICCV, 2021. 2
+
+11
+
+[56] H. Touvron, M. Cord, M. Douze, F. Massa, A. Sablayrolles, and
+H. Jégou, “Training data-efficient image transformers & distillation
+through attention,” in ICML, 2021. 2
+[57] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai, “Deformable
+detr: Deformable transformers for end-to-end object detection,” arXiv
+preprint arXiv:2010.04159, 2020. 2
+[58] L. Yuan, Y. Chen, T. Wang, W. Yu, Y. Shi, Z.-H. Jiang, F. E. Tay,
+J. Feng, and S. Yan, “Tokens-to-token vit: Training vision transformers
+from scratch on imagenet,” in ICCV, 2021. 2
+[59] W. Bian, Q. Zhang, X. Ye, and Y. Chen, “A learnable variational
+model for joint multimodal mri reconstruction and synthesis,” in
+International Conference on Medical Image Computing and ComputerAssisted Intervention. Springer, 2022, pp. 354–364. 2
+[60] Z. Lai, J. Wu, S. Chen, Y. Zhou, and N. Hovakimyan, “Residual-based
+language models are free boosters for biomedical imaging tasks,” in
+Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2024, pp. 5086–5096. 2
+[61] H. Wu, B. Xiao, N. Codella, M. Liu, X. Dai, L. Yuan, and L. Zhang,
+“Cvt: Introducing convolutions to vision transformers,” in ICCV, 2021.
+2
+[62] K. Yuan, S. Guo, Z. Liu, A. Zhou, F. Yu, and W. Wu, “Incorporating
+convolution designs into visual transformers,” in ICCV, 2021. 2
+[63] G. Zhao, P. Li, Z. Zhang, F. Guo, X. Huang, W. Xu, J. Wang, and
+J. Chen, “Towards sar automatic target recognition multicategory sar
+image classification based on light weight vision transformer,” arXiv
+preprint arXiv:2407.06128, 2024. 2
+[64] C. Fang, D. Zhang, L. Wang, Y. Zhang, L. Cheng, and J. Han, “Crossmodality high-frequency transformer for mr image super-resolution,”
+in ACMMM, 2022. 3
+[65] Y.-N. Hung, J.-C. Wang, X. Song, W.-T. Lu, and M. Won, “Modeling
+beats and downbeats with a time-frequency transformer,” in ICASSP,
+2022. 3
+[66] Y. Ding, M. Jia, Q. Miao, and Y. Cao, “A novel time–frequency
+transformer based on self–attention mechanism and its application in
+fault diagnosis of rolling bearings,” Mechanical Systems and Signal
+Processing, 2022. 3
+[67] Z. Qiu, H. Yang, J. Fu, and D. Fu, “Learning spatiotemporal frequencytransformer for compressed video super-resolution,” in ECCV, 2022. 3
+[68] Z. Qiu, H. Yang, J. Fu, D. Liu, C. Xu, and D. Fu, “Learning degradation-robust spatiotemporal frequency-transformer for video
+super-resolution,” IEEE TPAMI, 2023. 3
+[69] L. Kong, J. Dong, J. Ge, M. Li, and J. Pan, “Efficient frequency
+domain-based transformers for high-quality image deblurring,” in
+CVPR, 2023. 3, 8, 9
+[70] M. Li, Y. Fu, and Y. Zhang, “Spatial-spectral transformer for hyperspectral image denoising,” in AAAI, 2023. 3
+[71] W. Wang, L. Liu, T. Zhang, J. Shen, J. Wang, and J. Li, “Hyperes2t: efficient spatial–spectral transformer for the classification of
+hyperspectral remote sensing images,” International Journal of Applied
+Earth Observation and Geoinformation, vol. 113, p. 103005, 2022. 3
+[72] J. He, Q. Yuan, J. Li, Y. Xiao, X. Liu, and Y. Zou, “Dster: A dense
+spectral transformer for remote sensing spectral super-resolution,” International Journal of Applied Earth Observation and Geoinformation,
+vol. 109, p. 102773, 2022. 3
+[73] R. Song, Y. Feng, W. Cheng, Z. Mu, and X. Wang, “Bs2t: Bottleneck
+spatial–spectral transformer for hyperspectral image classification,”
+IEEE Transactions on Geoscience and Remote Sensing, vol. 60, pp.
+1–17, 2022. 3
+[74] X. Mao, Y. Liu, F. Liu, Q. Li, W. Shen, and Y. Wang, “Intriguing
+findings of frequency selection for image deblurring,” in AAAI, 2023.
+3
+[75] Y. Cui, Y. Tao, Z. Bing, W. Ren, X. Gao, X. Cao, K. Huang, and
+A. Knoll, “Selective frequency network for image restoration,” in ICLR,
+2023. 3
+[76] J. T. Smith, A. Warrington, and S. W. Linderman, “Simplified state
+space layers for sequence modeling,” arXiv preprint arXiv:2208.04933,
+2022. 3
+[77] A. Gu, K. Goel, and C. Ré, “Efficiently modeling long sequences with
+structured state spaces,” arXiv preprint arXiv:2111.00396, 2021. 3
+[78] O. Lieber, B. Lenz, H. Bata, G. Cohen, J. Osin, I. Dalmedigos, E. Safahi, S. Meirom, Y. Belinkov, S. Shalev-Shwartz et al.,
+“Jamba: A hybrid transformer-mamba language model,” arXiv preprint
+arXiv:2403.19887, 2024. 3
+[79] L. Zhu, B. Liao, Q. Zhang, X. Wang, W. Liu, and X. Wang, “Vision
+mamba: Efficient visual representation learning with bidirectional state
+space model,” arXiv preprint arXiv:2401.09417, 2024. 3, 5
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+[80] A. Gu and T. Dao, “Mamba: Linear-time sequence modeling with
+selective state spaces,” arXiv preprint arXiv:2312.00752, 2023. 3
+[81] A. Hatamizadeh and J. Kautz, “Mambavision: A hybrid mambatransformer vision backbone,” arXiv preprint arXiv:2407.08083, 2024.
+3
+[82] S. Yamashita and M. Ikehara, “Image deraining with frequencyenhanced state space model,” arXiv preprint arXiv:2405.16470, 2024.
+3, 6
+[83] H. Guo, J. Li, T. Dai, Z. Ouyang, X. Ren, and S.-T. Xia, “Mambair:
+A simple baseline for image restoration with state-space model,” arXiv
+preprint arXiv:2402.15648, 2024. 3, 8, 9
+[84] Z. Zhen, Y. Hu, and Z. Feng, “Freqmamba: Viewing mamba
+from a frequency perspective for image deraining,” arXiv preprint
+arXiv:2404.09476, 2024. 3
+[85] D. Li, Y. Liu, X. Fu, S. Xu, and Z.-J. Zha, “Fouriermamba: Fourier
+learning integration with state space models for image deraining,” arXiv
+preprint arXiv:2405.19450, 2024. 3
+[86] W. Yu and X. Wang, “Mambaout: Do we really need mamba for
+vision?” arXiv preprint arXiv:2405.07992, 2024. 3
+[87] Z. Wang, X. Cun, J. Bao, W. Zhou, J. Liu, and H. Li, “Uformer: A
+general u-shaped transformer for image restoration,” in CVPR, 2022.
+3, 4, 6, 7, 8
+[88] H. Zhao, Y. Gou, B. Li, D. Peng, J. Lv, and X. Peng, “Comprehensive
+and delicate: An efficient transformer for image restoration,” in CVPR,
+2023. 4
+[89] F. Yu and V. Koltun, “Multi-scale context aggregation by dilated
+convolutions,” arXiv preprint arXiv:1511.07122, 2016. 5
+[90] F. Yu, V. Koltun, and T. Funkhouser, “Dilated residual networks,” in
+CVPR, 2017. 5
+[91] Y. Li, J. Lu, H. Chen, X. Wu, and X. Chen, “Dilated convolutional
+transformer for high-quality image deraining,” in CVPRW, June 2023.
+5
+[92] Y. N. Dauphin, A. Fan, M. Auli, and D. Grangier, “Language modeling
+with gated convolutional networks,” in ICML, 2017. 5
+[93] S. Elfwing, E. Uchibe, and K. Doya, “Sigmoid-weighted linear units
+for neural network function approximation in reinforcement learning,”
+Neural networks, vol. 107, pp. 3–11, 2018. 5
+[94] S. Woo, J. Park, J.-Y. Lee, and I. S. Kweon, “Cbam: Convolutional
+block attention module,” in ECCV, 2018. 5
+[95] J. S. Bendat and A. G. Piersol, Random data: analysis and measurement procedures. John Wiley & Sons, 2011. 5
+[96] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,”
+in ICLR, 2019. 6
+[97] ——, “SGDR: Stochastic gradient descent with warm restarts,” in
+ICLR, 2017. 6
+[98] G. Schaefer and M. Stich, “Ucid: An uncompressed color image
+database,” in Storage and retrieval methods and applications for
+multimedia 2004, vol. 5307. SPIE, 2003, pp. 472–480. 6
+[99] P. Arbelaez, M. Maire, C. Fowlkes, and J. Malik, “Contour detection
+and hierarchical image segmentation,” IEEE TPAMI, pp. 898–916,
+2010. 6
+[100] A. Mittal, R. Soundararajan, and A. C. Bovik, “Making a “completely
+blind” image quality analyzer,” IEEE Signal processing letters, 2012.
+7
+[101] A. Mittal, A. K. Moorthy, and A. C. Bovik, “No-reference image
+quality assessment in the spatial domain,” IEEE TIP, 2012. 7
+[102] J. Liang, J. Cao, G. Sun, K. Zhang, L. Van Gool, and R. Timofte,
+“Swinir: Image restoration using swin transformer,” in ICCV, 2021. 8,
+9
+[103] J. Redmon and A. Farhadi, “Yolov3: An incremental improvement,”
+arXiv preprint arXiv:1804.02767, 2018. 9
+[104] K. Jiang, W. Liu, Z. Wang, X. Zhong, J. Jiang, and C.-W. Lin, “Dawn:
+Direction-aware attention wavelet network for image deraining,” in
+ACMMM, 2023. 9
+
+12
+
+

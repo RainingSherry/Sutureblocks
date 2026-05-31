@@ -1,0 +1,1113 @@
+arXiv:2411.14201v1 [cs.CV] 21 Nov 2024
+
+Regional Attention for Shadow Removal
+Hengxing Liu
+
+Mingjia Li
+
+Xiaojie Guo*
+
+chrisliu.jz@gmail.com
+Tianjin University
+Tianjin, China
+
+mingjiali@tju.edu.cn
+Tianjin University
+Tianjin, China
+
+xj.max.guo@gmail.com
+Tianjin University
+Tianjin, China
+
+Figure 1: (a) Performance comparison with previous SOTA methods. Our method achieved a 40.73dB PSNR on the shadow
+region of the ISTD+ dataset, surpassing the previous SOTA method by 0.90dB; (b) Efficiency comparison with previous SOTA
+methods. Our method is fast and lightweight with SOTA performance on the SRD dataset; (c) Illustration of self-attentions in
+shadow removal. Self-attention (used in [11, 20]) has global information exchangeability but with high computational costs. To
+reduce the complexity, (shifted-)window attention (in [10, 33]) only exchanges the information within a pre-defined cell, but
+may miss useful clues. Our regional attention refines each token with its neighborhoods, reaching a good balance between
+effectiveness and efficiency.
+
+Abstract
+Shadow, as a natural consequence of light interacting with objects,
+plays a crucial role in shaping the aesthetics of an image, which
+however also impairs the content visibility and overall visual quality. Recent shadow removal approaches employ the mechanism
+of attention, due to its effectiveness, as a key component. However, they often suffer from two issues including large model size
+*Corresponding Author.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+© 2024 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 979-8-4007-0686-8/24/10
+https://doi.org/10.1145/3664647.3681126
+
+and high computational complexity for practical use. To address
+these shortcomings, this work devises a lightweight yet accurate
+shadow removal framework. First, we analyze the characteristics
+of the shadow removal task to seek the key information required
+for reconstructing shadow regions and designing a novel regional
+attention mechanism to effectively capture such information. Then,
+we customize a Regional Attention Shadow Removal Model (RASM,
+in short), which leverages non-shadow areas to assist in restoring
+shadow ones. Unlike existing attention-based models, our regional
+attention strategy allows each shadow region to interact more rationally with its surrounding non-shadow areas, for seeking the
+regional contextual correlation between shadow and non-shadow
+areas. Extensive experiments are conducted to demonstrate that
+our proposed method delivers superior performance over other
+state-of-the-art models in terms of accuracy and efficiency, making
+it appealing for practical applications. Our code can be found at
+https://github.com/CalcuLuUus/RASM.
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+CCS Concepts
+• Computing methodologies → Image processing; Computational photography.
+
+Keywords
+Shadow removal, Regional attention
+ACM Reference Format:
+Hengxing Liu, Mingjia Li, and Xiaojie Guo*. 2024. Regional Attention for
+Shadow Removal. In Proceedings of the 32nd ACM International Conference on
+Multimedia (MM ’24), October 28-November 1, 2024, Melbourne, VIC, Australia.
+ACM, New York, NY, USA, 9 pages. https://doi.org/10.1145/3664647.3681126
+
+1
+
+Hengxing Liu, Mingjia Li, and Xiaojie Guo
+
+removal network, i.e., RASM. Our design is capable of balancing
+the efficiency and the accuracy of shadow removal in an end-toend way. As schematically illustrated in Fig. 2, the effectiveness
+of regional attention obviates the necessity of complicated tricks
+and complex network designs. The lightweight U-shaped network
+RASM still demonstrates remarkable performance. Experimental
+comparisons on widely-used shadow removal datasets (ISTD+ [23]
+and SRD [31]) and ablation studies reveal the efficacy and superior
+performance of RASM over other SOTA methods in terms of the
+effectiveness and efficiency.
+The primary contributions of this paper are summarized as:
+• We rethink the key to shadow removal and propose that
+the information from the regions surrounding the shadows
+is essential for effective shadow removal. Inspired by this
+insight, we introduce a regional attention mechanism that
+allows each shadowed area to aggregate information from
+its adjacent non-shadowed regions.
+• We develop a shadow removal network, RASM, based on
+a novel regional attention mechanism that optimizes the
+interaction between shadowed and non-shadowed areas, effectively balancing accuracy and computational efficiency.
+• The comprehensive experimental evaluations conducted on
+the widely recognized ISTD+ [23] and SRD [31] datasets
+demonstrate that our proposed method achieved a new stateof-the-art performance with a lightweight network architecture.
+
+Introduction
+
+When light interacts with objects, shadows are cast. In some cases,
+shadows can enhance the photography aesthetics. While in others, they act as an interference factor to image quality [36], which
+may degrade the performance of various vision and multimedia
+algorithms [30, 37], such as object detection and recognition, and
+image segmentation. Although this problem has been drawing
+much attention from the community with significant progress over
+last years, it still remains challenging for practical use. Because
+the shadow removal often serves as a preprocessing step for downstream tasks and, more and more systems prefer to deal with images
+on portable devices anytime and anywhere, besides the high accuracy, its computational cost and model size are expected to be
+marginal, especially when the computation and memory resources
+are limited. In other words, a satisfactory shadow removal model
+shall take into consideration all the removal quality, the processing
+cost and the model size simultaneously.
+In the literature, a variety of shadow removal methods [5–7,
+10, 12, 19] have been proposed over last few years, aiming to
+mitigate the negative impact of shadows on image quality and
+enhance the performance of vision algorithms. Traditional approaches heavily rely on hand-crafted priors, e.g., intrinsic image
+properties, which are often violated in complex real-world scenarios, and thus produce unsatisfactory results. Deep learning techniques [1, 2, 8, 11, 16, 17, 20] have emerged as powerful alternatives,
+enabling more robust and data-driven approaches to shadow removal. However, most existing advanced shadow removal models
+barely consider severe model stacking, necessitating substantial
+computational resources. This issue significantly limits their applicability to potential downstream tasks in real-world scenarios.
+Let us take a closer look at the target problem. Given an image,
+shadows typically occupy a part of the image. The goal is to convert
+involved shadow regions into their non-shadow versions, which
+should be visually consistent with the non-shadow surroundings in
+the given image. A natural question arises: is all the information in
+the entire image equally important for the reconstruction of regions
+affected by the shadow? Intuitively, aside from the darker color of
+shadowed areas, the most direct way to discern shadows is by the
+contrast between the shadowed regions and their neighboring nonshadow areas. From this perspective, we can reasonably assume
+that the critical information for repairing a certain shadow region
+should be largely from non-shadow areas around the aim region.
+Based on this assumption, we propose a novel attention mechanism called regional attention, and customize a lightweight shadow
+
+2
+
+Related Work
+
+Traditional methods for shadow removal rely on image properties
+such as chromaticity invariance [6, 7], gradient consistency [5, 12]
+or human interactions [9]. The early work in this category can
+be traced back to [6, 7], where illumination-invariant images are
+extracted using a pre-calibrated camera. However, the calibration
+process is laborious, which limits its practical application. To address this issue, work [5] proposes extracting illumination-invariant
+images through an optimization procedure that does not require any
+provenance information of the image. Work [12] aims to develop
+more sophisticated models for the lit and shadowed areas; however,
+their methods sometimes fail due to the complexity of shadow generalization and imaging procedures. Some works [12, 21] attempt to
+address this issue by dividing the shadow removal task into two subtasks: shadow detection and mask-based shadow removal. However,
+since these shadow detectors rely solely on hand-crafted priors, the
+removal modules may be affected by inaccurate detection results,
+which can negatively impact overall performance. Furthermore,
+traditional methods for removing shadows still encounter difficulties when dealing with complex distortions in real-world scenarios,
+particularly in the penumbra area.
+Deep learning has enabled significant advancements in datadriven methods, with works [3, 19] investigating unpaired shadow
+removal training using generative models. However, these models
+are typically heavy as they model the distribution of shadow-ed images in a generative manner. In parallel, using a large-scale dataset,
+Qu et al. [31] were among the first to train an end-to-end deep
+network for recovering shadow regions. Wang et al. [32] proposed
+the ISTD shadow removal dataset, featuring manually-annotated
+
+Regional Attention for Shadow Removal
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Figure 2: An illustration of our proposed framework. (a) Overview of the RASM structure. (b) Channel Attention Module. (c)
+Regional Attention Module. RASM employs the Channel Attention Module for global information interaction, followed by a
+Regional Attention Module for spatial information interaction.
+shadow masks. However, the non-shadow area of shadow images
+exhibits substantial inconsistency with the corresponding shadowfree images, as noted in [23], which proposed mitigating this by
+transforming the non-shadow area of ground-truths using linear
+regression. Subsequent studies [1, 2, 8, 16–18, 28] have explored
+shadow removal with given shadow masks. Recently, some works
+have sought to improve the computational efficiency of shadow
+removal. Zhu et al. [39] proposed a deep unfolding framework for
+removing shadows efficiently. With the great help of normalizing
+flow, which reuses the encoder as a decoder, work [38] significantly
+reduced parameter size. However, representation power was also
+limited since only half the features were used per layer to ensure
+invertibility. To address the issue of unsatisfactory boundary artifacts persisting after restoration, Guo et al. [11] proposed the first
+diffusion-based shadow removal model, which can gradually optimize the shadow mask while restoring the image. Work [20] leverages features extracted from Vision Transformers pre-trained models, which unveil a removal method based on adaptive attention and
+ViT similarity loss. However, such diffusion-based methods incur
+significant time and space complexity, leading to significant computational overhead. ShadowFormer [10] proposed re-weighting
+the attention map in the transformer using the shadow mask to
+exploit global correlations between shadow and non-shadow areas.
+However, unlike ShadowFormer, our emphasis lies on the information from non-shadow regions closely surrounding the shadows.
+We enable each shadow region to integrate information from its
+immediate non-shadow surroundings. This strategy offers greater
+flexibility than the window attention used by ShadowFormer and is
+more aligned with the intrinsic characteristics of shadow removal
+tasks. Our method achieves superior results without increasing the
+complexity inherent in ShadowFormer.
+
+3 Methodology
+3.1 Problem Analysis
+In everyday situations, determining the location of shadowed regions often relies on the contrast between the shadowed and adjacent non-shadowed areas. Shadows affect specific areas within
+an image, resulting in significant differences in brightness, color,
+and texture compared to non-shadowed surroundings. These differences contain the crucial information required for shadow removal.
+Sharp transitions in lighting at the periphery of shadowed regions
+usually create distinct gradation zones. Therefore, it is crucial to
+comprehend and utilize the information from the non-shadowed
+regions surrounding the shadows to achieve accurate shadow removal, shown in Fig. 3. The importance of the information from
+non-shadowed regions increases with proximity to shadowed areas.
+Analyzing the characteristics of these areas not only allows for the
+accurate identification of shadow boundaries but also provides the
+necessary reference data for shadow removal. Regional attention
+mechanisms enable models to focus on the critical areas surrounding the shadows, distinguishing which features are important for
+the task at hand, thereby facilitating more effective information
+integration.
+
+3.2
+
+Regional Attention for Shadow Removal
+
+Contrary to prior studies such as those by Liang et al. [25] and Wang
+et al. [33], which predominantly address image restoration tasks
+characterized by global corruption, shadow removal presents a
+distinct challenge due to its nature of partial corruption. In this
+context, the non-shadow regions are of critical importance, as they
+play an essential role in the restoration of shadow-affected areas.
+Shadow removal tasks necessitate a large receptive field to assimilate surrounding contextual information effectively. This requirement is rooted in the primary method of distinguishing shadow
+regions by contrasting them with adjacent non-shadowed areas.
+Therefore, the primary goal during restoration is to ensure that
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Hengxing Liu, Mingjia Li, and Xiaojie Guo
+
+embedding 𝑋 0 ∈ R𝐶 ×𝐻 ×𝑊 , with 𝐶 representing the embedding
+dimension. Subsequently, 𝑋 0 is processed through an encoderdecoder framework, each composed of CA modules designed to
+integrate multi-scale global features. Within each CA module are
+two CA blocks and a scaling layer—specifically, a down-sampling
+layer in the encoder and an up-sampling layer in the decoder, as
+depicted in Fig. 2. The CA block functions by compressing spatial
+information through CA and subsequently capturing long-range
+correlations using a feed-forward MLP [4], structured as follows:
+
+Figure 3: The first column of images presents scenes with
+shadows. The highlighted regions in the second column of
+images represent the non-shadowed areas immediately adjacent to the shadows. We posit that the information from
+these areas is crucial for the task of shadow removal.
+the reconstructed shadow regions closely resemble their surrounding non-shadow areas, rather than relying excessively on longrange global spatial information. This is where regional attention
+becomes pivotal, focusing on the information from neighboring
+regions to enhance the restoration process. The window attention
+mechanism [25], which projects queries, keys, and values from the
+information within a specific window to perform self-attention, is
+less effective for shadow removal. This limitation arises because the
+non-shadow information required to address shadow discrepancies
+varies significantly across different locations. Unlike the window
+attention mechanism utilized in prior works [10, 25], which generalizes the attention within a window, our proposed regional attention
+mechanism is specifically designed to tailor the attention to the
+specific needs of each shadowed area. By doing so, it ensures that
+each shadow region can access and integrate distinct and locally
+relevant non-shadow information, thus facilitating more precise
+and context-aware restoration.
+To fulfill the outlined objectives, we have devised a Transformerbased network leveraging regional attention, termed RASM, specifically for shadow removal. Predicated on our hypothesis that nonshadow information nearer to shadows is of heightened importance,
+we allocate a minimal proportion of parameters and computational
+resources to rapidly process global feature interactions, thus allowing greater computational resources and parameters to be concentrated on regional attention processes. RASM operates as a
+multi-scale encoder-decoder model. Initially, we utilize Channel
+Attention Module(CA Module) [15] to effectively capture global
+information. Subsequently, we introduce a module equipped with
+regional attention, which utilizes spatial and channel-wise contextual information from non-shadow areas to facilitate the restoration
+of shadow regions during the bottleneck phase.
+3.2.1 Overall Architecture. For a shadow input 𝐼𝑠 ∈ R3×𝐻 ×𝑊 accompanied by a shadow mask 𝐼𝑚 ∈ R𝐻 ×𝑊 , a linear projection
+LinearProj(·) is initially applied to generate the low-level feature
+
+𝑋˜ = CA(LN(𝑋 )) + 𝑋,
+
+(1)
+
+˜
+𝑋ˆ = GELU(MLP(LN(𝑋˜ ))) + 𝑋,
+
+(2)
+
+where LN(·) denotes the layer normalization, GELU(·) denotes the
+GELU activation layer, and MLP(·) denotes multi-layer perceptron.
+After passing through 𝐿 modules within the encoder, we receive
+the hierarchical features {𝑋 1, 𝑋 2, . . . , 𝑋𝐿 }. We calculate the regional
+contextual correlation via the Regional Attention Module (RAM)
+according to the pooled feature 𝑋𝐿 in the bottleneck stage. Next,
+the features input to each CA module of the decoder is the concatenation of the up-sampled features and the corresponding features
+from the encoder through skip-connection.
+3.2.2 Regional Attention Module. Given that shadow removal is a
+task of partial corruption, existing local attention mechanisms [25,
+33] face considerable constraints during the shadow removal process, as the areas within a window may be entirely corrupted.
+While [10] mitigates this to a certain extent, it is still limited by
+the constraints of window-based attention, lacking the flexibility
+to provide each shadow region with unique, spatially relevant nonshadow information. To address this, we propose a novel Regional
+Attention Module (RAM), which enables each shadowed location
+to more effectively utilize regional attention information across
+spatial and channel dimensions.
+In the development of our Regional Attention Module, we draw
+inspiration from the Neighborhood Attention Transformer [14],
+adapting its core concepts to better suit the specific challenges
+′
+′
+of shadow removal. Given a feature map 𝑌 ∈ R𝐶 ×𝐻 ×𝑊 normalized by a layer normalization and reshape it as 𝑋 ∈ R𝑛×𝑑 , where
+𝑛 = 𝐻 ′ ×𝑊 ′, 𝑑 = 𝐶. 𝑋 is transformed into 𝑄, 𝐾, and 𝑉 , and relative
+positional biases 𝐵 through linear projections. We define the attention weight for the 𝑖-th input within a region of size 𝑟 as the dot
+product between the 𝑄 of the 𝑖-th input and the 𝐾 of the 𝑟 elements
+in the surrounding region:
+𝑄𝑖 𝐾𝑅𝑇 (𝑖 ) + 𝐵 (𝑖,𝑅1 (𝑖 ) ) 
+
+
+1
+𝑄 𝑖 𝐾 𝑇
++ 𝐵 (𝑖,𝑅2 (𝑖 ) ) 
+
+𝑅2 (𝑖 )
+𝑟
+,
+𝐴𝑖 = 
+..
+
+
+
+.
+
+
+𝑄𝑖 𝐾𝑇
+
++
+𝐵
+(𝑖,𝑅
+(𝑖
+)
+)
+𝑟
+
+
+𝑅 (𝑖 )
+
+(3)
+
+𝑟
+
+where 𝑅 𝑗 (𝑖) denotes 𝑖’s 𝑗-th element in the region. The schematic
+illustration of 𝑄 for the input and 𝐾 for the 𝑟 elements of the
+surrounding region is shown in Fig. 1(c). We then define values,
+𝑉𝑖𝑟 , as a matrix which contains 𝑟 value projections from elements
+which are in the region of 𝑖-th input :
+h
+i𝑇
+𝑉𝑖𝑟 = 𝑉𝑅𝑇1 (𝑖 ) 𝑉𝑅𝑇2 (𝑖 ) · · · 𝑉𝑅𝑇𝑟 (𝑖 ) .
+(4)
+
+Regional Attention for Shadow Removal
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Regional Attention for the 𝑖-th token with region size 𝑟 is then
+defined as:
+ 𝑟 
+𝐴
+𝑁 𝐴𝑟 (𝑖) = softmax √𝑖 𝑉𝑖𝑟 ,
+(5)
+𝑑
+√
+where 𝑑 is the scaling parameter. This operation is repeated for
+every pixel in the feature map. Finally, the output from RAM is
+subjected to CA for global information interaction and feature finetuning. RAM can be represented as follows:
+𝑋˜ = CA(RAM(LN(𝑋 ))) + 𝑋,
+
+(6)
+
+˜
+𝑋ˆ = GELU(MLP(LN(𝑋˜ ))) + 𝑋,
+
+(7)
+
+3.2.3 Regional Attention With Larger Receptive Field. Shadows are
+usually not isolated, they are intimately connected with their surroundings. During shadow removal, maintaining the naturalness
+and coherence of the image is crucial. If the receptive field is too
+small, the model might only see parts of the shadow or objects
+obscured by the shadow, potentially leading to incorrect shadow
+perception and removal. A larger receptive field enables a model
+to more comprehensively understand the relationships between
+shadowed and non-shadowed areas, helps the model maintain consistency and natural transitions in the surrounding environment
+while removing shadows, and avoids unnatural patches or color
+discrepancies in the processed image. Similarly, regional attention
+benefits from a larger receptive field, as tokens calculated within
+this area can access more information.
+Inspired by DiNAT [13], to balance model complexity and performance, we propose a regional attention mechanism with a dilation
+factor. Specifically, we expand the receptive field to a greater range
+by increasing the stride when selecting regions, thereby maintaining the overall attention span. Using the regional attention mechanism with the dilation factor allows us to extend the receptive field
+of regional attention without increasing model complexity, further
+enhancing performance.
+
+3.3
+
+Loss Function
+
+We employ two loss terms: content loss, and perceptual loss. We
+provide a detailed description of these loss terms below.
+Content Loss. The content loss ensures consistency between
+the output image and the ground truth training data. In the image
+domain, we adopt the Charbonnier Loss [22]. The content loss can
+be expressed as:
+√︃
+L𝑐𝑜𝑛𝑡 = (𝐼ˆ − 𝐼𝑔𝑡 ) 2 + 𝜖,
+(8)
+where the 𝐼ˆ is the output image and 𝐼𝑔𝑡 is the ground truth shadowfree image. The 𝜖 is set to 10 −6 to ensure numerical stability.
+Perceptual Loss. Perceptual loss has been widely used in various image restoration and generation tasks to preserve the highlevel features and semantic information of an image while minimizing the differences between the restored image and the ground truth.
+We minimize the 𝑙 1 difference between the feature of 𝐼ˆ and 𝐼𝑔𝑡 in
+the {conv1_2, conv2_2, conv3_2, conv4_2, conv5_2} of a imagenetpretrained VGG-19 model. Denoting the 𝑖-th feature extractor as
+Ψ𝑖 (·), the perceptual loss we adapt can be expressed as follows:
+∑︁
+L𝑝𝑒𝑟 =
+𝑤𝑖 ∥Ψ𝑖 (𝐼ˆ) − Ψ𝑖 (𝐼𝑔𝑡 )∥ 1,
+(9)
+𝑖
+
+where 𝑤𝑖 is the weight among different layers, the value of which
+is empirically set as {0.1, 0.1, 1, 1, 1}.
+The total loss function turns out to be :
+L = 𝛼 1 L𝑝𝑒𝑟 + 𝛼 2 L𝑐𝑜𝑛𝑡 ,
+
+(10)
+
+where 𝛼 1, 𝛼 2 = {0.001, 1} are empirically set. RASM undergoes endto-end supervised training using the loss function L, achieving
+state-of-the-art results in shadow removal.
+
+4 Experiments
+4.1 Implementation Details
+The proposed model is implemented using PyTorch. We train our
+model using AdamW optimizer [29] with the momentum as (0.9, 0.999)
+and the weight decay as 0.02. The initial learning rate is set to
+4 × 10 −4 , then gradually reduces to 10 −6 with the cosine annealing [27]. We set the region size of the regional attention to 11 and
+the dilation factor to 2 in our experiments. Our RASM adopts an
+encoder-decoder structure (𝐿 = 3). We set the first feature embedding dimension as 𝐶 = 32. During the training stage, we employed
+data augmentation techniques, including rotation, horizontal flipping, vertical flipping, MixUp [35], and adjustments in the H and S
+components of HSV color space.
+To validate the performance of our model, we conduct experiments on two datasets. SRD [31] is a paired dataset with 3088 pairs
+of shadow and shadow-free images. We use the predicted masks
+that are provided by DHAN [2]. For the adjusted ISTD [23] dataset,
+we use 1330 paired shadow and shadow-free images for training
+and 540 for testing.
+Following previous works [2, 12, 17, 32], we conduct the Root
+Mean Square Error (RMSE) between output image and ground-truth
+shadow image in the color space of CIE LAB as a quantitative metric
+(the lower the better). To make the comparison more comprehensive,
+we also follow [10] to report the Peak-Signal-to-Noise Ratio (PSNR)
+and Structural Similarity (SSIM) in RGB space (the higher the better).
+The FLOPs are reported on 256 × 256 images.
+
+4.2
+
+Performance Evaluation
+
+4.2.1 Quantitative Comparisons. We first compare our proposed
+method with the state-of-the-art shadow removal methods on
+the ISTD+ [23] dataset. The competitors are DC-ShadowNet [19],
+BMNet [38], DHAN [2], AutoExposure [8], G2R [28], ShadowFormer [10], ShadowDiffusion [11], Li et al. [24] and Liu et al. [26].
+The input images are all randomly cropped to 320 × 320 following
+the existing method [10] for comparison. The results are depicted
+in Tab. 1. Our approach surpasses existing methods across all metrics in comparisons of Shadow Region, All Image, and also in the
+PSNR and RMSE metrics for Non-Shadow Regions, achieving SOTA
+performance. In Non-Shadow Regions, our SSIM is essentially on
+par with the best-reported results.
+We also compare our method with the state-of-the-art shadow
+removal methods on the SRD [31] dataset. The competitors are
+consist of 11 methods, DSC [16], DHAN [2], AutoExposure [8], DCShadowNet [19], Unfolding [39], BMNet [38] ShadowFormer [10],
+ShadowDiffusion [11], Li et al. [24], Liu et al. [26] and DeS3 [20].
+Since there exists no ground-truth mask to evaluate the performance in the shadow region and non-shadow region separately, we
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Method
+DHAN [2]
+G2R [28]
+DC-ShadowNet [19]
+AutoExposure [8]
+BMNet [38]
+ShadowFormer [10]
+ShadowDiffusion [11]
+Li et al. [24]
+Liu et al. [26]
+Ours
+
+Hengxing Liu, Mingjia Li, and Xiaojie Guo
+
+Shadow Region (S)
+PSNR↑ SSIM↑ RMSE↓
+
+Non-Shadow Region (NS)
+PSNR↑ SSIM↑ RMSE↓
+
+All Image (ALL)
+PSNR↑ SSIM↑ RMSE↓
+
+33.08
+33.88
+32.20
+36.02
+38.17
+39.67
+39.82
+38.46
+38.04
+40.73
+
+27.28
+35.94
+34.45
+30.95
+37.95
+38.82
+38.90
+37.27
+39.15
+39.23
+
+25.78
+30.85
+29.17
+29.28
+34.34
+35.46
+35.72
+34.14
+34.96
+36.16
+
+0.988
+0.978
+0.977
+0.976
+0.991
+0.992
+0.989
+0.990
+0.993
+
+9.49
+8.71
+10.83
+6.67
+5.72
+5.21
+4.90
+5.93
+5.69
+4.41
+
+0.972
+0.977
+0.973
+0.88
+0.986
+0.983
+0.977
+0.984
+0.985
+
+7.39
+2.81
+3.44
+3.84
+2.42
+2.30
+2.30
+2.90
+2.31
+2.17
+
+0.958
+0.946
+0.939
+0.847
+0.974
+0.973
+0.960
+0.968
+0.976
+
+7.74
+3.78
+4.70
+4.28
+2.93
+2.80
+2.70
+3.39
+2.87
+2.53
+
+Table 1: The quantitative results on ISTD+ [23] dataset. The best result is in bold, while the second-best one is underlined. To
+make a fair comparison, we use results published by the authors. − indicates that the metric is missed in the original paper.
+
+Method
+DSC [16]
+DHAN [2]
+AutoExposure [8]
+DC-ShadowNet [19]
+BMNet [38]
+Unfolding[39]
+ShadowFormer [10]
+ShadowDiffusion [11]
+Li et al. [24]
+Liu et al. [26]
+DeS3 [20]
+Ours
+
+Shadow Region (S)
+PSNR↑ SSIM↑ RMSE↓
+
+Non-Shadow Region (NS)
+PSNR↑ SSIM↑ RMSE↓
+
+All Image (ALL)
+PSNR↑ SSIM↑ RMSE↓
+
+30.65
+32.71
+31.34
+32.10
+33.81
+34.94
+36.91
+38.72
+39.33
+36.51
+37.45
+37.91
+
+31.94
+33.88
+29.74
+33.48
+34.91
+35.85
+36.22
+37.78
+35.61
+37.71
+38.12
+38.70
+
+27.76
+29.72
+26.99
+29.35
+30.68
+31.72
+32.90
+34.73
+33.17
+33.48
+34.11
+34.46
+
+0.960
+0.943
+0.933
+0.927
+0.940
+0.980
+0.989
+0.987
+0.984
+0.983
+0.984
+0.988
+
+8.62
+6.60
+7.90
+6.91
+7.44
+7.44
+5.90
+4.98
+6.09
+5.49
+5.88
+5.02
+
+0.965
+0.949
+0.916
+0.936
+0.946
+0.982
+0.989
+0.985
+0.967
+0.986
+0.988
+0.992
+
+4.41
+3.46
+5.21
+3.66
+5.99
+3.74
+3.44
+3.44
+2.97
+3.00
+2.83
+2.72
+
+0.903
+0.923
+0.869
+0.902
+0.923
+0.952
+0.958
+0.970
+0.939
+0.967
+0.968
+0.976
+
+5.71
+4.40
+5.95
+4.61
+3.92
+4.79
+4.04
+3.63
+3.83
+3.66
+3.72
+3.37
+
+Table 2: The quantitative results on SRD [31] dataset. The best result is in bold, while the second-best one is underlined.
+Method
+DHAN [2]
+AutoExposure [8]
+BMNet [38]
+Unfolding [39]
+ShadowFormer [10]
+ShadowDiffusion [11]
+Li et al. [24]
+Ours
+
+Params (M)
+16.4
+19.7
+0.4
+10.1
+11.4
+55.2
+23.9
+5.2
+
+GFLOPs
+126.0
+53.0
+11.6
+48.2
+63.1
+896.7
+68.3
+25.2
+
+RMSE
+4.40
+5.95
+3.92
+4.79
+4.04
+3.63
+3.83
+3.37
+
+Table 3: Efficiency evaluation. Parameters count and GFLOPs
+are metered with fvcore[34] on 256×256 inputs. The best
+result is in bold, and the second-best result is underlined.
+
+use a mask extracted from DHAN [2] following existing method [10]
+for comparison. The results are depicted in Tab. 2. As shown in
+Tab. 2, our method outperforms existing techniques across all metrics for the Non-Shadow Region. Performance in the shadow region
+does not quite match that of ShadowDiffusion [11] and Li et al. [24],
+possibly due to stricter adherence to the shadow mask guidance.
+It is anticipated that our method would achieve a more satisfying
+result by employing a higher-quality shadow mask or utilizing userprovided masks. Notably, despite imprecise masks, our method is
+still the best among the competitors under RMSE for All Image.
+
+To validate the efficiency of our method, we also conduct a comparison of FLOPs and parameter counts. As depicted in Tab. 3, our
+model has a small number of parameters and low FLOPs, utilizing
+a negligible amount of computational resources while achieving
+superior performance, demonstrating that our model effectively
+balances model complexity and model performance.
+4.2.2 Qualitative Comparisons. This part exhibits several examples
+from SRD and ISTD+ datasets to compare the visual quality shown
+in Fig. 4 and 5. Our method achieves state-of-the-art performance
+with fewer residual shadow components and no visual artifact.
+Moreover, our total parameters are significantly fewer than most of
+the previous arts, which demonstrates the efficacy of our practical
+designs.
+
+4.3
+
+Model Analysis
+
+Discussion on Regional Attention and Window Attention. To
+validate that our proposed regional attention is more suitable for
+the shadow removal task than traditional window attention, we
+choose the baseline model and its variants for comparison. Specifically, we replace all the window attention in the baseline model
+with regional attention, maintain the same area size of regional
+attention and window attention, and represent them as {Window
+
+Regional Attention for Shadow Removal
+
+(a) Input
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+(b) DC [19]
+
+(c) BMNet [38]
+
+(d) SF [10]
+
+(e) SD [11]
+
+(f) Ours
+
+(g) GT
+
+Figure 4: Qualitative comparison on ISTD+ dataset. Please zoom in for more details.
+Variant
+
+𝑊 𝑖𝑛𝑑𝑜𝑤 𝐴𝑡𝑡 .
+𝑅𝑒𝑔𝑖𝑜𝑛𝑎𝑙 𝐴𝑡𝑡 .
+
+Shadow Region (S)
+PSNR↑ SSIM↑ RMSE↓
+
+All Image (ALL)
+PSNR↑ SSIM↑ RMSE↓
+
+40.06
+40.73
+
+35.78
+36.16
+
+0.992
+0.993
+
+4.84
+4.41
+
+0.975
+0.976
+
+2.62
+2.53
+
+Table 4: Experiments for modeling on ISTD+ dataset. The
+best result is in bold.
+Att., Regional Att.}. As shown in Tab. 4, the regional attention selected outperforms window-based attention on all three metrics,
+proving the superiority of our design.
+Discussion on Receptive Field of Regional Attention. The size
+of the receptive field and the final effect of the shadow removal task
+are closely related. Here, we discuss two prominent parameters that
+control the receptive field size of our proposed regional attention
+mechanism: the size of the region 𝑟 and the dilation factor 𝑑. We
+tried different region sizes and dilation factors to see how they
+affect the results.
+As shown in Tab. 5, we found that as the 𝑟 increases, the performance of the model improves while the computational load also
+increases. When 𝑟 is greater than or equal to 15 × 15, the benefits are obtained by adjusting 𝑟 approach saturation. When 𝑑 is
+
+Region Size
+
+Dilation
+
+PSNR
+
+SSIM
+
+RMSE
+
+GFLOPs
+
+7×7
+11 × 11
+15 × 15
+21 × 21
+
+1
+1
+1
+1
+
+35.74
+35.94
+36.01
+36.00
+
+0.974
+0.976
+0.976
+0.976
+
+2.67
+2.56
+2.60
+2.60
+
+24.7
+25.2
+26.0
+27.6
+
+11 × 11
+11 × 11
+11 × 11
+
+1
+2
+3
+
+35.94
+36.16
+36.02
+
+0.976
+0.976
+0.976
+
+2.56
+2.53
+2.59
+
+25.2
+25.2
+25.2
+
+Table 5: Experiments for region size and dilation rate on
+ISTD+ dataset. Our final choice is marked in bold.
+within the appropriate range, the model benefits most. However,
+when 𝑑 is too small, the spatial attention receptive field is limited.
+Conversely, when 𝑑 is too large, the spatial attention will choose
+a sparse distribution of region elements, making it difficult to aggregate non-shadow information from the surrounding shadowed
+area, leading to performance degradation. To balance performance
+and computational complexity, we choose a regional attention size
+of 11 × 11 and a dilation rate of 2 for our model.
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+(a) Input
+
+(b) DC [19]
+
+(c) BMNet [38]
+
+Hengxing Liu, Mingjia Li, and Xiaojie Guo
+
+(d) SD [11]
+
+(e) DeS3 [20]
+
+(f) Ours
+
+(g) GT
+
+Figure 5: Qualitative comparison on SRD dataset. Please zoom in for more details.
+have a much larger attention weight when the attention area can
+encompass the surrounding non-shadow areas. Moreover, points
+with different shadow positions are paying attention to different
+non-shadow areas, corresponding to the fact that each shadow area
+information interacts with the adjacent non-shadow area information, which is consistent with our proposed regional attention
+mechanism.
+
+Figure 6: A visualization of our regional attention. The original image is on the left, and the star marks the selected points.
+The heatmaps indicate the regional attention weight of the
+marked tokens. Brighter colors indicate a larger attention
+score.
+Visualization of our regional attention. To validate whether
+our proposed regional attention mechanism truly enables shadow
+areas to interact with their adjacent non-shadow areas, we selected
+several points on the image and visualized their attention weight
+allocation. As shown in Fig. 6, we can see that in completely illuminated areas or shadow areas, the attention weights of these
+points are relatively low and even, while points that notice shadows
+
+5
+
+Concluding Remarks
+
+In this work, we rethought the most significant information source
+for shadow removal, namely, the non-shadow areas adjacent to the
+shadow region, which plays a crucial role in this task. Based on this,
+we proposed a novel regional attention mechanism and introduced
+a lightweight shadow removal model, RASM. The regional attention mechanism introduced by us enables each shadow region to
+focus on specific information from surrounding non-shadow areas,
+thereby effectively utilizing this information for shadow removal.
+We demonstrated that RASM strikes a good balance between model
+complexity and model performance. Our model uses fewer parameters, lower FLOPs computation, and achieves superior performance
+on SRD and ISRD+ datasets.
+
+Regional Attention for Shadow Removal
+
+Acknowledgments
+This work was supported by the National Natural Science Foundation of China under Grant nos. 62372251 and 62072327.
+
+References
+[1] Zipei Chen, Chengjiang Long, Ling Zhang, and Chunxia Xiao. 2021. Canet: A
+context-aware network for shadow removal. In ICCV. 4743–4752.
+[2] Xiaodong Cun, Chi-Man Pun, and Cheng Shi. 2020. Towards Ghost-Free Shadow
+Removal via Dual Hierarchical Aggregation Network and Shadow Matting GAN.
+In AAAI. AAAI Press, 10680–10687.
+[3] Bin Ding, Chengjiang Long, Ling Zhang, and Chunxia Xiao. 2019. Argan: Attentive recurrent generative adversarial network for shadow detection and removal.
+In ICCV. 10213–10222.
+[4] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg
+Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. 2021. An Image
+is Worth 16x16 Words: Transformers for Image Recognition at Scale. In ICLR.
+OpenReview.net.
+[5] Graham D. Finlayson, Mark S. Drew, and Cheng Lu. 2009. Entropy Minimization
+for Shadow Removal. IJCV 85, 1 (2009), 35–57.
+[6] Graham D. Finlayson, Steven D. Hordley, and Mark S. Drew. 2002. Removing
+Shadows from Images. In ECCV, Vol. 2353. 823–836.
+[7] Graham D. Finlayson, Steven D. Hordley, Cheng Lu, and Mark S. Drew. 2006. On
+the Removal of Shadows from Images. IEEE TPAMI 28, 1 (2006), 59–68.
+[8] Lan Fu, Changqing Zhou, Qing Guo, Felix Juefei-Xu, Hongkai Yu, Wei Feng,
+Yang Liu, and Song Wang. 2021. Auto-exposure fusion for single-image shadow
+removal. In CVPR. 10571–10580.
+[9] Han Gong and Darren Cosker. 2014. Interactive Shadow Removal and Ground
+Truth for Variable Scene Categories. In BMVC.
+[10] Lanqing Guo, Siyu Huang, Ding Liu, Hao Cheng, and Bihan Wen. 2023. ShadowFormer: Global Context Helps Image Shadow Removal. In AAAI.
+[11] Lanqing Guo, Chong Wang, Wenhan Yang, Siyu Huang, Yufei Wang, Hanspeter
+Pfister, and Bihan Wen. 2023. Shadowdiffusion: When degradation prior meets
+diffusion model for shadow removal. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. 14049–14058.
+[12] Ruiqi Guo, Qieyun Dai, and Derek Hoiem. 2012. Paired regions for shadow
+detection and removal. IEEE TPAMI 35, 12 (2012), 2956–2967.
+[13] Ali Hassani and Humphrey Shi. 2022. Dilated Neighborhood Attention Transformer. (2022). arXiv:2209.15001 [cs.CV] https://arxiv.org/abs/2209.15001
+[14] Ali Hassani, Steven Walton, Jiachen Li, Shen Li, and Humphrey Shi. 2023. Neighborhood Attention Transformer. In CVPR. IEEE, 6185–6194.
+[15] Jie Hu, Li Shen, and Gang Sun. 2018. Squeeze-and-Excitation Networks. In
+2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition. https:
+//doi.org/10.1109/cvpr.2018.00745
+[16] Xiaowei Hu, Chi-Wing Fu, Lei Zhu, Jing Qin, and Pheng-Ann Heng. 2020.
+Direction-Aware Spatial Context Features for Shadow Detection and Removal.
+IEEE TPAMI 42, 11 (2020), 2795–2808.
+[17] Xiaowei Hu, Yitong Jiang, Chi-Wing Fu, and Pheng-Ann Heng. 2019. MaskShadowGAN: Learning to remove shadows from unpaired data. In ICCV. 2472–
+2481.
+[18] Yeying Jin, Ruoteng Li, Wenhan Yang, and Robby T. Tan. 2023. Estimating
+Reflectance Layer from a Single Image: Integrating Reflectance Guidance and
+Shadow/Specular Aware Learning. In AAAI. AAAI Press, 1069–1077.
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+[19] Yeying Jin, Aashish Sharma, and Robby T Tan. 2021. DC-ShadowNet: SingleImage Hard and Soft Shadow Removal Using Unsupervised Domain-Classifier
+Guided Network. In CVPR. 5027–5036.
+[20] Yeying Jin, Wei Ye, Wenhan Yang, Yuan Yuan, and Robby T. Tan. 2024. DeS3:
+Adaptive Attention-Driven Self and Soft Shadow Removal Using ViT Similarity.
+In AAAI. AAAI Press, 2634–2642.
+[21] Salman Hameed Khan, Mohammed Bennamoun, Ferdous Ahmed Sohel, and
+Roberto Togneri. 2016. Automatic Shadow Detection and Removal from a Single
+Image. IEEE TPAMI 38, 3 (2016), 431–446.
+[22] Wei-Sheng Lai, Jia-Bin Huang, Narendra Ahuja, and Ming-Hsuan Yang. 2019. Fast
+and Accurate Image Super-Resolution with Deep Laplacian Pyramid Networks.
+IEEE TPAMI 41, 11 (2019), 2599–2613.
+[23] Hieu M. Le and Dimitris Samaras. 2019. Shadow Removal via Shadow Image
+Decomposition. In ICCV. IEEE, 8577–8586. https://doi.org/10.1109/ICCV.2019.
+00867
+[24] Xiaoguang Li, Qing Guo, Rabab Abdelfattah, Di Lin, Wei Feng, Ivor W. Tsang,
+and Song Wang. 2023. Leveraging Inpainting for Single-Image Shadow Removal.
+In ICCV. IEEE, 13009–13018.
+[25] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc Van Gool, and Radu
+Timofte. 2021. SwinIR: Image Restoration Using Swin Transformer. In ICCVW.
+IEEE, 1833–1844.
+[26] Yuhao Liu, Zhanghan Ke, Ke Xu, Fang Liu, Zhenwei Wang, and Rynson W. H.
+Lau. 2024. Recasting Regional Lighting for Shadow Removal. In AAAI. AAAI
+Press, 3810–3818.
+[27] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin,
+and Baining Guo. 2021. Swin Transformer: Hierarchical Vision Transformer
+using Shifted Windows. In ICCV. IEEE, 9992–10002.
+[28] Zhihao Liu, Hui Yin, Xinyi Wu, Zhenyao Wu, Yang Mi, and Song Wang. 2021.
+From Shadow Generation to Shadow Removal. In CVPR.
+[29] Ilya Loshchilov and Frank Hutter. 2019. Decoupled Weight Decay Regularization.
+In ICLR (Poster). OpenReview.net.
+[30] Sohail Nadimi and Bir Bhanu. 2004. Physical Models for Moving Shadow and
+Object Detection in Video. IEEE TPAMI 26, 8 (2004), 1079–1087.
+[31] Liangqiong Qu, Jiandong Tian, Shengfeng He, Yandong Tang, and Rynson W. H.
+Lau. 2017. DeshadowNet: A Multi-context Embedding Deep Network for Shadow
+Removal. In CVPR. IEEE Computer Society, 2308–2316. https://doi.org/10.1109/
+CVPR.2017.248
+[32] Jifeng Wang, Xiang Li, and Jian Yang. 2018. Stacked conditional generative
+adversarial networks for jointly learning shadow detection and shadow removal.
+In CVPR. 1788–1797.
+[33] Zhendong Wang, Xiaodong Cun, Jianmin Bao, Wengang Zhou, Jianzhuang Liu,
+and Houqiang Li. 2022. Uformer: A General U-Shaped Transformer for Image
+Restoration. In CVPR. IEEE, 17662–17672.
+[34] Yuxin Wu, Alexander Kirillov, Francisco Massa, Wan-Yen Lo, and Ross Girshick.
+2019. Detectron2. https://github.com/facebookresearch/detectron2.
+[35] Hongyi Zhang, Moustapha Cissé, Yann N. Dauphin, and David Lopez-Paz. 2018.
+mixup: Beyond Empirical Risk Minimization. In ICLR (Poster). OpenReview.net.
+[36] Ling Zhang, Qing Zhang, and Chunxia Xiao. 2015. Shadow Remover: Image
+Shadow Removal Based on Illumination Recovering Optimization. IEEE TIP 24,
+11 (2015), 4623–4636.
+[37] Yiqi Zhong, Xianming Liu, Deming Zhai, Junjun Jiang, and Xiangyang Ji. 2022.
+Shadows can be Dangerous: Stealthy and Effective Physical-world Adversarial
+Attack by Natural Phenomenon. In CVPR. 15324–15333.
+[38] Yurui Zhu, Jie Huang, Xueyang Fu, Feng Zhao, Qibin Sun, and Zheng-Jun Zha.
+2022. Bijective Mapping Network for Shadow Removal. In CVPR. 5627–5636.
+[39] Yurui Zhu, Zeyu Xiao, Yanchi Fang, Xueyang Fu, Zhiwei Xiong, and Zheng-Jun
+Zha. 2022. Efficient Model-Driven Network for Shadow Removal. In AAAI.
+
+

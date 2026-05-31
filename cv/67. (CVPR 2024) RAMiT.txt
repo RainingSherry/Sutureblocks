@@ -1,0 +1,3691 @@
+Reciprocal Attention Mixing Transformer for Lightweight Image Restoration
+
+arXiv:2305.11474v4 [cs.CV] 18 Apr 2024
+
+Haram Choi1 * Cheolwoong Na2 Jihyeon Oh2 Seungjae Lee2 Jinseop Kim2 Subeen Choe2
+Jeongmin Lee3 Taehoon Kim4 Jihoon Yang2†
+1
+2
+RippleAI Machine Learning Research Lab., Sogang University 3 LG Innotek 4 LG AI Research
+
+Abstract
+
+large number of parameters. Furthermore, even the stateof-the-art lightweight IR networks consume intensive computational costs [5, 10, 36, 42, 79]. Another problem is that
+some IR models mainly focus on expanding the receptive
+field with respect to locality [9, 10, 36, 62, 79], which is
+insufficient to capture the global dependency in an image.
+This is critical because the IR networks need to refer to repeated patterns and textures distributed throughout the image [20, 42]. Meanwhile, others have tried to enlarge the
+receptive field globally [5, 71, 75] but have overlooked important local (spatial) information, which is conventionally
+essential for recovery tasks [9, 10, 23, 62]. Fig. 1 visualizes
+a few examples in which a successful IR depends on the
+ability to consider both local and global features in a given
+distorted low-quality image, emphasizing how significant
+the problem is.
+
+Although many recent works have made advancements
+in the image restoration (IR) field, they often suffer from
+an excessive number of parameters. Another issue is that
+most Transformer-based IR methods focus only on either local or global features, leading to limited receptive fields or
+deficient parameter issues. To address these problems, we
+propose a lightweight network, Reciprocal Attention Mixing Transformer (RAMiT). It employs our proposed dimensional reciprocal attention mixing Transformer (D-RAMiT)
+blocks, which compute bi-dimensional self-attentions in
+parallel with different numbers of multi-heads. The bidimensional attentions help each other to complement their
+counterpart’s drawbacks and are then mixed. Additionally, we introduce a hierarchical reciprocal attention mixing (H-RAMi) layer that compensating for pixel-level information losses and utilizes semantic information while
+maintaining an efficient hierarchical structure. Furthermore, we revisit and modify MobileNet V2 to attach efficient
+convolutions to our proposed components. The experimental results demonstrate that RAMiT achieves state-of-theart performance on multiple lightweight IR tasks, including
+super-resolution, low-light enhancement, deraining, color
+denoising, and grayscale denoising. Codes are available at
+https://github.com/rami0205/RAMiT.
+
+To address these problems, we propose a lightweight
+IR network called RAMiT (Reciprocal Attention Mixing
+Transformer). As shown in Fig. 2a, RAMiT consists of
+a shallow module, three hierarchical and the last stages
+composed of Ka D-RAMiT blocks before and after an upsampling bottleneck layer, an H-RAMi, and a final reconstruction module. Our proposed D-RAMiT (Dimensional
+Reciprocal Attention Mixing Transformer) blocks include
+a novel bi-dimensional self-attention (SA) mixing module.
+This operates spatial and channel SA mechanisms [36, 71]
+in parallel with different multi-heads, and mixes them. To
+overcome the drawbacks of each SA, we allow the results
+from the previous block to help the respective counterparts’
+SA procedures. Consequently, RAMiT can capture both
+local and global dependencies. Additionally, we propose
+an efficient component, H-RAMi (Hierarchical Reciprocal
+Attention Mixer) that mixes the multi-scale attentions resulting from four hierarchical stages. This component complements pixel-level information losses caused by downsampled features, and enhances semantic-level representations. It enables RAMiT to re-think where and how much
+attention to pay in the given input feature maps. For a mixture of each reciprocal (i.e., dimensional and hierarchical)
+attention result, we modify MobileNet V2 [52]. Utilizing this MobiVari (MobileNet Variant) layer, we can ef-
+
+1. Introduction
+Lightweight image restoration (IR) or enhancement techniques are essential for addressing inherent flaws in images
+captured in the wild, especially those taken by devices with
+low computational power. These techniques aim to reconstruct high-quality images from their distorted low-quality
+counterparts. However, many lightweight IR tasks with the
+popular vision Transformer [15] based methods remain relatively unexplored. Although many recent Transformer [58]
+networks have improved the IR domain [7, 9, 62, 71, 75],
+they are infeasible for real-world applications due to their
+* This work has been done during Master’s course in Sogang University.
+† Corresponding author.
+
+1
+
+Low-Quality
+(Input Image)
+
+High-Quality
+(Target Image)
+
+Super-Resolution (SR)
+
+Denoising (DN)
+
+Low-Light Enhancement (LLE)
+
+Deraining (DR)
+
+Figure 1. The importance of locality and global dependency in image restoration tasks. (Blue boxes) Local features are informative enough
+to recover most parts, meaning that the contribution of locally adjacent pixels is crucial. (Red boxes) Some areas seem more challenging
+due to high levels of distortion (blurring, noise, darkness, or obstruction). They require global dependency, which can often be detected in
+repeated patterns or textures distributed throughout the entire image.
+
+ficiently and effectively attach the convolutions to the network.
+The experimental results demonstrate that the various
+lightweight IR works are improved by our RAMiT. As
+a result, we establish state-of-the-art performance on five
+different lightweight IR tasks, including super-resolution,
+low-light enhancement, deraining, color denoising, and
+grayscale denoising, showing applicability of RAMiT to
+general low-level vision tasks. Notably, RAMiT achieves
+these results with fewer operations or parameters than the
+other networks.
+The summaries of our main contributions are as follows:
+(1) We propose a dimensional reciprocal attention mixing Transformer (D-RAMiT) block. The spatial and
+channel self-attentions with the different numbers of
+multi-heads operate in parallel using and are fused.
+Therefore, the network can capture both local and
+global context, which is critical for image restoration
+tasks.
+(2) A hierarchical reciprocal attention mixing (H-RAMi)
+layer is introduced. It compensates for pixel-level information losses caused by downsampled features of
+hierarchical structure, and utilizes semantic-level information, while maintaining an efficient hierarchical
+structure.
+(3) Our RAMiT achieves state-of-the-art results on five
+different lightweight image restoration tasks. It is
+noteworthy that RAMiT requires fewer parameters or
+operations compared to existing methods.
+
+utilized dilated windows to capture the dependency in nonlocal regions. Focal Transformer [65] gradually widened
+surrounding regions (key, value) of a local window (query).
+CSwin[14] extended square windows to cross-shaped rectangle windows. VSA [78] dynamically varied the window
+size, breaking the local constraint. DaViT [13] alternately
+placed spatial WSA and channel self-attention blocks to
+consider both local and global dependencies in an image.
+WSA for Image Restoration. The image restoration (IR) tasks aim to recover a high-quality image from
+a degraded low-quality counterpart. SwinIR [36] firstly
+adapted window self-attention (WSA) in this domain and
+achieved outstanding results. Thereafter, many studies
+employed WSA and overcame the limited receptive field.
+Uformer [62] proposed locally-enhanced feed-forward network to refer to neighbor pixels. ELAN [79] split channels of input feature maps into different sized windows,
+efficiently enlarging the local receptive field. Following
+[57, 60, 69], ART [75] exploited the dilated window attention. NGswin [10] introduced an N-Gram method helping
+WSA to consider surrounding pattern and texture. Moreover, Restormer [71] and NAFNet [8] utilized channelattention rather than spatial WSA for maximizing the capability of attention mechanism in capturing global dependency. Related to the approaches above, we aim to address
+the weakness of the plain WSA.
+
+3. Methodology
+3.1. Overall Architecture of RAMiT
+
+2. Related Work
+
+As shown in Fig. 2a, given a low-quality image ILQ ∈
+R3(or1)×H×W , a 3 × 3 convolutional shallow module produces Xs ∈ RC×H×W , where H and W are height and
+width of ILQ , and C is channel. Xs passes through
+hierarchical encoder stages consisting of Ka D-RAMiT
+(Dimensional Reciprocal Attention Mixing Transformer,
+Sec. 3.2 and Fig. 2b) blocks, where a indicates the stage
+number. D-RAMiT calculates self-attention (SA) in bidimensions (spatiality and channel) with the different num-
+
+Window Self-Attention.
+After Vision Transformer
+(ViT) [15] appeared, Swin Transformer [40] proposed window self-attention (WSA) to solve the excessive time complexity of ViT. Self-attention is computed with the tokens in
+a non-overlapping local window. However, since the receptive field of WSA was limited within a small window, some
+following high-level vision studies tried to overcome this
+issue. GGViT [69], CrossFormer [60], and MaxViT [57]
+2
+
+3×𝐻×𝑊
+
+𝑋𝑠 𝐶 × 𝐻 × 𝑊
+
+Shallow
+Module
+
+𝐶 × 𝐻2 × 𝑊
+2
+
+𝐶×𝐻×𝑊
+
+𝐶 × 𝐻4 × 𝑊
+4
+
+stage1
+
+stage2
+
+stage3
+
+D-RAMiT
+
+D-RAMiT
+
+D-RAMiT
+
+× 𝕂1
+
+𝐼𝐿𝑄
+
+× 𝕂2
+
+QKV Project
+
+Stage1~4
+
+Head Split
+
+Pixel-Shuffle
+
+Attentions
+
+× 𝕂3
+
+𝐿𝑠𝑝
+𝐶×𝐻×𝑊
+
+stage4
+
+D-RAMiT
+
+LayerNorm
+
+𝐶×𝐻×𝑊
+
+*
+
+𝐼𝑅𝐶 3 × 𝐻 × 𝑊
+
+𝐼𝑟𝑒𝑠 3 × 𝐻 × 𝑊
+
+Reconstruction
+Downsizing
+
+Attention of last block
+
+* Element-wise product
+
+CHSA
+
+C
+
+MobiVari
+
+MobiVari
+
+H-RAMi
+
+× 𝕂4
+
+𝐶×𝐻×𝑊
+
+𝐿𝑐ℎ
+
+SPSA
+
+Bottleneck
+
+Except for SR
+
+Feed-Forward
+Network
+LayerNorm
+
+(Shallow)
++ Stage1~3
+Outputs
+
+Pixel-Shuffle
+C
+
+MobiVari
+
+Skip-connection C Concatenation
+
+(a) Overall Architecture of RAMiT
+
+(c) H-RAMi
+
+(b) D-RAMiT Block
+
+(d) Bottleneck
+
+Figure 2. Overall architecture of RAMiT. (a) The size indicates dimension of output from each component. The operation of ILQ + Ires
+is omitted for super-resolution tasks. IRC equals to Ires ∈ R3×rH×rW (r: an upscale factor). (b) The different multi-heads (Lsp , Lch )
+are assigned to each self-attention (SA) module. Being multiplied to value of each counterpart, both SAs help each other (white arrows,
+optional depending on tasks). The bi-dimensional attentions are mixed by our MobileNet variant, MobiVari1 . (c) H-RAMi mixes the
+hierarchical attentions resulting from the last blocks of each stage. Before MobiVari enhances and mixes the attentions, this module
+upsamples and concatenates multi-scale attentions. (d) Our bottleneck adopts the SCDP bottleneck of NGswin [10].
+
+bers of multi-heads. After projecting query, key, value
+and splitting current feature map into L heads, Lsp and
+Lch (= L − Lsp ) heads are assigned to spatial and channel
+self-attention modules, respectively. For both SAs, we employ scaled-cosine attention and post-normalization [41].
+The reciprocally computed attentions are mixed by MobiVari1 (MobileNet Variants). Afterwards, the output passes
+through layer-norm (LN) [4] with skip connection [22],
+feed-forward network, and LN. At the end of the first and
+second stages, we downsample the feature maps by half, but
+maintain the channels. While the downsizing layers follow the patch-merging practice of Swin Transformers [40],
+we replace a plain linear projection of these layers with our
+MobiVari.
+When the stage3 ends, Xs and multi-scale outputs from
+stage 1, 2, 3 are fed into a bottleneck layer (Fig. 2d), which
+is the same as SCDP bottleneck from NGswin [10] except
+that depth- and point-wise convolution switches over to our
+MobiVari. The bottleneck taking multi-scale features can
+compensate for information loss caused by the downsizing
+layers. Using a bottleneck output, the stage4 composed of
+K4 D-RAMiT blocks operates in the same way as the other
+stages. Then, the merged attention results outputted by the
+last Transformer blocks of all the stages are conveyed to an
+H-RAMi layer (Hierarchical Reciprocal Attention Mixer,
+Sec. 3.3 and Fig. 2c). H-RAMi upsamples them into H ×W
+using a pixel-shuffler [54] and aggregates them, which is
+merged by MobiVari. This layer is simple but robust to
+
+pixel-level information losses as is our bottleneck. The remixed hierarchical attention is element-wise multiplied to
+the stage4 output. A global skip-connection adds the result with Xs [32], which is then fed into the reconstruction
+module to produce a residual image Ires . The reconstruction module follows the common practice [2, 10, 36], but
+places two MobiVari layers before the original version to
+boost the performances (detailed in Appendix Sec. A.1). Finally, Ires +ILQ makes a reconstructed image IRC (ignored
+for super-resolution, i.e., Ires = IRC ).
+
+3.2. Dimensional Reciprocal Attention Mixing
+Transformer Block
+Motivation. To improve low-level vision tasks like image
+restoration (IR), it is crucial to refer to repeated patterns and
+textures distributed through an entire image (i.e., global or
+non-local context) [20, 42], as already presented in Fig. 1.
+Nevertheless, while many approaches for high-level vision
+tasks, such as classification, have enriched non-locality [13,
+57, 60, 69], most lightweight IR methods lack the capability to capture global dependency. They maximize only “locality” by adding correlation of adjacent neighbors to a local window [10], or splitting the channels into three groups
+and the corresponding sizes of local windows within which
+the self-attention is computed [79]. Meanwhile, channelattention mechanism is theoretically capable of equipping
+global dependency by involving all pixels along the channel dimension [8, 27, 71, 80]. Fig. 3a visualizes the actual receptive field of different self-attention methods using the Local Attribution Map [20]. The channel selfattention (CHSA) views nearly global areas but performs
+
+1 MobiVari modifies the activation function and residual connections
+and the expansion convolution of the original MobileNet V2 [52]. We
+detail the MobiVari structure in Appendix Sec. A.1.
+
+3
+
+Input
+
+Pure SPSA
+
+Pure CHSA
+
+D-RAMiT
+
+𝑞𝑢𝑒𝑟𝑦`
+𝑘𝑒𝑦`
+𝑣𝑎𝑙𝑢𝑒`
+
+𝐿𝑠𝑝 ×ℎ𝑤×𝑀2 ×𝐶ൗ
+
+Window
+Partition
+
+𝑐ℎ𝑠𝑎`
+(𝑝𝑟𝑒𝑣)
+
+𝑐ℎ𝑠𝑎
+
+𝐿𝑐ℎ
+
+Attention map
+
+𝐿
+𝑞𝑢𝑒𝑟𝑦
+cos
+𝑘𝑒𝑦 𝐿𝑠𝑝×ℎ𝑤×𝐶ൗ ×𝑀2
+𝐿
+𝑣𝑎𝑙𝑢𝑒
+
+×ℎ𝑤×𝑀2 ×𝐶ൗ
+
+𝐿
+
+pos
+
+softmax
+
++ window unpartition
++ reshape
+
+𝐿𝑠𝑝 ×ℎ𝑤×𝑀2 ×𝑀2
+
+𝐿𝑠𝑝 ×ℎ𝑤×𝑀2 ×𝐶ൗ𝐿
+Head
+Squeeze 1×ℎ𝑤×𝑀2×𝐶ൗ
+
+*
+
+𝐿𝑠𝑝 ×ℎ𝑤×
+𝑀2 ×𝐶ൗ𝐿
+
+Project
+(1 × 1 𝑐𝑜𝑛𝑣)
+
+𝑠𝑝𝑠𝑎
+෡ 𝑊
+෡
+𝐿𝑠𝑝 ⋅𝐶ൗ𝐿×𝐻×
+
+𝐿
+
+Spatial Self-Attention (SPSA)
+෡𝑊
+෡
+𝐿𝑐ℎ ×𝐶ൗ𝐿×𝐻
+
+𝑞𝑢𝑒𝑟𝑦
+cos
+𝑘𝑒𝑦 𝐿𝑐ℎ×𝐻෡ 𝑊×
+෡ 𝐶ൗ
+𝐿
+𝑣𝑎𝑙𝑢𝑒
+𝑠𝑝𝑠𝑎
+(𝑝𝑟𝑒𝑣)
+෡𝑊
+෡
+𝐿𝑠𝑝 ⋅𝐶ൗ𝐿×𝐻
+
+(a) Local Attribution MAP (LAM) [20].
+
+Attention map
+
+softmax
+
+𝐿𝑐ℎ ×𝐶ൗ𝐿×𝐶ൗ𝐿
+
+cos
+
+Cosine Similarity
+
+pos
+
+Relative
+Positional Bias
+
+*
+
+Element-wise
+multiplication
+
++ reshape
+
+෡𝑊
+෡
+𝐿𝑐ℎ ×𝐶ൗ𝐿×𝐻
+
+෡𝑊
+෡
+𝐿𝑐ℎ ×𝐶ൗ𝐿×𝐻
+Channel
+Squeeze 1×1×𝐻*
+෡𝑊
+෡
+
+Project
+
+𝑐ℎ𝑠𝑎
+
+(1 × 1 𝑐𝑜𝑛𝑣) 𝐿 ⋅𝐶ൗ ×𝐻×
+෡ 𝑊
+෡
+𝑐ℎ
+𝐿
+
+Channel Self-Attention (CHSA)
+
+Matrix
+multiplication
+
+(b) Pipelines of our dimensional reciprocal self-attentions.
+
+Figure 3. (a) The depth of the red areas indicates the extent to which the regions contribute to recovering a red box of an input. DRAMiT utilizes both local and global dependencies, meaningfully expanding the receptive field compared to the pure SPSA (see Appendix
+Sec. A.3). (b) Our bi-dimensional self-attention schemes help each other to further boost image restoration performances.
+Ω(SPSA) = 4Ĥ Ŵ C 2 + 2M 2 Ĥ Ŵ C
+
+poorly (Tab 4a), because lightweight CHSA focuses on the
+unnecessary parts with deficient trainable parameters [11].
+On the other hand, the spatial self-attention (SPSA2 ) suffers from the limited receptive field despite intensive computational costs (Tab 4a), which suggests the potential for
+further improvement. Hence, our goal is to incorporate local and global context rather than merely enlarging “local”
+receptive field.
+Proposed Method. We propose a bi-dimensional reciprocal self-attention, which is implemented by operating
+both SPSA and CHSA in parallel (Fig. 2b). Our proposed
+method can capture both local and global range dependency,
+thereby improving the IR performances. As illustrated in
+Fig. 3b, our SPSA and CHSA pipelines adapt the local window self-attention of SwinIR [36] and the transposed attention of Restormer [71], respectively. We assign the different
+numbers of multi-heads Lsp and Lch (Lsp + Lch = L) to
+SPSA and CHSA to compute reciprocal attention Attn, as
+follows:
+
+Ω(CHSA) = 4Ĥ Ŵ C 2 + 2Ĥ Ŵ C 2 /L
+Task
+SR ×2
+SR ×4
+Denoising
+
+Pure CHSA
+153.4G / 957K
+39.6G / 978K
+583.2G / 952K
+
+Pure SPSA
+173.4G / 975K
+44.6G / 996K
+659.9G / 970K
+
+D-RAMiT (proposed)
+163.4G / 940K
+42.1G / 961K
+620.8G / 935K
+
+*SR: Super-Resolution
+*Both methods have the same number of layers and channels.
+
+Table 1. (Eq.) Time complexity. (Tab.) Mult-Adds / #Parameters.
+
+sp
+sp
+ch
+ch
+Qsp
+and Qch
+are query, key, value
+i , Ki , Vi
+i , Ki , Vi
+for SPSA and CHSA, respectively; cos calculates cosine
+2
+2
+similarity [41]; B ∈ RM ×M is the relative positional
+bias [40]; τ is a trainable scalar that is set larger than
+0.01 [41]; Psp , Pch denotes the reshape and projection
+
+layer. Similar to our work, DaViT [13] has sequentially
+placed the same numbers of SPSA and CHSA blocks. However, it can consider global context only after attending to
+spatial dimension (see Appendix Sec. A.2). In contrast,
+D-RAMiT processes both SAs in parallel, allocating more
+heads to SPSA (e.g., Lsp :Lch =75%:25%). Then, our MobiVari mixes local and global attentions as well as enhances
+locality by 3 × 3 depth-wise convolution [62, 71]. The subsequent process follows Fig. 2b.
+Reciprocal Helper. Our bi-dimensional modules help
+each other to compensate for each others’ weaknesses,
+thereby further boosting lightweight IR performances.
+When operating SPSA of ℓ-th block, value is element-wise
+multiplied with the CHSA output of (ℓ − 1)-th block, before multiplying attention map3 and value. The inverse process applies to CHSA as well. It is noteworthy that intensities of information on each SA differ. Each single channel from the previous CHSA has various global representations. Thus, we squeeze (average-pool) it at head dimension
+before product. On the other hand, averaging channels of
+SPSA can preserve valuable local properties. As a result,
+we squeeze feature of the previous SPSA at channel dimension. The first D-RAMiT block of each stage excludes this
+step due to absence of the previous features with a same resolution. We verify the effects of this approach in Tab. 4b.
+Efficiency. The pure SPSA module employed by other
+IR networks [10, 36, 79] have quadratic time complexity
+to a local window size. On the other hand, the time com-
+
+2 In this paper, SPSA indicates the local window-based self-attention
+proposed by Swin Transformer [40].
+
+3 Following [79], we remove the attention mask to avoid inefficiency
+when a cyclic shift [40] is operated.
+
+Attn = MobiVari(Concat[SPSA, CHSA])
+
+(1)
+
+Each self-attention and the corresponding heads are obtained by Eq. 2 and Eq. 3, respectively:
+sp
+SPSA = Psp (Concat[headsp
+1 , ..., headLsp ]),
+ch
+CHSA = Pch (Concat[headch
+Lsp +1 , ..., headL ])
+sp
+sp T
+sp
+headsp
+i = Softmax(cos(Qi , (Ki ) )/τ + B)Vi ,
+ch
+ch T
+ch
+headch
+i = Softmax(cos(Qi , (Ki ) )/τ )Vi
+
+(2)
+
+(3)
+
+4
+
+(a) High-Quality Image
+(ground-truth)
+
+(b) Stage4 Output (𝑜4)
+
+(c) H-RAMi output (𝑜ℎ )
+
+(d) 𝑜4 ∗ 𝑜ℎ
+
+Figure 4. Impacts of H-RAMi. (a) A ground-truth high-quality image. (b), (c) The feature maps after stage 4 and H-RAMi. (d) Elementwise product of (b) and (c) (Remind Fig. 2a). (b), (c), (d) are obtained by max-pooling along channel and standardization. More are in
+Appendix Sec. A.5.
+
+output of stage 4 at (b) produces relatively unclear edges
+for fine-grained areas. This vulnerability stems from less
+abundant pixel-level information than non-hierarchical networks [5, 36, 79]. However, H-RAMi reconstructs attentive areas and produces clearer borders at (c) by taking both
+pixel- and semantic-level information. As a result, the reattended feature map at (d) contains more apparent and obvious boundaries, which enhances the image restoration accuracy (Tab. 4a).
+
+plexity of a CHSA module is usually lower than that of an
+SPSA, as channels per head (C/L) is mostly not larger than
+a local window area (M 2 ) in the equations of Tab. 1. Our
+proposed D-RAMiT, thus, is more efficient than the pure
+SPSA. Moreover, D-RAMiT significantly compensates the
+limited capability of the pure CHSA (see Tab. 4a). MultAdds is evaluated on a 1280 × 720 high-resolution image.
+
+3.3. Hierarchical Reciprocal Attention Mixer
+Motivation. There are many evidences that a hierarchical
+network is usually less effective for IR tasks [10, 11, 25, 83].
+This is because the goal of IR is to predict pixel values one by one (i.e., dense prediction) inferring recovery
+patterns when given the distribution of other pixels [20].
+However, downsizing feature maps significantly loses important pixel-level information, which prevents many IR
+researchers from employing hierarchical structures [2, 5,
+43, 49, 79, 80]. Nevertheless, a hierarchical architecture has several advantages. First, reducing the feature
+map size can lower time complexity. For example, nonhierarchical SwinIR-light [36] requires intensive computations (See Tab. 2). Furthermore, a hierarchical structure can
+learn semantic-level feature representation as well as pixellevel [21, 59]. To complement the demerits and leverage
+the merits, we propose the Hierarchical Reciprocal Attention Mixing layer.
+Proposed Method. As presented in Fig. 2c, our HRAMi layer is simple but effective. Inspired by SCDP bottleneck [10], we apply the same strategy to “multi-scale attentions” from the hierarchical encoder stages instead of the
+final outputs. H-RAMi takes the attentions merged by MobiVari before layer-norm [4] (a red dashed arrow next to
+a violet rectangle of Fig. 2b) of the last D-RAMiT blocks
+in the hierarchical stage 1, 2, 3, 4. After we upsample the
+resolutions of the mixed bi-dimensional attentions (inputs)
+into H × W , they are concatenated and mixed by our MobiVari. Therefore, our H-RAMi can take advantage of both
+multi-scale and bi-dimensional attentions, re-considering
+where and how much attention to pay semantically and
+globally. Fig. 4 illustrates the impacts of H-RAMi. The
+
+4. Experiments
+4.1. Experimental Setup
+Training. We randomly cropped low-quality (LQ) images into various sizes of patches according to each task.
+The training data was augmented by the random horizontal flip and rotation (90◦ , 180◦ , 270◦ ) as done in the recent works [5, 10, 36, 79]. We minimized L1 pixel-loss
+between IRC and a ground truth high-quality image IHQ :
+L = ∥IHQ − IRC ∥1 with Adam [33] optimizer. For image super-resolution (SR), 800 high and low resolution image pairs from DIV2K [1] dataset were used. The lowresolution images were acquired by the MATLAB bicubic kernel from corresponding high-resolution images. The
+color and grayscale image denoising (DN) models were
+trained on DFBW, a merged dataset of 800 DIV2K, 2,650
+Flickr2K [55], 400 BSD500 [3], and 4,744 WED [44] images, following [11, 36, 71, 75]. The random Gaussian
+noise level σ ranging [0, 50] was used to get noisy LQ images. For low-light image enhancement (LLE), 1,785 dark
+and bright image pairs were utilized (485 LOL [63] + 1,300
+VE-LOL [39]), which were either captured or synthesized.
+Next, we trained our deraining (DR) model on 13,711 synthesized rainy and clean image pairs of Rain13K [70] collected from [18, 34, 66, 73, 74]. Other details are in Appendix Sec. B.
+Evaluation.
+For SR, we evaluated the performances on the five benchmark datasets, composed of
+Set5 [6], Set14 [72], BSD100 [46], Urban100 [28], and
+Manga109 [47]. We calculated PSNR (dB) and SSIM [61]
+5
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (noisy)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+LQ (noisy)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ
+
+ART-light
+
+NGswin
+
+RAMiT
+(ours)
+
+HQ
+
+ART-light
+
+NGswin
+
+RAMiT
+(ours)
+
+Urban100 × 3 img_024
+
+CBSD68 148026
+(𝜎 = 50)
+
+(ground-truth)
+
+LOL eval 493
+LQ (dark)
+VE-LOL-cap low00770
+
+LQ (rainy)
+Test100 076
+
+HQ (ground-truth)
+
+HQ
+
+MSPFN
+
+DRBN
+
+DRT
+
+Urban100 × 4 img_004
+
+Kodak24 kodim08
+(𝜎 = 50)
+
+KinD++
+
+RAMiT (ours)
+
+EnlightenGAN
+
+LQ (rainy)
+Test100 031
+
+(ground-truth)
+
+(ground-truth)
+
+HQ
+
+URetinex-Net
+
+MSPFN
+
+RAMiT (ours)
+
+DRT
+
+RAMiT (ours)
+
+(ground-truth)
+
+Figure 5. Visual comparisons of multiple lightweight image restoration tasks. LQ: Low-Quality input. HQ: High-Quality target. (1st
+row) Super-Resolution. (2nd row) Denoising. (3rd row) Low-Light Enhancement. (4th row) Deraining. More results are provided in
+Appendix Sec. C.
+
+4.3. Quantitative Comparisons
+
+scores on the Y channel of the YCbCr space. The same
+metrics were calculated for testing DR, which involves
+Test100 [74] and Rain100H [66] datasets. To test DN
+performances, Gaussian noise with different levels σ of
+{15, 25, 50} is added. We reported PSNR and SSIM on
+the RGB channel of CBSD68 [46], Kodak24 [17], McMaster [77], and Urban100 for color DN and on Y channel of
+Set12 [76], BSD68 [46], and Urban100 for grayscale DN.
+The same metrics for color DN were employed to evaluate
+the LLE performances on 15 LOL [63] and 100 VE-LOLcap [39] test images.
+
+Image Super-Resolution (SR). In Tab. 2, we compared our RAMiT with other state-of-the-art lightweight
+SR methods, including CARN (ECCV18) [2], LatticeNet (ECCV20) [43], SwinIR-light (ICCVW21) [36],
+FMEN (CVPRW22) [16], ESRT (CVPRW22) [42], ELANlight (ECCV22) [79], DiVANet (PR23) [5], NGswin
+(CVPR23) [10], and SwinIR-NG (CVPR23) [10]. We also
+reported the number of operations (Mult-Adds) of each
+model. Our RAMiT gained PSNR up to 0.12dB while
+consuming only 59.6 ∼ 67.7% of the operations used by
+SwinIR-NG. Especially, RAMiT offers the best trade-off
+between efficiency and performance on ×2 and ×4 tasks
+among the compared approaches. For a concern of the number of parameters, see Appendix Sec. A.6.
+Low-Light Image Enhancement (LLE). RAMiT
+substantially surpassed the state-of-the-art LLE methods,
+including DRBN (CVPR20) [67], KinD++ (IJCV21) [81],
+EnlightenGAN (TIP21) [31],
+and URetinex-Net
+(CVPR22) [64], as recorded in Tab. 3a. Our method
+restored much more accurate brightness and objects from
+the extremely dark image than other models. While they
+adhered to the conventional approaches, such as Retinex
+
+4.2. Qualitative Comparisons
+Fig. 5 presents the visual comparisons with other models,
+which were selected based on existing state-of-the-art studies for each task. The illustration demonstrates that our proposed dimensional and hierarchical attention mixing methods were able to recover more accurate textures and patterns
+than other methods. Our combination of “local and global”
+and “pixel- and semantic-level” features made our proposed
+approach effective. More results are in Appendix Sec. C.
+6
+
+Method
+
+Mult-Adds
+
+#Params
+
+CARN [2]
+LatticeNet [43]
+SwinIR-light [36]
+FMEN [16]
+ESRT [42]
+ELAN-light [79]
+DiVANet [5]
+NGswin [10]
+SwinIR-NG [10]
+RAMiT (ours)
+CARN [2]
+LatticeNet [43]
+SwinIR-light [36]
+FMEN [16]
+ESRT [42]
+ELAN-light [79]
+DiVANet [5]
+NGswin [10]
+SwinIR-NG [10]
+RAMiT (ours)
+CARN [2]
+LatticeNet [43]
+SwinIR-light [36]
+FMEN [16]
+ESRT [42]
+ELAN-light [79]
+DiVANet [5]
+NGswin [10]
+SwinIR-NG [10]
+RAMiT (ours)
+
+222.8G
+169.5G
+243.7G
+172.0G
+191.4G
+168.4G
+189.0G
+140.4G
+274.1G
+163.4G
+118.8G
+76.3G
+109.5G
+77.2G
+96.4G
+75.7G
+89.0G
+66.6G
+114.1G
+77.3G
+90.9G
+43.6G
+61.7G
+44.2G
+67.7G
+43.2G
+57.0G
+36.4G
+63.0G
+42.1G
+
+1,592K
+756K
+910K
+748K
+677K
+582K
+902K
+998K
+1,181K
+940K
+1,592K
+765K
+918K
+757K
+770K
+590K
+949K
+1,007K
+1,190K
+949K
+1,592K
+777K
+930K
+769K
+751K
+601K
+939K
+1,019K
+1,201K
+961K
+
+Scale
+
+×2
+
+×3
+
+×4
+
+Set5 [6]
+PSNR SSIM
+37.76 0.9590
+38.06 0.9607
+38.14 0.9611
+38.10 0.9609
+38.03 0.9600
+38.17 0.9611
+38.16 0.9612
+38.05 0.9610
+38.17 0.9612
+38.16 0.9612
+34.29 0.9255
+34.40 0.9272
+34.62 0.9289
+34.45 0.9275
+34.42 0.9268
+34.61 0.9288
+34.60 0.9285
+34.52 0.9282
+34.64 0.9293
+34.63 0.9290
+32.13 0.8937
+32.18 0.8943
+32.44 0.8976
+32.24 0.8955
+32.19 0.8947
+32.43 0.8975
+32.41 0.8973
+32.33 0.8963
+32.44 0.8980
+32.56 0.8992
+
+Set14 [72]
+PSNR SSIM
+33.52 0.9166
+33.70 0.9187
+33.86 0.9206
+33.75 0.9192
+33.75 0.9184
+33.94 0.9207
+33.80 0.9195
+33.79 0.9199
+33.94 0.9205
+34.00 0.9213
+30.29 0.8407
+30.32 0.8416
+30.54 0.8463
+30.40 0.8435
+30.43 0.8433
+30.55 0.8463
+30.47 0.8447
+30.53 0.8456
+30.58 0.8471
+30.60 0.8467
+28.60 0.7806
+28.61 0.7812
+28.77 0.7858
+28.70 0.7839
+28.69 0.7833
+28.78 0.7858
+28.70 0.7844
+28.78 0.7859
+28.83 0.7870
+28.83 0.7873
+
+BSD100 [46]
+PSNR SSIM
+32.09 0.8978
+32.20 0.8999
+32.31 0.9012
+32.26 0.9007
+32.25 0.9001
+32.30 0.9012
+32.29 0.9012
+32.27 0.9008
+32.31 0.9013
+32.33 0.9015
+29.06 0.8034
+29.10 0.8049
+29.20 0.8082
+29.17 0.8063
+29.15 0.8063
+29.21 0.8081
+29.19 0.8073
+29.19 0.8078
+29.24 0.8090
+29.25 0.8093
+27.58 0.7349
+27.57 0.7355
+27.69 0.7406
+27.63 0.7379
+27.69 0.7379
+27.69 0.7406
+27.65 0.7391
+27.66 0.7396
+27.73 0.7418
+27.71 0.7418
+
+Urban100 [28]
+PSNR SSIM
+31.92 0.9256
+32.25 0.9288
+32.76 0.9340
+32.41 0.9311
+32.58 0.9318
+32.76 0.9340
+32.60 0.9325
+32.53 0.9324
+32.78 0.9340
+32.81 0.9346
+28.06 0.8493
+28.19 0.8513
+28.66 0.8624
+28.33 0.8562
+28.46 0.8574
+28.69 0.8624
+28.58 0.8603
+28.52 0.8603
+28.75 0.8639
+28.76 0.8646
+26.07 0.7837
+26.14 0.7844
+26.47 0.7980
+26.28 0.7908
+26.39 0.7962
+26.54 0.7982
+26.42 0.7958
+26.45 0.7963
+26.61 0.8010
+26.60 0.8017
+
+Manga109 [47]
+PSNR SSIM
+38.36 0.9765
+38.94 0.9774
+39.12 0.9783
+38.95 0.9778
+39.12 0.9774
+39.12 0.9783
+39.08 0.9775
+38.97 0.9777
+39.20 0.9781
+39.32 0.9783
+33.50 0.9440
+33.63 0.9442
+33.98 0.9478
+33.86 0.9462
+33.95 0.9455
+34.00 0.9478
+33.94 0.9468
+33.89 0.9470
+34.22 0.9488
+34.30 0.9490
+30.47 0.9084
+30.54 0.9075
+30.92 0.9151
+30.70 0.9107
+30.75 0.9100
+30.92 0.9150
+30.73 0.9119
+30.80 0.9128
+31.09 0.9161
+31.17 0.9170
+
+Table 2. Comparison of lightweight super-resolution results. Mult-Adds is evaluated on a 1280 × 720 high-resolution image. The best and
+second best results are in red and blue.
+(b) Image Deraining (DR).
+
+(a) Low-Light Image Enhancement (LLE).
+Method
+
+#Params
+
+DRBN [67]
+KinD++ [81]
+EnlightenGAN [31]
+URetinex-Net [64]
+RAMiT (ours)
+
+558K
+8,275K
+8,640K
+361K
+935K
+
+LOL [63]
+PSNR SSIM
+18.80 0.8304
+21.80 0.8338
+17.48 0.6507
+21.33 0.8348
+24.14 0.8423
+
+VE-LOL-cap [39]
+PSNR
+SSIM
+20.11
+0.8545
+22.21
+0.8430
+18.64
+0.6754
+21.22
+0.8593
+28.73
+0.8886
+
+Method
+
+#Params
+
+UMRL [68]
+MSPFN [30]
+DRT [37]
+TAO-Net [35]
+RAMiT (ours)
+
+984K
+13,350K
+1,180K
+755K
+935K
+
+Test100 [74]
+PSNR SSIM
+24.41 0.8290
+27.50 0.8760
+27.02 0.8470
+28.59 0.8870
+30.44 0.9012
+
+Rain100H [66]
+PSNR SSIM
+26.01 0.8320
+28.66 0.8600
+29.47 0.8460
+28.96 0.8640
+29.69 0.8775
+
+Table 3. Comparison of lightweight low-light image enhancement and image deraining results.
+
+algorithms [50] and convolutional neural networks, our
+advanced Transformer easily defeated them by up to
+6.52dB of the PSNR score.
+
+image. However, RAMiT surpassed them on every noise
+level and dataset through both local and global context.
+Grayscale Image Denoising (GDN). As shown in
+Tab. 5b, our RAMiT was good at removing noise from the
+grayscale images as well. RAMiT reconstructed more similar images to ground-truth for human-perception in that our
+SSIM scores were the highest. Moreover, RAMiT gained
+PSNR scores on all noise levels up to 0.23dB.
+
+Image Deraining (DR). Tab. 3b shows that RAMiT
+could more sufficiently remove rains than the state-ofthe-art DR methods: UMRL (CVPR19) [68], MSPFN
+(CVPR20) [30], DRT (CVPRW22) [37], and TAO-Net
+(SPLetters22) [35]. We gained PSNR scores up to 1.73dB
+with the second smallest architecture. In particular, MSPFN
+network fell behind RAMiT in performance despite having
+3.89 times more parameters than RAMiT.
+
+4.4. Ablation Study
+D-RAMiT. Tab. 4a ({i} vs. {iii} vs. {v}) compares our
+D-RAMiT with a pure SPSA and CHSA on SR ×2, ×4,
+CDN, LLE, and DR. The proposed D-RAMiT overcame the
+limited capacity of CHSA and the narrow receptive field
+of SPSA. Our method achieved better results on multiple
+tasks with fewer computations and parameters than SPSA.
+This effectiveness is also observed without the H-RAMi
+layer, another proposed method ({ii} vs. {iv}). Moreover, as shown in Tab. 4b, the reciprocal helper contributed
+to the improvement. This approach consumed only minor
+
+Color Image Denoising (CDN). In Tab. 5a, we referred to the lightweight denoising Transformer baselines introduced by [11], such as SwinIR-light (ICCVW21) [36], Restormer-light (CVPR22) [71], CAT-light
+(NeurIPS22) [9], ART-light (ICLR23) [75], and NGswin
+(CVPR23) [10]. It is notable that SwinIR, CAT, and
+NGswin aimed to boost locality of a window-based spatial self-attention, while Restoremer and ART pursued an
+improved ability in capturing non-local dependency in an
+7
+
+(a) D-RAMiT & H-RAMi (Mult-Adds / #Params / Average PSNR).
+Transformer
+Pure CHSA
+Pure SPSA
+Pure SPSA
+D-RAMiT
+D-RAMiT
+
+H-RAMi
+w/
+w/o
+w/
+w/o
+w/
+
+SR ×2
+153.4G / 957K / 34.994
+168.6G / 955K / 35.218
+173.4G / 975K / 35.276
+158.5G / 920K / 35.310
+163.4G / 940K / 35.324
+
+SR ×4
+39.6G / 978K / 29.074
+43.4G / 976K / 29.302
+44.6G / 996K / 29.342
+40.9G / 940K / 29.338
+42.1G / 961K / 29.374
+
+CDN σ = 50
+583.2G / 952K / 28.848
+641.2G / 950K / 29.010
+659.9G / 970K / 29.128
+602.1G / 914K / 29.205
+620.8G / 935K / 29.275
+
+(b) Reciprocal Helper (w/o / w/ ).
+Task
+SR ×2
+SR ×3
+SR ×4
+LLE
+
+Mult-Adds (G)
+163.2 / 163.4
+77.16 / 77.26
+42.08 / 42.13
+620.8 / 621.6
+
+LLE
+583.2G / 952K / 23.985
+641.2G / 950K / 25.095
+659.9G / 970K / 25.140
+602.9G / 914K / 26.365
+621.6G / 935K / 26.435
+
+DR
+583.2G / 952K / 28.810
+641.2G / 950K / 29.175
+659.9G / 970K / 29.190
+602.1G / 914K / 29.940
+620.8G / 935K / 30.065
+
+{i}
+{ii}
+{iii}
+{iv}
+{v}
+
+(c) MobiVari Activation Function.
+Activation
+ReLU6 [26, 52]
+ReLU [48]
+GELU [24]
+Swishβ=1 [51]
+LeakyReLU [45]
+
+PSNR
+35.308 / 35.324
+31.482 / 31.508
+29.308 / 29.374
+25.915 / 26.435
+
+SR ×2
+35.304
+35.322
+35.320
+35.306
+35.324
+
+CDN σ = 50
+29.220
+29.270
+29.268
+29.250
+29.275
+
+LLE
+25.530
+26.160
+26.230
+26.160
+26.435
+
+Table 4. Ablation studies on our proposed methods. The reported PSNR scores represent the average values on the benchmark test datasets
+of each image restoration task provided in Tabs. 2, 3, 5. Mult-Adds is calculated on a 1280 × 720 high-quality image.
+
+marginal additional operations and parameters, which accounted for a maximum of only 3.01% and 2.25% of the
+total costs, respectively.
+MobiVari.
+In Tab. 4c, we investigated different non-linear activation functions for our MobiVari.
+LeakyReLU [45] resulted in the best stable performances
+across multiple tasks and was selected as the default option.
+Such stability of LeakyReLU can be attributed to its ability
+to better preserve relatively large absolute negative values
+compared to other activation functions. These values, which
+are occasionally generated by intermediate layers, may have
+a subtle influence on a feature map, ultimately leading to a
+significant difference in the final output of a network.
+
+(a) Color Image Denoising (CDN).
+Method
+
+#Params
+
+SwinIR-light [36]
+Restormer-light [71]
+CAT-light [9]
+ART-light [75]
+NGswin [10]
+RAMiT (ours)
+SwinIR-light [36]
+Restormer-light [71]
+CAT-light [9]
+ART-light [75]
+NGswin [10]
+RAMiT (ours)
+SwinIR-light [36]
+Restormer-light [71]
+CAT-light [9]
+ART-light [75]
+NGswin [10]
+RAMiT (ours)
+
+905K
+1,054K
+1,042K
+1,084K
+993K
+935K
+905K
+1,054K
+1,042K
+1,084K
+993K
+935K
+905K
+1,054K
+1,042K
+1,084K
+993K
+935K
+
+σ
+
+15
+
+25
+
+50
+
+CBSD68 [46]
+PSNR SSIM
+34.16 0.9323
+33.99 0.9311
+34.01 0.9304
+34.08 0.9315
+34.12 0.9324
+34.23 0.9332
+31.50 0.8883
+31.33 0.8865
+31.37 0.8855
+31.40 0.8864
+31.44 0.8884
+31.59 0.8902
+28.22 0.8006
+28.04 0.7974
+28.11 0.7960
+28.08 0.7950
+28.13 0.8011
+28.37 0.8058
+
+Kodak24 [17]
+PSNR SSIM
+35.18 0.9269
+34.86 0.9244
+34.90 0.9237
+35.00 0.9251
+35.12 0.9268
+35.22 0.9276
+32.69 0.8868
+32.38 0.8833
+32.43 0.8822
+32.49 0.8833
+32.61 0.8865
+32.76 0.8887
+29.54 0.8089
+29.19 0.8034
+29.29 0.8024
+29.27 0.8000
+29.42 0.8087
+29.67 0.8143
+
+McMaster [77]
+PSNR SSIM
+35.23 0.9295
+34.69 0.9229
+34.83 0.9247
+35.10 0.9282
+35.17 0.9294
+35.31 0.9309
+32.90 0.8977
+32.44 0.8905
+32.58 0.8928
+32.74 0.8956
+32.82 0.8978
+33.02 0.9008
+29.71 0.8339
+29.31 0.8256
+29.48 0.8296
+29.48 0.8279
+29.59 0.8339
+29.91 0.8422
+
+Urban100 [28]
+PSNR SSIM
+34.59 0.9478
+34.00 0.9439
+34.12 0.9443
+34.44 0.9467
+34.53 0.9476
+34.68 0.9488
+32.23 0.9222
+31.60 0.9161
+31.75 0.9167
+32.03 0.9195
+32.13 0.9215
+32.36 0.9244
+28.89 0.8658
+28.30 0.8559
+28.46 0.8573
+28.62 0.8584
+28.75 0.8644
+29.15 0.8729
+
+(b) Grayscale Image Denoising (GDN).
+Method
+
+#Params
+
+SwinIR-light [36]
+Restormer-light [71]
+CAT-light [9]
+ART-light [75]
+NGswin [10]
+RAMiT (ours)
+SwinIR-light [36]
+Restormer-light [71]
+CAT-light [9]
+ART-light [75]
+NGswin [10]
+RAMiT (ours)
+SwinIR-light [36]
+Restormer-light [71]
+CAT-light [9]
+ART-light [75]
+NGswin [10]
+RAMiT (ours)
+
+903K
+1,053K
+1,041K
+1,082K
+991K
+932K
+903K
+1,053K
+1,041K
+1,082K
+991K
+932K
+903K
+1,053K
+1,041K
+1,082K
+991K
+932K
+
+σ
+
+15
+
+25
+
+50
+
+Set12 [76]
+PSNR SSIM
+33.04 0.9052
+32.93 0.9039
+32.91 0.9021
+32.93 0.9023
+33.04 0.9055
+33.14 0.9070
+30.67 0.8669
+30.60 0.8659
+30.60 0.8641
+30.52 0.8620
+30.65 0.8671
+30.79 0.8694
+27.50 0.7966
+27.48 0.7960
+27.49 0.7935
+27.26 0.7856
+27.42 0.7961
+27.65 0.8013
+
+BSD68 [46]
+PSNR SSIM
+31.78 0.8926
+31.76 0.8922
+31.89 0.8913
+31.73 0.8911
+31.78 0.8927
+31.82 0.8939
+29.32 0.8325
+29.32 0.8322
+29.47 0.8330
+29.25 0.8285
+29.33 0.8324
+29.37 0.8346
+26.35 0.7299
+26.38 0.7285
+26.52 0.7333
+26.25 0.7194
+26.38 0.7298
+26.46 0.7333
+
+Urban100 [28]
+PSNR SSIM
+33.04 0.9317
+32.81 0.9306
+31.80 0.8901
+32.89 0.9299
+32.99 0.9314
+33.19 0.9346
+30.52 0.8963
+30.32 0.8952
+29.32 0.8393
+30.30 0.8919
+30.46 0.8961
+30.71 0.9013
+27.01 0.8190
+26.92 0.8190
+26.06 0.7456
+26.68 0.8065
+26.96 0.8192
+27.32 0.8306
+
+5. Conclusion
+This paper proposed the Reciprocal Attention Mixing
+Transformers (RAMiT). To incorporate local and global
+context in an image, our Dimensional Reciprocal Attention Mixing Transformer (D-RAMiT) blocks computed bidimensional self-attentions in parallel and mixed them. The
+reciprocal helper was useful for this mechanism. Moreover,
+the Hierarchical Reciprocal Attention Mixing (H-RAMi)
+layer was also introduced, where the information losses
+caused by downsampling were complemented. For mixing
+attentions and other convolutional layers, we revisited and
+modified the MobileNet. As a result, our RAMiT achieved
+state-of-the-art performances on multiple lightweight image
+restoration tasks, including super-resolution, low-light enhancement, deraininig, color denoising, and grayscale denoising. In closing, we hope this work can be further developed and extended to other low-level tasks.
+Acknowledgements. This paper was supported by Institute
+of Information & Communications Technology Planning
+& Evaluation (IITP) grant (No.2022-0-00956) and Korea
+Health Industry Development Institute (KHIDI) grant (No.
+H122C1983) funded by the Korea government (MSIT).
+Special thanks to Prof. Dr. Dasaem Jeong for valuable advises, and Namo Bang, Jeongkyun Park, Juntae Kim, and
+Gyusik Choi of the Sogang Synergy Journal Club for precious comments.
+
+Table 5. Comparison of lightweight blind image denoising results.
+We refer to the baselines in [11].
+
+amounts of Mult-Adds and no extra parameters. Therefore,
+it was proven that our dimensional reciprocal self-attention
+mixing Transformers could be suitable for general IR tasks.
+H-RAMi. Tab. 4a ({ii} vs. {iii}, {iv} vs. {v}) revealed
+that H-RAMi constituted another critical component, not
+only for our D-RAMiT but also for a pure SPSA. Regardless
+of tasks, this layer enabled the models to remain robust even
+when a hierarchical network caused information losses. We
+assumed that since a noisy image contained more distorted
+boundaries, the impacts of H-RAMi that could recover more
+accurate object boundaries (Sec. 3.3) were particularly significant in denoising tasks. Additionally, the results highlighted the remarkable efficiency in that H-RAMi required
+8
+
+Appendix
+A. Supplementary Discussions and Ablation
+Studies
+
+MobiVari × 2
+
+MobiVari × 2
+
+3 × 3 Conv
+(C → 𝑟 2 × 3)
+
+3 × 3 Conv
+(C → 3)
+
+Pixel Shuffle (× 𝑟)
+(𝑟 2 × 3 → 3)
+
+3 × 3 Conv
+(3 → 3)
+
+3 × 3 Conv
+(3 → 3)
+
+𝐼𝑟𝑒𝑠 ∈ ℝ3×𝐻×𝑊
+
+A.1. MobiVari (MobileNet Variants) and Reconstruction Module
+
+𝐼𝐿𝑄
+𝐼𝑅𝐶 ∈ ℝ3×𝐻×𝑊
+Super-Resolution (× 𝑟)
+Others (DN, LLE, DR)
+(a) Reconstruction module architecture.
+𝐼𝑅𝐶 ∈ ℝ3×𝑟𝐻×𝑟𝑊
+
+Expand Conv
+
+ReLU6
+
+dw Conv
+
+ReLU6
+
+LeakyReLU
+
+dw Conv
+
+LeakyReLU
+
+640
+
+950
+
+Mult-Adds (G)
+
+#Params (K)
+
+We revisit MobileNet V2 architectures [52] to incorporate simple and efficient CNN structures into our components. Fig. A illustrates a comparison between the MobileNet and our modified version. We replace the ReLU6
+non-linearity [52] with LeakyReLU [45] to preserve subtle
+gradients that ReLU6 cannot capture [45]. Empirical evidence in Tab. 4c of the main paper shows that this change
+is the most stable. The 3 × 3 depth-wise (dw) and 1 × 1
+point-wise (pw) convolutions in MobileNets are residually
+connected [22] with the input feature. However, if the channels produced by pw convolutions differ from input channels, the skip connection for pw convolutions is ignored.
+Furthermore, because the first 1 × 1 convolution expanding
+channels in MobileNet V2 requires many parameters and
+computations, it is not suitable for our lightweight design.
+Therefore, we substitute it with group convolution [12],
+where the group size and expansion ratio are set to 4 and
+1.2, respectively, by default. Our MobiVari is applied to attention mixing layers of D-RAMiT and H-RAMi, a downsizing layer, a bottleneck, and the reconstruction module.
+
+940
+930
+
+620
+610
+
+920
+1
+
+2
+3
+4
+# of MobiVari
+
+5
+
+0
+
+SSIM (Average 𝜎 = 50)
+
+0
+
+PSNR (Average 𝜎 = 50)
+
+630
+
+29.25
+
+29.20
+29.15
+
+29.10
+29.05
+0
+
+1
+
+2
+3
+4
+# of MobiVari
+
+5
+
+1
+
+2
+3
+4
+# of MobiVari
+
+5
+
+6.834
+0.832
+
+0.830
+0.828
+
+0.826
+0
+
+1
+
+2
+3
+4
+# of MobiVari
+
+5
+
+(b) Ablation study on the number of MobiVari layers at the reconstruction
+module. The metrics are evaluated on color denoising task using σ = 50.
+PSNR and SSIM average the scores on four benchmark datasets.
+
+Figure B. Reconstruction module.
+
+pw Conv
+
+(a) MobileNet V2
+Expand
+Group Conv
+
+pw Conv
+
+(b) MobiVari (ours)
+
+Figure A. Comparison of MobileNets V2 and our corresponding
+variants, MobiVari.
+
+Complex patterns: require global dependency to be restored
+Background or simple patterns: require neighboring local information to be restored
+
+Figure C. The importance of capturing both local and global context for restoring different parts.
+
+Fig. Ba depicts the reconstruction module (a final layer).
+The basic structure follows the reconstruction module of
+NGswin [10]. The only difference is that we place two
+MobiVari layers before the default version to balance the
+trade-off between performance and efficiency (See Fig. Bb).
+This module slightly varies depending on tasks. For superresolution, a pixel-shuffler [54] is employed to upscale the
+feature maps by r times. However, since other tasks (denoising, low-light enhancement, and deraining) do not require this process, the pixel-shuffler is discarded. The symbols and numbers in parentheses indicate changes of channels. The operation Ires + ILQ follows convention [36, 71].
+
+patterns in the image require global context to recover,
+background or simple patterns require only neighboring local information.
+Similar to our bi-dimensional self-attention of the proposed D-RAMiT blocks, DaViT [13] also developed a
+Transformer using both spatial self-attention (SPSA) and
+channel self-attention (CHSA). Tab. Aa summarizes the
+attributes of DaViT and D-RAMiT. A core difference is
+that DaViT “alternatively” places SPSA and CHSA, while
+D-RAMiT operates them “in parallel”. As discussed in
+Sec. 3.2 of the main text, our architecture can boost (depending on tasks) both SPSA and CHSA through the reciprocal helper, which DaViT fundamentally cannot uti-
+
+A.2. Bi-dimensional Self-Attention
+Regarding the importance of capturing both local and global
+context, we present Fig. C. In this figure, while complex
+9
+
+(a) Attribute comparisons. The text in bold indicates the key differences. “LN” represents whether the position of layer-norm [4] is before (Pre) or after
+(Post) the self-attention and feed-forward network.
+DaViT [13]
+D-RAMiT (ours)
+
+SPSA & CHSA
+Operating
+Importance on
+Alternatively Both equally
+In parallel
+SPSA more
+
+Method
+DaViT-full [13]
+DaViT-core [13]
+RAMiT (ours)
+
+SR ×2
+167.0G / 983K / 35.064
+163.2G / 966K / 35.172
+163.4G / 940K / 35.324
+
+Method
+
+Window Shift
+No use
+Cyclic [40]
+
+Existing Elements Employed
+Positional Encoding
+Self-Attention
+Convolution [29] Scaled dot-product [58]
+Relative Position Bias [40, 53]
+Scaled cosine [41]
+
+LN
+Pre [15]
+Post [41]
+
+Solving Problems
+High-level vision
+Low-level vision
+
+(b) Ablation study on DaViT (Mult-Adds / #Params / Average PSNR).
+SR ×4
+43.0G / 1,003K / 29.088
+42.08G / 987K / 29.268
+42.13G / 961K / 29.374
+
+CDN σ = 50
+635.2G / 977K / 28.785
+620.8G / 961K / 29.108
+620.8G / 935K / 29.275
+
+LLE
+635.2G / 977K / 20.965
+620.8G / 961K / 26.000
+621.6G / 935K / 26.435
+
+DR
+635.2G / 977K / 27.910
+620.8G / 961K / 29.630
+620.8G / 935K / 30.065
+
+Table A. Comparisons of RAMiT and DaViT [13].
+Input
+
+lize. Another crucial distinction is related to “which selfattention module is given more importance”. While DRAMiT assigns more multi-heads on SPSA, DaViT makes
+the number of both modules identical. We hypothesize that
+DaViT’s simple approach is unsuitable for lightweight image restoration because although CHSA can capture global
+dependency, its performance is significantly impaired under
+parameter constraints, as observed in Tab. 4a of our main
+body. Therefore, more weights on SPSA can be more useful for constructing an effective lightweight RAMiT. Other
+differences are summarized in the table.
+To further demonstrate our superiority over the simple
+bi-dimensional approach of DaViT, we constructed two versions in Tab. Ab. The first version, DaViT-full, replaced
+the D-RAMiT blocks’ elements in Tab. Aa with those of
+DaViT. The second version, DaViT-core, changed only the
+core designs (i.e., SPSA & CHSA “Operating” and “Importance on”) from ours to those of DaViT, while the parts
+of the “Existing Elements Employed” column remained as
+our settings. The other elements not mentioned in the table followed our default settings for a fair comparison, including the shallow module, MobiVari, the downsizing layers, the bottleneck layer, H-RAMi layer, the reconstruction module, and the hyper-parameters of Tab. H (except
+that chsa head ratio is no longer needed). The results
+show that RAMiT outperformed both DaViT versions while
+having fewer parameters and almost the same Mult-Adds. It
+is demonstrated that our meticulous composition of SPSA
+and CHSA can make a significant difference for multiple
+lightweight image restoration tasks.
+
+SwinIR-light
+
+SwinIR-NG RAMiT (ours)
+
+Input
+
+SwinIR-light
+
+SwinIR-NG RAMiT (ours)
+
+Figure D. Local Attribution Map (LAM) [20] comparison. The
+depth of the red areas indicates the extent to which the regions
+contribute to recovering a red box of an input.
+
+fied by LAM [20] results in Fig. D. Even if SwinIR-NG
+tends to utilize the slightly expanded receptive field when
+compared to SwinIR-light, the gradients of SwinIR-NG that
+actually contribute to reconstruct a small red box are limited
+within “local areas”. By contrast, our RAMiT can convey
+the gradients to “global regions”, which improves low-level
+vision performances with fewer computational costs than
+SwinIR-NG (reference Tab. 2 of the main paper).
+This ability results from adoption of channel selfattention. According to prior work, Squeeze-and-Excitation
+networks [27], the channel-attention can effectively embed the “global feature responses”. RCAN [80] delivered
+an insight that channel-wise attention would be good at
+modeling “global spatial dependency” for low-level vision
+tasks. Afterwards, Restormer [71] applied this mechanism
+to self-attention without squeeze operations, thereby preserving abundant spatial information, which enabled the
+image restoration networks to more effectively capture the
+“global interdependencies” in a whole image. Exploiting
+such advantages of channel self-attention and the effective WSA, RAMiT can yield meaningfully larger receptive
+fields than the “pure local-attention” of the SwinIR family.
+Therefore, our work can be considered an enhanced version
+of the N-Gram context [10], which extends the “local” N-
+
+A.3. LAM Comparisons with Other Models
+SwinIR-light (ICCVW21) [36] is the first successful
+attempt applying window self-attention (WSA) to the
+image restoration tasks.
+Most recently, SwinIR-NG
+(CVPR23) [10] defined an N-Gram context method enlarging the regions viewed for recovering distorted pixels, to
+solve the limited “local” receptive field problem of SwinIRlight. However, SwinIR-NG failed to capture “global context”, while our RAMiT successfully exploit the “global receptive field” maintaining WSA approach, which is clari10
+
+Gram approach to a “Global-Gram” method.
+
+A.4. Reciprocal Helper
+Task
+Color Denoising
+Grayscale Denoising
+Deraining
+
+Mult-Adds (G)
+620.8 / 621.6
+618.5 / 619.3
+620.8 / 621.6
+
+PSNR
+29.275 / 29.253
+27.143 / 27.100
+30.065 / 29.960
+
+Table B. Ablation study on the proposed Reciprocal Helper for
+denoising and deraining (w/o / w/ ).
+
+As proved in Tab. 4b of the main content, our Reciprocal Helper4 can boost ×2, ×3, ×4 super-resolution and lowlight enhancement tasks. However, Tab. B shows that this
+mechanism is unable to improve the performances of denoising and deraining. We interpret this limitation in terms
+of properties of the tasks. Degradation used for the superresolution and low-light enhancement inputs relatively has
+regularity and therefore may be easy to be globally encoded.
+This property may make our reciprocal helper useful for the
+parallel process of local and global self-attention. On the
+other hand, when dealing with denoising or deraining lowquality inputs, the network is required to erase somethings
+that obscure the high-quality objects or background. Since
+it is ill-posed to globally encode these (randomly) disorganized obstructions with a small network capacity, the global
+embeddings produced by the channel attention may confuse
+the spatial attention module of the next blocks. However, if
+the parallel process lacks the reciprocal helper, the MobiVari mixing layers alone can still resolve this issue well.
+Admitting this limitation, we will conduct more sophisticated future work on other helper algorithms that can improve universal tasks. Nevertheless, our core ideas, i.e., dimensional and hierarchical reciprocal self-attention methods, have been already demonstrated to be effective and efficient enough to achieve new state-of-the-art lightweight
+denoising and deraining.
+
+(a) High-Quality Image
+(ground-truth)
+
+(b) Stage4 Output (𝑜4 )
+
+(c) H-RAMi output (𝑜ℎ )
+
+(d) 𝑜4 ∗ 𝑜ℎ
+
+Figure E. Impacts of H-RAMi. (a) A ground-truth high-quality
+image. (b), (c) The feature maps after stage 4 and H-RAMi. (d)
+Element-wise product of (b) and (c). (b), (c), (d) are obtained by
+max-pooling along channel and standardization.
+
+information. In contrast, our approach reduces time complexity and utilizes semantic-level information by processing compressed feature maps. Furthermore, the inputs to HRAMi are intermediate attentions from D-RAMiT blocks,
+which preserve information from both full-resolution spatial and channel self-attentions. We provide additional visual evidences of the benefits in Fig. E. As previously stated
+in Fig. 4 of the main text, the stage 4 output alone at (b)
+produces relatively unclear or incorrect edges, which are resolved at (d) by the clearer edges produced by H-RAMi at
+(c).
+
+A.6. Super-Resolution (SR)
+
+A.5. Hierarchical Reciprocal Attention Mixing
+Layer (H-RAMi)
+
+Fig. F illustrate trade-offs between efficiency (Mult-Adds,
+#Params) and performance (average PSNR) on SR tasks,
+including our RAMiT-slimSR (Tab. Ca) and RAMiT. Our
+methods deliver the best trade-off among the comparative
+models.
+Smaller Size. Tab. 2 of the main text appears to have
+an unfair aspect. Some networks have fewer parameters
+than our RAMiT, such as FMEN (CVPRW22) [16], ESRT
+(CVPRW22) [42], ELAN-light (ECCV22) [79], and DiVANet (PR23) [5]. Although they require more Mult-Adds
+than RAMiT, it can be questioned whether our improvement is attributed to the proposed design or the result of
+having simply more parameters. We address this issue in
+Tab. Ca. The channel (network dimension) and depths (D-
+
+Although H-RAMi may appear similar to the attention
+banks used in DiVANet [5], there are notable differences.
+DiVANet uses non-hierarchical attentions for every residual convolution block, increasing computational costs (see
+Tab. Ca) and failing to learn semantic-level representation.
+Moreover, the vertical and horizontal squeeze operations
+prevent the attention layers from considering full-resolution
+4 To prevent any confusion, we adopted the term “Dimensional Reciprocal Attention Mixing Transformer” (D-RAMiT) to indicate that every
+dimension (spatial and channel) of feature maps is utilized in calculating self-attention, and the outcomes are subsequently mixed by MobiVari.
+Consequently, this implies that the reciprocal helper is not a prerequisite to
+represent dimensional reciprocal attention.
+
+11
+
+RAMiT (ours)
+
+PSNR (Average x3)
+
+31.5
+
+31.4
+31.3
+
+80
+100
+Mult-Adds (G)
+
+29.4
+
+RAMiT (ours)
+
+29.3 RAMiT-slimSR (ours)
+
+ELAN-light
+(ECCV22)
+
+29.2
+
+29.1
+30
+
+(a) Comparison for RAMiT-slimSR. The best, second best, and third best
+results are in red, orange, and blue. PSNR and SSIM scores average the
+results on the five benchmark test datasets.
+
+RAMiT-slimSR (ours)
+RAMiT-slimSR (ours)
+SwinIR-light (ICCVW21)
+31.4 ELAN-light
+ELAN-light (ECCV22)
+SwinIR-light
+(ECCV22)
+DiVANet (PR23)
+DiVANet (PR23)
+(ICCVW21)
+NGswin (CVPR23)
+NGswin (CVPR23)
+ESRT (CVPRW22) 31.3
+ESRT (CVPRW22)
+FMEN (CVPRW22)
+FMEN (CVPRW22)
+
+60
+
+PSNR (Average x4)
+
+RAMiT (ours)
+SwinIR-NG (CVPR23)
+
+31.5
+SwinIR-NG
+(CVPR23)
+
+120
+SwinIR-NG 29.4
+(CVPR23)
+
+SwinIR-light 29.3
+(ICCVW21)
+
+NGswin (CVPR23) DiVANet (PR23) 29.2
+
+ESRT (CVPRW22)
+FMEN (CVPRW22)
+
+40
+
+600
+
+50
+60
+Mult-Adds (G)
+
+Scale
+Mult-Adds / #Params
+PSNR / SSIM
+Mult-Adds / #Params
+PSNR / SSIM
+Mult-Adds / #Params
+PSNR / SSIM
+
+800
+1,000
+1,200
+Learnable Parameters (K)
+RAMiT (ours)
+
+×3
+×4
+
+ESRT [42]
+191.4G / 677K
+35.146 / 0.93754
+96.4G / 770K
+31.282 / 0.87586
+67.7G / 751K
+29.142 / 0.82442
+
+ELAN-light [79]
+168.4G / 582K
+35.258 / 0.93906
+75.7G / 590K
+31.412 / 0.87868
+43.2G / 601K
+29.272 / 0.82742
+
+Method
+DiVANet [5]
+189.0G / 902K
+35.186 / 0.93838
+89.0G / 949K
+31.356 / 0.87752
+57.0G / 939K
+29.182 / 0.82570
+
+NGswin [10]
+140.4G / 998K
+35.122 / 0.93836
+66.6G / 1,007K
+31.330 / 0.87778
+36.4G / 1,019K
+29.204 / 0.82618
+
+RAMiT-slimSR
+127.8G / 581K
+35.226 / 0.93880
+60.4G / 588K
+31.430 / 0.87872
+32.9G / 597K
+29.286 / 0.82762
+
+RAMiT
+163.4G / 940K
+35.324 / 0.93938
+77.3G / 949K
+31.508 / 0.87972
+42.1G / 961K
+29.374 / 0.82940
+
+(b) Training dataset size of RAMiT.
+
+SwinIR-NG
+(CVPR23)
+
+Dataset
+(#Images)
+DIV2K (800)
+DF2K (3,450)
+DIV2K (800)
+DF2K (3,450)
+DIV2K (800)
+DF2K (3,450)
+
+RAMiT-slimSR (ours)
+ELAN-light
+(ECCV22)
+SwinIR-light (ICCVW21)
+NGswin (CVPR23)
+DiVANet (PR23)
+
+29.1
+70
+600
+
+FMEN [16]
+172.0G / 748K
+35.094 / 0.93794
+77.2G / 757K
+31.242 / 0.87594
+44.2G / 769K
+29.110 / 0.82376
+
+×2
+
+ESRT (CVPRW22)
+FMEN (CVPRW22)
+
+Scale
+×2
+×3
+×4
+
+Set5 [6]
+PSNR SSIM
+38.16 0.9612
+38.19 0.9613
+34.63 0.9290
+34.69 0.9295
+32.56 0.8992
+32.58 0.8995
+
+Set14 [72]
+PSNR SSIM
+34.00 0.9213
+33.95 0.9215
+30.60 0.8467
+30.60 0.8468
+28.83 0.7873
+28.87 0.7876
+
+BSD100 [46]
+PSNR SSIM
+32.33 0.9015
+32.35 0.9017
+29.25 0.8093
+29.28 0.8097
+27.71 0.7418
+27.73 0.7419
+
+Urban100 [28]
+PSNR SSIM
+32.81 0.9346
+32.90 0.9352
+28.76 0.8646
+28.80 0.8656
+26.60 0.8017
+26.65 0.8036
+
+Manga109 [47]
+PSNR SSIM
+39.32 0.9783
+39.44 0.9788
+34.30 0.9490
+34.40 0.9494
+31.17 0.9170
+31.25 0.9174
+
+Average
+PSNR
+SSIM
+35.324 0.93938
+35.366 0.93970
+31.508 0.87972
+31.554 0.88020
+29.374 0.82940
+29.416 0.83000
+
+Table C. Ablation study on model size and training dataset for
+super-resolution.
+
+800
+1,000
+1,200
+Learnable Parameters (K)
+
+Figure F. Trade-off between efficiency and performance on superresolution. (Top) ×3. (Bottom) ×4.
+
+Method (seed)
+SwinIR-NG (α)
+RAMiT (α)
+RAMiT (β)
+RAMiT (γ)
+RAMiT (δ)
+
+RAMiT blocks in stage 1 to 4) of RAMiT were scaled from
+64 and [6, 4, 4, 6] to 48 and [8, 2, 2, 8], respectively. In the
+bottleneck and H-RAMi, we also changed the group size
+and expansion ratio of MobiVari from 4 and 1.2 to 1 and
+2.0, respectively. The group size and expansion ratio of
+the other MobiVari layers were retained as the default settings. Consequently, we got a compact network denoted as
+RAMiT-slimSR, which is composed of the fewest learnable
+parameters and Mult-Adds among the comparative methods. Note that RAMiT-slimSR consumes fewer computations than NGswin (CVPR23) [10], which required the
+fewest Mult-Adds in Tab. 2. RAMiT-slimSR still outperformed others, showing that our advancements on superresolution were attributed to the effectiveness and efficiency
+of the novel approaches.
+Training Dataset. As shown in Tab. Cb, we found room
+for improvement of RAMiT with more training data. In
+addition to 800 images of DIV2K [1] used by RAMiT for
+super-resolution in Tab. 2 of the main text, many recent
+studies utilized 2,650 Flickr2K [55] dataset as well to reinforce their SR networks [9, 16, 36, 79, 82]. Following
+them, we additionally trained our models on DF2K (DIV2K
++ Flickr2K) for the enhanced performances. The impacts on
+all upscaling tasks were observed.
+Randomness. To further prove that the improvements
+are attributed to not randomness (weight initialization, randomly cropped patches, random data augmentation, etc.)
+but our approach, we have conducted extra SR experiments
+as shown in Tab. D. RAMiT trained with different random
+seeds (α, β, γ, δ) still outperforms SwinIR-NG. The seed α
+indicates our default.
+Comparison with Large Model. One might question
+the efficiency of our proposed lightweight method compared to its larger counterpart. To address this concern,
+we present Tab. E where the SwinIR [36] large model outperforms ours with 12.5 times more parameters than our
+
+Set5 [6]
+38.17 / 34.64 / 32.44
+38.16 / 34.63 / 32.56
+38.18 / 34.65 / 32.54
+38.18 / 34.64 / 32.48
+38.18 / 34.64 / 32.54
+
+Set14 [72]
+33.94 / 30.58 / 28.83
+34.00 / 30.60 / 28.83
+34.02 / 30.62 / 28.86
+34.00 / 30.60 / 28.80
+34.02 / 30.59 / 28.83
+
+BSD100 [46]
+32.31 / 29.24 / 27.73
+32.33 / 29.25 / 27.71
+32.33 / 29.25 / 27.72
+32.33 / 29.25 / 27.71
+32.32 / 29.25 / 27.71
+
+Urban100 [28]
+32.78 / 28.75 / 26.61
+32.81 / 28.76 / 26.60
+32.81 / 28.75 / 26.62
+32.83 / 28.75 / 26.58
+32.79 / 28.70 / 26.57
+
+Manga109 [47]
+39.20 / 34.22 / 31.09
+39.32 / 34.30 / 31.17
+39.28 / 34.28 / 31.15
+39.28 / 34.29 / 31.11
+39.27 / 34.31 / 31.12
+
+Table D. Ablation on randomness. PSNR on x2 / x3 / x4. The bold
+face indicates better performance over SwinIR-NG [10].
+Method
+SwinIR [36]
+RAMiT (ours)
+
+#Params
+11,753K
+940K
+
+Urban100 (PSNR / FPS)
+33.40 / 0.34, 0.94
+32.81 / 1.38, 9.38
+
+Manga109 (PSNR / FPS)
+39.60 / 0.26, 0.71
+39.32 / 1.10, 7.38
+
+Table E. Comparison between large and lightweight models.
+“FPS” indicates frames per second processed by each method,
+which means the higher FPS, the faster, i.e., the better. The former
+of FPS is measured on an NVIDIA TITAN Xp, while the latter on
+an NVIDIA GeForce RTX 4090.
+
+RAMiT. However, there is a significant difference in the
+number of frames per second that SwinIR and RAMiT
+can process. Our lightweight method demonstrates superior processing speed in image restoration tasks on both
+outdated (TITAN Xp) and recent (RTX 4090) GPU devices, surpassing the SwinIR large model. The result apparently demonstrates that the recent state-of-the-art image
+restoration models cannot be applied to real-world application despite their enhanced performance. In contrast, our
+lightweight approach is specially designed to resolve this
+efficiency-effectiveness trade-off issue, offering a viable solution for practical implementation.
+
+A.7. Low-Light Enhancement (LLE)
+Tab. F compares MAXIM (CVPR22) [56] and RAMiT to
+present the effectiveness and efficiency of our model for
+the LLE task. MAXIM has shown outstanding results on
+the general image restoration tasks with a large model size.
+Surprisingly, our RAMiT outperformed MAXIM in terms
+of average PSNR scores on the 15 images LOL evaluation dataset [63]. Notably, we achieved this impressive result using only 6.63% parameters of MAXIM. Additionally,
+RAMiT showed lower variance for the evaluated images
+12
+
+than MAXIM, indicating more stable restoration of dark images into brighter ones. The visual results are in Fig. G.
+Secondarily, we reported a fair comparison with
+URetinex-Net (CVPR22) [31] in Tab. Ga. This method requires only 38.6% parameters of RAMiT, which can provoke a concern of unfairness. To handle this issue, the
+channel (network dimension) and the depths (D-RAMiT
+blocks in stage 1 to 4) of RAMiT were reduced from 64
+to 48 and from [6, 4, 4, 6] to [4, 2, 2, 4], respectively. In
+the bottleneck and H-RAMi, the group size of MobiVari
+is changed from 4 to 3. As a result, we obtained a downsized model composed of fewer parameters than URetinexNet, and called it RAMiT-slimLLE. RAMiT-slimLLE still
+outperformed URetinex-Net by PSNR margins of up to
+7.16dB, which emphasizes our effectiveness and efficiency.
+
+works, except for the reconstruction module. Learning
+rate was decayed by half at {200, 300, 400, 425, 450, 475}
+and {50, 100, 150, 175, 200, 225} epochs for training from
+scratch (×2) and whole-finetuning phase (×3, ×4), respectively. Learning rate of warm-start phase remained as a constant (i.e., 0.0004×64/batch size). We also linearly increased learning rate from 0 to 0.0004 × 64/batch size
+during the first 20 epochs of the training from scratch and
+whole-finetuning phase (warmup epoch [19]). Each training image was cropped into a patch size of 64 × 64 with 64
+batch size regardless of training from scratch or warm-start
+strategy. To consistently manage the datapoints per epoch,
+we repeated each datapoint 80 and 18.551 times for DIV2K
+and DF2K datasets, which made the number of training images used for an epoch equal to 64, 000.
+Others. For color and grayscale denoising, low-light
+enhancement, and deraining, we adapted the progressive
+learning [71], where the patch size was initially set to
+64 × 64, and then progressively increased to 96 × 96 and
+128 × 128 after {100, 200} epochs, respectively. The corresponding batch size was {64, 32, 16}. We decrease learning
+rate by half at {200, 300, 350, 375} epochs. Warmup epoch
+was the same as super-resolution. The training process
+lasted for 400 epochs. Similar to super-resolution, we repeated each datapoint 3.0, 14.006, and 1.8234 times for denoising, low-light enhancement, and deraining, respectively
+(about 25, 000 datapoints were used per epoch). While we
+obtained the synthetic or real-captured low and high quality
+image pairs of low-light enhancement and deraining from
+public sources5 , the Additive White Gaussian Noise (AWGN)
+for low quality noisy input images of denoising tasks was
+generated by the following PyTorch-like code:
+
+A.8. Deraining (DR)
+Tab. Gb shows our efficiency for deraining task. MPRNet (CVPR21) [70] made advancements on multiple image
+restoration tasks a few years ago. However, RAMiT can
+outperform it with 25.7% parameters of MPRNet on a deraining benchmark dataset, such as Test100 [74].
+
+B. Experimental Details
+In Common. As explained in Sec. 4.1, we optimized
+L1 pixel-loss between IRC and IHQ with the Adam optimizer [33] (β1 = 0.9, β2 = 0.99, ϵ = 10−8 ), where IRC is
+a reconstructed image and IHQ is a high-quality groundtruth image. Learning rate was initialized as 0.0004 ×
+64/batch size. The data augmentation method for LQ
+and HQ pairs was already specified in the main contents.
+Before we fed the LQ input images to the network, each
+input was normalized using mean and std pre-calculated
+from the LQ training datasets corresponding to each task.
+Note that since we used the random (blind) noise levels
+(σ) for training our denoising networks, we used mean and
+std of HQ training datasets for color and grayscale denoising. When computing the training loss, the normalized IRC
+was de-normalized (opposite process of normalization). For
+evaluation, an input image ILQ was upsized by symmetric
+padding to fit the size to a multiplier (= 32 = 8 × 22 ) of the
+local-window M (= 8) and downsizing number (= 22 ) for
+the hierarchical stages. We implemented all processes using
+PyTorch and two NVIDIA GeForce RTX 4090 GPUs. The
+implementation details of RAMiT are in Tab. H.
+Super-Resolution. We trained RAMiT for ×2 task
+from scratch, of which the training epochs were set to 500.
+For ×3, ×4 tasks, we followed a warm-start strategy [38],
+where we fine-tuned the final reconstruction module for 50
+epochs (warm-start phase) before fine-tuning whole network parameters (whole-finetuning phase) lasting for 250
+epochs. In warm-start phase, the network parameters pretrained on ×2 task were loaded to initialize ×3, ×4 net-
+
+AWGN = torch.randn(*img hq.shape)*σ/255
+img lq = img hq + AWGN,
+where the random seed was set to 0 for the evaluation
+process (in training, seed is not given to implement blind denoising); img lq and img hq indicate low and high quality images; σ is noise level set to one among [15, 25, 50] for
+testing or sampled uniformly between 0 ∼ 50 for training.
+
+C. More Visual Comparisons
+In the last six pages (P. 19–24 after References) of this
+document, we provide additional visual comparisons of
+our RAMiT and other networks. These visual results
+exhibit the effectiveness of our approach on superresolution (Figs. H and I), denoising (Figs. J and K),
+low-light enhancement (Fig. L), and deraining (Fig. M).
+5 LOL and VE-LOL datasets can be found in this website1 and this
+website2. Deraining Testsets and Rain13K can be publicly downloaded
+in this google-drive1 and this google-drive2.
+
+13
+
+Model
+MAXIM [56]
+RAMiT (ours)
+
+#Params
+14,100K
+935K
+
+001
+20.98
+20.50
+
+022
+28.68
+26.20
+
+023
+24.89
+19.34
+
+055
+18.83
+18.74
+
+079
+27.16
+28.18
+
+111
+17.82
+31.12
+
+146
+23.30
+25.74
+
+179
+19.65
+23.61
+
+493
+13.79
+20.39
+
+547
+15.66
+18.32
+
+665
+28.34
+26.67
+
+669
+28.63
+25.17
+
+748
+29.96
+28.07
+
+778
+25.02
+21.76
+
+780
+28.51
+28.32
+
+Mean
+23.41
+24.14
+
+Std.
+5.11
+3.93
+
+Table F. Comparison of MAXIM [56] and RAMiT on low-light enhancement. The PSNR (dB) scores on 15 LOL [63] evaluation images
+are reported. The numbers in the first row indicate the testing file (.png) names. Std.: standard-deviation.
+
+LQ
+
+MAXIM
+
+HQ
+
+RAMiT (ours)
+
+LQ
+
+HQ
+
+MAXIM
+
+RAMiT (ours)
+
+LOL eval15 493.png
+
+LOL eval15 111.png
+
+Outperforming by the Largest PSNR Margin (RAMiT is more accurate)
+
+LOL eval15 780.png
+
+LOL eval15 055.png
+
+The Smallest PSNR Margin between RAMiT and MAXIM
+
+LOL eval15 669.png
+
+LOL eval15 023.png
+
+Defeated by the Largest PSNR Margin (MAXIM is more accurate)
+Figure G. Visual comparisons of MAXIM [56] and RAMiT. Despite even fewer parameters, RAMiT can restore the extremely dark images
+with better or matched accuracy compared to MAXIM. In the bottom row, the cases in which RAMiT is highly defeated by MAXIM are
+provided as well.
+(a) Comparison for LLE.
+Method
+
+#Params
+
+URetinex-Net [64]
+RAMiT-slimLLE (ours)
+
+361K
+358K
+
+LOL [63]
+PSNR SSIM
+21.33 0.8348
+23.77 0.8379
+
+Overall
+Architecture
+
+VE-LOL-cap [39]
+PSNR
+SSIM
+21.22
+0.8593
+28.38
+0.8835
+
+Feed-Forward
+Network (FFN)
+
+(b) Comparison for DR.
+
+Method
+
+#Params
+
+MPRNet [70]
+RAMiT (ours)
+
+3,637K
+935K
+
+Test100 [74]
+PSNR SSIM
+30.27 0.8970
+30.44 0.9012
+
+MobiVari
+
+Rain100H [66]
+PSNR SSIM
+30.41 0.8990
+29.69 0.8775
+
+Dropout
+
+Others
+
+Table G. Further comparisons for LLE and DR. (a) RAMiTslimLLE is still better than URetinex-Net. (b) We outperform
+MPRNet on a benchmark dataset despite much fewer parameters.
+
+dim (C)
+depths
+num heads
+chsa head ratio (Lch /L)
+window size (M )
+hidden ratio
+activation
+exp factor
+expand groups
+activation
+attention map
+attention project
+drop path
+optimizer
+initialized learning rate
+learning rate decay
+batch size
+epoch / total datapoints
+
+64
+[6, 4, 4, 6]
+[4, 4, 4, 4]
+25%
+8
+2.0
+GELU [24]
+1.2
+4
+LeakyReLU [45]
+0.0
+0.0
+0.0
+Adam [33] (β1 = 0.9, β2 = 0.99, ϵ = 10−8 )
+0.0004 × 64/batch size
+half (see paragraphs below)
+see paragraphs below
+500 / 32M (SR), 400 / 10M (Others)
+
+Table H. Implementation details of RAMiT. “depths” and “num
+heads” count the number of D-RAMiT blocks ([K1 , K2 , K3 , K4 ])
+and multi-heads (L) in stage 1, 2, 3, 4. Correspondingly, the setting of “chsa head ratio =25%” indicates that (Lsp , Lch ) is placed
+as [(3, 1), (3, 1), (3, 1), (3, 1)] in each stage.
+
+References
+[1] Eirikur Agustsson and Radu Timofte. Ntire 2017 challenge
+on single image super-resolution: Dataset and study. In Proceedings of the IEEE conference on computer vision and pattern recognition workshops, pages 126–135, 2017. 5, 12
+[2] Namhyuk Ahn, Byungkon Kang, and Kyung-Ah Sohn. Fast,
+accurate, and lightweight super-resolution with cascading
+residual network. In Proceedings of the European conference on computer vision (ECCV), pages 252–268, 2018. 3,
+5, 6, 7
+[3] Pablo Arbelaez, Michael Maire, Charless Fowlkes, and Ji-
+
+tendra Malik. Contour detection and hierarchical image segmentation. IEEE transactions on pattern analysis and machine intelligence, 33(5):898–916, 2010. 5
+[4] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization. arXiv preprint arXiv:1607.06450,
+2016. 3, 5, 10
+[5] Parichehr Behjati, Pau Rodriguez, Carles Fernández, Isabelle
+
+14
+
+[17] Rich Franzen. Kodak lossless true color image suite. source:
+http://r0k. us/graphics/kodak, 4(2), 1999. 6, 8
+[18] Xueyang Fu, Jiabin Huang, Delu Zeng, Yue Huang, Xinghao
+Ding, and John Paisley. Removing rain from single images
+via a deep detail network. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages
+3855–3863, 2017. 5
+[19] Priya Goyal, Piotr Dollár, Ross Girshick, Pieter Noordhuis, Lukasz Wesolowski, Aapo Kyrola, Andrew Tulloch,
+Yangqing Jia, and Kaiming He. Accurate, large minibatch sgd: Training imagenet in 1 hour. arXiv preprint
+arXiv:1706.02677, 2017. 13
+[20] Jinjin Gu and Chao Dong. Interpreting super-resolution
+networks with local attribution maps. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 9199–9208, 2021. 1, 3, 4, 5, 10
+[21] Bharath Hariharan, Pablo Arbeláez, Ross Girshick, and Jitendra Malik. Hypercolumns for object segmentation and
+fine-grained localization. In Proceedings of the IEEE conference on computer vision and pattern recognition, pages
+447–456, 2015. 5
+[22] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pages 770–778, 2016. 3, 9
+[23] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr
+Dollár, and Ross Girshick. Masked autoencoders are scalable
+vision learners. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 16000–
+16009, 2022. 1
+[24] Dan Hendrycks and Kevin Gimpel. Gaussian error linear
+units (gelus). arXiv preprint arXiv:1606.08415, 2016. 8, 14
+[25] Qibin Hou, Li Zhang, Ming-Ming Cheng, and Jiashi Feng.
+Strip pooling: Rethinking spatial pooling for scene parsing.
+In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 4003–4012, 2020. 5
+[26] Andrew G Howard, Menglong Zhu, Bo Chen, Dmitry
+Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig Adam. Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv
+preprint arXiv:1704.04861, 2017. 8
+[27] Jie Hu, Li Shen, and Gang Sun. Squeeze-and-excitation networks. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, pages 7132–7141, 2018. 3,
+10
+[28] Jia-Bin Huang, Abhishek Singh, and Narendra Ahuja. Single
+image super-resolution from transformed self-exemplars. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 5197–5206, 2015. 5, 7, 8, 12
+[29] Md Amirul Islam*, Sen Jia*, and Neil D. B. Bruce. How
+much position information do convolutional neural networks
+encode? In International Conference on Learning Representations, 2020. 10
+[30] Kui Jiang, Zhongyuan Wang, Peng Yi, Chen Chen, Baojin
+Huang, Yimin Luo, Jiayi Ma, and Junjun Jiang. Multi-scale
+progressive fusion network for single image deraining. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 8346–8355, 2020. 7
+
+Hupont, Armin Mehri, and Jordi Gonzàlez. Single image
+super-resolution based on directional variance attention network. Pattern Recognition, 133:108997, 2023. 1, 5, 6, 7, 11,
+12
+[6] Marco Bevilacqua, Aline Roumy, Christine Guillemot, and
+Marie Line Alberi-Morel. Low-complexity single-image
+super-resolution based on nonnegative neighbor embedding.
+BMVA press, 2012. 5, 7, 12
+[7] Hanting Chen, Yunhe Wang, Tianyu Guo, Chang Xu, Yiping
+Deng, Zhenhua Liu, Siwei Ma, Chunjing Xu, Chao Xu, and
+Wen Gao. Pre-trained image processing transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 12299–12310, 2021. 1
+[8] Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, and Jian Sun.
+Simple baselines for image restoration. In Computer Vision–
+ECCV 2022: 17th European Conference, Tel Aviv, Israel,
+October 23–27, 2022, Proceedings, Part VII, pages 17–33.
+Springer, 2022. 2, 3
+[9] Zheng Chen, Yulun Zhang, Jinjin Gu, Yongbing Zhang,
+Linghe Kong, and Xin Yuan. Cross aggregation transformer
+for image restoration. In Advances in Neural Information
+Processing Systems, 2022. 1, 7, 8, 12
+[10] Haram Choi, Jeongmin Lee, and Jihoon Yang. N-gram
+in swin transformers for efficient lightweight image superresolution. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 2071–
+2081, 2023. 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
+[11] Haram Choi, Cheolwoong Na, Jinseop Kim, and Jihoon
+Yang. Exploration of lightweight single image denoising
+with transformers and truly fair training. In Proceedings of
+the 2023 International Conference on Multimedia Retrieval,
+2023. 4, 5, 7, 8
+[12] Taco Cohen and Max Welling. Group equivariant convolutional networks. In International conference on machine
+learning, pages 2990–2999. PMLR, 2016. 9
+[13] Mingyu Ding, Bin Xiao, Noel Codella, Ping Luo, Jingdong
+Wang, and Lu Yuan. Davit: Dual attention vision transformers. In Computer Vision–ECCV 2022: 17th European Conference, Tel Aviv, Israel, October 23–27, 2022, Proceedings,
+Part XXIV, pages 74–92. Springer, 2022. 2, 3, 4, 9, 10
+[14] Xiaoyi Dong, Jianmin Bao, Dongdong Chen, Weiming
+Zhang, Nenghai Yu, Lu Yuan, Dong Chen, and Baining
+Guo. Cswin transformer: A general vision transformer
+backbone with cross-shaped windows. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 12124–12134, 2022. 2
+[15] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is
+worth 16x16 words: Transformers for image recognition at
+scale. In International Conference on Learning Representations, 2021. 1, 2, 10
+[16] Zongcai Du, Ding Liu, Jie Liu, Jie Tang, Gangshan Wu,
+and Lean Fu. Fast and memory-efficient network towards
+efficient image super-resolution. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 853–862, 2022. 6, 7, 11, 12
+
+15
+
+[44] Kede Ma, Zhengfang Duanmu, Qingbo Wu, Zhou Wang,
+Hongwei Yong, Hongliang Li, and Lei Zhang. Waterloo exploration database: New challenges for image quality assessment models. IEEE Transactions on Image Processing, 26
+(2):1004–1016, 2016. 5
+[45] Andrew L Maas, Awni Y Hannun, Andrew Y Ng, et al. Rectifier nonlinearities improve neural network acoustic models.
+In Proc. icml, page 3. Atlanta, Georgia, USA, 2013. 8, 9, 14
+[46] David Martin, Charless Fowlkes, Doron Tal, and Jitendra
+Malik. A database of human segmented natural images
+and its application to evaluating segmentation algorithms and
+measuring ecological statistics. In Proceedings Eighth IEEE
+International Conference on Computer Vision. ICCV 2001,
+pages 416–423. IEEE, 2001. 5, 6, 7, 8, 12
+[47] Yusuke Matsui, Kota Ito, Yuji Aramaki, Azuma Fujimoto,
+Toru Ogawa, Toshihiko Yamasaki, and Kiyoharu Aizawa.
+Sketch-based manga retrieval using manga109 dataset. Multimedia Tools and Applications, 76(20):21811–21838, 2017.
+5, 7, 12
+[48] Vinod Nair and Geoffrey E Hinton. Rectified linear units improve restricted boltzmann machines. In Proceedings of the
+27th international conference on machine learning (ICML10), pages 807–814, 2010. 8
+[49] Ben Niu, Weilei Wen, Wenqi Ren, Xiangde Zhang, Lianping
+Yang, Shuzhen Wang, Kaihao Zhang, Xiaochun Cao, and
+Haifeng Shen. Single image super-resolution via a holistic
+attention network. In European conference on computer vision, pages 191–207. Springer, 2020. 5
+[50] Zia-ur Rahman, Daniel J Jobson, and Glenn A Woodell.
+Retinex processing for automatic image enhancement. Journal of Electronic imaging, 13(1):100–110, 2004. 7
+[51] Prajit Ramachandran, Barret Zoph, and Quoc V Le.
+Searching for activation functions.
+arXiv preprint
+arXiv:1710.05941, 2017. 8
+[52] Mark Sandler, Andrew Howard, Menglong Zhu, Andrey Zhmoginov, and Liang-Chieh Chen. Mobilenetv2: Inverted
+residuals and linear bottlenecks. In Proceedings of the
+IEEE conference on computer vision and pattern recognition, pages 4510–4520, 2018. 1, 3, 8, 9
+[53] Peter Shaw, Jakob Uszkoreit, and Ashish Vaswani. Selfattention with relative position representations. In Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 2 (Short Papers), pages
+464–468, New Orleans, Louisiana, 2018. Association for
+Computational Linguistics. 10
+[54] Wenzhe Shi, Jose Caballero, Ferenc Huszár, Johannes Totz,
+Andrew P Aitken, Rob Bishop, Daniel Rueckert, and Zehan
+Wang. Real-time single image and video super-resolution
+using an efficient sub-pixel convolutional neural network. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 1874–1883, 2016. 3, 9
+[55] Radu Timofte, Eirikur Agustsson, Luc Van Gool, MingHsuan Yang, and Lei Zhang. Ntire 2017 challenge on single
+image super-resolution: Methods and results. In Proceedings of the IEEE conference on computer vision and pattern
+recognition workshops, pages 114–125, 2017. 5, 12
+
+[31] Yifan Jiang, Xinyu Gong, Ding Liu, Yu Cheng, Chen Fang,
+Xiaohui Shen, Jianchao Yang, Pan Zhou, and Zhangyang
+Wang. Enlightengan: Deep light enhancement without
+paired supervision. IEEE transactions on image processing,
+30:2340–2349, 2021. 6, 7, 13
+[32] Jiwon Kim, Jung Kwon Lee, and Kyoung Mu Lee. Accurate
+image super-resolution using very deep convolutional networks. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, pages 1646–1654, 2016. 3
+[33] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. arXiv preprint arXiv:1412.6980,
+2014. 5, 13, 14
+[34] Yu Li, Robby T Tan, Xiaojie Guo, Jiangbo Lu, and Michael S
+Brown. Rain streak removal using layer priors. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pages 2736–2744, 2016. 5
+[35] Yufeng Li, Zhentao Fan, Jiyang Lu, and Xiang Chen. Taonet: Task-adaptive operation network for image restoration
+and enhancement. IEEE Signal Processing Letters, 29:2198–
+2202, 2022. 7
+[36] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc
+Van Gool, and Radu Timofte. Swinir: Image restoration using swin transformer. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 1833–1844,
+2021. 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
+[37] Yuanchu Liang, Saeed Anwar, and Yang Liu. Drt: A
+lightweight single image deraining recursive transformer. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 589–598, 2022. 7
+[38] Zudi Lin, Prateek Garg, Atmadeep Banerjee, Salma Abdel Magid, Deqing Sun, Yulun Zhang, Luc Van Gool,
+Donglai Wei, and Hanspeter Pfister. Revisiting rcan: Improved training for image super-resolution. arXiv preprint
+arXiv:2201.11279, 2022. 13
+[39] Jiaying Liu, Dejia Xu, Wenhan Yang, Minhao Fan, and
+Haofeng Huang. Benchmarking low-light image enhancement and beyond. International Journal of Computer Vision,
+129:1153–1184, 2021. 5, 6, 7, 14
+[40] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 10012–10022, 2021. 2, 3, 4, 10
+[41] Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie,
+Yixuan Wei, Jia Ning, Yue Cao, Zheng Zhang, Li Dong, et al.
+Swin transformer v2: Scaling up capacity and resolution. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 12009–12019, 2022. 3,
+4, 10
+[42] Zhisheng Lu, Juncheng Li, Hong Liu, Chaoyan Huang, Linlin Zhang, and Tieyong Zeng. Transformer for single image
+super-resolution. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+Workshops, pages 457–466, 2022. 1, 3, 6, 7, 11, 12
+[43] Xiaotong Luo, Yuan Xie, Yulun Zhang, Yanyun Qu, Cuihua Li, and Yun Fu. Latticenet: Towards lightweight image
+super-resolution with lattice block. In European Conference
+on Computer Vision, pages 272–289. Springer, 2020. 5, 6, 7
+
+16
+
+single image de-raining. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition,
+pages 8405–8414, 2019. 7
+[69] Qihang Yu, Yingda Xia, Yutong Bai, Yongyi Lu, Alan L
+Yuille, and Wei Shen. Glance-and-gaze vision transformer.
+Advances in Neural Information Processing Systems, 34:
+12992–13003, 2021. 2, 3
+[70] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar
+Hayat, Fahad Shahbaz Khan, Ming-Hsuan Yang, and Ling
+Shao. Multi-stage progressive image restoration. In CVPR,
+2021. 5, 13, 14
+[71] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+Restormer: Efficient transformer for high-resolution image
+restoration. In CVPR, 2022. 1, 2, 3, 4, 5, 7, 8, 9, 10, 13
+[72] Roman Zeyde, Michael Elad, and Matan Protter. On single image scale-up using sparse-representations. In International conference on curves and surfaces, pages 711–730.
+Springer, 2010. 5, 7, 12
+[73] He Zhang and Vishal M Patel. Density-aware single image
+de-raining using a multi-stream dense network. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pages 695–704, 2018. 5
+[74] He Zhang, Vishwanath Sindagi, and Vishal M Patel. Image de-raining using a conditional generative adversarial network. IEEE transactions on circuits and systems for video
+technology, 30(11):3943–3956, 2019. 5, 6, 7, 13, 14
+[75] Jiale Zhang, Yulun Zhang, Jinjin Gu, Yongbing Zhang,
+Linghe Kong, and Xin Yuan. Accurate image restoration
+with attention retractable transformer. In The Eleventh International Conference on Learning Representations, 2023.
+1, 2, 5, 7, 8
+[76] Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and
+Lei Zhang. Beyond a gaussian denoiser: Residual learning of
+deep cnn for image denoising. IEEE transactions on image
+processing, 26(7):3142–3155, 2017. 6, 8
+[77] Lei Zhang, Xiaolin Wu, Antoni Buades, and Xin Li. Color
+demosaicking by local directional interpolation and nonlocal
+adaptive thresholding. Journal of Electronic imaging, 20(2):
+023016, 2011. 6, 8
+[78] Qiming Zhang, Yufei Xu, Jing Zhang, and Dacheng Tao.
+Vsa: learning varied-size window attention in vision transformers. In Computer Vision–ECCV 2022: 17th European
+Conference, Tel Aviv, Israel, October 23–27, 2022, Proceedings, Part XXV, pages 466–483. Springer, 2022. 2
+[79] Xindong Zhang, Hui Zeng, Shi Guo, and Lei Zhang.
+Efficient long-range attention network for image superresolution. In European Conference on Computer Vision,
+2022. 1, 2, 3, 4, 5, 6, 7, 11, 12
+[80] Yulun Zhang, Kunpeng Li, Kai Li, Lichen Wang, Bineng
+Zhong, and Yun Fu. Image super-resolution using very
+deep residual channel attention networks. In Proceedings of
+the European conference on computer vision (ECCV), pages
+286–301, 2018. 3, 5, 10
+[81] Yonghua Zhang, Xiaojie Guo, Jiayi Ma, Wei Liu, and Jiawan
+Zhang. Beyond brightening low-light images. International
+Journal of Computer Vision, 129:1013–1037, 2021. 6, 7
+
+[56] Zhengzhong Tu, Hossein Talebi, Han Zhang, Feng Yang,
+Peyman Milanfar, Alan Bovik, and Yinxiao Li. Maxim:
+Multi-axis mlp for image processing. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 5769–5780, 2022. 12, 14
+[57] Zhengzhong Tu, Hossein Talebi, Han Zhang, Feng Yang,
+Peyman Milanfar, Alan Bovik, and Yinxiao Li. Maxvit:
+Multi-axis vision transformer. In Computer Vision–ECCV
+2022: 17th European Conference, Tel Aviv, Israel, October 23–27, 2022, Proceedings, Part XXIV, pages 459–479.
+Springer, 2022. 2, 3
+[58] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. Advances in neural
+information processing systems, 30, 2017. 1, 10
+[59] Tao Wang, Guangpin Tao, Wanglong Lu, Kaihao Zhang,
+Wenhan Luo, Xiaoqin Zhang, and Tong Lu. Restoring vision in hazy weather with hierarchical contrastive learning.
+arXiv preprint arXiv:2212.11473, 2022. 5
+[60] Wenxiao Wang, Lu Yao, Long Chen, Binbin Lin, Deng Cai,
+Xiaofei He, and Wei Liu. Crossformer: A versatile vision
+transformer hinging on cross-scale attention. In International Conference on Learning Representations, ICLR, 2022.
+2, 3
+[61] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from error visibility to
+structural similarity. IEEE transactions on image processing,
+13(4):600–612, 2004. 5
+[62] Zhendong Wang, Xiaodong Cun, Jianmin Bao, Wengang
+Zhou, Jianzhuang Liu, and Houqiang Li. Uformer: A general
+u-shaped transformer for image restoration. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 17683–17693, 2022. 1, 2, 4
+[63] Chen Wei, Wenjing Wang, Wenhan Yang, and Jiaying Liu.
+Deep retinex decomposition for low-light enhancement. In
+British Machine Vision Conference, 2018. 5, 6, 7, 12, 14
+[64] Wenhui Wu, Jian Weng, Pingping Zhang, Xu Wang, Wenhan
+Yang, and Jianmin Jiang. Uretinex-net: Retinex-based deep
+unfolding network for low-light image enhancement. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 5901–5910, 2022. 6, 7, 14
+[65] Jianwei Yang, Chunyuan Li, Pengchuan Zhang, Xiyang Dai,
+Bin Xiao, Lu Yuan, and Jianfeng Gao. Focal attention for
+long-range interactions in vision transformers. In Advances
+in Neural Information Processing Systems, 2021. 2
+[66] Wenhan Yang, Robby T Tan, Jiashi Feng, Jiaying Liu, Zongming Guo, and Shuicheng Yan. Deep joint rain detection
+and removal from a single image. In Proceedings of the
+IEEE conference on computer vision and pattern recognition, pages 1357–1366, 2017. 5, 6, 7, 14
+[67] Wenhan Yang, Shiqi Wang, Yuming Fang, Yue Wang, and
+Jiaying Liu. From fidelity to perceptual quality: A semisupervised approach for low-light image enhancement. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 3063–3072, 2020. 6, 7
+[68] Rajeev Yasarla and Vishal M Patel. Uncertainty guided
+multi-scale residual learning-using a cycle spinning cnn for
+
+17
+
+[82] Yulun Zhang, Huan Wang, Can Qin, and Yun Fu. Learning efficient image super-resolution networks via structureregularized pruning. In International Conference on Learning Representations, 2021. 12
+[83] Yuzhi Zhao, Lai-Man Po, Qiong Yan, Wei Liu, and Tingyu
+Lin. Hierarchical regression network for spectral reconstruction from rgb images. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops, pages 422–423, 2020. 5
+
+18
+
+BSD100 × 3 148026
+
+Urban100 × 3 img_047
+
+Urban100 × 3 img_062
+
+BSD100 ×4 108005
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+BSD100 × 3 78004
+
+Urban100 × 3 img_059
+
+Set5 × 4 woman
+
+Urban 100×4 img_012
+
+Figure H. Visual comparisons of super-resolution. LQ: Low-Quality input. HQ: High-Quality target.
+
+19
+
+Urban100 × 4 img_020
+
+Urban100 × 4 img_073
+
+Manga109 × 4 HeiseiJimen
+
+Manga109 × 4 Ningyoushi
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+LatticeNet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+SwinIR-light
+
+ESRT
+
+DiVANet
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+NGswin
+
+SwinIR-NG
+
+RAMiT (ours)
+
+Urban100 × 4 img_033
+
+Urban100 × 4 img_076
+
+Manga109 × 4 MoeruOnisan
+
+Manga109 × 4 SamayoeruSyonenNiJunaiWo
+
+Figure I. Visual comparisons of super-resolution. LQ: Low-Quality input. HQ: High-Quality target.
+
+20
+
+Kodak24 kodim15
+
+CBSD68 12084
+
+CBSD68 220075
+
+McMaster 15
+
+LQ (𝜎 = 15)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+LQ (𝜎 = 25)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+LQ (𝜎 = 25)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+LQ (𝜎 = 25)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+Figure J. Visual comparisons of denoising. LQ: Low-Quality input. HQ: High-Quality target.
+
+21
+
+CBSD68 299086
+
+Kodak24 kodim12
+
+McMaster 6
+
+McMaster 8
+
+LQ (𝜎 = 50)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+LQ (𝜎 = 50)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+LQ (𝜎 = 50)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+LQ (𝜎 = 50)
+
+SwinIR-light
+
+Restormer-light
+
+CAT-light
+
+HQ (ground-truth)
+
+ART-light
+
+NGswin
+
+RAMiT (ours)
+
+Figure K. Visual comparisons of denoising. LQ: Low-Quality input. HQ: High-Quality target.
+
+22
+
+LOL 079
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+DRBN
+
+KinD++
+
+EnlightenGAN
+
+URetinex-Net
+
+RAMiT (ours)
+
+VELOL-cap 00692
+
+LQ (bicubic)
+
+VELOL-cap 00702
+
+LQ (bicubic)
+
+VELOL-cap 00726
+
+LQ (bicubic)
+
+VELOL-cap 00739
+
+LQ (bicubic)
+
+VELOL-cap 00745
+
+LQ (bicubic)
+
+VELOL-cap 00763
+
+LQ (bicubic)
+
+VELOL-cap 00787
+
+LQ (bicubic)
+
+Figure L. Visual comparisons of low-light enhancement. LQ: Low-Quality input. HQ: High-Quality target.
+
+23
+
+Test100 007
+
+LQ (bicubic)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+HQ (ground-truth)
+
+MSPFN
+
+DRT
+
+RAMiT (ours)
+
+Test100 019
+
+LQ (bicubic)
+Test100 048
+
+LQ (bicubic)
+Test100 079
+
+LQ (bicubic)
+Test100 086
+
+LQ (bicubic)
+Rain100H 004
+
+LQ (bicubic)
+Rain100H 015
+
+LQ (bicubic)
+Rain100H 060
+
+LQ (bicubic)
+
+Figure M. Visual comparisons of deraining. LQ: Low-Quality input. HQ: High-Quality target.
+
+24
+
+

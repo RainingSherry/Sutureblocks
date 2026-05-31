@@ -1,0 +1,2830 @@
+International Journal of Computer Vision (2025) 133:173–189
+https://doi.org/10.1007/s11263-024-02147-y
+
+SRConvNet: A Transformer-Style ConvNet for Lightweight Image
+Super-Resolution
+Feng Li1
+
+· Runmin Cong2 · Jingjing Wu1 · Huihui Bai3 · Meng Wang1 · Yao Zhao3
+
+Received: 2 June 2023 / Accepted: 2 June 2024 / Published online: 24 July 2024
+© The Author(s), under exclusive licence to Springer Science+Business Media, LLC, part of Springer Nature 2024
+
+Abstract
+Recently, vision transformers have demonstrated their superiority against convolutional neural networks (ConvNet) in various
+tasks including single-image super-resolution (SISR). The success of transformers can be attributed to the indispensable multihead self-attention (MHSA) mechanism, which enables to effectively model global connectivity with fewer parameters.
+However, the quadratic complexity of MHSA usually encounters vast computation costs and memory resource occupation,
+limiting their efficient deployment on mobile devices compared to widely used lightweight ConvNets. In this work, we
+thoroughly explore the key differences between ConvNet- and transformer-based SR models, thus presenting SRConvNet
+that absorbs both the merits for lightweight SISR. Our SRConvNet is accomplished by two primary designs: (1) the Fourier
+modulated attention (FMA), an MHSA-like but more computationally and parametrically efficient operator that performs
+regional frequency-spatial modulation and aggregation to ensure long-term and short-term dependencies modeling; (2) the
+dynamic mixing layer (DML) utilizing mixed-scale depthwise dynamic convolution with channel splitting and shuffling to
+explore multi-scale contextualized information for model locality and adaptability enhancement. Combining FMA and DFN,
+we can build a pure transformer-style ConvNet to compete with the best lightweight SISR models in the trade-off between
+efficiency and accuracy. Extensive experiments demonstrate that SRConvNet can achieve more efficient SR reconstruction
+than recent state-of-the-art lightweight SISR methods on both computation and parameters while preserving comparable
+performance. Code is available at https://github.com/lifengcs/SRConvNet.
+Keywords Lightweight image super-resolution · Fourier modulated attention · Dynamic mixing layer
+
+1 Introduction
+Single image super-resolution (SISR) aims at recovering a
+high-resolution (HR) image from its degraded low-resolution
+(LR) counterpart, which is a fundamental and longstanding
+problem in computer vision and has attracted much attention in various applications (Wang et al., 2021b; Zhang et
+al., 2019b; Amirpour et al., 2023; Xu et al., 2022; Guo et al.,
+
+2018; Zhou et al., 2022a, 2023). The monumental progress
+in SISR mainly concentrates on convolutional neural networks (ConvNets)-based methods (Dong et al., 2016b; Kim
+et al., 2016b; Lai et al., 2017; Lim et al., 2017; Zhang et
+al., 2018b; Wang et al., 2018; Zhang et al., 2018a, 2020;
+Wang et al., 2021d) in the past years. From the pioneering
+3-layer SISR network SRCNN (Dong et al., 2016b) to a representative very deep models RCAN (Zhang et al., 2018a)
+
+Communicated by Yasuyuki Matsushita.
+
+B Runmin Cong
+
+Yao Zhao
+yzhao@bjtu.edu.cn
+
+rmcong@sdu.edu.cn
+Feng Li
+fengli@hfut.edu.cn
+
+1
+
+Jingjing Wu
+hfutwujingjing@gmail.com
+
+School of Computer Science and Engineering, Hefei
+University of Technology, 230601 Hefei, Anhui, China
+
+2
+
+Huihui Bai
+hhbai@bjtu.edu.cn
+
+School of Control Science and Engineering, Shandong
+University, 250002 Jinan, Shandong, China
+
+3
+
+Institute of Information Science, Beijing Jiaotong University,
+100044 Beijing, China
+
+Meng Wang
+eric.mengwang@gmail.com
+
+123
+
+174
+
+(up to over 400 layers), most existing methods are dedicated to building much deeper or wider complicated network
+architectures to pursue large receptive field and hierarchical feature learning for SR performance improvements. The
+effectiveness of these models can attribute to their huge learnable network parameters and expensive computational cost.
+As a result, it is challenging to deploy current heavy SR
+models on resource-constrained mobile and edge devices. To
+be efficient, mainstream works focus on reducing the model
+complexity by recursive learning (Tai et al., 2017b, a; Li et
+al., 2019), lightweight module design (Ahn et al., 2018; Li
+et al., 2020b; Hui et al., 2019; Luo et al., 2023), or structural
+re-parameterization (Zhang et al., 2021; Wang et al., 2022b).
+On one hand, these methods ensure their efficiency at the
+cost of sacrificing SR performance. On the other hand, due
+to their limited convolution layers and small spatial convolution, the inadequate receptive field exploration also restricts
+the learning capacity for better reconstruction.
+More recently, vision transformers (ViT) (Dosovitskiy et
+al., 2021; Liu et al., 2021; Wang et al., 2021c; Guo et al.,
+2022c; Zhou et al., 2022b) have demonstrated impressive
+effectiveness in various tasks including SISR (Chen et al.,
+2021; Liang et al., 2021; Chen et al., 2022b; Li et al., 2022).
+Benefiting from the strong ability of multi-head self-attention
+(MHSA) mechanism for global dependencies modeling,
+ViTs enable to develop deep architectures with fewer parameters but better results compared to ConvNets. Nevertheless,
+the computation cost of MHSA grows quadratically as input
+spatial size increases, especially when super-resolving largeresolution images, will inevitably withstand large memory
+resource occupation. Such quadratic computation indicates
+that it is impractical to generalize ViTs to various applications for mobile-friendly inference.
+Despite the relatively inferior performance of ConvNets
+compared to ViTs, conventional convolutions perceive localized receptive fields and share all convolutional weights over
+the whole feature map, endowing ConvNets with favorable
+inductive biases for image processing (Dai et al., 2021; Zhang
+et al., 2022), in particular on pixel-level tasks. Though some
+recent attempts have introduced convolution into ViTs (Wu
+et al., 2021; Li et al., 2021; Lu1 et al., 2022; Zhang et al.,
+2022) to yield both local and global connectivity and further
+implement efficient yet effective hybrid architectures, to our
+best knowledge, ConvNets still dominate in the lightweight
+SISR area. These observations inspired us whether we can
+combine the merits of both ConvNets and ViTs to overcome
+the resource restriction of mobile devices while preserving
+high-quality SR reconstruction.
+To this end, we revisit the above two different design
+paradigms and present a pure transformer-style ConvNet,
+termed as SRConvNet, for lightweight SISR. Specifically,
+we first present Fourier modulated attention (FMA) to mimic
+the MHSA in ViTs for long-term and short-term dependen-
+
+123
+
+International Journal of Computer Vision (2025) 133:173–189
+
+cies modeling. The FMA is motivated by three perspectives:
+(1) The element-wise multiplication between value features
+and large-kernel convolutional features can effectively evoke
+global spatial attention but involves cheaper linear computation (Guo et al., 2022b, a; Hou et al., 2022). (2) Fourier
+spectrum in the frequency domain allows capturing the global
+receptive field over an entire image, even in early layers (Suvorov et al., 2022; Chi et al., 2020). (3) The window
+attention scheme is capable of local- and global-aware feature learning (Liu et al., 2021). Based on these observations,
+FMA patchifies the features into a grid of non-overlapped
+local regions and replaces the large-kernel convolution with
+Fourier transform and inverse transform to perform regional
+frequency-spatial modulation. In this way, FMA can learn
+context from global to local in spatial and channel dimensions.
+The other core component in SRConvNet is the proposed dynamic mixing layer (DML) which incorporates
+the mixed-scale dynamic convolutional mechanism between
+channel splitting and shuffling operations to better aggregate local feature representations. Our dynamic convolutions
+in multi-scale form can not only learn multi-scale contexts
+but also generate dynamic weights to fortify the adaptability
+of conventional convolutions. Besides, being equipped with
+channel splitting and shuffling operations, DML enables efficient local contextual information mixing and interactions.
+By reformulating the transformer block with the combination
+of FMA and DML, SRConvNet achieves the optimal balance
+between accuracy and model complexity (see Fig. 1).
+The main contributions are summarized as follows:
+• We propose SRConvNet which absorbs the advantages
+of ConvNets and ViTs for lightweight SISR. Experimental results demonstrate remarkable efficiency and
+competitive reconstruction performance over existing
+state-of-the-art methods.
+• We propose a Fourier modulated attention (FMA) that
+performs regional frequency-spatial modulation to model
+long- and short-term dependencies under a cheaper computational cost than typical MHSA.
+• We propose a dynamic mixing layer (DML) that can
+capture multi-scale local contextual information while
+enhancing network adaptability efficiently.
+
+2 Related Work
+2.1 ConvNet in SISR
+Since SRCNN (Dong et al., 2016b) first introduces an endto-end ConvNet to tackle the SISR problem, a variety of
+ConvNets-based SISR methods have emerged and made significant progress in recent years. Following the learning
+
+International Journal of Computer Vision (2025) 133:173–189
+27.6
+
+175
+27.6
+
+CARN
+
+SRConvNet
+
+27.55
+
+SRConvNet
+
+EDSR-baseline
+
+IMDN
+
+27.5
+
+IMDN
+
+EDSR-baseline
+
+27.5
+
+PSNR(dB)
+
+ECBSR-M16C64
+
+PSNR(dB)
+
+CARN
+
+27.55
+
+27.45
+CARN-M
+27.4
+LAPAR-C
+
+ECBSR-M16C64
+27.45
+CARN-M
+27.4
+
+27.35
+
+LAPAR-C
+
+27.3
+
+27.35
+
+LapSRN
+
+LapSRN
+
+VDSR
+27.25
+0
+
+200
+
+400
+
+600
+
+800
+
+1000
+
+1200
+
+1400
+
+1600
+
+27.3
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+140
+
+160
+
+Parameters (K)
+(a) PSNR v.s. Parameters
+
+FLOPs (G)
+(b) PSNR v.s. FLOPs
+
+Fig. 1 Model complexity and performance comparison between the
+proposed SRConvNet and existing lightweight state-of-the-art SISR
+methods on BSD100 (Arbeláez et al., 2011) for ×4 SR. The FLOPs are
+
+calculated by super-resolving an LR image to 1280 × 720 resolution.
+It can be observed that SRConvNet achieves a better trade-off
+
+mapping between the bicubic-upsampled image and its original HR one, early researches (Kim et al., 2016b; Tai et al.,
+2017b, a; Kim et al., 2016a) increase the network depth to
+enlarge the receptive field for better reconstruction. However, due to the feature extraction in HR space, these methods
+are computation-expensive and time-consuming. To accelerate the SR process, (Dong et al., 2016a) propose to learn
+low-resolution (LR) features in latent space and magnify
+them onto HR space at the end of networks using deconvolution. ESPCN (Shi et al., 2016) introduces a pixel shuffling
+operation to perform feature upsampling and reconstruction.
+Both two strategies are widely used in later works (Lim
+et al., 2017; Zhang et al., 2018b, a; Li et al., 2019; Haris
+et al., 2018; Li et al., 2022), making it possible to build
+very deep networks. In (Lim et al., 2017), Lim et al. construct an enhanced deep super-resolution network (EDSR)
+by stacking serial residual blocks composed of wider convolutions, which achieves dramatic performance improvement
+with heavy model parameters (over 43 M). RCAN (Zhang
+et al., 2018a) abandons the drawback of high computational
+complexity in wide convolutions and builds a much deeper
+SISR model with over 400 layers based on residual channel attention. There are also some works (Wang et al., 2018;
+Ledig et al., 2017; Sajjadi et al., 2017) that adopt generative
+adversarial training to pursue photo-realistic HR image generation. Among these methods, ESRGAN (Wang et al., 2018)
+combines very deep architecture and complex constraints
+to obtain a better trade-off between perceptual quality and
+accuracy. Although these methods have achieved promising
+results, the high computational resource requirement limits
+their deployment on mobile devices.
+
+2.2 Efficient SISR Methods
+Efficient or lightweight model designs have become essential research areas in the development of deep learning-based
+SISR methods. Tai et al. (2017b, a); Kim et al. (2016a) combines residual and recursive learning to implement deep
+models without introducing extra parameters. CARN (Ahn
+et al., 2018) utilizes group convolution to constitute an efficient cascaded residual network for both parameter and
+computation saving. Chu et al. (2020) exploit elastic neural
+architecture search to draw a lightweight SR network that is
+competitive with CARN. IMDN (Hui et al., 2019) formulates
+an information multi-distillation block with contrast-aware
+attention to achieve fast and accurate SISR with modest parameters. In Li et al. (2020a), a linearly-assembled
+pixel-adaptive regression network is presented to learn linear combination coefficients of predefined filter bases for
+every input pixel. Wang et al. (2021a) explore both channel
+and spatial sparsity to remove the redundant computation
+in flat regions, thus improving the inference efficiency of
+SR networks. Motivated by the re-parameterization strategy in high-level tasks (Ding et al., 2019, 2021), several
+methods (Zhang et al., 2021; Wang et al., 2022b) study the
+structure re-parameterization technique to realize effective
+SR reconstruction on commodity mobile devices. Park et al.
+(2023) propose the dynamic residual attention networks to
+explore the interrelation between residual paths and input
+image statistics, which shows an efficient balance model
+complexity and performance. Wang et al. (2023) introduce
+global aligned structured sparsity learning to prune extensive
+residual blocks, improving the efficiency of SISR models.
+
+123
+
+176
+
+International Journal of Computer Vision (2025) 133:173–189
+
+2.3 Transformer in SISR
+
+3.1 Network Architecture
+
+Transformer is first introduced in natural language processing (NLP) (Vaswani et al., 2017; Devlin et al., 2019; Brown
+et al., 2020) to draw global dependencies in sequences based
+solely on self-attention. The breakthroughs of transformer in
+NLP has rapidly aroused great interest in the computer vision
+community, raising a research wave on transformer-based
+vision tasks (Dosovitskiy et al., 2021; Carion et al., 2020).
+Chen et al. (2021) develop a pre-trained transformer for
+image processing tasks including SISR. Liang et al. (2021)
+present SwinIR which adapts the swin transformer (Liu et
+al., 2021) to learn deep features for the SR problem, surpassing current state-of-the-art ConvNet-based methods. Li
+et al. (2022) investigate window-based image processing
+pre-training transformers and propose an efficient encoderdecoder transformer for data exploitation and computation.
+ELAN (Zhang et al., 2022) design a group-wise multiscale self-attention (GMSA) to exploit the long-range image
+dependency by calculating the SA of different window sizes.
+Attention sharing strategy is further applied to accelerate
+the computation for successive GMSA modules, resulting
+in higher efficiency than SwinIR. ESRT (Lu1 et al., 2022)
+adopts a hybrid SISR model consisting of a lightweight ConvNet Backbone and an efficient multi-head attention-based
+lightweight transformer backbone to learn the relationships
+between local image regions. In Choi et al. (2023), NGram context is introduced from the text to SISR, which
+is able to expand the receptive field of SR networks for
+degraded pixel recovery by sliding window self-attention.
+While recent attempts have successfully alleviated the computational burden of transformers to some extent, they are
+still not preferable to SISR architectures than ConvNets to
+support great resource-constrained applications.
+Different from above mentioned related works, this
+paper investigates the possibility of transformers in practical applications and combines it with ConvNets to design a
+lightweight transformer-style SRConvNet, competing with
+existing lightweight SISR models in the balance between
+efficiency and effectiveness.
+
+The overview of SRConvNet is illustrated in Fig. 2a. Given
+a degraded LR image I L R ∈ R H ×W ×3 , SRConvNet first
+employs a 3 × 3 convolution with C filters to perform
+overlapped image embedding, producing a shallow feature
+FS ∈ R H ×W ×C , where H × W denotes the spatial size of
+I L R . Then, we stack N attentive convolutional blocks (ACB)
+with long residual connection as the backbone to produce
+deep feature FD ∈ R H ×W ×C from FS , in which each ACB
+consists of an FMA followed by a DML
+
+3 Proposed Method
+This paper aims to develop a transformer-like ConvNet for
+lightweight SISR. In this section, we first describe the overall
+architecture of the proposed SRConvNet. Then, the key components including FMA and DML are further systematically
+elaborated. Finally, the implementation details of SRConvNet are provided.
+
+123
+
+FD = H D (FS )
+
+(1)
+
+where H D (·) denotes the deep feature extraction function of
+the network backbone. Therefore, the intermediate feature of
+each ACB can be represented as
+Fm = H AC Bm (Fm−1 ) = H D M L m (H F M Am (Fm−1 ))
+FD = FM + FS
+
+(2)
+
+where H AC Bm (·) denotes the feature learning operation of the
+m-th ACB (m = 1, 2, ..., M) that can be split into sequential
+H D M L m (·) and H F M Am (·).
+Next, an efficient pixel shuffle module followed by a 3 × 3
+convolution is applied to upsample FD onto the desired HR
+space according to scale factor s
+I HRes
+R = H Rec (PS(FD ))
+
+(3)
+
+s H ×sW ×3 is the reconstructed HR residwhere I HRes
+R ∈ R
+ual image of I L R by the 3-channel 3 × 3 convolution
+H Rec (·). PS(·) denotes the pixel shuffle operation. In this
+work, we replace the 3 × 3 convolution in Lim et al.
+(2017); Zhang et al. (2018a) with one 1 × 1 convolution
+to implement a lightweight upsampler. The final HR image
+I S R ∈ Rs H ×sW ×3 is generated by adding I HRes
+R to a bilinearinterpolated HR image of I L R
+s
+I S R = I HRes
+R + IL R ↑
+
+(4)
+
+where ↑s denotes the bilinear interpolation with scale factor
+s.
+We optimize the proposed SRConvNet using the common
+L 1 pixel loss in SISR (Zhang et al., 2018a), defined as
+L = I S R − I H R 1
+
+(5)
+
+where I H R ∈ Rs H ×sW ×3 is the original ground-truth HR
+image of I L R .
+
+International Journal of Computer Vision (2025) 133:173–189
+
+177
+
+Fig. 2 The a overall architecture of the proposed SRConvNet which
+consists of sequential 3 × 3 convolution, stacked attentive convolutional blocks (ACBs), pixel shuffle module, and a 3 × 3 reconstruction
+layer. The ACB contains a b Fourier modulation attention (FMA) and
+
+a c dynamic mixing layer (DML) to perform regional frequency-spatial
+modulation and multi-scale contextual information learning, respectively. “IRealFFT” and denotes inverse real fast Fourier transform. “⊕”
+and “⊗” are element-wise addition and multiplication
+
+3.2 Fourier Modulated Attention
+
+(ii) Spectrum to spatial: 2D-discrete inverse RealFFT
+
+Recent works (Guo et al., 2022a; Hou et al., 2022) have
+demonstrated that the network with large kernel attention
+(LKA) using element-wise multiplication enables a large
+receptive field to model long-range dependencies as ViTs.
+Compared to the quadratic computation of MHSA, such
+LKA can yield comparable recognition accuracy with linear complexity. Motivated by this design principle, as shown
+in Fig. 2b, Fourier modulated attention (FMA) performs
+regional frequency-spatial modulation to learn context from
+local to global in spatial and channel dimensions, achieving
+long- and short-term dependencies modeling.
+To be specific, in FMA, we first pair Fourier transform
+and 1 × 1 convolution that projects spatial features into the
+spectral domain to learn frequency information. An inverse
+Fourier transform is further leveraged to re-project frequency
+features into the spatial domain. According to spectrum convolution theorem (Chi et al., 2019), our Fourier-Conv-Inverse
+Fourier can effectively manipulate the entire image-level
+spectrum, so that is capable of capturing global receptive
+field. This process can be formulated as follows:
+(i) Spatial to spectrum: 2D-discrete RealFFT
+
+W
+
+Ā = F(L N (x)), R H ×W ×C → C H × 2 ×2C
+W
+
+W
+
+Â = Conv1×1 ( Ā), R H × 2 ×2C → R H × 2 ×2C
+
+(6)
+
+W
+
+A = I nvF( Â), R H × 2 ×2C → R H ×W ×C
+
+(7)
+
+where L N (·), F(·), Conv1×1 (·), and I nvF(·) denote layer
+normalization, 2D-discrete Real fast Fourier transform
+(RealFFT), 1 × 1 convolution, and inverse 2D-discrete Real
+fast Fourier transform (IRealFFT) operations respectively,
+as shown in Fig. 2b. We define X as the input for a simple
+description. A is the learned feature. Parallelly, a 1 × 1 convolution (with bias as false) is used to encode normalized
+input into value space, resulting in a value representation V .
+Apart from the spatial-Fourier interaction, existing LKAbased methods (Guo et al., 2022a; Hou et al., 2022) directly
+calculate the element-wise multiplication between A and V
+to learn linear attention: LA = A ⊗ V . Different from
+this formula, we consider the multi-head and local attention design in the typical window-based MHSA which are
+widely used in SISR transformers (Liang et al., 2021; Zhang
+et al., 2022) but make some important modifications. We
+respectively reshape A ∈ R H ×W ×C and V ∈ R H ×W ×C to
+size of H ead × H Cead × L, where L = H × W and H ead
+is the head number. After that, patch partition is utilized to
+divide them into N p× p non-overlapped patches, denoted as
+[A1 , A2 , ..., A N ] and [V1 , V2 , ..., VN ], in which each patch
+is with the size of H ead × H Cead × pL2 . Next, linear attention
+is achieved by conducting the element-wise multiplication
+in a patch pattern, where the global attentive feature LA can
+
+123
+
+178
+
+International Journal of Computer Vision (2025) 133:173–189
+
+be generated by weighted concatenating all the patches in
+spatial dimension
+LA = So f tmax(Concat (An ⊗ Vn )) + C P E(X )
+1≤n≤N
+
+(8)
+
+Here, the multi-head collection is omitted for simplicity. Similar to conventional MHSA, convolutional position
+embedding C P E(·) is also introduced into FMA. Finally,
+the output X̄ of FMA is obtained by a C-channel 1 × 1 convolution with residual shortcut
+X̄ = Conv1×1 (LA) + X
+
+(9)
+
+Since FMA learns global context in Fourier domain and
+calculates the linear attention in a local region, it can effectively improve the model capability for SR reconstruction
+(see Table 5).
+
+3.3 Dynamic Mixing Layer
+Vanilla transformers (Dosovitskiy et al., 2021; Liu et al.,
+2021; Liang et al., 2021) exploit linear layers as the feedforward network (FFN), which limits the capability of
+networks to learn local context. Some works (Zhang et al.,
+2022; Zamir et al., 2022; Wang et al., 2022a) introduce singlescale depthwise convolution into FFN to improve the network
+locality. However, these two both fail to learn multi-scale representations. Though (Gu et al., 2022) present mixed-scale
+convolutional FFN (MixCFN) to increase the multi-scale
+local information extraction, due to the static weight of convolution, it lacks channel adaptability in channel dimension.
+In this work, we propose a dynamic mixing layer (DML)
+to make improvements from two aspects: (1) multi-scale
+learning, and (2) Depthwise dynamic convolutions. The
+architecture of DML is shown in Fig. 2c. Given an input feature X̄ ∈ R H ×W ×C , a layer normalization followed by 1 × 1
+convolution is applied to expand its channel dimension to
+2C. Then, we conduct channel splitting to decompose input
+features into two branches, where each branch is responsible
+for single-scale local information extraction using depthwise
+dynamic convolution. This process can be formulated as
+X̃ = Conv1×1 (L N ( X̄ ))
+[ X̃ 1 , X̃ 2 ] = Channel Split( X̃ )
+
+such a vector
+w = P(G A P( X̃ 1 ))
+
+(11)
+
+Here, P(·) denotes the projection functions composed of
+a linear layer with GELU activation for channel reduction
+and another linear layer activated by Sigmoid function to
+generate dynamic filters that are further reshaped to w ∈
+2
+R H ×W ××G×K , where K is the size of filters and G is the
+group number. Each element in w refers to a K -dimensional
+kernel-wise weight that is shared within each group of channels (C/G) to compute the correlations between positions in
+a local spatial K × K window, producing aggregated feature
+X̂ 1 . Such a dynamic convolution process can be equivalently
+written by the element-wise multiplication for each position:
+X̂ 1 =
+
+
+
+
+
+
+w(i, j, u, v) ⊗ X̃ 1 (i + u, j + v, G)
+
+u=− v=−
+
+(12)
+where  = K /2 , u and v are the coordinates in each
+w(i, j) at position (i, j). In this work, we set K = 5, 7 to
+achieve multi-scale representation learning, getting X̂ 1 and
+X̂ 2 that are mixed and rearranged by the channel shuffling
+stratety (Ma et al., 2018). A 1 × 1 convolution is finally
+adopted to integrate the features and produce the output X̂ .
+We also compared DML with different FFN strategies in
+existing ViTs to demonstrate its effectiveness for SISR (see
+Table 7).
+
+(10)
+
+where X̃ 1 ∈ R H ×W ×C and X̃ 2 ∈ R H ×W ×C are split features.
+For the dynamic mechanism, as shown in Fig. 3, taking X̃ 1
+as an example, we employ the global average pooling (GAP)
+operation to spatially compress X̃ 1 from H × W to 1 × 1,
+resulting in a feature vector. Similar to (Han et al., 2022), the
+dynamic filters are predicted by the linear projections from
+
+123
+
+Fig. 3 Illustration of the dynamic depthwise convolution in DML
+
+3.4 Implementation Details
+In the proposed SRConvNet, there are a total of 8 ACBs and
+each ACB contains 1 FMA and 1 DML. The head number
+in all FMAs is equally set to 8. GELU is adopted as the
+activation function after convolution. The channel number
+of all intermediate layers is 64. We train our model using L 1
+loss (Eq. (4)) with Adam (Kingma & Ba, 2015) optimizer
+
+International Journal of Computer Vision (2025) 133:173–189
+
+(β1 = 0.9, β2 = 0.99). During training, we randomly crop
+each LR RGB image into a 64 × 64 patch with a mini-batch
+size of 128 for all scale factors. We first train a ×2 model for
+1000 epochs with the initial learning rate 2 × 10−4 which
+is then reduced by half at [800, 900, and 950] epochs. Then
+the well-trained ×2 model is used to initialize ×3 and ×4
+models and train them for 500 epochs. The initial rate is also
+set to 2×10−4 but halved at [250, 400, 450, 475] epochs. Our
+SRConvNet is implemented with the Pytorch framework on
+Nvidia GeForce RTX A6000 GPUs for all experiments.
+
+4 Experiments
+In this section, we conduct quantitative and qualitative
+comparisons with existing state-of-the-art lightweight SISR
+methods to validate the efficiency and effectiveness of the
+proposed SRConvNet. Then, we explore how SRConvNet
+works on other image restoration tasks, including Gaussian
+color image denoising and motion deblurring. Finally, we
+carry out comprehensive ablation studies to investigate the
+key design methodologies of each component in SRConvNet.
+
+4.1 Dataset Setup
+Following existing methods (Liang et al., 2021; Li et al.,
+2020a), we adopt the widely used DF2K dataset to train our
+models. DF2K dataset is a merged dataset that contains 2640
+high-quality images from the Flickr2K (Lim et al., 2017)
+dataset and 800 images from the DIV2K dataset (Timofte
+et al., 2017). LR images for scale factors 2, 3, and 4 are
+generated by bicubic downscaling their corresponding HR
+images. Data augmentation including random rotation and
+horizontal flipping is adopted to improve the model generalization. We evaluate SRConvNet on five benchmark datasets:
+Set5 (Bevilacqua et al., 2012), Set14 (Zeyde et al., 2012),
+BSD100 (Arbeláez et al., 2011), Urban100 (Huang et al.,
+2015), and Manga109 (Matsui et al., 2017). All the results are
+measured by the peak signal-to-noise ratio (PSNR) and structural similarity (SSIM) on the Y-channel from the YCbCr
+color space. Besides, the parameters (Params.) and computational costs (FLOPs) of networks are reported to indicate the
+model complexity. Here, we calculate the FLOPs by superresolving an LR image to its HR version of the size 1280×720
+on all scale factors.
+
+4.2 Comparison of SISR Results
+We compare SRConvNet quantitatively and qualtitatively
+with many existing state-of-the-art lightweight SISR methods including SRCNN (Dong et al., 2016b), FSRCNN (Dong
+et al., 2016a), ESPCN (Shi et al., 2016), VDSR (Kim et
+al., 2016b), DRCN (Kim et al., 2016a), LapSRN (Lai et
+
+179
+
+al., 2017), EDSR-baseline (Lim et al., 2017), CARN (Ahn
+et al., 2018), FALSR-A (Chu et al., 2020), IMDN (Hui et
+al., 2019), LAPAR (Li et al., 2020a), ECBSR (Zhang et al.,
+2021), SMSR (Wang et al., 2021a), RepSR (Wang et al.,
+2022b), DRSAN (Park et al., 2023), and GASSL (Wang et
+al., 2023).
+Quantitative Comparison. Table 1 provides the quantitative results on benchmarks. Generally, our SRConvNet
+exhibits competitive PSNR/SSIM performance with obviously fewer parameters and FLOPs. EDSR-baseline (Lim et
+al., 2017), IMDN (Hui et al., 2019), and SMSR (Wang et al.,
+2021a) show comparable performance with SRConvNet but
+suffer from almost 2× parameters and FLOPs. (e.g. SMSR:
+985K/132 G v.s. SRConvNet: 387K/74 G, for ×2 SR). Compared to the most recent methods DRSAN-32 s (Park et al.,
+2023) and GASSL-S (Wang et al., 2023), SRConvNet still
+obtains very close or slightly better performance with fewer
+FLOPs. Especially, in comparison to CARN-M (Ahn et al.,
+2018), ECBSR-M16C64 (Zhang et al., 2021), and RepSRM16C64 (Wang et al., 2022b) which involve similar FLOPs,
+SRConvNet outperforms them by a considerable margin on
+all scale factors and benchmarks, even showing fewer parameters.
+Qualitative Comparison. In Fig. 4, we visualize the ×4 SR
+results on Set14 (Zeyde et al., 2012) and Urban100 (Huang
+et al., 2015) for qualitative comparison. All the results of
+the compared methods are produced by their public models
+for a fair comparison. As one can see, our SRConvNet can
+generate HR images with clearer details and more accurate
+textures. In particular, there is an obvious visual quality gap
+between SRConvNet and compared methods in the reconstruction of “barbara” and “img_92”, where these methods
+produce the results with misleading lines and edges. In addition, as shown in Fig. 5, by the evaluation on real-world LR
+images, we can see that the ×4 SR results of SRConvNet
+have clearer lines and texts, while others contain more blurs.
+User Study To investigate the human perception of
+super-resolved images, we conduct a user study on randomly selected 12 images in the DIV2K validation dataset
+(unknown degradation), as shown in Fig. 6. There are 10 subjects that evaluate the SR images produced by CARN (Ahn et
+al., 2018), CARN-M (Ahn et al., 2018), LAPAR-C (Li et al.,
+2020a), IMDN (Hui et al., 2019), and our SRConvNet, are
+better or worse. Moreover, we also report the learned perceptual image patch similarity (LPIPS) (Zhang et al., 2017) value
+of each method to measure their perceptual quality quantitatively for reference. It can be observed that more subjects
+prefer the reconstructed SR images by our method, even it
+exhibits lower model complexity than others (see Fig. 1). In
+addition, it is notable that SRConvNet outperforms existing
+methods in terms of LPIPS which is highly related to human
+perception.
+
+123
+
+180
+
+International Journal of Computer Vision (2025) 133:173–189
+
+Table 1 Quantitative comparison of our SRConvNet with existing state-of-the-art lightweight SISR methods on five benchmark datasets
+Method
+
+Scale
+
+Params
+
+FLOPs
+
+Set5
+
+Set14
+
+BSD100
+
+Urban100
+
+Manga109
+
+Bicubic
+
+–
+
+–
+
+33.66/0.9299
+
+30.24/0.8688
+
+29.56/0.8431
+
+26.88/0.8403
+
+30.80/0.9339
+
+SRCNN
+
+57K
+
+53 G
+
+36.66/0.9542
+
+32.42/0.9063
+
+31.36/0.8879
+
+29.50/0.8946
+
+35.74/0.9661
+
+FSRCNN
+
+12K
+
+6G
+
+37.00/0.9558
+
+32.63/0.9088
+
+31.53/0.8920
+
+29.88/0.9020
+
+36.67/0.9694
+
+ESPCN
+
+21K
+
+5G
+
+36.83/0.9564
+
+32.40/0.9096
+
+31.29/0.8917
+
+29.48/0.8975
+
+–
+
+VDSR
+
+665K
+
+613 G
+
+37.53/0.9587
+
+33.03/0.9124
+
+31.90/0.8960
+
+30.76/0.9140
+
+37.22/0.9729
+
+DRCN
+
+1,774K
+
+17,974 G
+
+37.63/0.9588
+
+33.04/0.9118
+
+31.85/0.8942
+
+30.75/0.9133
+
+37.63/0.9723
+
+LapSRN
+
+813K
+
+30 G
+
+37.52/0.9590
+
+33.08/0.9130
+
+31.80/0.8950
+
+30.41/0.9100
+
+37.27/0.9740
+
+EDSR-baseline
+
+1,370K
+
+316 G
+
+37.99/0.9604
+
+33.57/0.9175
+
+32.16/0.8994
+
+31.98/0.9272
+
+38.54/0.9769
+
+CARN-M
+
+412K
+
+91 G
+
+37.53/0.9583
+
+33.26/0.9141
+
+31.92/0.8960
+
+31.23/0.9193
+
+37.62/0.9741
+
+CARN
+
+1,592K
+
+223 G
+
+37.76/0.9590
+
+33.52/0.9166
+
+32.09/0.8978
+
+31.92/0.9256
+
+38.28/0.9755
+
+1021K
+
+235 G
+
+37.82/0.9595
+
+33.55/0.9168
+
+32.12/0.8987
+
+31.93/0.9256
+
+–
+
+IMDN
+
+694K
+
+161 G
+
+38.00/0.9605
+
+33.63/0.9177
+
+32.19/0.8996
+
+32.17/0.9283
+
+38.88/0.9774
+
+LAPAR-C
+
+87K
+
+35 G
+
+37.65/0.9593
+
+33.20/0.9141
+
+31.95/0.8969
+
+31.10/0.9178
+
+37.75/0.9752
+
+LAPAR-A
+
+548K
+
+171 G
+
+38.01/0.9605
+
+33.62/0.9183
+
+32.19/0.8999
+
+32.10/0.9283
+
+38.67/0.9772
+
+ECBSR-M16C64
+
+596K
+
+137 G
+
+37.90/0.9615
+
+33.34/0.9178
+
+32.10/0.9018
+
+31.71/0.9250
+
+–
+
+SMSR
+
+985K
+
+132 G
+
+38.00/0.9601
+
+33.64/0.9179
+
+32.17/0.8990
+
+32.19/0.9284
+
+38.76/0.9771
+
+DRSAN-32 s
+
+370K
+
+86 G
+
+37.99/0.9606
+
+33.57/0.9177
+
+32.16/0.8999
+
+32.10/0.9279
+
+–
+
+FALSR-A
+
+×2
+
+GASSL-S
+
+280K
+
+66 G
+
+37.91/0.9602
+
+33.53/0.9172
+
+32.14/0.8992
+
+31.81/0.9253
+
+38.57/0.9769
+
+SRConvNet (ours)
+
+387K
+
+74 G
+
+38.00/0.9605
+
+33.58/0.9186
+
+32.16/0.8995
+
+32.05/0.9272
+
+38.87/0.9774
+
+Bicubic
+
+–
+
+–
+
+30.39/0.8682
+
+27.55/0.7742
+
+27.21/0.7385
+
+24.46/0.7349
+
+26.95/0.8556
+
+SRCNN
+
+57K
+
+53 G
+
+32.75/0.9090
+
+29.28/0.8209
+
+28.41/0.7863
+
+26.24/0.7989
+
+30.59/0.9107
+
+FSRCNN
+
+12K
+
+5G
+
+33.16/0.9140
+
+29.43/0.8242
+
+28.53/0.7910
+
+26.43/0.8080
+
+30.98/0.9212
+
+VDSR
+
+665K
+
+613 G
+
+33.66/0.9213
+
+29.77/0.8314
+
+28.82/0.7976
+
+27.14/0.8279
+
+32.01/0.9310
+
+DRCN
+
+1,774K
+
+17,974 G
+
+33.82/0.9226
+
+29.76/0.8311
+
+28.80/0.7963
+
+27.15/0.8276
+
+32.31/0.9328
+
+EDSR-baseline
+
+1,555K
+
+160 G
+
+34.37/0.9270
+
+30.28/0.8417
+
+29.09/0.8052
+
+28.15/0.8527
+
+33.45/0.9439
+
+CARN-M
+
+412K
+
+46 G
+
+33.99/0.9236
+
+30.08/0.8367
+
+28.91/0.8000
+
+27.55/0.8385
+
+32.83/0.9389
+
+CARN
+
+1,592K
+
+119 G
+
+34.29/0.9255
+
+30.29/0.8407
+
+29.06/0.8034
+
+28.06/0.8493
+
+33.47/0.9389
+
+703K
+
+72 G
+
+34.36/0.9270
+
+30.32/0.8417
+
+29.09/0.8046
+
+28.17/0.8519
+
+33.61/0.9445
+
+LAPAR-C
+
+99K
+
+28 G
+
+33.91/0.9235
+
+30.02/0.8358
+
+28.90/0.7998
+
+27.42/0.8355
+
+32.54/0.9373
+
+LAPAR-A
+
+594K
+
+114 G
+
+34.36/0.9267
+
+30.34/0.8421
+
+29.11/0.8054
+
+28.15/0.8523
+
+33.51/0.9441
+
+SMSR
+
+993K
+
+68 G
+
+34.40/0.9270
+
+30.33/0.8412
+
+29.10/0.8050
+
+28.25/0.8536
+
+33.68/0.9445
+
+IMDN
+
+×3
+
+DRSAN-32 s
+
+410K
+
+43 G
+
+34.41/0.9272
+
+30.27/0.8413
+
+29.08/0.8056
+
+28.19/0.8529
+
+–
+
+GASSL-S
+
+373K
+
+40 G
+
+34.24/0.9260
+
+30.28/0.8407
+
+29.06/0.8038
+
+27.95/0.8474
+
+33.42/0.9434
+
+SRConvNet (ours)
+
+387K
+
+33 G
+
+34.40/0.9272
+
+30.30/0.8416
+
+29.07/0.8047
+
+28.04/0.8500
+
+33.56/0.9443
+
+Bicubic
+
+–
+
+–
+
+28.42/0.8104
+
+26.00/0.7027
+
+25.96/0.6675
+
+23.14/0.6577
+
+24.89/0.7866
+
+SRCNN
+
+57K
+
+53 G
+
+30.48/0.8628
+
+27.49/0.7503
+
+26.90/0.7101
+
+24.52/0.7221
+
+27.66/0.8505
+
+FSRCNN
+
+12K
+
+5G
+
+30.71/0.8657
+
+27.59/0.7535
+
+26.98/0.7150
+
+24.62/0.7280
+
+27.90/0.8517
+
+ESPCN
+
+25K
+
+1G
+
+30.52/0.8697
+
+27.42/0.7606
+
+26.87/0.7216
+
+24.39/0.7241
+
+–
+
+VDSR
+
+665K
+
+613 G
+
+31.35/0.8838
+
+28.01/0.7674
+
+27.29/0.7251
+
+25.18/0.7524
+
+28.83/0.8809
+
+DRCN
+
+1,774K
+
+17,974 G
+
+31.53/0.8854
+
+28.02/0.7670
+
+27.23/0.7233
+
+25.14/0.7510
+
+28.98/0.8816
+
+LapSRN
+
+813K
+
+149 G
+
+31.54/0.8850
+
+28.19/0.7720
+
+27.32/0.7280
+
+25.21/0.7560
+
+29.09/0.8845
+
+EDSR-baseline
+
+1,518K
+
+114 G
+
+32.09/0.8938
+
+28.58/0.7813
+
+27.57/0.7357
+
+26.04/0.7849
+
+30.35/0.9067
+
+CARN-M
+
+412K
+
+33 G
+
+31.92/0.8903
+
+28.42/0.7762
+
+27.44/0.7304
+
+25.62/0.7694
+
+29.83/0.8998
+
+CARN
+
+1,592K
+
+91 G
+
+32.13/0.8937
+
+28.60/0.7806
+
+27.58/0.7349
+
+26.07/0.7837
+
+30.46/0.9078
+
+715K
+
+41 G
+
+32.21/0.8948
+
+28.58/0.7811
+
+27.56/0.7353
+
+26.04/0.7838
+
+30.45/0.9075
+
+LAPAR-C
+
+115K
+
+25 G
+
+31.72/0.8884
+
+28.31/0.7740
+
+27.40/0.7292
+
+25.49/0.7651
+
+29.50/0.8951
+
+LAPAR-A
+
+659K
+
+94 G
+
+32.15/0.8944
+
+28.61/0.7818
+
+27.61/0.7366
+
+26.14/0.7871
+
+30.42/0.9074
+
+ECBSR-M16C64
+
+603K
+
+35 G
+
+31.92/0.8946
+
+28.34/0.7817
+
+27.48/0.7393
+
+25.81/0.7773
+
+–
+
+IMDN
+
+×4
+
+SMSR
+
+1006K
+
+42 G
+
+32.12/0.8932
+
+28.55/0.7808
+
+27.55/0.7351
+
+26.11/0.7868
+
+30.54/0.9085
+
+RepSR-M16C64
+
+603K
+
+35 G
+
+31.94/0.8961
+
+28.44/0.7853
+
+27.48/0.7825
+
+25.88/0.7825
+
+–
+
+DRSAN-32 s
+
+410K
+
+31 G
+
+32.15/0.8935
+
+28.54/0.7813
+
+27.54/0.7364
+
+26.06/0.7858
+
+–
+
+GASSL-S
+
+428K
+
+52 G
+
+32.01/0.8931
+
+28.56/0.7808
+
+27.56/0.7352
+
+25.98/0.7818
+
+30.35/0.9070
+
+SRConvNet (ours)
+
+382K
+
+22 G
+
+32.18/0.8951
+
+28.61/0.7818
+
+27.57/0.7359
+
+26.06/0.7845
+
+30.35/0.9075
+
+The FLOPs are calculated by super-resolving an LR image to 1280 × 720 resolution on all scale factors
+
+123
+
+International Journal of Computer Vision (2025) 133:173–189
+
+181
+
+Fig. 4 ×4 SR visual results on Set14 (Zeyde et al., 2012) and Urban (Huang et al., 2015) datasets. SRConvNet generates promising images with
+clearer details and more accurate textures
+
+Comparing to Transformer-based Methods. We also
+provide a comparison between SRConvNet and recent
+transformer-style lightweight SISR methods including
+SwinIR-light (Liang et al., 2021), STSN (Gendy et al., 2023),
+ESRT (Lu1 et al., 2022), and NGswin (Choi et al., 2023).
+
+Considering the much larger FLOPs of these transformers
+(e.g. SwinIR-light: 878K/196 G v.s. SRConvNet: 387K/74 G,
+for ×2 SR), we additionally increase the number of ACB
+in SRConvNet (up to 20 blocks), resulting in SRConvNetL. As reported in Table 2, our SRConvNet is the most
+
+123
+
+论文内容详细解读（点击查看）
+182
+
+International Journal of Computer Vision (2025) 133:173–189
+
+Fig. 5 ×4 SR visual results on the real-world LR images. SRConvNet generates the HR image with clearer edges and fewer blurs
+
+Fig. 6 User study on the a randomly selected 12 images in DIV2K validation dataset, where the LR images are degraded from HR images with
+unknown downsampling operations. We summarize the b human voting
+results by 10 subjects for CARN (Ahn et al., 2018), CARN-M (Ahn et
+
+al., 2018), LAPAR-C (Li et al., 2020a), IMDN (Hui et al., 2019), and
+our SRConvNet. c Illustrates the LPIPS performance of these methods
+for reference
+
+Table 2 Quantitative comparison of our SRConvNet with existing state-of-the-art Lightweight SISR methods on five benchmark datasets
+Method
+
+Scale
+
+Params
+
+FLOPs
+
+Set5
+
+Set14
+
+BSD100
+
+Urban100
+
+Manga109
+
+SwinIR-light
+
+878K
+
+196 G
+
+38.14/0.9611
+
+33.86/0.9206
+
+32.31/0.9012
+
+32.76/0.9340
+
+39.12/0.9783
+
+ESRT
+
+677K
+
+191 G
+
+38.03/0.9600
+
+33.75/0.9184
+
+32.25/0.9001
+
+32.58/0.9318
+
+39.12/0.9774
+
+STSN
+NGswin
+
+×2
+
+882K
+
+198 G
+
+38.19/0.9611
+
+33.78/0.9199
+
+32.30/0.9013
+
+32.68/0.9336
+
+39.13/0.9778
+
+998K
+
+140 G
+
+38.05/0.9610
+
+33.79/0.9199
+
+32.27/0.9008
+
+32.53/0.9324
+
+38.97/0.9777
+38.87/0.9774
+
+SRConvNet (ours)
+
+387K
+
+74 G
+
+38.00/0.9605
+
+33.58/0.9186
+
+32.16/0.8995
+
+32.05/0.9272
+
+SRConvNet-L (ours)
+
+885K
+
+160 G
+
+38.14/0.9610
+
+33.81/0.9199
+
+32.28/0.9010
+
+32.59/0.9321
+
+39.22/0.9779
+
+SwinIR-light
+
+886K
+
+87 G
+
+34.62/0.9289
+
+30.54/0.8463
+
+29.20 0.8082
+
+28.66 0.8624
+
+33.98 0.9478
+
+ESRT
+
+770K
+
+68 G
+
+34.42/0.9268
+
+30.43/0.8433
+
+29.15/0.8063
+
+28.46/0.8574
+
+33.95/0.9455
+
+889K
+
+100 G
+
+34.62/0.9292
+
+30.54/0.8466
+
+29.22/0.8090
+
+28.59/0.8621
+
+34.11/0.9480
+
+NGSwin
+
+1,007K
+
+67 G
+
+34.52/0.9282
+
+30.53/0.8456
+
+29.19/0.8078
+
+28.52/0.8603
+
+33.89/0.9470
+
+SRConvNet (ours)
+
+387K
+
+33 G
+
+34.39/0.9272
+
+30.31/0.8413
+
+29.08/0.8047
+
+28.04/0.8498
+
+33.51/0.9442
+
+STSN
+
+×3
+
+SRConvNet-L (ours)
+
+906K
+
+74 G
+
+34.59/0.9288
+
+30.50/0.8455
+
+29.22/0.8081
+
+28.56/0.8600
+
+34.17/0.9479
+
+SwinIR-light
+
+897K
+
+50 G
+
+32.44/0.8976
+
+28.77/0.7858
+
+27.69/0.7406
+
+26.47/0.7980
+
+30.92/0.9151
+
+ESRT
+
+751K
+
+96 G
+
+32.19/0.8947
+
+28.69/0.7833
+
+27.69/0.7379
+
+26.39/0.7962
+
+30.75/0.9100
+
+STSN
+
+898K
+
+50 G
+
+32.46/0.8982
+
+28.76/0.7860
+
+27.68/0.7405
+
+26.39/0.7971
+
+30.93/0.9142
+30.80/0.9128
+
+NGSwin
+
+×4
+
+1,019K
+
+36 G
+
+32.33/0.8963
+
+28.78/0.7859
+
+27.66/0.7396
+
+26.45/0.7963
+
+SRConvNet (ours)
+
+382K
+
+22 G
+
+32.18/0.8951
+
+28.61/0.7818
+
+27.57/0.7359
+
+26.06/0.7845
+
+30.35/0.9075
+
+SRConvNet-L (ours)
+
+902K
+
+45 G
+
+32.44/0.8976
+
+28.77/0.7857
+
+27.69/0.7402
+
+26.47/0.7970
+
+30.96/0.9139
+
+The FLOPs are calculated by super-resolving an LR image to 1280 × 720 resolution on all scale factors
+
+123
+
+International Journal of Computer Vision (2025) 133:173–189
+
+183
+
+Table 3 Quantitative comparison with state-of-the-art methods for
+Gaussian color image denoising on noise level σ = 50
+
+Table 4 Quantitative comparison with state-of-the-art methods on the
+GoPro dataset for motion deblurring
+
+Method
+
+Params
+
+CBSD68
+
+Kodak24
+
+McMaster
+
+Method
+
+BM3D
+
+-
+
+27.38
+
+28.46
+
+28.51
+
+Params
+
+PSNR
+
+SSIM
+
+11.7M
+
+29.08
+
+0.914
+
+DnCNN
+
+557K
+
+27.95
+
+28.95
+
+28.62
+
+SRN
+
+6.8M
+
+30.26
+
+0.934
+
+IRCNN
+
+186K
+
+27.86
+
+28.93
+
+28.91
+
+DeblurGAN-v2
+
+60.9M
+
+29.55
+
+0.934
+
+FFDNet
+
+485K
+
+27.96
+
+28.98
+
+29.18
+
+SDNet2
+
+10.9M
+
+30.90
+
+0.942
+
+RPCNN
+
+810K
+
+28.06
+
+29.25
+
+29.33
+
+DBGAN
+
+-
+
+30.43
+
+0.937
+
+PANet
+
+5,957K
+
+28.33
+
+29.65
+
+-
+
+PyNAS
+
+9M
+
+30.62
+
+0.941
+
+SRConvNet
+
+732K
+
+28.09
+
+29.23
+
+29.30
+
+-
+
+30.46
+
+0.937
+
+SRConvNet
+
+5.2M
+
+30.80
+
+0.943
+
+lightweight, which performs comparably against ESRT and
+NGswin on several datasets only using about half of the
+parameters and FLOPs. Particularly, although SRConvNetL uses more parameters and computation than SRConvNet,
+it still achieves preferable effectiveness and efficiency than
+other methods, demonstrating the scalability of the proposed
+method.
+
+vNet. From the qualitative results in Fig. 7 (top row), one can
+see that our method removes the noise effectively like PANet
+and generates visually pleasant denoised images.
+Motion Deblurring. Following (Nah et al., 2017), we
+conduct motion blur removal on the GoPro dataset which
+contains 2023 images for training and 1111 images for testing. Here, we construct the proposed SRConvNet to be
+a 3-level encoder-decoder architecture, where the number
+of ACBs and channels are set to [2, 2, 4] and [64, 128,
+4.3 Extension to Other Image Restoration Tasks
+256], respectively. We also provide comparisons with several representative methods consisting of (Nah et al., 2017),
+In this subsection, to further validate the versatility of
+SRN (Tao et al., 2018), SDNet2 (Zhang et al., 2019a),
+SRConvNet for different image restoration challenges, we
+PyNAS
+(Hu et al., 2021), DeblurGAN-v2 (Kupyn et al.,
+consider another two classic tasks including Gaussian color
+2019),
+and
+(Ren et al., 2011). The quantitative results are
+image denoising and motion deblurring.
+illustrated
+in
+Table 4. It is observed that our SRConvNet genGaussian color image denoising. We adopt the DIV2K (Timerates
+the
+deblurred
+images with better average PSNR and
+ofte et al., 2017) dataset for training and test our method
+SSIM.
+Compared
+to
+PyNAS,
+the PSNR gain of SRConvNet
+on CBSD64 (Arbeláez et al., 2011), Kodak24 (Zhang et al.,
+is
+at
+least
+0.3dB
+higher,
+while
+the number of model parame2017), and McMaster (Zhang et al., 2011). We simply impleters is half of PyNAS. Figure 7 (bottom row) shows examples
+ment SRConvNet by removing the upsampling module and
+of deblurred images on the GoPro dataset, where our method
+increasing the basic blocks to 16. For fast evaluation, we
+generates the result with clearer characters.
+only compare SRConvNet with BM3D (Dabov et al., 2007),
+DnCNN (Zhang et al., 2017), IRCNN (Zhang et al., 2017),
+4.4 Ablation Study
+FFDNet (Zhang et al., 2018), RPCNN (Xia & Chakrabarti,
+2020), and PANet (Mei et al., 2023) on the noise level
+In our experiments, for fast investigation, we use DIV2K as
+σ = 50. As shown in Table 3, SRConvNet performs favorthe training dataset and train all the models. We test ×4 SR
+ably against prior methods on all datasets. Though PANet is
+PSNR/SSIM results on Set5.
+superior to SRConvNet, it has over 8× parameters of SRCon-
+
+Fig. 7 Visual results on Gaussian color image denoising with noise level 50 (top row) and motion deblurring (bottom row)
+
+123
+
+184
+
+International Journal of Computer Vision (2025) 133:173–189
+
+Table 5 Ablation results of different components combined within FMA
+Type
+
+Baseline Model
+
+spatial-Fourier interaction
+
+regional modulation
+
+A
+
+
+
+B
+
+
+
+
+
+C
+
+
+
+
+
+
+
+D
+
+
+
+
+
+
+
+Multi-head
+
+PSNR/SSIM
+32.10/0.8934
+32.12/0.8937
+32.15/0.8942
+
+
+
+32.17/0.8944
+
+“A” represents the baseline model without any key component. “B” adds only spatial-Fourier interaction into “A”. “C” introduces patch-based
+regional modulation in “B” but without multi-head design. “D” is our full model with all components
+
+Table 6 Comparison between the spatial-Fourier interaction and largekernel convolution in FMA
+Model
+
+Fig. 8 Average feature maps of FMA with our spatial-Fourier interaction and large kernel
+
+Effect of FMA. FMA is an MHSA-like attention mechanism that contains spatial-Fourier feature interaction by
+“RealFFT-Conv-IRealFFT” operation, patch-based regional
+modulation, and multi-head implementation. To explore the
+contribution of FMA to SR reconstruction, we first build
+a baseline model (Model A) by removing all the above
+components. Then, we gradually add them to the baseline model, resulting in another 3 models. As shown in
+Table 5, it is natural that Model A without any component but only 1 × 1 convolutions performs worst. Due to
+the global characteristic of Fourier spectrum convolution,
+incorporating spatial-Fourier feature interaction (Model B)
+enables learning global context at early layers, thus obtaining higher PSNR/SSIM scores. It can also be seen that Model
+C achieves better SR results than Model B. This is because
+Model C combines spatial-Fourier interaction with regional
+modulation, so that is able to capture both long-term and
+short-term dependencies, improving the network capability
+for SR reconstruction. In our full model (Model D), we
+introduce the multi-head scheme in the regional modulation process to mimic the MHSA mechanism in ViTs, which
+achieves the best PSNR/SSIM performance.
+Figure 8a–c visualize the average feature maps of FMA.
+From this visualization, we can get two intuitive observations: (1) Our spatial-Fourier interaction (Fig. 8b) can
+effectively remove the redundancy of the input feature and
+
+123
+
+FLOPs
+
+PSNR/SSIM
+
++ Large kernel (11 × 11)
+
+21.6G
+
+32.14/0.8940
+
++ Spatial-Fourier interaction
+
+21.9G
+
+32.17/0.8944
+
+activate more important values. This means a strong effect to
+suppress smooth regions of LR images. (2) Based on FMA,
+the attend output feature (Fig. 8c) can reveal more texture
+clues, further leading to accurate SR reconstruction.
+Spatial-Fourier Interaction v.s. Large-Kernel Convolution. We further investigate the effectiveness of the spatialFourier interaction for SISR by replacing the “RealFFTConv-IRealFFT” operation with large-kernel convolution
+(11 × 11) following the best default setting in Hou et al.
+(2022) and compare their ×4 SR performance, where the
+results are illustrated in Table 6. As we can see, although
+large-kernel convolution can capture a large receptive field
+to enhance the global connectivity of networks, it is still less
+effective for global context learning, thus showing inferior
+SR performance than our spatial-Fourier interaction scheme.
+Moreover, according to the visualization in Fig. 8, it can
+be seen that the large kernel in FMA (Fig. 8e) is prone to
+activate all values and lacks sufficient discriminative ability
+on different features, thus affecting the feature aggregation
+after FMA (Fig. 8f). By comparison, our method can generate
+a sparse activation map (Fig. 8b) to produce features with rich
+details while preventing unnecessary ones.
+Effectivenss of DML. To verify the effect of the proposed
+DML, we build multiple variants of our SRConvNet by
+replacing DML with several feedforward networks (FFN)
+in ViTs including: (a) typical FFN consists of two-layer
+MLP (Dosovitskiy et al., 2021; Liang et al., 2021); (b) convolutional FFN (Li et al., 2021; Wang et al., 2022a)(CFFN); (c)
+Mixed-scale convolutional FFN (MixCFN) (Gu et al., 2022);
+(d) Gated-Dconv FFN (GDFN), as illustrated in Fig. 9. Note
+that we carefully set the kernel size and channel number of
+the above variants to make them
+have consistent model complexity for a fair comparison.
+As reported in Table 7, due to the lack of locality, the model
+with typical FFN shows the lowest PSNR and SSIM than
+
+International Journal of Computer Vision (2025) 133:173–189
+
+Fig. 9 Architectures of different FFNs in existing ViTs, where
+
+185
+
+denotes Hardarmad product and “DW” denotes depthwise convolution
+
+Table 7 Comparisons between the proposed DML with several widely
+used FFN in existing ViTs
+Model
+
+Param
+
+FLOPs
+
+PSNR/SSIM
+
++ Typical FFN
+
+372K
+
+21.8G
+
+31.85/0.8907
+
++ CFFN
+
+382K
+
+22.3G
+
+31.89/0.8908
+
++ MixCFN
+
+411K
+
+24.0G
+
+31.98/0.8917
+
++ GDFN
+
+350K
+
+20.5G
+
+31.91/0.8911
+
++ FMA
+
+382K
+
+21.9G
+
+32.17/0.8944
+
+other variants. By inserting depthwise convolutions into typical FFN, the locality of networks can be further improved,
+thus producing better SR results. Since GDFN adopts a gated
+mechanism to control the feature transformation, it realizes superior performance than CFFN while keeping lower
+parameters and FLOPs. MixFFN applies the convolutions
+with different kernel sizes to learn multi-scale feature representations, exhibiting higher quantitative results than GDFN
+but heavier model complexity. More importantly, it is obviously observed that our FMA surpasses these variants by a
+considerable margin, which demonstrates the superiority of
+our DML.
+In Fig. 10, we compare the last feature map before the
+upsampling module of models with MixCFN and our DML to
+investigate the influence of dynamic depthwise convolutions
+for feature expression. We observe that the model with DML
+can learn the features containing sharper edges and textures
+than that with MixCFN, thus producing clearer HR images.
+Such a visualization validates DML can effectively enhance
+the feature representation ability of networks.
+Relation to Mobile ViTs. According to the results in
+Tables 1 and 2, we can conclude that lightweight CNNs
+have powered vision tasks on mobile devices, whereas vanilla
+ViTs (Liu et al., 2021) are still far from this efficient deployment. To alleviate the complexity of ViTs, recent researchers
+propose to apply hybrid transformer-CNN architectures, such
+as MobileFormer (Chen et al., 2022a) and EfficientViT (Cai
+
+Fig. 10 Visualization of the feature maps produced by MixCFN and
+our DML
+
+et al., 2023) et al., where the transformer blocks are specifically designed and placed at deep layers to avoid the heavy
+computation of MHSA on high-resolution features. In this
+subsection, we compare SRConvNet with several recent efficient transformer variants by directly applying their core
+blocs to replace the ACBs in SRConvNet. Table 8 shows the
+quantitative comparison with MobileFormer, EdgeViT (Pan
+et al., 2022), and EfficientViT (Cai et al., 2023) on the Set5
+dataset. it is seen that MobileFormer is more computationefficient but has larger parameters and slightly lower PSNR
+than SRConvNet. Although EfficientViT adopts multi-scale
+MHSA to ensure global receptive field and multi-scale representations, it still performs worse than ours, even though
+it has heavier model complexity. Surprisingly, EdgeViT
+combines CNN-based attention and MHSA to construct
+the local-global-local blocks, achieving similar FLOPs to
+ours yet superior performance. It is worth mentioning that
+although EdgeViT involves more parameters, its performance and methodology will inspire us to research more
+powerful methods for mobile devices.
+
+4.5 Limitation
+To explore the possibility of ViT-based architectures for
+lightweight SISR, we analyze the global ability of MHSA and
+the locality of CNNs to design new Fourier modulated attention and dynamic mixing layer that correspond to MHSA
+
+123
+
+186
+
+International Journal of Computer Vision (2025) 133:173–189
+
+Table 8 Comparisons between SRConvNet and recent efficient transformer variants
+Model
+
+Param
+
+FLOPs
+
+PSNR/SSIM
+
++ MobileFormer
+
+980K
+
+13 G
+
+32.00/0.8917
+
++ EdgeViT
+
+419K
+
+26 G
+
+32.19/0.8947
+
++ EfficientViT
+
+465K
+
+31 G
+
+31.95/0.8912
+
+SRConvNet (ours)
+
+382K
+
+22 G
+
+32.17/0.8944
+
+Table 9 Inference speed comparisons on ×4 SR
+Method
+
+CARN
+
+LAPAR-A
+
+SMSR
+
+SRConvNet
+
+Time (sec.)
+
+0.533
+
+0.940
+
+0.962
+
+0.825
+
+The GPU running time (second, sec.) is calculated on an LR image of
+320 × 180
+
+and FFN respectively, constituting a transformer-like ConvNet. However, although our method has shown superior
+performance compared to the methods with similar model
+complexity, it is still hard to exceed relatively heavier models
+in SR performance. Besides, due to the attention mechanism
+and dynamic convolution, as shown in Table 9, SRConvNet
+cannot always ensure the fastest inference speed.
+
+5 Conclusion
+In this paper, we combine the merits of ViTs and ConvNets
+to design the SRConvNet, which is a pure transformer-style
+ConvNet for lightweight SISR. Specifically, we propose the
+Fourier modulated attention (FMA) mechanism that conducts spatial-Fourier feature interaction and patch-based
+regional modulation to learn context from global to local
+in spatial and channel dimensions, thus effectively modeling
+the long-term and short-term dependencies. Furthermore, we
+also present the dynamic mixing layer (DML) to capture
+multi-scale local contextual information while enhancing
+network adaptability. Extensive experiments demonstrate
+that SRConvNet can compete with the recent state-of-the-art
+lightweight SISR methods in the trade-off between efficiency
+and accuracy.
+Acknowledgements This work is supported in part by the National
+Natural Science Foundation of China (Nos. 62302141, 62331003,
+62120106009, 62302142), National Key Research and Development
+Program of China under grant 2023YFC2506804, the Beijing Natural
+Science Foundation (L223022), the Taishan Scholar Project of Shandong Province under Grant tsqn202306079.
+
+References
+Ahn, N., Kang, B., & Sohn, K.-A. (2018). Fast, accurate, and lightweight
+super-resolution with cascading residual network. In Proceedings
+
+123
+
+of European. Conference on Computer Vision (ECCV), pp. 252–
+268.
+Amirpour, H., Ghanbari, M., & Timmerer, C. (2023). DeepStream:
+Video streaming enhancements using compressed deep neural
+networks. IEEE Transactions on Circuits and Systems for Video
+Technology. https://doi.org/10.1109/TCSVT.2022.3229079
+Arbeláez, P., Maire, M., Fowlkes, C. C., & Malik, J. (2011). Contour
+detection and hierarchical image segmentation. IEEE Transactions
+on Pattern Analysis and Machine Intelligence, 33(5), 898–916.
+Bevilacqua, M., Roumy, A., Guillemot, C., & Morel, M. A. (2012).
+Low-complexity single-image super-resolution based on nonnegative neighbor embedding. In Proceedings British Machine Vision
+Conference (BMVC), 135, 1–10.
+Brown, T.B., Mann, B., Ryder, N., Subbiah, M., Kaplan, J.D., Dhariwal,
+P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A. & Agarwal, S.
+(2020). Language models are few-shot learners. In Proceedings of
+Conference on Neural Information Processing Systems (NeurIPS).
+Cai, H., Li, J., Hu, M. , Gan, C., & Han. S. (2023). EfficientViT:
+Lightweight multi-scale attention for high-resolution dense prediction. In Proceedings of IEEE International Conference on
+Computer Vision (ICCV), pp. 17302–17313.
+Carion, N., Massa, F., Synnaeve, G., Usunier, N., Alexander Kirillov, Zagoruyko. Sergey. (2020). End-to-end object detection with
+transformers. In Proceedings of European Conference on Computer Vision (ECCV), pp. 213–229.
+Chen, Y., Dai, X., Chen, D., Liu, M., Dong, X., Yuan, L., & Liu.
+Z. (2022). Mobile-former: Bridging mobilenet and transformer.
+In Proceedings of IEEE International Conference on Computer
+Vision and Pattern Recognition (CVPR), pp. 5270–5279.
+Chen, Z., Zhang, Y., Gu, J., Zhang, Y., Kong, L., & Yuan, X. (2022).
+Cross aggregation transformer for image restoration. In Proceedings of Conference on Neural Information Processing Systems
+(NeurIPS).
+Chen, H., Wang, Y., Guo, T., Xu, C., Deng, Y., Liu, Z., Ma, S., Xu,
+C., Xu, C., & Gao, W. (2021). Pre-trained image processing transformer. In Proceedings of IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), pp. 12294–12305.
+Chi, L., Jiang, B., Mu, Y.: (2020) Fast Fourier convolution. In Proceedings of Conference on Neural Information Processing Systems
+(NeurIPS).
+Chi, L., Tian, G., Mu, Y. Xie, Y., & Tian. Q. (2019). Fast non-local neural
+networks with spectral residual learning. In Proceedings of ACM
+International Conference on Multimedia (MM), pp. 2142–2151.
+Choi, H., Lee, J., & Yang. J. (2023). N-Gram in swin transformers
+for efficient lightweight image super-resolution. In Proceedings
+of IEEE Conference on Computer Vision and Pattern Recognition
+Workshop (CVPR), pp. 2071–2081
+Chu, X., Zhang, B., Ma, H., Xu, R., & Li. Q. (2020). Fast, accurate
+and lightweight super-resolution with neural architecture search.
+In International Conference on Pattern Recognition (ICPR), pp.
+59–64.
+Dabov, K., Foi, A., Katkovnik, V., & EgiazarianL, K. (2007). Image
+denoising by sparse 3-d transform-domain collaborative filtering.
+IEEE Transactions on Image Processing, 16(8), 2080–2095.
+Dai, Z., Liu, H., Le, Q., & Tan, M. (2021). Coatnet: Marrying convolution and attention for all data sizes. In Proceedings of Conference
+on Neural Information Processing Systems (NeurIPS).
+Devlin, J., Chang,M., Lee, K., & Toutanova. K. (2019). Bert: Pretraining of deep bidirectional transformers for language understanding. In The Proceedings of NAACL-HLT, pp. 4171–4186.
+Ding, X., Guo, Y., Ding, G., & Han. J. (2019). Acnet: Strengthening
+the kernel skeletons for powerful cnn via asymmetric convolution
+blocks. In Proceedings of the IEEE International Conference on
+Computer Vision (CVPR), pp. 1911–1920.
+Ding, X., Zhang, X., Ma, N., Han, J., Ding, G., & Sun, J. (2021).
+RepVGG: Making VGG-style ConvNets Great Again. In Proceed-
+
+International Journal of Computer Vision (2025) 133:173–189
+ings of the IEEE International Conference on Computer Vision
+(CVPR), pp. 13733–1374.
+Dong, C., Loy, C. C., & Tang, X. (2016). Accelerating the superresolution convolutional neural network. In Proceedings of European Conference on Computer Vision (ECCV), pp. 391–407.
+Dong, C., Loy, C. C., He, K., & Tang, X. (2016). Image super-resolution
+using deep convolutional networks. IEEE Transactions on Pattern
+Analysis and Machine Intelligence, 38(2), 295–307.
+Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X.,
+Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly,
+S., & Uszkoreit, J. (2021). An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale. International Conference
+on Learning Representations (ICLR).
+Gendy, G., Sabor, N., Hou, J., & He. G. (2023). A simple transformerstyle network for lightweight image super-resolution. In Proceedings of IEEE Conference on Computer Vision and Pattern
+Recognition Workshop (CVPRW), pp. 1484–1494.
+Gu, J., Kwon, H., Wang, D., Ye, W., Li, M., & Chen, Y.-H. (2022).
+Multi-scale high-resolution vision transformer for semantic segmentation. In Proceedings of the IEEE International Conference
+on Computer Vision (CVPR), pp. 12094–12103.
+Guo, M., Lu, C , Liu, Z, Cheng, M., & Hu. S. (2022). Visual attention
+network. arXiv:2202.09741.
+Guo, M., Lu, C., Hou, Q., Liu, Z., Cheng, M., & Hu. S.(2022). SegNeXt: Rethinking convolutional attention design for semantic
+segmentation. In Proceedings of Conference on Neural Information Processing Systems (NeurIPS).
+Guo, C.-L., Yan, Q., Anwar, S., Cong, R., Ren, W., & C. Li. (2022).
+Image dehazing transformer with transmission-aware 3d position
+embedding. In Proceedings of IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR), pp. 5812–5820.
+Guo, C., Li, C., Guo, J., Cong, R., Fu, H., & Han, P. (2018). Hierarchical
+features driven residual learning for depth map super-resolution.
+IEEE Transactions on Image Processing, 28(5), 2545–2557.
+Han, Q., Fan, Z., Dai, Q., Sun, L., Cheng, M.M., Liu, J., & Wang, J.
+(2022). On the connection between local Attention and dynamic
+depth-wise convolution. In International Conference on Learning
+Representations (ICLR).
+Haris, M., Shakhnarovich, G., & Ukita, N. (2018). Deep back-projection
+networks for super-resolution. In Proceedings of IEEE Conference
+on Computer Vision and Pattern Recognition (CVPR), pp. 1664–
+1673.
+Hou, Q., Lu, C., Cheng, M., & Feng. J. (2022). Conv2Former:
+A simple transformer-style convNet for visual recognition.
+arXiv:2211.11943.
+Hu, X., Ren, W., Yu, K., Zhang, K., Cao, X., Liu, W., &. Menze, B.
+(2021). Pyramid architecture search for real-time image deblurring. In Proceedings of IEEE International Conference on Computer Vision (ICCV), pp. 4298–4307.
+Huang, J.-B., Singh, A., & Ahuja. N. (2015). Single image superresolution from transformed self-exemplars. In Proceedings of the
+IEEE International Conference on Computer Vision (CVPR), pp.
+5197–5206.
+Hui, Z., Gao, X., Yang, Y., & Wang, X. (2019). Lightweight image
+super-resolution with information multi-distillation network. In
+Proceedings of ACM International Conference on Multimedia
+(MM), pp. 2024-2032.
+Kim, J., Lee, J. K., & Lee, K. M.: (2016). Deeply-recursive convolutional network for image super-resolution. In Proceedings of IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR),
+pp. 1637–1645.
+Kim, J., J. K. Lee, & K. M. Lee. (2016). Accurate image super-resolution
+using very deep convolutional networks. In Proceedings of IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR),
+pp. 1646–1654.
+
+187
+Kingma, D.P, & Ba. J. (2015). Adam: A method for stochastic optimization. In International Conference on Learning Representations
+(ICLR).
+Kupyn, O., Martyniuk, T., Wu, J.,& Wang. Z. (2019). DeblurGAN-v2:
+Deblurring (orders-of-magnitude) faster and better. In Proceedings
+of IEEE International Conference on Computer Vision (ICCV), pp.
+8878–8887.
+Lai, W.-S., Huang, J.-B., Ahuja, N., & Yang, M.-H. (2017). Deep laplacian pyramid networks for fast and accurate super-resolution. In
+Proceedings of IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), pp. 5835–5843.
+Ledig, C., Theis, L., Huszàr, F., Caballero, J., Cunningham, A., Acosta,
+A., Aitken, A., Tejani, A., Totz, J., Wang, Z., & Shi, W. (2017).
+Photo-realistic single image super-resolution using a generative
+adversarial network. In Proceedings of IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 105–114.
+Li, W., Lu, X., Qian, S., Lu, J., Zhang, X., & Jia, J. (2022). On efficient transformer-based image pre-training for low-level vision.
+arxiv:2112.1017.
+Li, Z., Yang, J., Liu, Z., Yang, X., Jeon, G., & Wu, W. (2019). Feedback
+network for image super-resolution. In Proceedings of IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp.
+3862–3871.
+Li, Y., Zhang, K., X Cao, K., Timofte, R., & Gool, L.V.
+(2021). LocalViT: Bringing locality to vision transformers.
+arXiv:2104.05707.
+Li, W., Zhou, K., Qi, L., Jiang, N. , Lu, J. , & Jia. J. (2020). LAPAR:
+Linearly-assembled pixel-adaptive regression network for single
+image super-resolution and Beyond. In Proceedings of Conference
+on Neural Information Processing Systems (NeurIPS).
+Liang, J., Cao, J., Sun, G., Zhang, K., Van Gool, L., & Timofte, R.
+(2021). SwinIR: Image restoration using swin transformer. In Proceedings of IEEE International Conference on Computer Vision
+Workshop (ICCVW), pp. 1833–1844.
+Li, F., Bai, H., & Zhao, Y. (2020). FilterNet: Adaptive information filtering network for accurate and fast image super-resolution. IEEE
+Transactions on Circuits and Systems for Video Technology, 30(6),
+1511–1523.
+Lim, B., Son, S., Kim, H., Nah, S., & Lee, K.M. (2017). Enhanced
+deep residual networks for single image super-resolution. In Proceedings of IEEE Conference on Computer Vision and Pattern
+Recognition Workshop (CVPRW), pp. 1132–1140.
+Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., & Guo, B.,
+(2021). Swin transformer: Hierarchical vision transformer using
+shifted windows. In Proceedings of IEEE International Conference on Computer Vision (ICCV), pp. 9992–10002.
+Li, F., Wu, Y., Bai, H., Lin, W., Cong, R., Zhang, C., & Zhao, Yao.
+(2022). Learning detail-structure alternative optimization for blind
+super-resolution. IEEE Transactions on Multimedia, 25, 2825–
+2838.
+Lu1, Z. , Li2, J., Liu, H., Huang, C., Zhang, L. , & Zeng. T., (2022).
+Transformer for single image super-resolution. In Proceedings of
+IEEE Conference on Computer Vision and Pattern Recognition
+Workshop (CVPRW), pp. 456–465.
+Luo, X., Qu, Y., Xie, Y., Zhang, Y., Li, C., & Fu, Y. (2023). Lattice
+Network for Lightweight Image Restoration. IEEE Transactions
+on Pattern Analysis and Machine Intelligence, 45(4), 272–289.
+Ma, N., Zhang, X., Zheng, H.-T.,& Sun. J. (2018) ShuffleNet V2: Practical guidelines for efficient cnn architecture design. In Proceedings
+of European Conference on Computer Vision (ECCV), pp. 122–
+138.
+Matsui, Y., Ito, K., Aramaki, Y., Yamasaki, T., & Aizawa, K. (2017).
+Sketch-based manga retrieval using manga109 dataset. Multimedia
+Tools and Applications, 76, 21811–21838.
+Mei, Y., Fan, Y., Zhang, Y., Yu, J., Zhou, Y., Liu, D., Fu, Y., Huang,
+T. S., & Shi, H. (2023). Image denoising using deep cnn with
+
+123
+
+188
+batch renormalization. International Journal of Computer Vision.
+https://doi.org/10.1007/s11263-023-01843-5
+Nah, S., Kim, T. H., & Lee. K. M. (2017). Deep multi-scale convolutional neural network for dynamic scene deblurring. In Proceedings of IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), pp. 3883–3891.
+Pan, J., Bulat, A., Tan, F., Zhu, X., Dudziak, L., Li, H., Tzimiropoulos,
+G., & Martinez. B. (2022). Edgevits: Competing light-weight cnns
+on mobile devices with vision transformers. In Proceedings of
+European Conference on Computer Vision (ECCV), pp. 294–311.
+Park, K., Soh, J. W., & Cho, N. I. (2023). A dynamic residual selfattention network for lightweight single image super-resolution.
+IEEE Transactions on Multimedia, 25, 4915–4924.
+Ren, W., Zhang, J., Pan, J., Liu, S., Ren, J. S., Du, J., Cao, X., & Yang,
+M.-H. (2011). Deblurring dynamic scenes via spatially varying
+recurrent neural networks. IEEE Transactions on Pattern Analysis
+and Machine Intelligence, 44, 3974–3987.
+Sajjadi, M. S. M., Scholkopf, B.,& M. Hirsch. EnhanceNet: Single image super-resolution through automated texture synthesis.
+In Proceedings of IEEE International Conference on Computer
+Vision (ICCV), pp. 4501–4509.
+Shi, W., Caballero, J., Huszár, F., Totz, J., Aitken, A.P., Bishop, R.,
+Rueckert, D., & Wang, Z. (2016). Real-time single image and video
+super-resolution using an efficient sub-pixel convolutional neural
+network. In Proceedings of IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), pp. 51874–1883.
+Suvorov, R., Logacheva, E., Mashikhin, A., Remizova, A., Ashukha,
+A., Silvestrov, A., Kong, N., Goka, H., Park, K., & Lempitsky,
+V. (2022) Resolution-robust large mask inpainting with Fourier
+convolutions. In IEEE Winter Conference on Applications of Computer Vision (WACV), pp. 3172–3182.
+Tai, Y., Yang, J., Liu, X., & Xu C. (2017). MemNet: A persistent memory
+network for image restoration. In Proceedings of IEEE Conference
+on Computer Vision (ICCV), pp. 4549–4557.
+Tai, Y., Yang, J.,& Liu, X. (2017) Image super-resolution via deep
+recursive residual network. In Proceedings of IEEE Conference
+on Computer Vision and Pattern Recognition (CVPR), pp. 2790–
+2798.
+Tao, X., Gao, H., Shen, X., Wang, J., & Jia. J. (2018). Scale-recurrent
+network for deep image deblurring. In Proceedings of IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp.
+8174–8182.
+Timofte, R., Agustsson, E., Van Gool, L., Yang, M.H., & Zhang, L.
+(2017). NTIRE 2017 challenge on single image super-resolution:
+Methods and results. In Proceedings of the IEEE International
+Conference on Computer Vision Workshops (CVPRW), pp. 1110–
+1121.
+Vaswani, A., Shazeer, N., Parmar, N., & Uszkoreit, J. (2017). Attention
+is all you need. In Proceedings of Conference on Neural Information Processing Systems (NeurIPS).
+Wang, Z., Cun, X., Bao, J., Zhou, W., Liu, W., & Li. H. (2022). Uformer:
+A general u-shaped transformer for image restoration. In Proceedings of the IEEE International Conference on Computer Vision
+(CVPR), pp. 17683–17693.
+Wang, X., Dong, C., & Shan, Y. (2022). RepSR: Training efficient VGG-style super-resolution networks with structural reparameterization and batch normalization. In Proceedings of ACM
+International Conference on Multimedia (MM), pp. 2556–2564.
+Wang, L., Dong, X., Wang, Y., Ying, X., Lin, Z., An, W., & Guo, Y.
+(2021). Exploring sparsity in image super-resolution for efficient
+inference. In Proceedings of IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), pp. 4915–4924.
+Wang, L., Li, D., Zhu, Y., Tian, L., & Shan, Y. (2021). Dual superresolution learning for semantic segmentation. In Proceedings of
+IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), 3773–3782.
+
+123
+
+International Journal of Computer Vision (2025) 133:173–189
+Wang, X., Yu, K., Wu, S., Gu, J., Liu, Y., Dong, C., Qiao, Y., &
+Loy, C.C. (2018). ESRGAN: Enhanced super-resolution generative adversarial networks. In Proceedings of European. Conference
+on Computer Vision Workshop (ECCVW), pp. 63–79.
+Wang, W., E. Xie, X. Li, D.-P. Fan, Song, K., Liang, D., Lu, T., Luo, P., &
+Shao, L. (2021). Pyramid vision transformer: A versatile backbone
+for dense prediction without convolutions. In Proceedings of IEEE
+International Conference on Computer Vision (ICCV), pp. 548–
+558.
+Wang, Z., Chen, J., & Hoi, S. C. H. (2021). Deep learning for image
+super-resolution: A survey. IEEE Transactions on Pattern Analysis
+and Machine Intelligence, 43(10), 3365–3387.
+Wang, H., Zhang, Y., Qin, C., Gool, L. V., & Fu, Y. (2023). Global
+aligned structured sparsity learning for efficient image superresolution. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 45(9), 10974–10989.
+Wu, H., Xiao, B., Codella, N., Liu, M., Dai, X., Yuan, L., & Zhang,
+L., (2021). CvT: Introducing convolutions to vision transformers.
+In Proceedings of IEEE International Conference on Computer
+Vision (ICCV), pp. 22–31.
+Xia, Z., & Chakrabarti. A. (2020). Identifying recurring patterns with
+deep neural networks for natural image denoising. In Proceedings
+of the IEEE Winter Conference on Applications of Computer Vision
+(WACV), pp. 2426–2434.
+Xu, X., Chen, H., Noguer, F. M., László, A., Jeni, Torre, & F.D. (2022).
+3D Human pose, shape and texture from low-resolution images
+and videos. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 44(9), 4490–4504.
+Zamir, S. W., Salman, A. A., Hayat, A.A., Khan, F.S., & Yang, M.-H.
+(2022). Restormer: Efficient transformer for high-resolution image
+restoration. In Proceedings of the IEEE International Conference
+on Computer Vision (CVPR), pp. 5728–5739.
+Zeyde, R., Elad, M.,& Protter. M.(2012). On single image scale-up using
+sparse-representations. In International Conference on Curves and
+Surfaces, pp. 711–730.
+Zhang, H., Dai, Y., Li, H., & Koniusz. P. (2019). Deep stacked hierarchical multi-patch network for image deblurring. In Proceedings
+of IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), pp. 5978–5986.
+Zhang, H., Hu, W., & Wang, X, (2022). ParC-Net: Position aware
+circular convolution with merits from convnets and transformer.
+In Proceedings of European Conference on Computer Vision
+(ECCV), pp. 613–630.
+Zhang, R., Isola, P., Efros, A. A., Shechtman, E., & Wang. O. (2017).
+The unreasonable effectiveness of deep features as a perceptual
+metric. In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), pp. 586–595.
+Zhang, Y., Li, K., Li, K., Wang, L., Zhong, B., & Fu., Y.(2018). Image
+super-resolution using very deep residual channel attention networks. In Proceedings of European. Conference on Computer
+Vision (ECCV), pp. 286–301.
+Zhang, H., Liu, Dong., & Zhiwei, Xiong. (2019). Two-stream action
+recognition-oriented video super-resolution. In Proceedings of
+IEEE Conference on Computer Vision (ICCV), 8798–8807.
+Zhang, K., Luo, W., Zhong, Y., Ma, L., Stenger, B., Liu, W., & Li. H.
+(2020). Deblurring by realistic blurring. In Proceedings of IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR),
+pp. 2737–2746.
+Zhang, Y., Tian, Y., Kong, Y., Zhong, B., & Fu, Y. (2018) Residual
+dense network for image super-resolution. In Proceedings of IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR),
+pp. 3118–3126.
+Zhang, X., Zeng, H., & Zhang, L. (2021). Edge-oriented convolution
+block for real-time super-resolution on mobile devices. In Proceedings of ACM International Conference on Multimedia (MM),
+pp. 2034–2043.
+
+International Journal of Computer Vision (2025) 133:173–189
+Zhang, K., Zuo, W., Gu, S., & Zhang. L. (2017). Learning deep CNN
+denoiser prior for image restoration. In Proceedings of IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp.
+3929–3938.
+Zhang, X., H. Zeng, S. Guo, & L. Zhang. (2022). Efficient long-range
+attention network for image super-resolution. In Proceedings of
+European Conference on Computer Vision (ECCV), pp. 649–667.
+Zhang, X., Dong, H., Hu, Z., Lai, W.-S., Wang, F., & Yang, M.-H.
+(2020). Gated Fusion Network for Degraded Image Super Resolution. International Journal of Computer Vision, 128, 1699–1721.
+Zhang, L., Wu, X., Buades, A., & Li, X. (2011). Color demosaicking by
+local directional interpolation and nonlocal adaptive thresholding.
+Journal of Electronic imaging, 20(2), 023016.
+Zhang, K., Zuo, W., Chen, Y., Meng, D., & Zhang, L. (2017). Beyond a
+gaussian denoiser: Residual learning of deep cnn for image denoising. IEEE Transactions on Image Processing, 26(7), 3929–3938.
+Zhang, K., Zuo, W., & Zhang, L. (2018). FFDNet: Toward a fast and
+flexible solution for cnn based image denoising. IEEE Transactions on Image Processing, 27(9), 4608–4622.
+Zhou M., Yu, H., Huang, J., Zhao, F., Gu, J., Loy, C.C.,. Meng, D,
+& C. Li. (2022). Deep Fourier up-sampling. In Proceedings of
+Conference on Neural Information Processing Systems (NeurIPS).
+
+189
+Zhou, S., Chan, K.C., Li, C., & Loy, C.C. (2022). Towards robust blind
+face restoration with codebook lookup transformer. In Proceedings of Conference on Neural Information Processing Systems
+(NeurIPS).
+Zhou, M., Huang, J., Guo, C.-L., & Li, C. (2023). Fourmer: An efficient
+global modeling paradigm for image restoration. In Proceedings
+of the International Conference on Machine Learning (ICML).
+Publisher’s Note Springer Nature remains neutral with regard to jurisdictional claims in published maps and institutional affiliations.
+Springer Nature or its licensor (e.g. a society or other partner) holds
+exclusive rights to this article under a publishing agreement with the
+author(s) or other rightsholder(s); author self-archiving of the accepted
+manuscript version of this article is solely governed by the terms of such
+publishing agreement and applicable law.
+
+123
+
+

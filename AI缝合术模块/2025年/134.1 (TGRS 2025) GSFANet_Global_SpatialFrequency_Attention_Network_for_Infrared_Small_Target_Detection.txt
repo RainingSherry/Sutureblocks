@@ -1,0 +1,1527 @@
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+5007017
+
+GSFANet: Global Spatial–Frequency Attention
+Network for Infrared Small Target Detection
+Chuiyi Deng , Zhuoyi Zhao , Xiang Xu , Member, IEEE, Yixin Xia, Junwei Li ,
+and Antonio Plaza , Fellow, IEEE
+
+Abstract—Infrared small target detection (IRSTD) has progressed significantly in spatial-domain learning. However, singleframe images’ limited spatial semantics impair discrimination
+between targets and similar noise while complicating integrity
+detection of large-scale target. To address these, we propose
+global spatial–frequency attention network (GSFANet), which
+enhances the distribution difference between targets and noise
+from a frequency-domain perspective while preserving spatial
+information integrity. The core innovations consist of three modules: 1) parametric wavelet downsampling (PWD), preserving
+small target details during frequency refinement to prevent
+feature fragmentation; 2) hierarchical gated kernel attention
+(HGKA), capturing cross-level frequency relationships through
+cross-channel kernel attention (C2 K) and maintaining spatial
+coherence via cross-spatial gate attention (CSG), effectively
+bridging semantic gaps across layers; and 3) adaptive frequencydecoupled fusion (AdaFD), dynamically fusing target-associated
+frequency components while suppressing noise. We further
+develop AdaFL Loss to balance multiscale target gradients and
+stabilize training. Experiments on three benchmark datasets
+demonstrate GSFANet’s superior detection performance and
+enhanced segmentation robustness in complex scenarios compared with state-of-the-art (SOTA) methods. Our code will be
+made public at https://github.com/dengfa02/GSFANet IRSTD
+Index Terms—Cross-attention, infrared small target detection (IRSTD), spatial–frequency, transformer, wavelet transform
+(WT).
+
+I. I NTRODUCTION
+
+I
+
+NFRARED small target detection (IRSTD) delivers robust
+performance under complex illumination conditions, with
+applications spanning maritime surveillance [1], [2], remote
+sensing [3], precision guidance [4], and early warning systems [5], [6]. IRSTD approaches include multiframe methods
+Received 23 June 2025; accepted 18 August 2025. Date of publication
+21 August 2025; date of current version 15 September 2025. This work was
+supported in part by the Key Research and Development Project of Zhejiang
+Province under Grant 2023C01027, in part by the National Natural Science
+Foundation of China under Grant 62271130, and in part by Guangdong Basic
+and Applied Basic Research Foundation under Grant 2023A1515010066.
+(Corresponding author: Junwei Li.)
+Chuiyi Deng, Zhuoyi Zhao, Yixin Xia, and Junwei Li are with
+the College of Information Science and Electronic Engineering, Zhejiang University, Hangzhou 310027, China (e-mail: dengchuiyi@zju.edu.cn;
+flyzzie@zju.edu.cn; 3210105080@zju.edu.cn; lijunwei7788@zju.edu.cn).
+Xiang Xu is with the Artificial Intelligence and Computer Vision Laboratory, University of Electronic Science and Technology of China, Zhongshan
+Institute, Zhongshan 528402, China (e-mail: xuxiang@zsc.edu.cn).
+Antonio Plaza is with the Hyperspectral Computing Laboratory, Department
+of Technology of Computers and Communications, Escuela Politécnica,
+University of Extremadura, 10003 Cáceres, Spain (e-mail: aplaza@unex.es).
+Digital Object Identifier 10.1109/TGRS.2025.3601517
+
+that leverage temporal–spatial correlations but suffer computational inefficiency [7] and single-frame detection offering
+superior efficiency with minimal prior knowledge requirements
+[8]. However, single-frame IRSTD faces critical challenges:
+1) small and dim: targets appear small and dim due to
+long-range imaging, lacking textures and exhibiting low
+signal-to-noise ratios [9]; 2) multiscale: target sizes vary
+significantly (1–100+ pixels) based on distances and target properties [10]; and 3) shape ambiguity: blurred target
+boundaries complicate accurate segmentation, often incorporating background pixels that distort shape determination.
+Thus, achieving high-accuracy single-frame IRSTD remains
+challenging.
+Earlier traditional approaches using image filtering [9],
+[11], human vision-based contrast enhancement [12], [13],
+and low-rank approximation [14], [15] relied on handcrafted
+features, limiting their adaptability to complex scenarios.
+Recently, some traditional methods based on improved tensor techniques [16] and sparse decomposition [17] have
+shown comparable performance to learning-based approaches
+in specific scenarios. Data-driven methods, particularly with
+multiscale encoding–decoding architectures, have emerged as
+promising alternatives. ACM [18] demonstrated benefits of
+asymmetric cross-layer feature fusion for preserving small
+target characteristics, inspiring enhanced fusion modules [19],
+[20], [21]. Other research bridged encoder–decoder semantic
+gaps [22], with DNA-Net [10] and SCTransNet [23] leveraging
+deep spatial semantics to suppress noise during decoding.
+Transformer-based architectures [3], [23], [24], [25] exploit
+global receptive fields for modeling long-range contextual
+relationships, reducing false alarms. Notably, MLP-Net [26]
+achieves similar global attention with lower computational
+cost. Additional gains have been realized through advanced
+loss functions [3], [27] and novel training paradigms [28].
+A. Motivation
+Current approaches primarily focus on spatial domain
+differentiation between small targets and noise. However,
+single-frame images contain limited semantic information,
+making this distinction challenging [19]. While deeper
+network architectures with multiscale encoder–decoder frameworks [3], [23] offer one solution, they introduce excessive
+branching that compromises inference speed.
+1) Why Frequency Useful: In IRSTD, previous studies [29],
+[30] have observed that noise is typically distributed in the
+
+1558-0644 © 2025 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and
+similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission.
+See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+Fig. 1. Distribution differences of small targets in the spatial and frequency
+domains are compared. The last column, respectively, shows the detection
+results using the spatial domain, the inclusion of high-frequency components,
+and the proposed adaptive frequency approach.
+
+high-frequency components of the image, while targets tend
+to reside in relatively low-frequency regions. Based on these
+findings, frequency information holds potential value for target
+modeling in IRSTD. However, there are still two notable
+limitations in prior studies [29], [30], [31]: 1) a lack of
+quantitative research regarding the frequency-domain distribution differences between targets and noise and 2) insufficient
+investigation of high-frequency noise that resembles target
+characteristics. Statistically, Fig. 1 illustrates a typical IRSTD
+scene with high-intensity noise interference. Analysis of two
+targets T 1 , T 2 , and noise N reveals minimal spatial-domain
+differentiation, with Jensen–Shannon divergences of 0.00679
+(T 1 –N), 0.02665 (T 2 –N), and 0.01648 (T 1 –T 2 ). However,
+frequency-domain analysis (by DFT) significantly amplifies
+these distribution differences (average gain R JS = JS F /JS S =
+4.63), highlighting the discriminative power of frequencydomain features. From a theoretical perspective, for a 2-D
+discrete image I(x, y), the real part Re(u, v) and imaginary part
+Im(u, v) of 2D-DFT can be formulated as
+X
+X
+Re (u, v) =
+cos θI (x, y) +
+cos θI (x, y)
+(1)
+cos θ≥0
+
+Im (u, v) =
+
+X
+sin θ≥0
+
+cos θ<0
+
+sin θI (x, y) +
+
+X
+
+sin θI (x, y) .
+
+(2)
+
+sin θ<0
+
+Essentially, these components can be viewed as weighted
+contrast calculations among four nonnegative templates [32].
+In essence, the wavelet transform (WT) can be considered
+as storing the spatial-domain contrast at multiple scales and
+orientations. With these contrasts, IRSTD in the frequency
+domain is statistically equivalent to searching for templates
+that best capture the differences between target and background. Such contrast information can be expressed more
+directly and efficiently in the frequency domain. From the
+perspective of sparse signal, target information is more concentrated and thus more easily detectable in the frequency domain.
+Furthermore, frequency-domain analysis naturally provides a
+global view, capturing both global statistical properties and
+local abrupt variations in the signal, which is theoretically
+advantageous for detecting sparsely distributed small targets.
+The detection results in the final column in Fig. 1 illustrate
+these differences in practice. Methods relying solely on spatial modeling produces false alarms for noise N and misses
+target T 1 , and even high-frequency combined approaches
+with rigid frequency patterns still produce false positives.
+
+In contrast, our approach incorporates WT for progressive
+frequency refinement with adaptive high/low-frequency decoupling. By leveraging learnable frequency-domain features,
+most background interference and noise can be effectively
+suppressed. We chose WT over DFT because it preserves
+crucial spatial–local structures during frequency decomposition. Unlike DFT, which eliminates local spatial relationships
+and remains dependent on input dimensions, WT enables
+precise multilevel operations and effective spatial–frequency
+information fusion capabilities essential for capturing small
+target features in complex scenes.
+2) Kernel Function: Kernel functions in machine learning
+transform nonlinear problems into linear ones by computing
+dot products in high-dimensional feature spaces with reduced
+computational cost. Building on this idea, traditional crossattention mechanisms essentially extract similarity coefficients
+from mapped features for weighted aggregation. Recognizing
+similarities between kernel functions and traditional crossattention mechanisms, we substitute attention with kernel
+functions to avoid explicit feature mapping while enhancing
+high-dimensional nonlinear relationship capture (detailed in
+Section III-C).
+3) Feature Integrity: Conventional downsampling methods
+present significant limitations: Maxpooling [10], [23] often
+confuses nonmaximum target edges with background, while
+strided convolution (SC) [21], though capable of learning
+some small-target features, struggles with extremely small
+targets, resulting in fragmented representations. Alternative
+approaches use lossless information transformation techniques
+through Haar WTs [33], [34] or pixel slicing methods in the
+spatial domain [19], [35], but single-domain downsampling
+inadequately addresses the dual challenge of enhancing crucial
+target structures while suppressing background noise. Our
+approach overcomes these limitations through complementary
+spatial–frequency-domain processing.
+B. Contributions
+To address the challenges mentioned above, we propose global spatial–frequency attention network (GSFANet),
+which decomposes spatial information into multilevel frequency components during encoding, progressively enhancing
+frequency resolution while reducing spatial resolution to construct a semantic pyramid. Global frequency attention and
+unified spatial attention mitigate encoder–decoder semantic
+gaps across all the levels, while an adaptive frequency decoder
+integrates adjacent levels for segmentation. Our main contributions are as follows.
+1) We introduce a novel spatial–frequency joint learning framework that amplifies distributional differences
+between small targets and noise, enabling more accurate
+target recognition.
+2) We propose a parametric wavelet downsampling (PWD)
+module that preserves critical spatial details of small
+targets through approximate spatial slicing, seamlessly
+integrating into the existing backbone architectures.
+3) We design a global spatial–frequency attention mechanism based on kernel functions and gating mechanisms,
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+which significantly reduces computational complexity
+while ensuring unified target region focus across all the
+layers.
+4) We propose a frequency-decoupled adaptive feature
+fusion module and adaptive focal loss that dynamically adjust cutoff frequencies and transition bandwidths,
+effectively balancing multiscale target features with gradient changes during training. This approach enables
+better adaptation to small target frequency characteristics across diverse scenarios while promoting stable
+convergence.
+The remainder is organized as follows. Section II reviews
+relevant literature. Section III introduces GSFANet and its
+components. Section IV showcases the experimental results
+and analysis. Section V concludes with future directions.
+II. R ELATED W ORKS
+A. Attention-Based IRSTD Methods
+IRSTD models have evolved beyond CNN-based networks
+[10], [36], [37] by incorporating attention mechanisms that
+establish global patch associations, broadly categorized as narrow and generalized approaches. Narrow attention mechanisms
+primarily use transformer-based architectures such as Swin
+Transformer [38], TCI-Former [28], and FTC-Net [39]. These
+approaches generally rely on CNNs to capture local features
+while incorporating transformers to model global contextual
+information. Advanced hierarchical structures in IRSTFormer
+[40], RKFormer [41], SCTransNet [23], and MTU-Net [3]
+leverage multiscale feature encoding and top–down feature aggregation to enhance detection performance through
+improved multilevel interactions. Generalized attention mechanisms use convolutional or gating techniques to emphasize
+spatial or channelwise information. For instance, ISNet [20]
+extracts precise target shape information through Taylor finite
+difference (TFD)-inspired edge blocks and two-orientation
+attention aggregation (TOAA), incorporating high-frequency
+joint learning. Similarly, IAANet [42] and MLP-Net [26]
+implement coarse-to-fine internal attention, modeling crosslayer associations between high-level semantics and low-level
+details. RDIAN [43] emphasizes spatial gradients in various
+directions using a multidirectional difference approach, which
+essentially acts as a form of spatial attention.
+Unlike previous works, we improve conventional attention
+mechanisms through the use of kernel functions, establishing
+frequency associations between all the levels of encoders
+and decoders with low computational complexity. Meanwhile,
+we apply a gating mechanism to modulate global spatial
+representations, enabling efficient construction of global crosschannel and cross-layer semantic representations. This ensures
+the correct propagation of deep semantic features to low-level
+decoders, effectively reducing false alarms while maintaining
+low computational costs.
+B. Deep Learning in Frequency Domain
+While the existing approaches predominantly use spatialdomain features, frequency-domain analysis offers more
+
+5007017
+
+discriminative perspectives for IRSTD. WT facilitates multiscale frequency feature extraction by decomposing signals
+into different frequency components. Recent networks have
+integrated WT into neural architectures: Liu et al. [34] and
+Alaba and Ball [44] implement WT for downsampling in
+modified U-Net structures with inverse WT for upsampling,
+while Finder et al. [45] embed multilevel WT into convolutional layers to expand receptive fields without increasing
+parameters. In IRSTD, Zhu et al. [31] enhance discrimination
+between targets and background by applying fast Fourier
+transform to feature map patches, dividing and enhancing
+high/low-frequency features. However, their nonoverlapping
+patch approach compromises global frequency correlation
+modeling and target representation continuity. FreqODEs [46]
+use frequency-domain neural ordinary differential equations
+with frequency interaction attention to improve target-noise
+discrimination, introducing high-precision ODE solvers to
+suppress interference. However, this network lacks adaptive frequency selection capabilities for IRSTD. Both the
+approaches lack official implementation code and redefine test
+sets, preventing fair comparative evaluation.
+Current frequency-based IRSTD methods remain underdeveloped, lacking sufficient hierarchical frequency feature
+interaction and adaptive frequency selection. Our method
+addresses these limitations by preserving spatial details during
+frequency-based downsampling and adaptively selecting relevant frequencies at high spatial resolution during decoding,
+significantly enhancing detection performance.
+III. M ETHODOLOGY
+This section presents the proposed GSFANet. Section III-A
+outlines the overall pipeline, followed by detailed descriptions
+and designs of specific components.
+A. Overall Pipeline
+Fig. 2 presents the GSFANet framework. The input image
+undergoes initial channel expansion via 1 × 1 convolution
+and ResBlock processing to produce the first-level encoder
+output E0 with C0 channels. Addressing infrared small targets’
+multiscale characteristics, our PWD module performs 8×
+downsampling—an optimal balance considering that small targets typically span fewer than 50 pixels [3] and downsampling
+beyond 8× causes significant information loss [19]—while
+preserving target features and incorporating frequency information (channelized). The encoder architecture uses PWD
+modules and ResBlocks to progressively generate multiscale
+i
+i
+feature maps Ei ∈ RCi ×(H/2 )×(W/2 ) , (i = 0, 1, 2, 3). Overlap
+patch embedding with kernel size Pi = P/2i , (i = 0, 1, 2, 3)
+and stride Pi /2 is applied to Ei , ensuring continuous target
+modeling and producing embeddings Bi ∈ RCi ×(Heb )×(Web ) .
+Subsequently, the hierarchical gated kernel attention (HGKA)
+module thoroughly integrates frequency and spatial features,
+facilitating deep semantic propagation to lower layers for
+multilevel target focus. The resulting spatial–frequency mixed
+features Gi undergo size recovery through bilinear interpolation, convolution, and activation, followed by residual addition
+with encoded features Ei
+Fi = FRi (HGKA (Gi )) + Ei , (i = 0, 1, 2, 3) .
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+(3)
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+Fig. 2. Architecture of GSFANet achieves joint spatial–frequency learning through a frequency downsampling encoding process and an adaptive frequency
+fusion decoding process. It facilitates thorough mixing and interaction at each level of the encoder and decoder via the HGKA module.
+
+For effective decoding of spatial–frequency mixed features
+Fi , a fixed-frequency inverse WT would inevitably result in
+significant information loss. Therefore, the adaptive frequencydecoupled fusion (AdaFD) module generates nk adaptive
+high-pass and low-pass filters simultaneously from low-level
+high-resolution feature maps. The high-pass filters sharpen
+low-level target details, while the low-pass filters extract
+precise target semantics from deep feature maps. The fused
+features pass through 1 × 1 convolution to generate the singlechannel heatmap D j . Segmentation uses sigmoid activation
+with threshold τo = 0.5 [23], yielding the result
+
+
+O j = H δ D j − τo , ( j = 0, 1, 2)
+(4)
+where H(x) denotes the Heaviside step function and δ denotes
+the sigmoid activation. During training, deep supervision (DS)
+[47] is implemented by upsampling O1 and O2 (2× and 4×,
+respectively), concatenating them, and applying convolution
+to produce OΣ . The loss is computed jointly for OΣ and O0 .
+The ground truth Y0 is downsampled via nearest neighbor
+interpolation to generate Y j for supervision at different scales.
+During testing, only O0 is used as the final output.
+B. Parametric Wavelet Downsampling
+As discussed in Section I-A.1, both Fourier and WTs
+naturally serve as explicit regional contrast operators, projecting local image content onto a set of basis functions that
+emphasize spatial differences (i.e., templates). This property
+is advantageous for IRSTD, where targets are typically manifested as subtle, sparse regional contrasts within complex,
+noisy backgrounds. Conventional Haar WTs, while powerful,
+are limited in that their basis functions and decompositions
+are fixed thus lacking adaptivity to the diverse frequency
+
+Fig. 3. PWD consists of a grouped convolution branch and a WT branch,
+which are aligned in both the frequency and spatial domains. It adjusts
+the decomposition frequencies of the target in a learnable manner while
+supplementing spatial details.
+
+characteristics of real-world infrared targets and backgrounds.
+In the spatial domain, Cut-slice (or patch merge) operations
+are commonly adopted as downsampling modules in backbone
+networks. Yet, these methods lack explicit preservation of
+target-guided frequency and contrast information, potentially
+leading to loss of critical discriminative details. To address
+these limitations, the proposed PWD module introduces learnable frequency selection and spatial adaptivity into the wavelet
+framework:
+In Fig. 3, the upper branch applies a fixed Haar WT,
+providing interpretable frequency decomposition as established in theory. The lower branch, inspired by the Cut-slice
+approach (mathematically equivalent to local spatial aggregation), leverages grouped convolution (s = 2, k = 2) to
+simulate WT-guided local contrasts and ensure spatial complementarity. The two branches are strictly channel-aligned
+for coherent fusion. Their outputs are fused using channelwise attention, generated via global context pooling and
+a shared fully connected (FC) layer. This adaptive weight-
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+5007017
+
+Fig. 4. HGKA module captures channel (i.e., frequency) relationships through cross-scale kernel attention and ensures alignment between deep semantic
+features and shallow localization features via globally consistent spatial attention.
+
+ing allows the network to learn which frequency patterns
+or local contrasts best distinguish targets from background
+noise in each channel. Thus, PWD turns static templates
+into dynamic, data-driven frequency operators, leveraging
+the strengths of frequency domain analysis for IRSTD. As
+the network deepens, PWD enables progressive refinement
+of multiscale frequency features and supports global attention to maintain diverse, contrast-aware queries that enhance
+target–background separability.
+We adopt the Haar basis for its intuitive local-contrast property and its balance of efficiency and detection performance.
+As shown in [45], Haar wavelets offer strong detection results
+with much lower computational cost than other bases.
+C. Hierarchical Gated Kernel Attention
+To effectively fuse frequency and semantic information
+across all the network levels, spatial transformers (STs) [3],
+[48] and channelwise transformers (CTs) [49], [50] serve
+as natural global mixers. However, using either approach in
+isolation results in insufficient interaction. While advanced
+architectures such as SCTransNet [23] and MetaFormer
+[51] incorporate joint spatial–channel interactions, they rely
+exclusively on spatial interactions between adjacent levels, potentially compromising small targets’ global semantic
+consistency. Furthermore, traditional attention mechanisms’
+computational demands present significant challenges for
+IRSTD applications. To address these issues the following are
+put forth.
+1) Based on the natural similarity between kernel functions
+and attention mechanisms, we integrate Gaussian kernel functions into the attention framework, enhancing nonlinear feature
+capture while reducing computation.
+2) Recognizing that STs fundamentally establish interpatch relationships, we transform these into patch-based gated
+attention mechanisms that maintain small target semantic
+consistency across all the levels while dramatically reducing
+computational costs.
+
+The resulting HGKA effectively bridges the gap between
+STs and CTs with lower computational complexity, while
+ensuring comprehensive global fusion of frequency and spatial
+information throughout the network.
+As shown in Fig. 4, given the input Bi at the ith layer,
+where Heb = b(H · 2−i − Pi )/(Pi /2)c + 1, Web = b(W · 2−i −
+Pi )/(Pi /2)c + 1 (bc representing floor function), comprises two
+components: cross-channel kernel attention (C2 K) and crossspatial gate attention (CSG). The output maintains identical
+dimensions to the input, formally expressed as
+BΣ = LN (Concat [B0 , B1 , B2 , B3 ])
+
+(5)
+
+CKi = C K (LN (Bi ) , BΣ ) + Bi , i = (0, 1, 2, 3)
+
+(6)
+
+
+CKΣ = BN f1×l (Concat [CK0 , CK1 , CK2 , CK3 ])
+Gi = CSG (CK0 , CK1 , CK2 , CK3 , CKΣ ) + CKi
+
+(7)
+
+2
+
+(8)
+
+where LN and BN represent layer and batch normalization,
+respectively, and f1×1 represents 1 × 1 convolution.
+1) Cross-Channel Kernel Attention: C2 K establishes associations between single-level frequency inputs and all-level
+semantics. Traditional attention mechanisms present two critical limitations: 1) the need to explicitly project inputs into
+Q, K, V pairs, with each Qi requiring dot product computation
+with KΣ across all the levels, increasing computational burden,
+and 2) dot product operations (formally equivalent to linear
+kernels) inadequately capture high-dimensional nonlinear relationships in semantic space and fail to accommodate small
+target distribution characteristics.
+To address these challenges, we introduce Gaussian kernel
+attention. Unlike conventional Gaussian kernels that require
+manual specification of variance σ and window size, our
+method adapts the kernel window to the input embedding
+shape at each scale (e.g., C × HW), ensuring global context.
+More critically, σ is dynamically determined by the standard variance of the Q − K vectors along the embedding
+dimension, allowing the Gaussian kernel width to adapt to
+the data distribution—a principle analogous to the 1/(dk )1/2
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+scaling in classical attention. This unified design combines
+distribution adaptivity and similarity computation in a single
+kernel, removing fixed hyperparameters and aligning with the
+Gaussian assumption for small targets.
+As shown in Fig. 4, input Bi directly generates matrices
+Qi , Ki , Vi through 1 × 1 convolution without additional 3 × 3
+convolution, as Gaussian kernels inherently return the dotproduct result in a possible infinite-dimensional feature space.
+We demonstrate this by expanding the kernel function e−x
+using Taylor expansion
+
+
+kX1 − X2 k2
+kX1 − X2 k2
+=1−
+K (X1 , X2 ) = exp −
+2
+σ
+σ2
+kX1 − X2 k4 kX1 − X2 k6
++
+−
+2σ4
+6σ6
++∞
+X
+2k
+(−1)k
++ ··· =
+k!σ2k
+k=0
+!
++∞
+X
+
+2k
+k+1
+(−1)
++
+X1T X2
+2k
+(k − 1)!σ
+k=1
+!
++∞
+X
+2
+2k−1
+k
+(−1)
+X1T X2 + · · · . (9)
++
+2k
+(k − 2)!σ
+k=2
+
+By definition K(X1 , X2 ) = ϕ(X1 )T ϕ(X2 ), for a fourdimensional sample X = [a, b, c, d]T , the first few items are
+ϕ (X)
+2v
+u +∞
+uX
+(−1)k
+= 4t
+k=0
+
+2k
+k!σ2k
+
+v
+u +∞
+uX
+(−1)k+1
+, at
+k=1
+
+2k
+(k − 1)!σ2k
+
+3T
+, . . .5 .
+(10)
+
+This high-dimensional mapping function contains infinite
+terms, significantly enhancing feature discriminability while
+circumventing distance measure failures in high-dimensional
+spaces through implicit mapping [52], [53]. The all-level
+feature BΣ is to dimensionally match the current encoding level
+
+Qi = FlattenH,W f1×1 (LN (Bi ))
+(11)
+
+Ki , Vi = FlattenH,W f1×1 (LN (BΣ ))
+(12)
+where Qi , Ki , Vi ∈ R
+, FlattenH,W denotes spatial
+dimension flattening (i.e., RCi ×(Heb ×Web ) 7→ RCi ×Heb ×Web ), and
+attention output is restored to original spatial dimensions
+postcomputation. The input then passes through a feedforward
+network (FFN) comprising two 1 × 1 convolutions. Our C2 K
+module is formally defined as
+
+
+
+kQi − Ki k22
+KAi = Softmax exp −
+Vi
+(13)
+2 · Var (Qi − Ki )
+
+FFN (x) = f1×1 ReLu BN f1×1 (x) + x
+(14)
+
+Fig. 5. AdaFD dynamically generates frequency-decoupled filters based on
+the frequency importance of feature groups, achieving finer frequency feature
+fusion through an efficient channel reordering strategy.
+
+while its distance calculation naturally aligns with the Gaussian distribution characteristics of infrared small targets,
+significantly enhancing fine-grained semantic representation in
+multiscale feature hierarchical structure.
+For computational analysis, vallina cross-attention in CTs
+[23], [49] applies linear projections to the ith layer input Bi ∈
+i
+RC·2 ×Heb ×Web and global feature vector BΣ ∈ RCΣ ×Heb ×Web via
+channelwise (1 × 1) and spatial (3 × 3) convolutions, then
+computes weighted attention
+Qi = Bi Wq1×1 Wq3×3 , K = BΣ Wk1×1 Wk3×3 , V = BΣ Wv1×1 Wv3×3
+(16)
+Qi · KT
+CrossAtt (Qi , K, V) = Softmax
+√
+dk
+
+
+(15)
+
+where Var represents variance,
+denotes Hadamard product, and ReH,W restores spatial dimensions RCi ×(Heb ×Web ) 7→
+RCi ×Heb ×Web . Unlike traditional cross-attention mechanisms,
+C2 K selectively extracts the most relevant information from
+all-level features according to each layer’s semantic level,
+
+· V.
+
+(17)
+
+In contrast, kernel attention requires only channelwise projection, maintaining Ki and Vi at the same dimensionality as
+Qi [(11) and (12)]. The key difference lies in attention weight
+computation [(13) and (17)]. Conventional attention processes
+i
+Qi ∈ RC·2 ×(Heb Web ) and K ∈ RCΣ ×(HW) with dot product Flops
+FlopsCA =
+
+3
+X
+
+C · 2i × Heb Web × CΣ .
+
+(18)
+
+i=0
+
+Kernel attention converts matrix multiplication to elementi
+wise operations on Qi , Ki ∈ RC·2 ×(HW) via two steps. First, L2
+distances between row vectors require
+Flops1KA =
+
+3
+X
+
+Ci ×(Heb ×Web )
+
+C2 K (Qi , Ki , Vi ) = FFN f1×1 ReH,W (KAi )
+
+
+
+C · 2i × Heb Web .
+
+(19)
+
+i=0
+
+Second, with attention dimensions reduce to C · 2i × 1,
+computing squared terms yields total Flops
+FlopsKA =
+
+3
+X
+
+C · 2i × (Heb Web + 1) .
+
+(20)
+
+i=0
+
+Therefore, kernel attention achieves approximately 1/CΣ
+computational efficiency versus conventional attention while
+eliminating spatial projections and reducing Softmax complexity through smaller input dimensions.
+2) Cross-Spatial Gate Attention: Previous approaches [19],
+[20] use progressive fusion to combine deep and low-level
+features. However, this method often causes deep-layer semantic dissipation during transmission, compromising small-target
+feature consistency. Fig. 5 (second row) visualizes attention
+heatmaps of HGKA inputs Ei and restored outputs Fi . Without
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+globally consistent spatial attention, cross-level semantic information becomes inconsistent, preventing effective propagation
+of deep semantics E2 to low layer F0 , leading to incorrect
+focus and degraded small target representation.
+Leveraging the spatial consistency of embeddings Bi , smalltarget features remain spatially aligned across levels. We
+therefore design a global gated mechanism to uniformly
+enhance target region responses across all the levels. As
+illustrated in Fig. 4, CSG processes the four-level outputs
+from C2 K, concatenating them along the channel dimension
+to obtain full-level feature CKΣ . As network depth increases,
+details progressively diminish while semantic information
+strengthens, making low-level features more susceptible to
+background noise. To address this, we apply convolution
+kernels with progressively decreasing sizes across different
+levels, effectively filtering low-level noise while reducing computational cost at deeper levels. The CSG process is expressed
+as
+CKΣ = BN (Concat [CK0 , CK1 , CK2 , CK3 ])
+
+DS C
+(CKi ) , i = (0, 1, 2, 3)
+gi = ReLu BN f(7−2i)×(7−i)
+
+gΣ = ReLu BN f1×1 (CKΣ )
+
+
+GΣ = δ f1×1 SE Concat gΣ , gi
+Gi = CKi
+
+GΣ + CKi
+
+(21)
+(22)
+(23)
+(24)
+(25)
+
+DS C
+where f(7−2i)×(7−2i)
+represents depthwise separable convolution
+with kernel size 7 − 2i, and SE denotes squeeze–excitation
+channel attention. CSG confirms information importance using
+the original channel count, naturally emphasizing full-level
+and deep semantics without explicit level-specific weight
+assignment. As shown in Fig. 5 (first row), by generating
+globally unified gates, CSG ensures cross-level semantic consistency and effectively constrains attention to common focus
+areas, facilitating effective propagation of deep semantics E2
+to low-level features F0 . Furthermore, unified spatial attention
+shares gradients across layers during backpropagation, enhancing training stability.
+
+D. Adaptive Frequency-Decoupled Fusion
+After global mixing of small-target features via HGKA,
+conventional decoding using inverse WT with fixed frequency
+components [45] cannot fully exploit the complete frequency
+domain information. This limitation is particularly problematic
+for infrared small targets that exhibit critical characteristics
+across multiple frequency components. We address this by
+dynamically generating adaptive high-pass and low-pass filters
+based on frequency (i.e., channel) importance, enabling finer
+grained feature fusion.
+As shown in Fig. 6, AdaFD conceptualizes the feature
+decoding process as a learnable filter generation task. Given
+globally mixed low-level feature Fi and high-level feature
+Fi+1 , depthwise convolution is performed on high-resolution
+features Fi , dividing channels into nk groups. The low-pass
+filter generator (LPF) evaluates each frequency component’s
+contribution within a group (through average and Maxpooling), processes this through an FC layer, compresses the
+channels, and expands them to 9× the original size to generate
+
+5007017
+
+Fig. 6. Comparison results with and without globally consistent gated
+attention. It can be observed that globally consistent spatial attention facilitates
+the accurate propagation of deep semantic information to low-level features.
+
+an initial filter. These extra channels are reshaped into spatial
+dimensions, yielding a C × 3 × 3 filter. A kernelwise Softmax
+operation transforms this into a low-pass filter [54]. This
+process is described as
+
+
+
+F̄ni k = Concat Avgpool Fni k , Maxpool Fni k
+(26)
+
+nk
+nk
+(27)
+fL = Softmax ReH,W FC F̄i
+
+FC (x) = f1×1 Re Lu f1×1 (x)
+(28)
+where fLnk represents the low-pass filter generated for a group,
+ReH,W restores spatial dimensions, and Fni k denotes grouped
+input features. Low-pass filters from all the groups are concatenated to produce the final low-pass filter fL ∈ R(nk ×C)×3×3 ,
+which performs spatial convolution with deep features. This
+process adaptively determines which frequency characteristics
+of deep small targets should be preserved based on highresolution features. By generating frequency-adaptive low-pass
+filters for each channel, LPF smooths and enhances internal
+feature consistency across adjacent levels, benefiting small
+target representation.
+Similarly, after dividing Fi into nk nonoverlapped groups,
+the high-pass filter generator (HPF) leverages residual connections to enhance details lost during downsampling. Following
+[55], [56], after generating the low-pass filter via LPF, a
+high-pass filter fH is obtained by subtracting the low-pass
+filter from the identity kernel. This high-pass filter is applied
+through spatial convolution with low-level features. HPF
+restores downsampling-lost details by enhancing fine-grained
+target boundaries and adaptively strengthening important highfrequency components relevant to small targets. The enhanced
+high-frequency features are then added to target-aligned lowfrequency features. After activation adjustment through a
+CBR block, the result is fused with concatenated compressed
+features. Finally, two additional CBR layers produce the
+adaptively decoded frequency results.
+Unlike traditional fixed filters, AdaFD dynamically adjusts
+cutoff frequencies and transition bandwidths based on input
+feature distribution, enabling more precise frequency selection.
+This allows the model to automatically adapt to small targets’
+frequency characteristics across various scenarios, effectively
+focusing simultaneously on both fine target details and global
+semantic information.
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+In addition, as training progresses and IoU increases, the predicted pt approaches stability, and loss diminishes smoothly.
+The AdaFL gradient is derived as
+∂AdaFL
+∂p
+= αy (1− IoU) (1− p)−IoU log p−αy (1 − p)(1−IoU)
+
+Fig. 7. Numerical analysis of AdaFL Loss (plot with y = 1). (a) AdaFL Loss
+curve. (b) AdaFL Loss gradient curve.
+
+E. Adaptive Focal Loss
+The IRSTD task confronts severe sample imbalance. While
+SoftIoU Loss [27] focuses on overall targets with reduced
+sensitivity to sample imbalance (making it popular in recent
+studies), it presents two significant limitations: 1) large-scale
+targets contribute more to IoU than small-scale targets, impeding gradient updates for small-scale targets, and 2) as training
+converges and IoU increases, the loss gradient paradoxically
+increases, causing late-stage performance oscillation and convergence issues. Formally, SoftIoU Loss is defined as
+P
+p · yi + 1
+I
+P i P
+SL (p, y) = 1 − P
+=1−
+(29)
+pi + yi −
+pi · yi + 1
+U
+where pi represents the predicted probability for the ith pixel,
+yi is the ground-truth label, I is the intersection, and U is the
+union. The gradient is derived as
+
+
+∂I/∂p j · U − ∂U/∂p j · I
+∂SL
+=−
+∂p j
+U2
+
+yj · U − 1 − yj · I
+I − y j · (U + I)
+=−
+=
+2
+U
+U2
+(
+−1/U, y j = 1
+=
+.
+(30)
+IoU/U, y j = 0
+
+1
+p
+
+− (1 − α) (1 − y) p−IoU log (1 − p)
+1
++ (1 − α) (1 − y) p(1−IoU)
+1− p
+∂AdaFL ∂AdaFL ∂p
+=
+·
+∂x
+∂p
+∂x
+
+(33)
+(34)
+
+where p = δ(x), and x represent the value predicted by
+GSFANet for each pixel. As shown in Fig. 7(b), small-scale
+targets receive enhanced gradient update opportunities, while
+the gradient decreases and stabilizes as IoU increases. For
+the 1-IoU exponent, when small-scale targets dominate the
+batch (i.e., lower overall batch IoU), the α larger and IoU
+smaller. As shown in Fig. 7(b), this further increases the
+gradients for these small-scale targets. Conversely, if largescale targets dominate, the overall gradients decrease, but the α
+factor maintains sensitivity to small targets within the batch. In
+addition, gradient contribution primarily concentrates in xt 6 0
+(i.e., p 6 0.5), indicating that AdaFL maintains strong focus
+on hard samples. The network training loss function is
+L=
+
+2
+X
+
+
+AdaFL O j , Y j + AdaFL (OΣ , Y0 ) .
+
+(35)
+
+j=0
+
+In summary, AdaFL adaptively adjusts gradients based on
+training phases, balancing multiscale target prediction while
+demonstrating enhanced contour awareness, particularly for
+blurred edges of small targets.
+
+IV. E XPERIMENT
+Early in training, random predictions yield low IoU and
+high U, resulting in low gradients for both target (y j = 1) and
+background (y j = 0), slowing convergence. Conversely, at later
+stages of training, higher IoU and lower U cause gradients to
+increase, leading to performance oscillations.
+While Focal Loss [57] addresses sample imbalance by
+emphasizing hard samples (small-scale targets, object edges,
+ambiguous targets), its static hyperparameters cannot adapt
+dynamically during training, and it lacks target integrity perception. To overcome these limitations, we propose AdaFL
+AdaFL (p, y) = −α · y · (1 − p)(1−IoU) log p
+− (1 − α) · (1 − y) ·
+log (1 − p)
+˚ B
+
+B
+α = δ 1 − Ai / max Ai + 1
+(1−IoU)
+
+(31)
+(32)
+
+where α is the target size scaling factor, AiB is the ith target’s
+area in a batch, and δ smoothens weights to handle largescale differences in target sizes. As shown in Fig. 7(a),
+smaller targets have larger α, resulting in higher loss, thereby
+automatically balancing losses across different-sized targets.
+
+A. Evaluation Metrics
+We evaluate the performance using the following metrics.
+1) Intersection Over Union: IoU is a pixel-level metric that
+measures the model’s ability to describe target shapes. It is
+defined as
+PN
+Ainter
+i=1 TP [i]
+IoU =
+= PN
+(36)
+Aunicn
+i=1 (T [i] + P [i] − TP [i])
+where N is the number of samples, TP[·] represents the number
+of true-positive pixels, T [·] denotes the number of groundtruth positive pixels, and P[·] denotes the number of predicted
+positive pixels.
+2) F-Measure: This is a pixel-level metric that balances
+precision (Prec) and recall (Rec) [21], providing a comprehensive evaluation. It is expressed as
+F1 =
+
+2 × Prec × Rec
+.
+Prec + Rec
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+(37)
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+5007017
+
+TABLE I
+C OMPARISON OF BASELINES ON THE SIRST, NUDT-SIRST, AND IRSTD-1 K DATASETS . T HE E VALUATION M ETRICS I NCLUDE I O U (%), F1 (%),
+Pd (%), AND Fa (10−6 ). ↑ I NDICATES H IGHER VALUES S IGNIFY B ETTER P ERFORMANCE , W HILE ↓
+I NDICATES L OWER VALUES S IGNIFY B ETTER P ERFORMANCE
+
+3) Probability of Detection: Pd is an object-level metric
+that calculates the proportion of correctly predicted targets
+T pred relative to all the targets T all
+Pd =
+
+T pred
+T all
+
+(38)
+
+where T pred accumulates the count of targets (not pixels) with
+centroid deviations less than 3 pixels [10].
+4) False Alarm Rate: Fa is another object-level metric that
+computes the proportion of false-positive pixels T flase relative
+to all the image pixels Pall
+Fa =
+
+T false
+Pall
+
+(39)
+
+where T flase sums all the pixels from incorrectly predicted
+targets exceeding the centroid threshold.
+5) Receiver Operating Characteristic: The ROC curve [58]
+describes the tradeoff between true-positive rate (TPR) and
+false-positive rate (FPR) under different classification thresholds. Curves positioned closer to the top-left corner indicate
+superior performance. The area under curve (AUC) quantifies
+overall performance, with higher values signifying better.
+In addition, model complexity is evaluated using parameter
+count (Params), floating-point operations (Flops), and frames
+per second (FPS).
+B. Implementation Details
+1) Datasets: We conducted comparative experiments on
+three well-known public datasets: SIRST [18], NUDTSIRST [10], and IRSTD-1k [20], consisting of approximately
+
+2800 images in total. To ensure fairness, we adhered to
+the dataset splits defined by [10] for SIRST and NUDTSIRST (50% for training) and by [20] for IRSTD-1k (80%
+for training), respecting the split standards established by the
+dataset creators. In Table I, “Tr” denotes the ratio of the
+training set.
+2) Settings: We used a U-Net architecture with four-level
+skip connections as the detection backbone [47]. Configuration parameters included: three downsampling levels, encoder
+channel numbers of 16, 32, 64, and 128, a basic patch size
+of 32, two HGKA blocks, and an FFN channel expansion
+factor of 2.66 [23]. To preserve the original image sizes, inputs
+for the SIRST and NUDT-SIRST datasets were cropped to
+256 × 256, and to 512 × 512 for IRSTD-1k. To mitigate
+overfitting and enhance robustness to camera tilt, random
+flipping and small-angle rotation (±3◦ ) augmentations were
+applied during training. The Adam optimizer was used with
+an initial learning rate of 0.001, a batch size of 8, and 1500
+training epochs. Learning rate was decayed to 10−5 using
+cosine annealing. Following [10] and [23], the prediction
+threshold for evaluation metrics was fixed at 0.5. GSFANet
+was trained in PyTorch on a single Nvidia RTX 4090 GPU,
+an Intel Xeon Platinum 8352S CPU, and a Linux server with
+512-GB RAM. For comparison experiments, traditional methods are implemented following the settings in [16], [22], and
+[47], while learning-based methods are trained using their original parameter configurations. Most of the adopted methods are
+open source and can be found at https://github.com/XinyiYing/
+BasicIRSTD
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+Fig. 8. ROC curves of different methods, where curves closer to the top-left indicate better performance. GSFANet achieves the best results on all three
+datasets: (a) SIRST, (b) NUDT-SIRST, and (c) IRSTD-1k.
+TABLE II
+C OMPUTATIONAL C OMPLEXITY AND P ERFORMANCE OF C OMPETITIVE
+M ETHODS . M ETRICS I NCLUDE I O U (%), F1 (%), Pd (%), Fa (10−6 ),
+PARAMS (M), F LOPS (G), AND FPS (256 × 256). Pd AND Fa A RE
+E VALUATED O NLY FOR TARGETS ≤ 2 × 2 P IXELS
+
+3) Baselines: We compared our method with nine state-ofthe-art (SOTA) methods (MTU-Net [3], MSHNet [47], ISNet
+[20], DNANet [10], AGPCNet [21], RDIAN [43], SCTransNet
+[23], ACM [18], and UIU-Net [24]) as well as nine traditional
+methods (Max-Median [11], Top-Hat [9], IPI [14], PSTNN
+[59], MSLSTIPT [4], TLLCM [12], WSLCM [60], HiLVLRSD [17], and GCMUDO [61]). Due to variations in dataset
+splits and training configurations among some models, we
+retrained these models under identical settings for fair comparison and report these results.
+
+C. Quantitative Results
+The quantitative results of GSFANet and baselines are
+shown in Table I. Overall, data-driven methods generally
+outperform traditional approaches due to limited generalization of handcrafted features across diverse scenarios. While
+HiLV-LRSD achieves comparable performance to data-driven
+methods in some cases, its dependence on local saliency and
+fixed low-rank decomposition rules causes imprecise target
+contour extraction, yielding lower F1 scores. The proposed
+method achieves superior performance over SOTA methods
+on both the SIRST and NUDT-SIRST datasets, demonstrating
+its strong ability to distinguish between targets and noise as
+well as its robust shape extraction capabilities. Notably, while
+GSFANet does not achieve the lowest Fa on the IRSTD-1k
+dataset with its complex backgrounds, its enhanced frequency information enables more accurate contour detection of
+multiscale targets. Consequently, it significantly outperforms
+competing models in both IoU and F1 metrics, highlighting
+its adaptability to diverse target characteristics across datasets.
+
+TABLE III
+C OMPARISON OF AUC AT D IFFERENT T HRESHOLDS . ↑ I NDICATES H IGHER
+VALUES S IGNIFY B ETTER P ERFORMANCE
+
+We further compare GSFANet with high-performing MTUNet, DNANet, SCTransNet, and UIU-Net. Table II presents
+the overall performance, evaluated as the average across
+three datasets. We further assess the models’ performance on
+extremely small targets (≤ 2 × 2 pixels). Since IoU metric is
+not appropriate for such small targets, we report Pd and Fa
+instead. Overall, all the models show a decrease in Pd when
+detecting extremely small targets. Models that aggressively
+suppress noise, such as DNANet and SCTransNet, achieve
+zero false alarms but inevitably suffer from low Pd due to
+missed detections. In contrast, GSFANet achieves a more
+balanced performance on extremely small target detection
+while also maintaining favorable model complexity. Notably,
+despite the GSFANet’s smaller params and Flops, its inference
+FPS is not particularly high. This is primarily attributed to
+the custom wavelet decomposition lacking specialized CUDA
+optimization, resulting in suboptimal GPU bandwidth utilization (compared with MTU-Net’s multibranch attention
+mechanism with dedicated parallel optimizations). Nevertheless, GSFANet still meets real-time detection requirements
+(≥ 30 FPS).
+Fig. 8 illustrates the ROC curves for different methods
+across the SIRST, NUDT-SIRST, and IRSTD-1k datasets.
+GSFANet significantly outperforms other SOTA methods,
+achieving the highest TPR at low FPR, while demonstrating
+robustness to different segmentation thresholds. Furthermore,
+we quantitatively evaluated overall ROC performance using
+AUCτ=0.5 and AUCτ=1 , corresponding to FPR thresholds of
+0.5 × 10−3 and 1 × 10−3 , respectively, as shown in Table III.
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+5007017
+
+Fig. 9. Detection results of different methods, where red circles denote correct detections, blue dashed circles denote missed targets, and yellow circles denote
+false alarms. Closed-up views are shown in the corners. Images (a) and (b) are selected from SIRST. (c), (d), and (g) IRSTD-1k. (e) and (f) NUDT-SIRST.
+Examples of misdetections by the proposed method are also presented in (c) and (g).
+
+Under both the thresholds, GSFANet achieves the highest AUC
+scores across all three datasets, demonstrating its superior
+adaptability.
+D. Quantitative Results
+To further demonstrate the superiority of GSFANet, Fig. 9
+presents detection results of various SOTA methods on the
+datasets. The visual evidence clearly confirms our proposed
+method’s exceptional performance. In example (a), most
+competing methods confuse targets with bright background
+regions, while only MSHNet, MTU-Net, and GSFANet successfully detect dense targets completely while avoiding
+interference from bright background areas. In cases with
+similar noise disturbances, such as (b) and (g), and especially
+(d), GSFANet successfully identifies the correct small targets, benefiting from the fine-grained frequency decomposition
+provided by PWD and the noise sensitivity of AdaFD. For
+extended targets, as seen in (c), (e), and (f), accurate boundary
+delineation and prediction completeness are especially critical.
+Leveraging the all-level HGKA frequency–spatial mixing and
+the boundary/semantic enhancement by AdaFD, our method
+better focuses on multiscale targets, propagates deep semantic cues, and boosts prediction confidence, thus accurately
+segmenting aircraft and drones. In summary, the proposed
+GSFANet delivers more precise small-target detection while
+outperforming SOTA models in both shape accuracy and
+completeness of extended target segmentation.
+However, our method produces a false alarm in (g). As
+further analysis in Fig. 10 reveals, although some suspicious
+
+Fig. 10. Analysis of 3-D saliency maps (before thresholding) produced by
+different methods in Fig. 9(g): (a) input image, (b) DNA-Net, (c) SCTransNet,
+and (d) GSFANet. See zoomed-in view for a clearer view.
+
+targets are partially suppressed during detection, AdaFD still
+generates high response values in these ambiguous regions.
+This limitation likely stems from insufficient granularity in
+frequency decomposition. In addition, all the methods generate
+false positives in (c), indicating the networks limited ability
+to capture semantics from a single frame. Incorporating multiframe semantic association may further improve performance.
+E. Ablation Study
+1) Integrated Framework: We first evaluate the combined
+effect of all the modules by gradually removing the proposed
+components from GSFANet to verify their effectiveness, with
+experiments conducted on SIRST and NUDT-SIRST. Specifically, we sequentially exclude FEF, CSG, C2K, PWD, and
+DS; the results are shown in Table IV. Detection performance
+consistently improves as more proposed structures are incorporated. Notably, simultaneously removing C2 K, CSG, and
+AdaFD causes the significant performance drop, demonstrating
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+TABLE IV
+
+TABLE VI
+
+AVERAGE A BLATION R ESULTS OF THE I NTEGRATED F RAMEWORK ON
+SIRST AND NUDT-SIRST. T HE E VALUATION M ETRICS I NCLUDE
+I O U (%), F1 (%), Pd (%), AND Fa (10−6 )
+
+A BLATION R ESULTS OF C2 K ON SIRST AND NUDT-SIRST (I NCLUDING
+M ODEL C OMPLEXITY ). T HE E VALUATION M ETRICS I NCLUDE I O U
+(%), Pd (%), Fa (10−6 ), PARAMS (M), AND F LOPS (G)
+
+Fig. 11. Visualization of downsampling effects with HWD and RFD. The
+proposed PWD preserves more comprehensive target detail semantics while
+suppressing noise, maintaining better consistency within target regions.
+TABLE V
+A BLATION R ESULTS OF D OWNSAMPLING M ODULES ON SIRST AND
+NUDT-SIRST. T HE E VALUATION M ETRICS I NCLUDE I O U (%),
+F1 (%), Pd (%), AND Fa (10−6 )
+
+the crucial role of HGKA’s global spatial–frequency mixing
+in small target detection.
+2) Parametric Wavelet Downsampling: To validate PWD
+effectiveness, we compared several common downsampling
+methods within GSFANet: Maxpooling, SC, RFD [35], HWD
+[33], and FPD [19]. Since PWD incorporates and unifies core
+concepts from HWD and RFD, no separate ablation on PWD
+alone was conducted. As shown in Table V, specialized downsampling modules generally outperform simpler alternatives;
+Maxpooling surpasses SC, enhancing target saliency, while
+SC compromises semantic integrity and dilutes small target
+signals in low-contrast scenes. Using only HWD or RFD
+is also inferior to PWD; Fig. 11 demonstrates that in 2×
+downsampled feature maps, PWD preserves more accurate
+
+aircraft detail than RFD. With increasing network depth, both
+RFD and HWD lose accurate airplane tail and introduce substantial noise that may cause false alarms. Through progressive
+frequency decomposition and adaptive spatial compensation,
+PWD preserves more integrated semantic information and
+critical details across all the levels.
+3) Cross-Channel Kernel Attention: Gaussian kernel functions for implicit mapping and high-dimensional similarity
+extraction facilitate model lightweighting while enabling
+infinite-dimensional space dot products that amplify distinctions between small targets and noise. To demonstrate
+effectiveness, we compared standard cross-channel attention
+(CA), linear kernel, and exponential kernel functions. The
+results in Table VI reveal that kernel-based attention not only
+substantially reduces computation and parameters but also
+enhances performance compared with standard CA. Among
+these, Gaussian kernel cross-attention achieves optimal results
+due to two factors: first, compared with linear kernels, Gaussian kernels offer superior nonlinear expressivity and better
+modeling complex feature space distributions and second, the
+distance sensitivity and decay characteristics of Gaussians
+naturally align with infrared small target hotspot distributions and background statistical noise properties, enhancing
+target features in the attention mechanism while suppressing background interference, thereby improving discriminative
+capability.
+4) Cross-Spatial Gate Attention: We use global cross-level
+gating to enhance semantic localization consistency for small
+target extraction. Our ablation study includes these variants.
+1) CSG w/o SE: removes the SE mechanism, eliminating
+adaptive channel weight recalibration at each level before gate
+generation.
+2) CSG w UniConv: applies uniform convolution kernel
+size across all the levels, preventing fine-tuned spatial noise
+processing for individual levels.
+3) CSG w SepGate: generates separate gates for each level,
+preventing the network from focusing on common target
+locations across all the levels.
+The results in Table VII demonstrate that since global
+C2 K preceding CSG already provides sufficient channel-level
+semantic interaction, removing SE leads to only a slight
+performance drop. Conversely, using nonunified gates for
+each level results in the most significant performance decline.
+As illustrated in Fig. 5, nonunified gating fails to explicitly direct the network to focus on consistent locations and
+lacks integrated cross-level representation, leading to overall
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+5007017
+
+TABLE VII
+
+TABLE VIII
+
+A BLATION R ESULTS OF CSG ON SIRST AND NUDT-SIRST. T HE E VALU ATION M ETRICS I NCLUDE I O U (%), Pd (%), AND F a (10−6 )
+
+C OMPARISON OF A DA FD TO OTHER F USION M ETHODS ON SIRST AND
+NUDT-SIRST. T HE E VALUATION M ETRICS I NCLUDE I O U (%),
+Pd (%), AND Fa (10−6 )
+
+Fig. 13. Visualization comparison of decoder outputs with and without the
+HPF branch. The HPF branch ensures accurate and complete target boundaries
+in an adaptive high-frequency mode, while also preventing missed detection
+of adjacent targets. (a) Input. (b) w/o HPF. (c) w HPF. (d) Ground truth.
+TABLE IX
+A BLATION R ESULTS OF A DA FD ON SIRST AND NUDT-SIRST. T HE
+E VALUATION M ETRICS I NCLUDE I O U (%), Pd (%), AND Fa (10−6 )
+Fig. 12. Visualization of results with and without the AdaFD module. From
+left to right: input image, decoder layers 2, 1, 0, and final output. Red boxes
+denote correct detections, blue dashed boxes denote missed targets, and yellow
+boxes denote false alarms.
+
+performance deterioration. Finally, applying uniform convolution kernel sizes across all the levels disregards the different
+semantic hierarchies, potentially introducing background noise
+in low-level features [19] and reducing global gate generation
+quality.
+5) Adaptive Frequency-Decoupled Fusion: To recover
+information from mixed spatial–frequency representations, we
+decode final features through high-low frequency decoupling
+and fusion. To demonstrate effectiveness, we compared our
+method with three traditional fusion decoding approaches:
+CatFusion, FFD [19], and ACM Fusion [18]. In addition, we
+evaluated two variants.
+1) AdaFD w RI-HPF: replaces AdaFD’s low-level featuremap-based high-frequency convolution kernels with randomly
+initialized ones.
+2) AdaFD w/o fH : removes the high-frequency branch,
+generating only low-frequency kernels for spatial fusion.
+As Table VIII shows, simple concatenation in CatFusion
+struggles to capture target-related frequency characteristics
+and integrate multiscale features effectively, resulting in lowest IoU. ACM improves overall performance by separately
+processing deep (channel-focused) and low (spatial-focused)
+features, but lacks adaptive channel frequency adjustment
+capability. FFD neither distinguishes between deep and
+shallow features nor provides flexible feature integration
+due to fixed fusion weights. In contrast, as illustrated in
+
+Fig. 12, AdaFD adaptively modulates deep- and low-level features using channelwise high- and low-frequency adjustment,
+enhancing high-frequency noise suppression and target semantic reinforcement, achieving superior performance among all
+the methods.
+The AdaFD ablation results (Table IX) show that RI
+causes slight performance degradation, as it cannot leverage
+feature information to modulate necessary high-frequency
+components. When the high-frequency branch is removed,
+as depicted in Fig. 13, detection results with HPF (c)
+demonstrate more pronounced target ship contours compared
+with the results without (b) HPF, preserving structural consistency within contours and focusing heatmap responses
+more accurately on true target positions. In the second row,
+adaptive frequency-domain enhancement by HPF significantly
+improves distinction between targets and background wave
+patterns.
+6) Adaptive Focal Loss: To validate AdaFL effectiveness,
+we trained GSFANet with Focal Loss [57], SoftIoU Loss [27],
+FocalIoU Loss [3], and AdaFL. The results in Table X confirm
+our analysis from Section III-D: SoftIoU Loss tends to yield
+poor performance due to undesirable gradient escalation in
+the later stages of training, hampering convergence. Although
+FocalIoU Loss combines elements from both the approaches,
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+5007017
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 63, 2025
+
+TABLE XI
+OVERALL I NFLUENCE OF H YPERPARAMETER S ETTINGS ON SIRST AND
+NUDT-SIRST. T HE E VALUATION M ETRICS I NCLUDE I O U (%),
+F1 (%), Pd (%), Fa (10−6 ), PARAMS (M), AND F LOPS (G)
+
+Fig. 14. Visualization results of different loss functions. The first row displays
+output heatmaps, while the second row shows threshold segmentation results.
+Red circles denote correct detections, blue dashed circles denote missed
+targets, and yellow circles denote false alarms.
+TABLE X
+C OMPARISON OF A DA FL L OSS TO OTHER F UNCTIONS ON SIRST AND
+NUDT-SIRST. T HE E VALUATION M ETRICS I NCLUDE I O U (%),
+F1 (%), Pd (%), AND Fa (10−6 )
+
+it still relies on Focal Loss, introducing hyperparameter sensitivity and lacking target scale awareness. Detection results
+with different loss functions are shown in Fig. 14. It can
+be observed that both Focal Loss and FocalIoU Loss focus
+excessively on suspicious targets at the pixel level, ignoring
+holistic target information leading to increased sensitivity to
+noise (first row mask) and insufficient perception of target
+integrity (second row mask). While SoftIoU Loss captures
+overall target structures, it struggles to distinguish between
+target boundaries and noise. AdaFL, by integrating IoU and
+adaptively adjusting gradients for targets and hard examples
+during training, both preserves target integrity and suppresses
+noise, achieving superior performance.
+
+Fig. 15. Detection comparison under noisy conditions. Red, blue, and yellow
+boxes denote correct detection, miss detection, and false alarm, respectively.
+(a) and (b) Results under additive Gaussian noise. (c) and (d) Results under
+multiplicative speckle noise.
+
+F. Hyperparameter Analysis
+
+G. Robustness
+
+We investigated the effects of overlap degree, patch size, and
+the number of stacked HGKAs on performance. Specifically,
+L denotes the pixel overlap, P the patch size, and N the
+number of HGKA stacks. The results in Table XI show that
+performance improves as L increases from 0 to P/2, reaching
+optimal values at L = P/2. Larger overlaps reduce boundarysplitting risks for small targets, enabling more complete
+modeling. As P increases from 16 to 32, performance slightly
+improves; however, increasing to 64 yields no additional
+gains while raising computational complexity. We believe that
+excessively large patch sizes lead to overparameterization [45],
+resulting in overfitting to local contexts. Therefore, we set
+
+To further validate the GSFANet’s effectiveness in detecting
+targets under complex noise conditions, we incorporated two
+common sensor noise types into the dataset: additive Gaussian
+noise and multiplicative speckle noise. Both the noise types
+were configured with zero mean and 0.001 variance [61] to
+simulate thermal and electronic noise typically encountered in
+infrared imaging sensors. These configurations emulate realistic image degradation scenarios under challenging imaging
+conditions.
+As illustrated in Fig. 15, GSFANet maintains accurate
+target detection capability even in the presence of both the
+noise types. In Fig. 15(a) and (b), Gaussian noise introduces
+
+P = 32. For HGKA stacking, a significant performance drop at
+N = 3, attributed to excessive kernel attention stacking causing
+feature oversmoothing and reduced spatial precision, similar
+to attention collapse phenomena [62]. Performance partially
+recovers at N = 4, likely because the additional layer reconstructs suppressed details through gating mechanisms during
+channel concatenation, while overcoming depth-specific optimization challenges [63]. To balance efficiency and accuracy,
+we set N = 2.
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+DENG et al.: GSFANet: GLOBAL SPATIAL–FREQUENCY ATTENTION NETWORK FOR IRSTD
+
+significant interference within and around the target regions,
+causing DNANet and UIUNet, which lack global contextual
+awareness, as well as SCTransNet, which lacks comprehensive target integrity modeling, to produce miss detections. In
+Fig. 15(c) and (d), speckle noise impairs the models’ understanding of building semantics. Although the proposed model
+exhibits one false negative in (c), its adaptive spatial–frequency
+hybrid design prevents false alarms, achieving superior
+performance compared with baseline methods. Overall,
+GSFANet demonstrates sustained target sensitivity under typical noise conditions, exhibiting robust performance in complex
+environments.
+V. C ONCLUSION
+This article introduces the GSFANet to address two fundamental challenges in IRSTD: distinguishing targets from
+complex noise patterns and preventing fragmentation of
+large-scale target features. Our frequency-domain analysis
+reveals that this perspective significantly amplifies distributional differences between genuine targets and visually
+similar noise. The PWD achieves precise frequency decomposition while preserving detail features critical for detection.
+The lightweight HGKA module captures intrinsic frequency
+correlations and globally consistent semantic relationships,
+enabling effective cross-level feature interaction without the
+computational burden of traditional transformer architectures. Finally, the AdaFD accurately integrates target-related
+frequency components through dynamic filter generation,
+effectively suppressing background interference. Coupled with
+the gradient adaptive balancing mechanism of AdaFL Loss,
+GSFANet learns multiscale target features more stably during
+training, greatly improving detection accuracy and adaptability
+in complex scenarios.
+GSFANet still has limitations: recognition errors persist
+in some complex single-frame scenarios, and computational
+complexity requires further reduction for practical deployment.
+Future work will explore temporal–spatial–frequency fusion
+mechanisms and implement optimization techniques including
+pruning and distillation to enhance deployment efficiency.
+R EFERENCES
+[1]
+
+[2]
+[3]
+
+[4]
+
+[5]
+
+[6]
+
+P. Wu, H. Huang, H. Qian, S. Su, B. Sun, and Z. Zuo, “SRCANet:
+Stacked residual coordinate attention network for infrared ship
+detection,” IEEE Trans. Geosci. Remote Sens., vol. 60, 2022, Art. no.
+5003614.
+X. Ying et al., “MoCoPnet: Exploring local motion and contrast priors
+for infrared small target super-resolution,” 2022, arXiv:2201.01014.
+T. Wu et al., “MTU-Net: Multilevel TransUnet for space-based infrared
+tiny ship detection,” IEEE Trans. Geosci. Remote Sens., vol. 61, 2023,
+Art. no. 5601015.
+Y. Sun, J. Yang, and W. An, “Infrared dim and small target detection via
+multiple subspace learning and spatial–temporal patch-tensor model,”
+IEEE Trans. Geosci. Remote Sens., vol. 59, no. 5, pp. 3737–3752,
+May 2021.
+P. Yan, R. Hou, X. Duan, C. Yue, X. Wang, and X. Cao, “STDMANet:
+Spatio-temporal differential multiscale attention network for small moving infrared target detection,” IEEE Trans. Geosci. Remote Sens.,
+vol. 61, 2023, Art. no. 5602516.
+T. Ma, Z. Yang, J. Wang, S. Sun, X. Ren, and U. Ahmad, “Infrared small
+target detection network with generate label and feature mapping,” IEEE
+Geosci. Remote Sens. Lett., vol. 19, pp. 1–5, 2022.
+
+5007017
+
+[7]
+
+A. M. Rekavandi, L. Xu, F. Boussaid, A.-K. Seghouane, S. Hoefs,
+and M. Bennamoun, “A guide to image-and video-based small object
+detection using deep learning: Case study of maritime surveillance,”
+IEEE Trans. Intell. Transp. Syst., vol. 26, no. 3, pp. 2851–2879,
+Mar. 2025.
+[8] R. Kou et al., “Infrared small target segmentation networks: A survey,”
+Pattern Recognit., vol. 143, Nov. 2023, Art. no. 109788.
+[9] X. Bai and F. Zhou, “Analysis of new top-hat transformation and the
+application for infrared dim small target detection,” Pattern Recognit.,
+vol. 43, no. 6, pp. 2145–2156, Jun. 2010.
+[10] B. Li et al., “Dense nested attention network for infrared small target
+detection,” IEEE Trans. Image Process., vol. 32, pp. 1745–1758, 2023.
+[11] S. D. Deshpande, M. H. Er, R. Venkateswarlu, and P. Chan, “Maxmean and max-median filters for detection of small targets,” in Signal
+and Data Processing of Small Targets 1999, vol. 3809. Bellingham, WA,
+USA: SPIE, 1999, pp. 74–83.
+[12] J. Han, S. Moradi, I. Faramarzi, C. Liu, H. Zhang, and Q. Zhao,
+“A local contrast method for infrared small-target detection utilizing
+a tri-layer window,” IEEE Geosci. Remote Sens. Lett., vol. 17, no. 10,
+pp. 1822–1826, Oct. 2020.
+[13] S. Kim and J. Lee, “Scale invariant small target detection by optimizing
+signal-to-clutter ratio in heterogeneous background for infrared search
+and track,” Pattern Recognit., vol. 45, no. 1, pp. 393–406, Jan. 2012.
+[14] C. Gao, D. Meng, Y. Yang, Y. Wang, X. Zhou, and A. G. Hauptmann,
+“Infrared patch-image model for small target detection in a single
+image,” IEEE Trans. Image Process., vol. 22, no. 12, pp. 4996–5009,
+Dec. 2013.
+[15] H. Zhu, S. Liu, L. Deng, Y. Li, and F. Xiao, “Infrared small target
+detection via low-rank tensor completion with top-hat regularization,”
+IEEE Trans. Geosci. Remote Sens., vol. 58, no. 2, pp. 1004–1016,
+Feb. 2020.
+[16] C. Xia, S. Chen, R. Huang, J. Hu, and Z. Chen, “Separable
+spatial–temporal patch-tensor pair completion for infrared small target
+detection,” IEEE Trans. Geosci. Remote Sens., vol. 62, 2024, Art. no.
+5001620.
+[17] Y. Liu, X. Liu, X. Hao, W. Tang, S. Zhang, and T. Lei, “Singleframe infrared small target detection by high local variance, low-rank
+and sparse decomposition,” IEEE Trans. Geosci. Remote Sens., vol. 61,
+2023, Art. no. 5614317.
+[18] Y. Dai, Y. Wu, F. Zhou, and K. Barnard, “Asymmetric contextual
+modulation for infrared small target detection,” in Proc. IEEE/CVF
+Winter Conf. Appl. Comput. Vis., Oct. 2021, pp. 950–959.
+[19] X. Zhang, X. Zhang, S.-Y. Cao, B. Yu, C. Zhang, and H.-L. Shen,
+“MRF3 Net: An infrared small target detection network using multireceptive field perception and effective feature fusion,” IEEE Trans. Geosci.
+Remote Sens., vol. 62, 2024, Art. no. 5629414.
+[20] M. Zhang, R. Zhang, Y. Yang, H. Bai, J. Zhang, and J. Guo, “ISNet:
+Shape matters for infrared small target detection,” in Proc. IEEE/CVF
+Conf. Comput. Vis. Pattern Recognit., Jun. 2022, pp. 877–886.
+[21] T. Zhang, L. Li, S. Cao, T. Pu, and Z. Peng, “Attention-guided
+pyramid context networks for detecting infrared small target under
+complex background,” IEEE Trans. Aerosp. Electron. Syst., vol. 59,
+no. 4, pp. 4250–4261, Aug. 2023.
+[22] X. He, Q. Ling, Y. Zhang, Z. Lin, and S. Zhou, “Detecting dim small
+target in infrared images via subpixel sampling cuneate network,” IEEE
+Geosci. Remote Sens. Lett., vol. 19, pp. 1–5, 2022.
+[23] S. Yuan, H. Qin, X. Yan, N. Akhtar, and A. Mian, “SCTransNet: Spatialchannel cross transformer network for infrared small target detection,”
+IEEE Trans. Geosci. Remote Sens., vol. 62, 2024, Art. no. 5002615.
+[24] X. Wu, D. Hong, and J. Chanussot, “UIU-net: U-net in U-net for
+infrared small object detection,” IEEE Trans. Image Process., vol. 32,
+pp. 364–376, 2023.
+[25] H. Wang, P. Cao, J. Wang, and O. R. Zaiane, “UCTransNet: Rethinking
+the skip connections in U-Net from a channel-wise perspective with
+transformer,” in Proc. AAAI Conf. Artif. Intell., 2022, vol. 36, no. 3,
+pp. 2441–2449.
+[26] Z. Wang, C. Wang, X. Li, C. Xia, and J. Xu, “MLP-Net: Multilayer
+perceptron fusion network for infrared small target detection,” IEEE
+Trans. Geosci. Remote Sens., vol. 63, 2024, Art. no. 5601313.
+[27] Y. Huang, Z. Tang, D. Chen, K. Su, and C. Chen, “Batching soft IoU for
+training semantic segmentation networks,” IEEE Signal Process. Lett.,
+vol. 27, pp. 66–70, 2020.
+[28] T. Chen, Z. Tan, Q. Chu, Y. Wu, B. Liu, and N. Yu, “TCI-former: Thermal conduction-inspired transformer for infrared small target detection,”
+in Proc. AAAI Conf. Artif. Intell., 2024, vol. 38, no. 2, pp. 1201–1209.
+
+Authorized licensed use limited to: SHANGHAI UNIVERSITY. Downloaded on December 05,2025 at 10:49:39 UTC from IEEE Xplore. Restrictions apply.
+
+

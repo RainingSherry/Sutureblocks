@@ -1,0 +1,1619 @@
+Demystify Mamba in Vision: A Linear Attention
+Perspective
+
+arXiv:2405.16605v1 [cs.CV] 26 May 2024
+
+Dongchen Han1 Ziyi Wang1 Zhuofan Xia1 Yizeng Han1 Yifan Pu1 Chunjiang Ge1
+Jun Song2 Shiji Song1 Bo Zheng2 Gao Huang1∗
+1
+
+Tsinghua University
+
+2
+
+Alibaba Group
+
+Abstract
+Mamba is an effective state space model with linear computation complexity. It
+has recently shown impressive efficiency in dealing with high-resolution inputs
+across various vision tasks. In this paper, we reveal that the powerful Mamba model
+shares surprising similarities with linear attention Transformer, which typically
+underperform conventional Transformer in practice. By exploring the similarities
+and disparities between the effective Mamba and subpar linear attention Transformer, we provide comprehensive analyses to demystify the key factors behind
+Mamba’s success. Specifically, we reformulate the selective state space model and
+linear attention within a unified formulation, rephrasing Mamba as a variant of
+linear attention Transformer with six major distinctions: input gate, forget gate,
+shortcut, no attention normalization, single-head, and modified block design. For
+each design, we meticulously analyze its pros and cons, and empirically evaluate
+its impact on model performance in vision tasks. Interestingly, the results highlight
+the forget gate and block design as the core contributors to Mamba’s success, while
+the other four designs are less crucial. Based on these findings, we propose a
+Mamba-Like Linear Attention (MLLA) model by incorporating the merits of these
+two key designs into linear attention. The resulting model outperforms various
+vision Mamba models in both image classification and high-resolution dense prediction tasks, while enjoying parallelizable computation and fast inference speed.
+Code is available at https://github.com/LeapLabTHU/MLLA.
+
+1
+
+Introduction
+
+Recently, state space models, exemplified by Mamba, have rapidly gained wide research interest. In
+contrast to the quadratic complexity of prevailing Transformer models, the state-space-based Mamba
+offers effective sequence modeling with linear complexity. This crucial property allows Mamba
+to handle extremely long sequences with manageable computational costs, making it a promising
+architecture for both natural language processing [11, 23] and visual recognition [48, 25].
+However, Mamba is not the first model to achieve global modeling with linear complexity. Linear
+attention [20], an early work, was proposed as an computationally efficient alternative to the widely
+adopted Softmax attention [34], namely dot-product attention. Specifically, linear attention replaces
+the non-linear Softmax function in attention operation with linear normalization. This enables a
+change in computation order from (QK ⊤ )V to Q(K ⊤ V ), thus reducing computation complexity
+from O(N 2 ) to O(N ). Despite its efficiency, previous works [3, 31, 12] proved that linear attention
+suffers from insufficient expressive power, making it impractical for real applications. Surprisingly,
+we find a very close relationship between the formulas of high-performance Mamba and subpar linear
+∗
+
+Corresponding Author.
+
+Preprint. Under review.
+
+𝑨
+𝒉
+
+∆
+𝑩
+
+𝑺
+
+; 𝒁
+
+𝑲
+
+𝒙
+𝒉
+
+𝑪
+
+𝒁
+
+𝑽
+
+𝑲
+
+𝑺
+
+𝒉
+
+𝒚
+
+𝑺
+
+𝑸
+𝑫
+
+𝒚
+
+𝒙
+
+𝑸
+
+𝒁
+
+(b) Single Head Linear Attention
+
+(a) SSM in Mamba
+
+Figure 1: Illustration of selective SSM in Mamba (eq. (11)) and single head linear attention (eq. (12)).
+It can be seen that selective SSM resembles single-head linear attention with additional input gate
+ei and shortcut D ⊙ xi , while omitting normalization Qi Zi .
+∆i , forget gate A
+attention Transformer. Therefore, a compelling research question emerges: What factors contribute
+to Mamba’s success and its significant superiority to linear attention Transformer?
+In this paper, we offer both theoretical and empirical analyses to unveil Mamba through the lens of
+linear attention Transformer. Specifically, we rewrite the formulas of selective state space model
+and linear attention within a unified formulation, depicting Mamba as a variation of linear attention
+Transformer with six distinctions: input gate, forget gate, shortcut, no attention normalization,
+single-head, and modified block design. To demystify what factors lead to Mamba’s effectiveness,
+empirical studies on vision tasks are conducted to assess the impact of each special design. The results
+demonstrate that the forget gate and block design tend to be the two core contributors to Mamba’s
+superiority. While the block design can be easily adopted, the forget gate necessitates recurrent
+computation, which may not be well-suited for non-auto-regressive vision models. Therefore, we
+delve into the essence of the forget gate and verify that it can be replaced by suitable positional
+encoding in vision tasks. Based on our findings, we introduce the two core contributors or their
+alternatives to linear attention Transformer, presenting our Mamba-Like Linear Attention (MLLA)
+model. Experimental results demonstrate that MLLA achieves superior results to various vision
+Mamba models in both image classification and high-resolution dense prediction tasks, validating
+that linear attention can surpass Mamba with the merits of two core designs.
+Our main contributions and takeaways are as follows:
+• We reveal Mamba’s close relationship to linear attention Transformer: Mamba and linear
+attention Transformer can be formulated within a unified framework, with Mamba exhibiting
+six distinct designs compared to the conventional linear attention paradigm: input gate,
+forget gate, shortcut, no attention normalization, single-head and modified block design.
+• We provide detailed analyses of each special design and empirically validate that the forget
+gate and block design largely lead to Mamba’s superiority. Additionally, we demonstrate
+that the recurrent calculation of the forget gate might not be ideal for vision models. Instead,
+proper positional encoding can function as the forget gate in vision tasks, while preserving
+parallelizable computation and fast inference speed.
+• We develop a series of linear attention vision Transformer models named MLLA, which
+inherit the core merits of Mamba and tend to be more suitable for vision tasks than the
+original Mamba model.
+
+2
+
+Related Works
+
+Vision Transformer and attention. Originating from natural language processing, Transformer
+and attention have been highly successful in vision tasks. However, the quadratic complexity
+of widely adopted Softmax attention [34] poses challenges in handling high-resolution images.
+Numerous works have attempted to reduce the computational cost by introducing local attention
+windows [26, 7, 15] or sparsity [35, 37, 47]. Linear attention [20], another approach, inherently
+offers linear complexity O(N ) and is capable of modeling long sequences. Despite its efficiency,
+2
+
+previous works [3, 31, 39, 13] have shown that linear attention always fails to deliver satisfactory
+results, limiting its applicability.
+Mamba [11] is a recently proposed state space model that achieves effective sequence modeling with
+linear complexity. Motivated by its potential for modeling high-resolution images, many researchers
+try to apply Mamba to vision tasks [11, 25, 21, 19, 30, 40]. For instance, VMamba [25] introduces a
+cross-scan module to enable 1D selective scanning in 2D image space. LocalMamba [19] utilizes
+local windows to enhance local modeling capability. EfficientVMamba [30] designs an atrous-based
+selective scan approach to enhance efficiency. In addition, MambaOut [42] analyzes whether Mamba
+is needed for vision, and explainability methods [1] have also been proposed.
+In contrast to incorporating Mamba into vision, this paper reveals the surprising similarities between
+the formulas of inferior linear attention Transformer and powerful Mamba model. This interesting
+finding gives us the opportunity to demystify the key factors behind Mamba’s success.
+
+3
+
+Preliminaries
+
+This section revisits the formulations of attention and selective state space model. To facilitate
+comparison in Sec. 4, we employ identical notations for the dimensions of certain variables in both
+linear attention and selective state space model, and make some modifications to the formula formats.
+3.1
+
+Attention Mechanism
+
+Let x ∈ RN ×C denote a sequence of N features with dimension C. Single head Softmax attention [34], also known as dot-product attention, can be written as:
+
+√ 
+N
+exp Qi Kj⊤ / d
+X
+
+Q = xWQ , K = xWK , V = xWV , yi =
+(1)
+√  Vj ,
+PN
+⊤/ d
+exp
+Q
+K
+j=1
+i
+j
+j=1
+where WQ , WK ∈ RC×d , WV ∈ RC×C denote projection matrices, Q, K ∈ RN ×d , V ∈ RN ×C
+represent query/key/value matrices, and Qi , Ki ∈ R1×d , Vi ∈ R1×C are individual query/key/value
+tokens. Softmax attention computes the similarities between each query-key pair, leading to O(N 2 )
+complexity. Therefore, it incurs unbearable computational cost in long-sequence modeling scenarios.
+Linear attention [20], another attention paradigm, is proposed to effectively address this problem by
+reducing the computation complexity to O(N ). Specifically, linear attention replaces the non-linear
+Softmax function with linear normalization, and adopts an additional kernel function ϕ in Q and K:
+P
+
+N
+⊤
+N
+Qi
+X
+Qi Kj⊤
+j=1 Kj Vj
+P
+ . (2)
+Q = ϕ(xWQ ), K = ϕ(xWK ), V = xWV , yi =
+Vj =
+PN
+⊤
+N
+⊤
+Qi
+j=1 Qi Kj
+j=1
+j=1 Kj
+This enables the rearrangement of the computation order from (QK ⊤ )V to Q(K ⊤ V ) based on the
+associative property of matrix multiplication, thus reducing computation complexity to O(N ).
+Equation (2) defines linear attention with a global receptive field, where each query aggregates
+information from all keys and values. In practice, linear attention can also be implemented in
+autoregressive models, restricting the receptive field of the i-th token to proceeding tokens, i.e., token
+j, j ≤ i. This causal linear attention is formulated as follows:
+P
+
+i
+⊤
+i
+i
+Qi
+X
+X
+j=1 Kj Vj
+QS
+P
+ ≜ i i , Si =
+yi =
+Kj⊤ Vj , Zi =
+Kj⊤ .
+(3)
+i
+Qi Zi
+⊤
+Qi
+K
+j=1
+j=1
+j
+j=1
+This results in a recurrent linear attention form:
+Si = Si−1 + Ki⊤ Vi , Zi = Zi−1 + Ki⊤ ,
+3
+
+yi = Qi Si /Qi Zi .
+
+(4)
+
+3.2
+
+Selective State Space Model
+
+State space model (SSM). The classical state space model is a continuous system that maps the input
+x(t) ∈ R to output y(t) ∈ R through a hidden state h(t) ∈ Rd×1 , which can be written as follows:
+h′ (t) = Ah(t) + Bx(t),
+
+x(t) ∈ R, A ∈ Rd×d , B, h(t), h′ (t) ∈ Rd×1 ,
+
+y(t) = Ch(t) + Dx(t),
+
+y(t) ∈ R, C ∈ R1×d , D ∈ R.
+
+(5)
+
+Discrete SSM. To be applied to deep neural networks, SSM is first transformed into its discrete
+version through zero-order hold discretization. Specifically, the continuous parameters A, B are
+transformed into their discretized counterparts A, B using a timescale parameter ∆ ∈ R:
+A = exp(∆A),
+
+B = (∆A)−1 (exp(∆A) − I) · ∆B ≈ ∆B.
+
+(6)
+
+Therefore, discrete SSM rewrite eq. (5) as:
+hi = Ahi−1 + Bxi ,
+
+xi ∈ R, A ∈ Rd×d , B, hi−1 , hi ∈ Rd×1 ,
+
+yi = Chi + Dxi ,
+
+yi ∈ R, C ∈ R1×d , D ∈ R.
+
+(7)
+
+Selective State Space Model. Mamba [11]
+· 𝒉
+𝑩 · 𝑥
+𝒉
+𝑩
+𝑨
+𝑥
+𝑨
+∆
+𝒉
+𝒉
+improves SSM with selection, presenting
+the selective state space model. The parameters B, C, ∆ is set as the function of xi ,
+𝑦
+𝑦
+· 𝒉
+𝑪
+𝑪
+𝐷 ⋅ 𝑥
+𝐷 ⋅ 𝑥
+𝒉
+thus becoming input-dependent parameters
+Bi , Ci , ∆i . As a result, the discretized pa- (a) Selective SSM Model
+(b) Equivalent Form
+rameters Ai = exp(∆i A), B i = ∆i Bi Figure 2: Illustration of selective state space model
+are also input-dependent. The selective state (eq. (8)) and its equivalent form (eq. (9)).
+space model can be written as:
+hi = Ai hi−1 + B i xi ,
+
+xi ∈ R, Ai ∈ Rd×d , B i , hi−1 , hi ∈ Rd×1 ,
+
+yi = Ci hi + Dxi ,
+
+yi ∈ R, Ci ∈ R1×d , D ∈ R.
+
+(8)
+
+For the convenience of subsequent derivation, we make three modifications to eq. (8):
+ei ⊙ hi−1 , where
+• Mamba practically sets A, Ai as diagonal matrices. Therefore, Ai hi−1 = A
+d×1
+ei = diag(Ai ) ∈ R
+A
+denotes the matrix composed of diagonal elements of Ai .
+• Given B i = ∆i Bi and ∆i ∈ R, we have B i xi = ∆i Bi xi = Bi (∆i xi ) = Bi (∆i ⊙ xi ).
+• Dxi = D ⊙ xi , where ⊙ denotes the Hadamard product, i.e., element-wise multiplication.
+Consequently, we rewrite eq. (8) as:
+ei ⊙ hi−1 + Bi (∆i ⊙ xi ),
+hi = A
+
+ei , Bi , hi−1 , hi ∈ Rd×1 ,
+xi , ∆i ∈ R, A
+
+yi = Ci hi + D ⊙ xi ,
+
+yi ∈ R, Ci ∈ R1×d , D ∈ R.
+
+(9)
+
+The selective state space model formulated in eq. (9) can only deal with scalar input xi ∈ R. To
+operate over an input sequence x ∈ RN ×C , xi ∈ R1×C , Mamba applies eq. (9) independently to
+each channel, leading to the following formulations:
+ei ⊙ hi−1 + Bi (∆i ⊙ xi ),
+hi = A
+
+ei , hi−1 , hi ∈ Rd×C , Bi ∈ Rd×1
+xi , ∆i ∈ R1×C , A
+
+yi = Ci hi + D ⊙ xi ,
+
+yi ∈ R1×C , Ci ∈ R1×d , D ∈ R1×C ,
+
+(10)
+
+where Bi , Ci , ∆i are derived from the input. Specifically, Mamba employs B = (xWB )⊤ , C =
+xWC , ∆ = Softplus(xW1 W2 ) to produce the parameters B ∈ Rd×N , C ∈ RN ×d , ∆ ∈ RN ×C ,
+where WB , WC ∈ RC×d , W1 ∈ RC×C0 , W2 ∈ RC0 ×C are projection matrices. Notably, eq. (10) is
+exactly the selective SSM employed in Mamba, we only make modifications to formula formats.
+
+4
+
+Connecting Mamba and Linear Attention Transformer
+
+In this section, we reveal the similarities and disparities between Mamba and linear attention Transformer from two perspectives: core operation and macro architecture.
+4
+
+4.1
+
+Interpreting Selective State Space Model as Linear Attention
+
+As detailed in Sec. 3, for an input sequence of N tokens x ∈ RN ×C , the formulations of selective state
+space model and linear attention are provided by eq. (10) and eq. (4), respectively. Many underlying
+similarities exist between the formulas of these two operations. To facilitate comprehension, we
+rewrite eq. (10) and eq. (4) with a unified formulation as follows:
+ei ⊙ hi−1 + Bi (∆i ⊙ xi ),
+Si = 1 ⊙ Si−1 + Ki⊤ (1 ⊙ Vi ),
+hi = A
+(11)
+(12)
+yi = Qi Si / Qi Zi + 0 ⊙ xi .
+yi = Ci hi / 1 + D ⊙ xi .
+As illustrated in Fig. 1, a close relationship between eq. (11) and eq. (12) is evident. Specifically,
+hi ∼ Si ∈ Rd×C , Bi ∼ Ki⊤ ∈ Rd×1 , xi ∼ Vi ∈ R1×d , and Ci ∼ Qi ∈ R1×d . Therefore, selective
+SSM can be viewed as a special variation of linear attention, indicating a very close connection
+between these two mechanisms. Furthermore, four major differences can be observed:
+1. In eq. (11), the input xi is augmented by Hadamard product with ∆i . Since ∆ =
+Softplus(xW1 W2 ), all elements of ∆i are positive. Therefore, we view ∆i as an input gate, controlling whether to let the input xi into the hidden state.
+ei in eq. (11). Mamba sets A as a diagonal matrix with negative
+2. There is an additional A
+ei = diag(Ai ) = exp(diag(A)∆i ) to
+diagonal elements, thus ensuring all elements of A
+e
+fall between 0 and 1. Hence, we interpret Ai as a forget gate, which decides the degree of
+attenuation for the previous hidden state hi−1 .
+3. A learnable shortcut from the input xi to the output yi is employed in eq. (11), i.e. D ⊙ xi .
+4. As depicted in eq. (12), linear attention divides the output by Qi Zi to maintain that the
+attention weights sum up to 1, while eq. (11) does not have such normalization.
+In addition to these four differences, it is also important to note that eq. (12) represents single-head
+linear attention. This indicates that the selective state space model is akin to single-head linear
+attention and does not incorporate a multi-head design.
+In a word, the similarities and disparities between selective SSM and linear attention can be summarized as: selective state space model resembles linear attention with additional input gate, forget
+gate and shortcut, while omitting normalization and multi-head design.
+4.2
+
+Analysis of Differences in Core Operations
+
+Input gate. As discussed before, ∆i actually functions as an input gate for xi , determining its
+access to the hidden state. The values of this input gate are predicted from the current input xi as
+∆i = Softplus(xi W1 W2 ). Therefore, by learning the weight of W1 , W2 , the model can discern
+the “utility” of xi , generating large ∆i values for “useful” xi and small ones for “less useful” xi . For
+example, in vision tasks, tokens representing foreground objects may yield larger input gate values,
+while background tokens may yield smaller ones.
+ei acts as a forget gate in selective state space model, offering two essential properties:
+Forget gate. A
+ei strictly range from 0 to 1, indicating
+local bias and positional information. Firstly, all elements of A
+that the model consistently decays the previous hidden state hi−1 upon the arrival of the current
+ei provides positional information for the
+token xi . This results in a strong local bias. Secondly, A
+model. It ensures that the model is sensitive to the order of input sequences. Without this forget gate,
+rearranging the order of the preceding sequence will not affect subsequent outputs. For instance, in
+recurrent linear attention, if we change the order of x1 and x2 , the outputs yi , i ≥ 3 will not change.
+ei plays an important role in selective SSM.
+Hence, the forget gate A
+Despite its effectiveness, incorporating the forget gate also poses significant challenges. Firstly, it
+forces the model to adopt the recurrent formulation during both training and inference. Previous
+state space models typically use global convolution for efficient parallelizable training, which is
+ei . As a remedy, Mamba [11]
+incompatible with selective SSM due to the input-dependency of A
+proposes a hardware-aware algorithm to speed up computation by performing parallel scan in
+recurrent mode (see the abstract of [11]). Although effective, such recurrent calculation unavoidably
+reduces model throughput and is still slower than parallel linear attention (eq. (2)). Secondly, the
+5
+
+: Elementwise Sum
+MLP
+
+: Hadamard Product
+
+MLP
+
+Linear
+
+𝝈 : SiLU Activation
+Norm
+
+Linear
+
+Norm
+Linear Attention
+SSM
+Linear
+
+𝝈
+
+LA Block
+
+𝝈
+
+Linear
+
+Linear
+
+Linear
+
+(a) Linear Attention Transformer
+
+𝝈
+
+𝝈
+
+Conv
+
+Conv
+Norm
+
+Linear
+
+MLLA Block
+
+SSM Block
+Linear Attention
+
+Norm
+
+Linear
+
+Linear
+
+(b) Mamba
+
+Linear
+
+Norm
+
+Linear
+
+Linear
+
+(c) MLLA (ours)
+
+Figure 3: Illustration of the macro designs of linear attention Transformer, Mamba and our MLLA.
+forget gate inherently functions in causal mode, which may not be very suitable for non-autoei in vision tasks requires transforming the image
+regressive vision models. Using the forget gate A
+into a 1D sequence and conducting recurrent computation, which limits the receptive field of each
+image token to its preceding sequence and incurs extra latency. Therefore, we believe that the forget
+gate is ideally suited for modeling causal data, which naturally needs auto-regressive training and
+recurrent calculation. However, it may not be as suitable for non-causal data like images. We further
+speculate that a suitable positional encoding can substitute for the forget gate, since certain positional
+encodings, such as LePE [7] and RoPE [33], can also provide local bias and positional information.
+Shortcut. Selective SSM employs a learnable shortcut D ⊙ xi , making it resemble a residual
+block [17]. This shortcut may aid in optimizing the model and stabilizing training.
+Normalization. The output in linear attention is divided by Qi Zi to ensure the attention weights sum
+up to 1. We believe this normalization is crucial for stabilizing training and improving model capacity.
+Let’s consider an input αxi , α > 0. It is transformed into αQi , αKi , αVi through projections. If
+there is no normalization on attention weights, as α increases, αQi exhibits larger similarities with
+all keys αQi Kj⊤ , ∀j. This indicates that longer tokens will have larger attention scores with every
+token, leading to longer output. Additionally, as α grows bigger, αKi yields bigger similarities with
+all queries αQj Ki⊤ , ∀j. This implies that all queries will focus more on longer tokens. As a result,
+longer tokens tend to dominate the whole feature map, while shorter tokens may fail to represent their
+corresponding semantics. This may result in training instability and could possibly lower model’s
+expressiveness. Normalizing the attention weights can significantly alleviate this issue.
+Multi-head. Linear attention commonly utilizes multi-head design [34] for better outcome. Multihead attention allows the model to simultaneously attend to information from various representation
+subspaces at different positions, thus enhancing its expressive power.
+4.3
+
+Analysis of Macro Architecture Design
+
+Modern linear attention Transformer models commonly adopt the block design depicted in Fig. 3(a),
+which are comprised of a linear attention sub-block and a MLP sub-block. In contrast, Mamba
+modifies the block design by combining two basic designs, H3 [10] and Gated Attention [18],
+resulting in the architecture illustrated in Fig. 3(b). The improved Mamba block integrates multiple
+operations such as selective SSM, depth-wise convolution, linear mapping, activation function, gating
+mechanism, etc., and tends to be more effective than the conventional Transformer block design.
+4.4
+
+Relationship between Mamba and Linear Attention Transformer
+
+Mamba can be seen as a variant of linear attention Transformer with specialized linear attention
+and modified block design. The special linear attention variation, i.e. selective state space model,
+has five major distinctions from the common linear attention paradigm, detailed in Sec. 4.2. And the
+differences in block designs are analyzed in Sec. 4.3. In summary, Sec. 4.2 and Sec. 4.3 reveal the
+intimate relationship between Mamba and linear attention Transformer, highlighting a total of six
+differences: five in core operation and one in macro design.
+6
+
+Image
+
+(a) Input Gate Values
+
+(b) Forget Gate Average
+
+(c) Forget Gate Illustration
+
+𝑨
+
+0.2
+
+𝑨
+
+0.6
+
+𝑨
+
+0.8
+
+Figure 4: (a) Visualizations of the distributions of input gate values. (b) The average of forget gate
+values in different layers. (c) The attenuation effect of different forget gate values.
+
+5
+
+Empirical Study
+
+Mamba [11] is seen as a powerful alternative to Transformer [34], while linear attention models
+generally being considered inferior [31, 12]. In Sec. 4, we illustrated the surprisingly close relationship
+between Mamba and linear attention Transformer and pointed out six major distinctions. In this
+section, we conduct experiments to assess the impact of each distinction, shedding some light on the
+core contributors behind Mamba’s success.
+5.1
+
+Implementation
+
+We employ the widely used Swin Transformer [26] architecture to verify the effects of the six
+differences. Firstly, we substitute the Softmax attention in Swin Transformer with linear attention to
+create our baseline model. Subsequently, we separately introduce each distinction to the baseline
+model to assess its impact. Based on the results, we further validate whether linear attention can
+achieve superior results with the merits of Mamba. Specifically, we integrate the useful designs
+into linear attention Transformer to create our Mamba-Like Linear Attention (MLLA) model,
+and assess its effectiveness by comparing it with various vision Mamba designs across multiple
+tasks, including ImageNet-1K classification [6], COCO object detection [24], and ADE20K semantic
+segmentation [46]. Detailed model architectures and training setups are shown in the Appendix.
+5.2
+
+Empirical Analysis of the Differences
+
+As shown in Tab. 1, we separately apply each Table 1: Ablation on the impact of each distinction.
+distinction to the baseline linear attention model Architecture
+#Params FLOPs Throughput Top-1
+and assess their performances on ImageNet-1K. Baseline
+28M
+4.5G
+1152
+77.6
+29M
+4.5G
+1069
+77.8
+Input Gate. Introducing the input gate results + Input Gate
+29M
+4.8G
+743
+78.4
+in a modest accuracy improvement of 0.2, indi- + Forget Gate
+28M
+4.5G
+1066
+77.8
+cating that it is slightly helpful for the model. + Shortcut
+28M
+4.5G
+1215
+72.4
+Visualizations in Fig. 4(a) aid in understanding − Normalization
+1540
+73.5
+the impact of the input gate. It can be seen that − Multi-head Design 24M 3.9G
++
+Block
+Design
+all.
+28M
+4.7G
+915
+79.4
+the model tends to generate higher input gate
+1010
+80.9
+values for more informative regions like fore- + Block Design sub. 31M 4.8G
+ground objects, while suppressing less useful tokens. However, the model struggles to generate highly
+effective input gates, since the input gate values ∆i = Softplus(xi W1 W2 ) are predicted solely
+from the current input token xi without considering the overall semantics of the image. For example,
+in one image, the dog may be the area of interest, whereas in another, it might simply be part of the
+background. Without leveraging information from the entire image, assigning large input gate values
+to the dog in one image while blocking it in another is impractical. Moreover, employing input gate
+results in a 7% decrease in model throughput.
+
+Forget Gate. Employing the forget gate in linear attention leads to an obvious performance improvement from 77.6 to 78.4. However, such accuracy gain comes at a cost: the model throughput drops
+severely from 1152 to 743. This is because the forget gate has to employ recurrent calculation, which
+is slower than the parallelizable matrix multiplication in linear attention. It’s worth noting that we
+already utilize the hardware-aware algorithm proposed in Mamba to speed up the recurrent computation. Thus, we believe the forget gate might not be very suitable for modeling non-causal data like
+7
+
+Table 3: Comparison with SOTA Vision Mambas on ImageNet-1K.
+Method
+Type
+#Params FLOPs Top-1
+ConvNeXt-S [27]
+CNN
+50M
+8.7G 83.1
+MambaOut-S [42]
+CNN
+48M
+9.0G 84.1
+PVTv2-B3 [36]
+Transformer
+45M
+7.9G 83.2
+CSwin-S [7]
+Transformer
+35M
+6.9G 83.6
+Focal-S [41]
+Transformer
+51M
+9.4G 83.6
+MViTv2-S [22]
+Transformer
+35M
+7.0G 83.6
+VMamba-S [25]
+Mamba
+50M
+8.7G 83.6
+LocalVMamba-S [19]
+Mamba
+50M
+11.4G 83.7
+MLLA-S
+MLLA
+43M
+7.3G 84.4
+ConvNeXt-B [27]
+CNN
+89M
+15.4G 83.8
+MambaOut-B [42]
+CNN
+85M
+15.8G 84.2
+PVTv2-B5 [36]
+Transformer
+82M
+11.8G 83.8
+Focal-B [41]
+Transformer
+90M
+16.4G 84.0
+CSwin-B
+Transformer
+78M
+15.0G 84.2
+NAT-B [15]
+Transformer
+90M
+13.7G 84.3
+PlainMamba-L3 [40]
+Mamba
+50M
+14.4G 82.3
+Mamba2D-B [21]
+Mamba
+94M
+−
+83.0
+VMamba-B [25]
+Mamba
+89M
+15.4G 83.9
+MLLA-B
+MLLA
+96M
+16.2G 85.3
+
+Method
+Type
+#Params FLOPs Top-1
+ConvNeXt-T [27]
+CNN
+29M
+4.5G 82.1
+MambaOut-T [42]
+CNN
+27M
+4.5G 82.7
+Transformer 29M
+4.5G 81.3
+Swin-T [26]
+PVTv2-B2 [36]
+Transformer 25M
+4.0G 82.0
+Focal-T [41]
+Transformer 29M
+4.9G 82.2
+MViTv2-T [22]
+Transformer 24M
+4.7G 82.3
+CSwin-T [7]
+Transformer 23M
+4.3G 82.7
+DiNAT-T [14]
+Transformer 28M
+4.3G 82.7
+NAT-T [15]
+Transformer 28M
+4.3G 83.2
+PlainMamba-L1 [40]
+Mamba
+7M
+3.0G 77.9
+Vim-S [48]
+Mamba
+26M
+5.1G 80.3
+LocalVim-S [19]
+Mamba
+28M
+4.8G 81.2
+Mamba
+25M
+8.1G 81.6
+PlainMamba-L2 [40]
+Mamba2D-S [21]
+Mamba
+24M
+−
+81.7
+EfficientVMamba-B [30]
+Mamba
+33M
+4.0G 81.8
+Mamba
+31M
+4.9G 82.5
+VMamba-T [25]
+LocalVMamba-T [19]
+Mamba
+26M
+5.7G 82.7
+MLLA-T
+MLLA
+25M
+4.2G 83.5
+
+images, which do not inherently require recurrence. As an alternative, we analyze the fundamental
+properties of the forget gate and attempt to substitute it with other parallelizable operations.
+In Fig. 4, we calculate the average of forget gate
+values in each layer and illustrate the attenuation Table 2: Substituting the forget gate with various
+effect of different forget gate values. In shallow positional encodings.
+ei ≈ 0.2, indicatlayers, the forget gate values A
+#Params FLOPs Throughput Top-1
+ing that each token primarily focuses on itself Baseline
+28M
+4.5G
+1152
+77.6
+and the preceding two tokens, demonstrating + Forget Gate 29M
+4.8G
+743
+78.4
+strong local bias. In deeper layers, the average + APE [8]
+30M
+4.5G
+1132
+80.0
+is approximately 0.6-0.8, suggesting a broad re- + LePE [7]
+28M
+4.5G
+1074
+81.6
+ceptive field for each token. This confirms our + CPE [4]
+28M
+4.5G
+1099
+81.7
+previous analysis that the forget gate offers two + RoPE [33]
+28M
+4.5G
+1113
+80.0
+crucial properties for the model, namely local
+bias and positional information. We conduct
+experiments to verify whether the forget gate can be replaced with proper positional encoding,
+which can also provide local bias and positional information. Results in Tab. 2 show that APE [34],
+LePE [7], CPE [4] and RoPE [33] can both help the model yield better results than the forget gate,
+while maintaining high throughput. We attribute the improved outcomes to a broader receptive field.
+Specifically, when using the forget gate, we have to adopt the recurrent linear attention format which
+restricts the receptive field of each token to the preceding sequence. In contrast, without the forget
+gate, it is natural to utilize parallel linear attention to achieve a global receptive field.
+Shortcut. As illustrated in Tab. 1, the usage of learnable shortcut in linear attention provides a 0.2
+accuracy gain, while decreasing the throughput from 1152 to 1066.
+Standard Deviation
+
+Normalization. Without normalization, the
+w/ Normalization
+102
+model suffers from severe performance degradaw/o Normalization
+tion from 77.6 to 72.4. This can be attributed to
+101
+the issue of long tokens dominating, as discussed
+in Sec. 4.2. To confirm this, we compute the stan100
+dard deviation of token lengths (l2 norm) in each
+10 1 1 2 3 4 5 6 7 8 9 10 11 12
+layer using both the baseline model and the model
+Layer
+without attention normalization. As depicted in
+Figure
+5:
+The
+standard
+deviation
+of token lengths.
+Fig. 5, without normalization, the standard deviation of token lengths tends to be much larger than the baseline, particularly in the last two layers. This
+supports our analysis that without normalization, the difference in token length becomes significant,
+with some long tokens dominating the model while others struggling to convey their semantics.
+Multi-head. Modern Transformers typically adopt the multi-head design [34] to enhance their expressive power. As shown in Tab. 1, removing this design reduces computational cost and accelerates
+the model but significantly diminishes performance. We consider this trade-off unwarranted.
+8
+
+Block Design. We employ two ways to assess the effects of Mamba’s block design: 1. Substituting
+the entire Transformer block with Mamba’s block architecture. 2. Replacing the attention sub-block
+with Mamba’s block design, while preserving the MLP sub-block. In both settings, the selective
+SMM in Mamba’s block is substituted with linear attention. To maintain similar FLOPs, we employ
+Mamba expansion factors [11] E = 2.0 and E = 1.0 for the two settings, respectively. The
+results are presented in Tab. 1 as “Block Design all” and “Block Design sub”. Both replacement
+approaches result in performance improvements, demonstrating the efficacy of Mamba’s macro
+design. Substituting the attention sub-block yields better result, which creates our MLLA block
+shown in Fig. 3(c). Notably, we omit the V projection before linear attention calculation, as a similar
+input projection already exists. The module complexity of a MLLA block is expressed as:
+Ω(MLLA) = 2N C 2 + 2N C 2 + N C 2 + |2N{zCd} + |k 2{z
+N C} + |8N{zC }2 ,
+{z
+}
+|
+Linear Attention
+
+In/Out, Q/K, Gate Projection
+
+DWConv
+
+MLP
+
+(13)
+
+which is slightly larger than the complexity of a Transformer block (Fig. 3a), 4N C 2 +2N Cd+8N C 2 .
+5.3
+
+Comparison with Mamba in Vision
+
+Based on our findings, we integrate the forget gate and block design into linear attention, introducing
+our MLLA model. Notably, we practically use LePE, CPE, and RoPE to replace the forget gate’s
+local bias, input-dependent positional information, and global positional information, respectively.
+ImageNet classification. As shown in Tab. 3, our MLLA models consistently outperform various
+vision Mamba models across all model sizes, owing to the integration of useful designs from both
+Mamba and linear attention. These results also validate that with the merits of Mamba’s two key
+designs, the inferior linear attention Transformer can surpass high-performance Mamba. Notably, we
+empirically observe that MLLA exhibits greater scalability compared to vision Mamba models, as
+MLLA-B achieves an accuracy of 85.3, surpassing other models by a significant margin. Additionally,
+MLLA also outperforms various CNN and vision Transformer designs. For instance, MLLA exhibits
+better performance than MambaOut [42], a recent work that removes the selective SSM in Mamba
+and employs a gated convolution architecture.
+
+Accuracy (%)
+
+Inference time. We offer real speed measureVMamba
+85
+ments in Fig. 6. Substituting the forget gate
+LocalVMamba
+1.5
+x
+with positional encoding, our MLLA models
+Mamba2D
+0.5
+84
+PlainMamba
+benefit from parallelizable computation, result4.5x 0.5
+EfficientVMamba
+ing in significantly faster inference speeds comMLLA (ours)
+83
+pared to vision Mamba models. For instance, our
+1.7
+model achieves 4.5x faster inference speed than
+82
+Mamba2D [21], while maintaining better accu1.0
+3.0
+5.0
+7.0
+9.0
+racy. Compared to the highly optimized VMamba
+Runtime (ms)
+model [25], our model also delivers a 1.5x speedup
+Figure 6: Speed tests on a RTX3090 GPU.
+accompanied by a 0.5 accuracy gain. These substantial improvements in model speed further support our analysis that the parallelizable MLLA is
+more suitable than Mamba for modeling non-causal data such as images.
+COCO object detection. As shown in Tab. 4, on Table 5: Results of semantic segmentation using
+the COCO dataset, MLLA models also achieve su- UperNet [38]. The FLOPs are computed with
+perior results to vision Mamba models, implying input resolution of 512×2048.
+their effectiveness in high-resolution dense predicSemantic Segmentation on ADE20K
+tion tasks. MLLA offers effective global modeling
+mIoU
+#Params FLOPs
+with linear complexity O(N ) (see eq. (13)) and Backbone
+SS MS
+parallelizable computation, making it ideally suit- Swin-B [26]
+121M 1188G 48.1 49.7
+able for high-resolution image modeling scenarios. MambaOut-B [42] 112M 1178G 49.6 51.0
+Notably, MLLA outperforms MambaOut [42] by a VMamba-B [25]
+122M 1170G 51.0 51.6
+significant margin, which aligns with the findings MLLA-B
+128M 1183G 51.9 52.5
+in MambaOut [42].
+ADE-20K semantic segmentation. We report the results on ADE-20K dataset in Tab. 5, where “SS”
+and “MS” denote single-scale and multi-scale testing, respectively. Similar to the object detection
+task, MLLA yields better results in semantic segmentation, further verifying our analyses and the
+effectiveness of MLLA model.
+9
+
+Table 4: Results on COCO dataset. The FLOPs are computed over backbone, FPN and detection
+head with an input resolution of 1280×800.
+(a) Mask R-CNN 1x on COCO
+Method
+Type
+#Params FLOPs APb APb50 APb75
+ConvNeXt-T [27]
+CNN
+48M
+262G 44.2 66.6 48.3
+MambaOut-T [42]
+CNN
+43M
+262G 45.1 67.3 49.6
+Swin-T [26]
+Transformer 48M
+267G 42.7 65.2 46.8
+PVTv2-B2 [36]
+Transformer 45M
+309G 45.3 67.1 49.6
+FocalNet-T [41]
+Transformer 49M
+268G 46.1 68.2 50.6
+Transformer 42M
+279G 46.7 68.6 51.3
+CSWin-T [7]
+EfficientVMamba-B [30]
+Mamba
+53M
+252G 43.7 66.2 47.9
+Mamba
+31M
+388G 44.1 64.8 47.9
+PlainMamba-Adapter-L1 [40]
+LocalVMamba-T [19]
+Mamba
+45M
+291G 46.7 68.7 50.8
+MLLA-T
+MLLA
+44M
+255G 46.8 69.5 51.5
+ConvNeXt-S [27]
+CNN
+70M
+348G 45.4 67.9 50.0
+CNN
+65M
+354G 47.4 69.1 52.4
+MambaOut-S [42]
+Swin-S [26]
+Transformer 69M
+354G 44.8 66.6 48.9
+PVTv2-B3 [36]
+Transformer 65M
+397G 47.0 68.1 51.7
+FocalNet-S [41]
+Transformer 72M
+365G 48.3 70.5 53.1
+CSWin-S [7]
+Transformer 54M
+342G 47.9 70.1 52.6
+Mamba
+53M
+542G 46.0 66.9 50.1
+PlainMamba-Adapter-L2 [40]
+LocalVMamba-S [19]
+Mamba
+69M
+414G 48.4 69.9 52.7
+Vmamba-S [25]
+Mamba
+64M
+357G 48.7 70.0 53.4
+MLLA-S
+MLLA
+63M
+319G 49.2 71.5 53.9
+ConvNeXt-B [27]
+CNN
+108M 486G 47.0 69.4 51.7
+MambaOut-B [42]
+CNN
+100M 495G 47.4 69.3 52.2
+Swin-B [26]
+Transformer 107M 496G 46.9 −
+−
+PVTv2-B5 [36]
+Transformer 102M 557G 47.4 68.6 51.9
+FocalNet-B [41]
+Transformer 111M 507G 49.0 70.9 53.9
+CSWin-B [7]
+Transformer 97M
+526G 48.7 70.4 53.9
+PlainMamba-Adapter-L3 [40]
+Mamba
+79M
+696G 46.8 68.0 51.1
+VMamba-B [25]
+Mamba
+108M 485G 49.2 70.9 53.9
+MLLA-B
+MLLA
+115M 502G 50.5 72.0 55.4
+
+m
+APm APm
+50 AP75
+40.1 63.3 42.8
+41.0 64.1 44.1
+39.3 62.2 42.2
+41.2 64.2 44.4
+41.5 65.1 44.5
+42.2 65.6 45.4
+40.2 63.3 42.9
+39.1 61.6 41.9
+42.2 65.7 45.5
+42.1 66.4 45.0
+41.8 65.2 45.1
+42.7 66.1 46.2
+40.9 63.2 44.2
+42.5 65.7 45.7
+43.1 67.4 46.2
+43.2 67.1 46.2
+40.6 63.8 43.6
+43.2 66.7 46.5
+43.7 67.3 47.0
+44.2 68.5 47.2
+42.7 66.3 46.0
+43.0 66.4 46.3
+42.3 −
+−
+42.5 65.7 46.0
+43.5 67.9 46.7
+43.9 67.8 47.3
+41.2 64.7 43.9
+43.9 67.7 47.6
+45.0 69.3 48.6
+
+(b) Mask R-CNN 3x on COCO
+Type
+#Params FLOPs APb APb50 APb75
+CNN
+48M
+262G 46.2 67.9 50.8
+Transformer 48M
+267G 46.0 68.1 50.3
+Transformer 45M
+309G 47.8 69.7 52.6
+Transformer 49M
+268G 48.0 69.7 53.0
+Mamba
+50M
+270G 48.9 70.6 53.6
+Mamba
+45M
+291G 48.7 70.1 53.0
+MLLA
+44M
+255G 48.8 71.0 53.6
+CNN
+70M
+348G 47.9 70.0 52.7
+Transformer 69M
+354G 48.2 69.8 52.8
+Transformer 65M
+397G 48.4 69.8 53.3
+Transformer 72M
+365G 49.3 70.7 54.2
+Transformer 54M
+342G 50.0 71.3 54.7
+Mamba
+70M
+384G 49.9 70.9 54.7
+Mamba
+69M
+414G 49.9 70.5 54.4
+MLLA
+63M
+319G 50.5 71.8 55.2
+
+m
+APm APm
+50 AP75
+41.7 65.0 44.9
+41.6 65.1 44.9
+43.1 66.8 46.7
+42.9 66.5 46.1
+43.7 67.7 46.8
+43.4 67.0 46.4
+43.8 68.0 46.8
+42.9 66.9 46.2
+43.2 67.0 46.1
+43.2 66.9 46.7
+43.8 67.9 47.4
+44.5 68.4 47.7
+44.2 68.2 47.7
+44.1 67.8 47.4
+44.9 69.1 48.2
+
+Method
+ConvNeXt-T [27]
+Swin-T [26]
+PVTv2-B2 [36]
+FocalNet-T [41]
+Vmamba-T [25]
+LocalVMamba-T [19]
+MLLA-T
+ConvNeXt-S [27]
+Swin-S [26]
+PVTv2-B3 [36]
+FocalNet-S [41]
+CSWin-S [7]
+Vmamba-S [25]
+LocalVMamba-S [19]
+MLLA-S
+
+6
+
+Conclusion
+
+This paper reveals the surprisingly close relationship between the powerful Mamba and subpar linear
+attention Transformer, shedding some light on Mamba’s superiority and success. We rephrase Mamba
+as a variant of linear attention Transformer and identify its six major special designs: input gate,
+forget gate, shortcut, no attention normalization, single-head and modified block design. Empirical
+validation shows that the forget gate and block design largely enhance performance, while the other
+distinctions offer marginal contributions or impair model performance. Based on our findings, we
+propose our Mamba-Like Linear Attention (MLLA) model by incorporating the merits of these two
+key designs into linear attention. MLLA surpasses various vision Mamba models across multiple
+tasks, while maintaining parallel computation and high inference speed.
+10
+
+References
+[1] Ameen Ali, Itamar Zimerman, and Lior Wolf. The hidden attention of mamba models. arXiv
+preprint arXiv:2403.01590, 2024. 3
+[2] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, and Judy Hoffman. Hydra
+attention: Efficient attention with many heads. In ECCVW, 2022. 14
+[3] Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Andreea Gane,
+Tamas Sarlos, Peter Hawkins, Jared Davis, Afroz Mohiuddin, Lukasz Kaiser, et al. Rethinking
+attention with performers. In ICLR, 2021. 1, 3
+[4] Xiangxiang Chu, Zhi Tian, Bo Zhang, Xinlong Wang, and Chunhua Shen. Conditional positional
+encodings for vision transformers. arXiv preprint arXiv:2102.10882, 2021. 8
+[5] Ekin D Cubuk, Barret Zoph, Jonathon Shlens, and Quoc V Le. Randaugment: Practical
+automated data augmentation with a reduced search space. In CVPRW, 2020. 14
+[6] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale
+hierarchical image database. In CVPR, 2009. 7
+[7] Xiaoyi Dong, Jianmin Bao, Dongdong Chen, Weiming Zhang, Nenghai Yu, Lu Yuan, Dong
+Chen, and Baining Guo. Cswin transformer: A general vision transformer backbone with
+cross-shaped windows. In CVPR, 2022. 2, 6, 8, 10
+[8] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,
+Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al.
+An image is worth 16x16 words: Transformers for image recognition at scale. In ICLR, 2021. 8
+[9] Jiawei Du, Daquan Zhou, Jiashi Feng, Vincent Tan, and Joey Tianyi Zhou. Sharpness-aware
+training for free. In NeurIPS, 2022. 14
+[10] Daniel Y Fu, Tri Dao, Khaled K Saab, Armin W Thomas, Atri Rudra, and Christopher Ré.
+Hungry hungry hippos: Towards language modeling with state space models. In ICLR, 2023. 6
+[11] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces.
+arXiv preprint arXiv:2312.00752, 2023. 1, 3, 4, 5, 7, 9
+[12] Dongchen Han, Xuran Pan, Yizeng Han, Shiji Song, and Gao Huang. Flatten transformer:
+Vision transformer using focused linear attention. In ICCV, 2023. 1, 7, 14
+[13] Dongchen Han, Tianzhu Ye, Yizeng Han, Zhuofan Xia, Shiji Song, and Gao Huang. Agent
+attention: On the integration of softmax and linear attention. arXiv preprint arXiv:2312.08874,
+2023. 3
+[14] Ali Hassani and Humphrey Shi. Dilated neighborhood attention transformer. arXiv preprint
+arXiv:2209.15001, 2022. 8
+[15] Ali Hassani, Steven Walton, Jiachen Li, Shen Li, and Humphrey Shi. Neighborhood attention
+transformer. In CVPR, 2023. 2, 8
+[16] Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross Girshick. Mask r-cnn. In ICCV, 2017.
+14
+[17] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image
+recognition. In CVPR, 2016. 6
+[18] Weizhe Hua, Zihang Dai, Hanxiao Liu, and Quoc Le. Transformer quality in linear time. In
+ICML, 2022. 6
+[19] Tao Huang, Xiaohuan Pei, Shan You, Fei Wang, Chen Qian, and Chang Xu. Localmamba:
+Visual state space model with windowed selective scan. arXiv preprint arXiv:2403.09338, 2024.
+3, 8, 10
+[20] Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and François Fleuret. Transformers
+are rnns: Fast autoregressive transformers with linear attention. In ICML, 2020. 1, 2, 3
+[21] Shufan Li, Harkanwar Singh, and Aditya Grover. Mamba-nd: Selective state space modeling
+for multi-dimensional data. arXiv preprint arXiv:2402.05892, 2024. 3, 8, 9
+[22] Yanghao Li, Chao-Yuan Wu, Haoqi Fan, Karttikeya Mangalam, Bo Xiong, Jitendra Malik, and
+Christoph Feichtenhofer. Mvitv2: Improved multiscale vision transformers for classification
+and detection. In CVPR, 2022. 8
+11
+
+[23] Opher Lieber, Barak Lenz, Hofit Bata, Gal Cohen, Jhonathan Osin, Itay Dalmedigos, Erez
+Safahi, Shaked Meirom, Yonatan Belinkov, Shai Shalev-Shwartz, et al. Jamba: A hybrid
+transformer-mamba language model. arXiv preprint arXiv:2403.19887, 2024. 1
+[24] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan,
+Piotr Dollár, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In ECCV,
+2014. 7, 14
+[25] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi Xie, Yaowei Wang, Qixiang Ye, and
+Yunfan Liu. Vmamba: Visual state space model. arXiv preprint arXiv:2401.10166, 2024. 1, 3,
+8, 9, 10
+[26] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining
+Guo. Swin transformer: Hierarchical vision transformer using shifted windows. In ICCV, 2021.
+2, 7, 8, 9, 10, 14
+[27] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining
+Xie. A convnet for the 2020s. In CVPR, 2022. 8, 10
+[28] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In ICLR, 2018. 14
+[29] Jiachen Lu, Jinghan Yao, Junge Zhang, Xiatian Zhu, Hang Xu, Weiguo Gao, Chunjing Xu, Tao
+Xiang, and Li Zhang. Soft: Softmax-free transformer with linear complexity. In NeurIPS, 2021.
+14
+[30] Xiaohuan Pei, Tao Huang, and Chang Xu. Efficientvmamba: Atrous selective scan for light
+weight visual mamba. arXiv preprint arXiv:2403.09977, 2024. 3, 8, 10
+[31] Zhen Qin, Weixuan Sun, Hui Deng, Dongxu Li, Yunshen Wei, Baohong Lv, Junjie Yan,
+Lingpeng Kong, and Yiran Zhong. cosformer: Rethinking softmax in attention. In ICLR, 2022.
+1, 3, 7
+[32] Zhuoran Shen, Mingyuan Zhang, Haiyu Zhao, Shuai Yi, and Hongsheng Li. Efficient attention:
+Attention with linear complexities. In WACV, 2021. 14
+[33] Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. Roformer:
+Enhanced transformer with rotary position embedding. Neurocomputing, 2024. 6, 8
+[34] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez,
+Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In NeurIPS, 2017. 1, 2, 3, 6, 7, 8
+[35] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao Song, Ding Liang, Tong Lu, Ping
+Luo, and Ling Shao. Pyramid vision transformer: A versatile backbone for dense prediction
+without convolutions. In ICCV, 2021. 2
+[36] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao Song, Ding Liang, Tong Lu,
+Ping Luo, and Ling Shao. Pvt v2: Improved baselines with pyramid vision transformer.
+Computational Visual Media, 2022. 8, 10
+[37] Zhuofan Xia, Xuran Pan, Shiji Song, Li Erran Li, and Gao Huang. Vision transformer with
+deformable attention. In CVPR, 2022. 2
+[38] Tete Xiao, Yingcheng Liu, Bolei Zhou, Yuning Jiang, and Jian Sun. Unified perceptual parsing
+for scene understanding. In ECCV, 2018. 9, 14
+[39] Yunyang Xiong, Zhanpeng Zeng, Rudrasis Chakraborty, Mingxing Tan, Glenn Fung, Yin Li,
+and Vikas Singh. Nyströmformer: A nyström-based algorithm for approximating self-attention.
+In AAAI, 2021. 3
+[40] Chenhongyi Yang, Zehui Chen, Miguel Espinosa, Linus Ericsson, Zhenyu Wang, Jiaming Liu,
+and Elliot J Crowley. Plainmamba: Improving non-hierarchical mamba in visual recognition.
+arXiv preprint arXiv:2403.17695, 2024. 3, 8, 10
+[41] Jianwei Yang, Chunyuan Li, Pengchuan Zhang, Xiyang Dai, Bin Xiao, Lu Yuan, and Jianfeng
+Gao. Focal self-attention for local-global interactions in vision transformers. In NeurIPS, 2021.
+8, 10
+[42] Weihao Yu and Xinchao Wang. Mambaout: Do we really need mamba for vision? arXiv
+preprint arXiv:2405.07992, 2024. 3, 8, 9, 10
+[43] Sangdoo Yun, Dongyoon Han, Seong Joon Oh, Sanghyuk Chun, Junsuk Choe, and Youngjoon
+Yoo. Cutmix: Regularization strategy to train strong classifiers with localizable features. In
+ICCV, 2019. 14
+12
+
+[44] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, and David Lopez-Paz. mixup: Beyond
+empirical risk minimization. In ICLR, 2018. 14
+[45] Zhun Zhong, Liang Zheng, Guoliang Kang, Shaozi Li, and Yi Yang. Random erasing data
+augmentation. In AAAI, 2020. 14
+[46] Bolei Zhou, Hang Zhao, Xavier Puig, Tete Xiao, Sanja Fidler, Adela Barriuso, and Antonio
+Torralba. Semantic understanding of scenes through the ade20k dataset. IJCV, 2019. 7, 14
+[47] Lei Zhu, Xinjiang Wang, Zhanghan Ke, Wayne Zhang, and Rynson WH Lau. Biformer: Vision
+transformer with bi-level routing attention. In CVPR, 2023. 2
+[48] Lianghui Zhu, Bencheng Liao, Qian Zhang, Xinlong Wang, Wenyu Liu, and Xinggang Wang.
+Vision mamba: Efficient visual representation learning with bidirectional state space model.
+arXiv preprint arXiv:2401.09417, 2024. 1, 8
+
+13
+
+Appendix
+A
+
+Datasets and Experiment Details
+
+ImageNet classification. The ImageNet-1K dataset comprises 1.28 million training images and
+50,000 validation images, encompassing 1,000 classes. For a fair comparison, we train our models
+under the same settings as Swin Transformer [26]. Specifically, we utilize AdamW [28] optimizer to
+train all our models from scratch for 300 epochs. We apply a cosine learning rate decay schedule
+with a linear warm-up of 20 epochs and a weight decay of 0.05. The total batch size is 4096
+and initial learning rate is set to 4 × 10−3 . Augmentation and regularization strategies includes
+RandAugment [5], Mixup [44], CutMix [43], and random erasing [45]. In the training of MLLA
+models, MESA [9] is employed to prevent overfitting.
+COCO object detection. COCO [24] dataset is a widely adopted benchmark for object detection
+and instance segmentation with 118K training and 5K validation images. We follow the standard 1x
+and 3x Mask R-CNN [16] training setting in Swin Transformer [26] to conduct our experiments. The
+pretrained MLLA models are employed as backbones.
+ADE20K semantic segmentation. ADE20K [46] dataset contains 25K images, 20K for training,
+2K for validation, and 3K for testing, with 150 semantic categories. UPerNet [38] is used as the
+segmentation framework and the same training setting as Swin Transformer [26] is adopted. We
+report both single-scale and multi-scale testing results.
+
+B
+
+Additional Experimental Results
+
+Additional comparison with advanced linear attention designs. The results are shown in Tab. 6.
+We empirically find that MLLA outperforms various advanced linear attention designs without bells
+and whistles.
+Table 6: Comparison with advanced linear attention designs.
+Method
+Hydra Attention [2]
+Efficient Attention [32]
+FLatten Transformer [12]
+SOFT [29]
+MLLA (Ours)
+
+C
+
+#Params
+29M
+29M
+29M
+24M
+25M
+
+FLOPs
+4.5G
+4.5G
+4.5G
+3.3G
+4.2G
+
+Acc.
+80.7
+81.0
+82.1
+82.2
+83.5
+
+Model Architectures
+
+We illustrate the architecture of our MLLA model in Fig. 7 and summarize the detailed structure
+in Tab. 7. We adopt the common 4-stage framework to build MLLA model by stacking our MLLA
+blocks at each stage.
+
+D
+
+Limitations
+
+In this paper, we explore the similarities and disparities between Mamba and linear attention Transformer, providing comprehensive analyses to demystify the key factors behind Mamba’s success.
+Specifically, we begin with the formulas and rephrase Mamba as a variant of linear attention Transformer with six major distinctions: input gate, forget gate, shortcut, no attention normalization,
+single-head and modified block design. Moreover, we meticulously analyze the pros and cons of
+each design and prove that the forget gate and block design are the core contributors to Mamba’s
+success. Based on our findings, we propose our Mamba-Like Linear Attention (MLLA) model,
+which surpasses various vision Mamba models across multiple tasks, while maintaining parallel
+computation and high inference speed. However, there may be other small differences between the
+implementation details of Mamba and linear attention Transformer, and this paper is not exhaustive.
+
+14
+
+Stage 1:
+
+𝐻
+𝑊
+× × 𝐶1
+4
+4
+
+Stage 2:
+
+𝐻
+𝑊
+× × 𝐶2
+8
+8
+
+Stage 3:
+
+𝐻
+W
+× × 𝐶3
+16
+16
+
+Stage 4:
+
+𝐻
+𝑊
+× × 𝐶4
+32
+32
+
+Stem
+
+MLLA
+Block
+
+Down Sampling
+
+MLLA
+Block
+
+Down Sampling
+
+MLLA
+Block
+
+Down Sampling
+
+MLLA
+Block
+
+× 𝐿1
+
+× 𝐿2
+
+× 𝐿3
+
+× 𝐿4
+
+Figure 7: The architecture of MLLA model.
+
+Table 7: Architectures of MLLA models.
+stage
+
+output
+
+res1
+
+56 × 56
+
+res2
+
+28 × 28
+
+downsampling, 128
+
+
+dim 128
+×4
+
+head 4
+
+downsampling, 128
+
+
+dim 128
+×6
+
+head 4
+
+downsampling, 192
+
+
+dim 192
+×6
+
+head 6
+
+14 × 14
+
+downsampling, 256
+
+
+dim 256
+
+×8
+head 8
+
+downsampling, 256
+
+
+dim 256
+
+×21
+head 8
+
+downsampling, 384
+
+
+dim 384
+
+×21
+head 12
+
+7×7
+
+downsampling, 512
+
+
+dim 512
+
+×4
+head 16
+
+downsampling, 512
+
+
+dim 512
+
+×6
+head 16
+
+downsampling, 768
+
+
+dim 768
+
+×6
+head 24
+
+res3
+
+res4
+
+MLLA-T
+
+MLLA-S
+
+stem, 64
+
+dim 64
+
+×2
+head 2
+
+stem, 64
+
+dim 64
+
+×3
+head 2
+
+
+
+
+
+15
+
+MLLA-B
+stem, 96
+
+dim 96
+
+×3
+head 3
+
+
+

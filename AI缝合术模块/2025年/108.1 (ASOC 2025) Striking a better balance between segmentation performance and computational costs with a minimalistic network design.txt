@@ -1,0 +1,3492 @@
+Applied Soft Computing Journal 182 (2025) 113549
+
+Contents lists available at ScienceDirect
+
+Applied Soft Computing
+journal homepage: www.elsevier.com/locate/asoc
+
+Striking a better balance between segmentation performance and
+computational costs with a minimalistic network design
+Duwei Dai a,b
+a
+b
+
+,∗, Caixia Dong a , Xu Yang a , Zongfang Li a , Songhua Xu b ,∗∗
+
+National-Local Joint Engineering Research Center of Biodiagnosis & Biotherapy, the Second Affiliated Hospital of Xi’an Jiaotong University, Xi’an, 710004, China
+Institute of Medical Artificial Intelligence, the Second Affiliated Hospital of Xi’an Jiaotong University, Xi’an, 710004, China
+
+ARTICLE
+
+INFO
+
+Keywords:
+Segmentation performance
+Computational costs
+Better balance
+Minimalistic network design
+
+ABSTRACT
+While many modern segmentation models achieve appealing performance, they often come with high
+computational costs, such as massive parameter counts, intensive calculations, excessive memory consumption,
+and prolonged runtime. These burdens make them impractical for resource-limited medical devices. To address
+this challenge, we strategically integrate several established modules, including asymmetric convolution,
+dilated convolution, and attention modules, to develop a novel medical image segmentation backbone named
+BMIS. Specifically, unlike traditional U-Nets, BMIS adopts a shallower yet wider structure. This design not only
+enables effective learning of high-level semantic features but also markedly mitigates the loss of fine-grained
+details caused by frequent downsampling. Consequently, the decoder in BMIS can focus primarily on spatial
+reconstruction rather than compensating for lost details, which greatly reduces its workload. Leveraging these
+benefits, the decoder of BMIS does not need to be as complex as its encoder, and skip connections between
+the encoder and decoder are no longer necessary. These two factors collectively reduce model complexity
+without compromising segmentation performance. Extensive segmentation experiments across five medical
+imaging modalities demonstrate that BMIS achieves a better balance between segmentation performance and
+computational costs compared to twenty-nine competing methods. In short, compared with the best-performing
+comparative method DSU-Net, BMIS improves IoU by ∼0.32%, while substantially reducing model parameters
+by 97.54%, FLOPs by 68.49%, GPU memory usage by 54.48%, training time by 58.82%, and inference time
+by 80.00%. These impressive results highlight BMIS’s great potential for deployment in medical devices with
+limited computational resources.
+
+1. Introduction
+Medical image segmentation holds paramount importance in computer vision, affording clinicians vital insights into complex anatomical
+regions. These insights are invaluable in pinpointing injuries, monitoring disease progression, and assessing treatment requirements. Consequently, with the escalating demand for intelligent medical image analysis, the significance of precise and automated segmentation techniques
+is escalating exponentially.
+In response to this demand, many deep learning methods based on
+an encoder–decoder architecture have emerged. The encoder’s primary
+function is to generate feature maps containing important semantic information through progressive downsampling, while the decoder
+compensates for the loss of spatial details, restores resolution, and
+
+predicts pixel-wise labels. As a representative encoder–decoder architecture, U-Net [1] has excelled in various medical segmentation tasks
+and has become the foundation for many state-of-the-art medical image
+segmentation methods. Inspired by U-Net’s success, researchers have
+incorporated advanced techniques such as attention mechanisms [2],
+Transformer [3], and Mamba [4] into its architecture, resulting in a
+series of improved networks, including Attention U-Net [5], DenseASPP [6], MSCA-Net [7], TransFuse [8], and VM-UNet [9]. Although
+these networks exhibit strong segmentation performance, their impressive results often come at a high computational costs, such as large
+parameter counts, complex calculations, substantial memory usage,
+and prolonged runtime, making them unsuitable for deployment on
+resource-constrained medical devices.
+
+∗ Corresponding author at: National-Local Joint Engineering Research Center of Biodiagnosis & Biotherapy, the Second Affiliated Hospital of Xi’an Jiaotong
+University, Xi’an, 710004, China.
+∗∗ Corresponding author.
+E-mail addresses: duweidai@xjtu.edu.cn (D. Dai), caixia_dong@xjtu.edu.cn (C. Dong), 3120307003@stu.xjtu.edu.cn (X. Yang), lzf2568@xjtu.edu.cn (Z. Li),
+songhuaxu@mail.xjtu.edu.cn (S. Xu).
+
+https://doi.org/10.1016/j.asoc.2025.113549
+Received 5 October 2024; Received in revised form 8 May 2025; Accepted 23 June 2025
+Available online 16 July 2025
+1568-4946/© 2025 Elsevier B.V. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Table 1
+Comparison of computational costs and segmentation performance between different methods across five segmentation tasks. Here, ‘‘Params’’, ‘‘FLOPs’’, ‘‘Memory’’, ‘‘Train-T’’ and
+‘‘Inf-T’’ represent the number of parameters, floating-point operations, memory usage, train time and inference time, respectively. The five tasks include skin lesion segmentation
+in dermatoscopy (Task 1), polyp segmentation in colonoscopy (Task 2), breast cancer segmentation in ultrasound (Task 3), cell nuclei segmentation in microscopy (Task 4), and
+lung segmentation in X-ray (Task 5).
+Methods
+
+Computational costs
+
+IoU scores of different segmentation tasks
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Train-T (s)
+
+Inf-T (ms)
+
+Task 1
+
+Task 2
+
+Task 3
+
+Task 4
+
+Task 5
+
+Average
+
+U-Net [1]
+TinyU-Net [12]
+MambaU-Lite [14]
+MMViT-Seg [13]
+
+34.53
+0.48
+0.39
+1.01
+
+102.40
+2.52
+1.46
+4.12
+
+5546
+3975
+6444
+6096
+
+53
+31
+102
+46
+
+18
+12
+52
+36
+
+81.33
+79.43
+79.88
+80.16
+
+68.75
+66.16
+66.33
+66.98
+
+69.69
+67.16
+67.49
+67.94
+
+80.76
+79.83
+79.95
+80.22
+
+93.11
+92.17
+92.22
+92.34
+
+78.73
+76.95
+77.17
+77.53
+
+BMIS
+
+0.87
+
+3.46
+
+2014
+
+14
+
+13
+
+83.15
+
+74.29
+
+74.06
+
+85.44
+
+96.43
+
+82.67
+
+Fig. 1. Visualization results for five different segmentation tasks. The green lines outline the ground truth, and the red lines represent the predicted masks. The yellow arrows in
+the ground truth of the nuclei image highlight the advantages of BMIS.
+
+To successfully deploy on resource-constrained medical devices,
+researchers developed efficient segmentation networks like ConvUNeXt
+[10], MobileNetV2+ [11], TinyU-Net [12], MMViT-Seg [13], and
+MambaU-Lite [14]. While these methods offer lighter weight or faster
+operations compared to traditional U-Nets, they still face two key
+challenges. First, these models only partially optimize computational
+costs. For example, ConvUNeXt boasts a low parameter count but
+high FLOPs, while MambaU-Lite has both fewer parameters and lower
+FLOPs, yet suffers from slower inference speed. This is mainly because
+some operations do not increase the number of parameters but will
+frequently access memory, resulting in slow running speed. Secondly,
+their segmentation performance lags behind that of more complex
+methods. This is primarily due to the relevant single information flow in
+the lightweight models, limiting their effectiveness in handling complex
+and variable medical images, resulting in suboptimal segmentation
+results.
+Given the above discussion, we suggest that an ideal model that
+can meet the needs of resource-constrained medical devices should
+possess four key attributes: (i) Practicality, with a straightforward
+design that facilitates seamless customization for specific applications.
+(ii) Consistency, achieved through minimal core modules to simplify
+model complexity. (iii) Effectiveness, demonstrated by consistently
+high performance across diverse segmentation tasks, regardless of data
+modality. (iv) Efficiency, characterized by reduced parameters, FLOPs,
+and memory usage, along with accelerated training and inference
+speeds.
+Inspired by the four attributes enumerated above, we strategically
+integrate several established modules, such as asymmetric convolution, dilated convolution, and attention modules, to propose a novel
+
+medical image segmentation backbone named BMIS. The proposed
+BMIS can better balance segmentation performance and computational
+costs through its minimalistic network design. Specifically, unlike conventional U-Nets with deep and narrow architectures, BMIS adopts
+a shallower yet wider structure. This design not only facilitates effective learning of high-level semantic features but also substantially
+reduces the loss of fine-grained details caused by frequent downsampling. Consequently, the decoder of BMIS primarily focuses on spatial
+reconstruction rather than compensating for lost details, significantly
+reducing its computational burden. By leveraging these advantages, the
+decoder of the proposed BMIS no longer needs to be as complex as its
+encoder. Moreover, the encoder and decoder of BMIS no longer require
+the skip connection operation. These factors collectively reduce model
+complexity while maintaining high performance. As demonstrated in
+Table 1 and Fig. 1, BMIS significantly outperforms state-of-the-art
+methods in five segmentation tasks with competitive computational
+costs. These merits make BMIS a promising backbone for medical image
+segmentation in resource-constrained settings, where both segmentation precision and computational efficiency are critical. The code of
+BMIS is available at https://github.com/duweidai/BMIS.
+Overall, the main contributions of this research are as follows:
+• By strategically integrating several established modules, we propose a novel medical image segmentation backbone named BMIS.
+The proposed BMIS adopts a shallower yet wider structure than
+2
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+traditional U-Nets. This design enables effective learning of highlevel semantic features while markedly mitigating the loss of finegrained details caused by frequent downsampling, thereby making it easier for the decoder to generate accurate segmentation
+results.
+• Benefiting from the advantages of the shallow and wide design,
+the computational complexity of the decoder in the proposed
+BMIS can be significantly lower than that of the encoder. Besides,
+BMIS can eliminate the classical skip connections between the
+encoder and decoder. These two factors collectively reduce model
+complexity without sacrificing segmentation performance.
+• Extensive experiments across five segmentation tasks consistently
+show that BMIS achieves superior accuracy with competitive
+computational efficiency compared to twenty-nine comparison
+methods. These results indicate that BMIS strikes a better balance between segmentation performance and computational costs
+through its minimalistic network design, making it particularly
+suitable for deployment on resource-constrained medical devices.
+
+Transformer blocks for hierarchical feature extraction and global context modeling. TransFuse [8] fused CNN and Transformer branches in
+parallel via a BiFusion module to synergistically combine multi-scale
+features and enhance global–local context awareness. DSU-Net [20]
+adopted a dual-stage strategy, combining coarse lesion localization
+using Swin Transformer with refined boundary delineation through
+multi-feature fusion. U-Mamba [21] integrated Vision Mamba blocks
+into U-Net, merging CNN’s local feature extraction with Mamba’s
+linear-complexity long-range dependency modeling. VM-UNet [9] pioneered a pure state-space-model (SSM)-based U-Net by incorporating
+visual SSM blocks for efficient long-range modeling while maintaining
+computational efficiency.
+Although the aforementioned networks show remarkable segmentation performance, their appealing performance often comes at the
+massive of heavy parameters, intensive calculations, excessive memory footprint, and prolonged runtime, making them unsuitable for
+deployment in resource-constrained medical devices [10].
+2.2. Low-cost segmentation methods
+
+The remainder of this paper is organized as follows: Section 2 briefly
+summarizes the related work. Section 3 provides detailed information
+about the proposed BMIS. Section 4 presents a comprehensive comparison between BMIS and twenty-nine other segmentation methods.
+Section 5 is dedicated to discussion, and Section 6 concludes the paper.
+
+To enable successful deployment on resource-constrained devices,
+various methods have been developed to enhance the efficiency of deep
+neural models.
+Inceptionv3 [22] was one of the pioneering efforts in crafting
+efficient neural networks. It employed asymmetric convolutions to decompose standard convolutions into smaller and more computationally
+efficient operations. Subsequently, SqueezeNet [23] reduced model
+parameters by using 1 × 1 filters instead of 3 × 3 convolutions, effectively compressing channel dimensions. Xception [24] advanced this
+paradigm through depth-wise separable convolutions, decoupling spatial filtering (depth-wise) from channel mixing (point-wise) to minimize
+redundancy. Similarly, MobileNets [25] adopted depth-wise separable convolutions as their core building block, achieving parameter
+efficiency while preserving accuracy. MobileNetV2 [26] further innovated with inverted residual blocks, combining depth-wise convolutions with linear bottleneck layers to enhance feature propagation in
+low-dimensional spaces.
+AlexNet [27] introduced grouped convolutions, a strategy that splits
+filters into distinct groups to reduce computational costs. Although
+computationally efficient, traditional grouped convolutions suffer from
+limited inter-group feature interaction, restricting their representational capacity. To address this, ShuffleNet [28] introduced a channel
+shuffle unit that rearranges output channels to enhance cross-group
+feature interactions. Building on this, ShuffleNetV2 [29] fused three
+sequential operations (concatenation, channel shuffling, and splitting)
+into a unified operation, enhancing feature reuse while minimizing
+redundancy.
+Beyond the classic lightweight methods mentioned above, recent advancements in artificial intelligence have given rise to numerous more
+efficient segmentation methods. For instance, EGE-UNet [30] proposed
+a group multi-axis Hadamard product attention and group aggregation bridge modules to significantly enhance UNet efficiency. TinyUNet [12] utilized a cascade multi-receptive fields module to boost feature representation while maintaining low parameters. MALUNet [31]
+combined multiple attention mechanisms with a streamlined UNet
+architecture, achieving competitive performance with reduced computational overhead. MMViT-Seg [13] fused MobileViT blocks with
+a multi-query attention module for lightweight segmentation. BATFormer [32] proposed a boundary-aware lightweight transformer with
+cross-scale global and boundary-aware local modules for efficient medical segmentation. MambaU-Lite [14] synergized Mamba and CNN
+architectures via a novel P-Mamba block and integrated channel-spatial
+attention, notably reducing parameter count. Lastly, ULVM-UNet [33]
+drastically reduced parameters and FLOPs by incorporating a parallel
+vision Mamba layer, enhancing scalability for edge devices. For more
+lightweight segmentation methods, please refer to [34–36].
+
+2. Related works
+This section categorizes related works into two groups: highperformance segmentation methods and low-cost segmentation methods. The former usually seeks higher segmentation performance with
+minimal consideration for computational costs, while the latter hopes
+to minimize the computational costs without sacrificing segmentation
+performance.
+2.1. High-performance segmentation methods
+To enhance medical image segmentation performance, Ronneberger
+et al. introduced skip connections into a fully connected network, resulting in the well-known U-Net [1]. However, despite aiding encoder–
+decoder information fusion, skip connections struggle with the significant semantic gap between low- and high-resolution features, often
+leading to blurred predictions. To address this, Zhou et al. proposed
+U-Net++ with nested skip connections [15], and Huang et al. developed U-Net3+ with full-scale skip connections to integrate contextual information across different resolutions [16]. Additionally, Feng
+et al. proposed CPFNet, which dynamically incorporates global and
+multi-scale context information via two pyramidal modules [17]. Sun
+et al. developed MSCA-Net, which fully utilizes multi-scale contextual
+information in images to improve segmentation performance [7].
+By combining spatial pyramid pooling (SPP) and atrous convolution
+techniques, Chen et al. developed the atrous spatial pyramid pooling
+(ASPP) module and the DeepLab series of networks [18], which exhibit
+strong capability in recognizing objects of varying scales. However, the
+original DeepLab struggled with precise boundary delineation due to its
+reliance on basic bilinear interpolation for restoring feature resolution
+after ASPP. In response, Yang et al. developed the densely connected
+ASPP structure (DenseASPP) [6]. This structure’s decoder integrates
+low-level ResNet features with their respective predictions, thereby
+enhancing the accuracy in detecting objects of varying shapes and
+refining boundaries.
+With the continuous advancement of artificial intelligence,
+researchers have integrated advanced techniques such as
+Transformer [3] and Mamba [4] into the U-shaped architecture, giving
+rise to a series of improved networks. For example, Swin-Unet [19]
+introduced a pure Transformer-based U-shaped architecture using Swin
+3
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Table 2
+Layer disposal of our proposed segmentation backbone (BMIS). ‘‘Out-N’’: number of
+feature maps at layer’s output. ‘‘Out-Res’’: output resolution for an example input size
+of 320 × 320. ‘‘PCDM’’: pooling & conv down-sampling module. ‘‘EACM’’: enhanced
+asymmetric convolution module. ‘‘DACM’’: dilated asymmetric convolution module.
+‘‘CSAM’’: channel & spatial attention module. ‘‘𝐶’’: number of categories.
+
+Encoder
+
+Fig. 2. Illustration of the proposed medical image segmentation backbone (BMIS). All
+spatial resolution values are with regard to the input scale 320 × 320, but the network
+can operate with arbitrary image sizes.
+Decoder
+
+Despite the significant progress achieved by the aforementioned
+methods in advancing model efficiency, two crucial issues remain: (i)
+these models only partially optimize computational costs, as exemplified by MMViT-Seg [13] and MambaU-Lite [14], which have few
+parameters and low FLOPs at the cost of notably slower inference
+speed; (ii) these methods still lag behind their complex counterparts
+in segmentation performance. Driven by these concerns, this study
+proposes a novel segmentation backbone (BMIS) to strike a better
+balance between segmentation performance and computational costs.
+
+Layer
+
+Type
+
+Out-N
+
+Out-Res
+
+1
+
+PCDM
+
+16
+
+160 × 160
+
+2
+3–7
+
+PCDM
+5 × EACM
+
+64
+64
+
+80 × 80
+80 × 80
+
+8
+9
+10
+11
+12
+13
+
+PCDM
+DACM (dilated = 2)
+DACM (dilated = 3)
+DACM (dilated = 4)
+DACM (dilated = 5)
+CSAM
+
+96
+96
+96
+96
+96
+96
+
+40 × 40
+40 × 40
+40 × 40
+40 × 40
+40 × 40
+40 × 40
+
+14
+15
+
+Deconvolution
+EACM
+
+64
+64
+
+80 × 80
+80 × 80
+
+16
+17
+
+Deconvolution
+EACM
+
+16
+16
+
+160 × 160
+160 × 160
+
+18
+
+Deconvolution
+
+𝐶
+
+320 × 320
+
+3. Proposed method
+3.1. Overall
+The central objective of this study is to achieve an optimal balance
+between segmentation performance and the associated computational
+costs with a minimalistic network architecture. To accomplish this,
+we strategically integrate several well-established modules, including
+asymmetric convolution, dilated convolution, and attention modules,
+to propose a novel 2D medical image segmentation backbone named
+BMIS (see Fig. 2).
+In contrast to conventional U-Nets, which are characterized by deep
+and narrow architectures, the proposed BMIS adopts a shallower yet
+wider structure. This design enables effective learning of high-level
+semantic features in the image while substantially reduces the loss of
+detailed information caused by frequent downsampling. Consequently,
+the decoder of BMIS primarily focuses on spatial reconstruction rather
+than compensating for lost details. This significantly reduces the decoder’s workload, making it easier to generate accurate segmentation
+results. Thanks to this advantage, the proposed BMIS introduces three
+structural innovations: (i) It enables asymmetric decoders, meaning the
+decoder of BMIS can be much simpler than the encoder. (ii) It can eliminate the skip connections, a standard configuration in traditional codec
+networks, between the encoder and decoder without segmentation
+performance sacrifice. (iii) It can save the network from doubling the
+number of feature maps after each down-sampling operation, allowing
+it to achieve powerful feature learning ability with fewer feature maps.
+These three innovative designs collectively contribute to a substantial
+reduction in network complexity.
+Table 2 outlines the structural details of the newly proposed BMIS.
+The encoder of BMIS backbone comprises layers 1 to 13, encompassing
+the pooling & convolution downsampling module (PCDM, see Fig. 3),
+the enhanced asymmetric convolution module (EACM, see Fig. 4), the
+dilated asymmetric convolution module (DACM, see Fig. 4), and the
+channel & spatial attention module (CSAM, see Fig. 5).
+Despite the potential reduction in pixel precision, down-sampling
+operations offer two key advantages: capturing a wider context in
+deeper layers and reducing computational costs. Therefore, to strike a
+
+Fig. 3. Illustration of the introduced pooling & conv down-sampling module (PCDM).
+Max-pooling is performed with non-overlapping 2 × 2 windows, and the convolution
+has 𝐶𝑜 − 𝐶𝑖 filters, which sums up to 𝐶𝑜 feature maps after concatenation.
+
+balance, we strategically incorporate three down-sampling operations
+at layers 1, 2, and 8. The down-sampler in our approach, termed PCDM,
+involves merging the concurrent outputs of strided convolution and
+max-pooling operations.
+Acknowledging the redundancy in traditional convolutions and the
+decomposability of 𝑘 × 𝑘 filters into smaller 𝑘 × 1 and 1 × 𝑘 components,
+we developed the EACM to supersede standard convolutions. In the
+BMIS, Layers 3 to 7 leverage five stacked EACM modules for comprehensive feature extraction. Recognizing that dilated convolutions
+expand the receptive field while maintaining parameter efficiency, we
+incorporate them into the EACM to form a dilated asymmetric convolution module, referred to as DACM. Layers 9 to 12 of BMIS utilize four
+stacked DACM modules to enrich contextual information and enhance
+segmentation accuracy. Additionally, the 13th layer introduces the
+CSAM module [37], which excels in capturing long-range dependencies
+and multi-channel spatial representations, further boosting semantic
+segmentation performance.
+The decoder of BMIS, composed of layers 14 to 18, is significantly
+simpler than the encoder. Its main task is to up-sample the encoder’s
+feature maps to match the input resolution. Due to the inherent ability to learn self-adaptive mappings, deconvolution naturally excels at
+restoring features with richer, more informative details than simple
+up-scaling methods. Therefore, we utilize deconvolution to reconstruct
+high-resolution features within the decoder module.
+3.2. Pooling & conv down-sampling module
+Pooling and strided convolution are two prevalent down-sampling
+techniques. Pooling layers effectively reduce feature dimensions by
+4
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Fig. 5. Illustration of the introduced channel & spatial attention module (CSAM). For
+input features with dimension 𝐶 × 𝐻 × 𝑊 , 𝑁 in the CSAM is 𝐻 × 𝑊 .
+
+performance improvements [38]. This approach maintains segmentation performance while significantly simplifying the complexity of the
+channel attention module (see Fig. 4).
+Furthermore, considering that dilated convolution effectively enlarges the receptive field of feature maps without incrementing the
+parameter count, we substitute the second set of 3 × 1 and 1 × 3
+in the EACM with a pair of dilated asymmetric convolutions, thereby
+creating the dilated asymmetric convolution module (DACM, see Fig.
+4). This modification empowers the DACM to capture contextual information within a broader receptive field without adding any extra model
+parameters.
+In BMIS, the dilation rates for the four DACM modules are sequentially set to 2, 3, 4, and 5 (see Table 2). This progressively increasing
+dilation strategy allows DACM to achieve multi-scale receptive field
+coverage, which is particularly beneficial for spatial context-aware
+tasks such as medical image segmentation.
+By integrating EACM’s precision in local feature extraction with
+DACM’s capacity for contextual semantic modeling, the proposed BMIS
+aligns with the hierarchical feature extraction paradigm of deep learning. This layered approach not only optimizes computational efficiency
+but also enhances the model’s robustness for complex segmentation
+tasks involving intricate anatomical structures.
+
+Fig. 4. Illustration of the proposed enhanced asymmetric convolution module (EACM),
+which is mainly composed of asymmetric convolution, efficient channel attention, and
+residual connections. Notably, the proposed dilated asymmetric convolution module
+(DACM) shares the same structure as EACM, with their sole distinction lying in
+the second pair of 3 × 1 and 1 × 3 convolutional layers: EACM employs standard
+(non-dilated) convolutions in these layers, whereas DACM replaces them with dilated
+counterparts.
+
+selectively assessing existing features, thus preventing an increase in
+training parameters. Conversely, strided convolution reduces feature
+dimensions while extracting additional features, involving trainable
+weights and biases. In light of harnessing the advantages of pooling and
+strided convolution, we introduce the pooling & conv down-sampling
+module (PCDM, see Fig. 3). The introduced PCDM can not only selectively maintain the features of the preceding layer but also learn new
+features based on the preceding layer.
+The input of PCDM is a feature with dimension 𝐶𝑖 × 𝐻 × 𝑊 . When
+through the max-pooling layer with stride 2, its shape is reduced to
+𝐶𝑖 × (𝐻∕2) × (𝑊 ∕2). On the other hand, when through the convolution
+layer with stride 2, its resolution is reduced to (𝐻∕2) × (𝑊 ∕2), with the
+channel number transitioning to 𝐶𝑜−𝑖 . Subsequently, these two downsampled features are concatenated along the channel axis, resulting in
+a final output of 𝐶𝑜 × (𝐻∕2) × (𝑊 ∕2).
+
+3.4. Channel & spatial attention module
+To further expand the network’s receptive field, we introduce the
+widely used CSAM module [37], which can efficiently capture longrange dependencies and multi-channel representations (see Fig. 5). The
+input to CSAM is processed through two parallel attention blocks: the
+spatial attention block and the channel attention block. These two
+blocks work together to enhance features’ sensitivity to both spatial and
+channel attention.
+Notably, in this work, the implementation of CSAM differs slightly
+from its original version to better align with our lightweight backbone
+design. Specifically, we reduce the number of channels for ‘‘Q’’ and ‘‘K’’
+from 𝐶 to 𝐶∕2. For more implementation details on the CSAM module,
+please refer to Refs. [37,40,41].
+
+3.3. Enhanced asymmetric convolution module
+We propose an enhanced asymmetric convolution module (EACM,
+see Fig. 4) to improve the feature learning ability of traditional convolution while reducing the computational costs. The proposed EACM
+mainly consists of asymmetric convolution, efficient channel attention [38], and residual connections.
+Previous studies have demonstrated that a 𝑘 × 𝑘 convolution
+can be efficiently decomposed into a sequence of a 𝑘 × 1 filter
+followed by a 1 × 𝑘 filter. Drawing from these insights, Kahatapitiya
+et al. revealed that convolutional layers could be reformulated using
+1D filters, incorporating non-linearities and activation functions for
+enhanced functionality [39]. This decomposition not only simplifies the
+architecture but also cuts computational costs. Moreover, introducing
+nonlinearity between these 1D filters effectively enhances learning
+capacity. Therefore, in this paper, we consistently replace the 3 × 3
+convolution with two asymmetric convolutions: 3 × 1 and 1 × 3.
+Current approaches often focus on the development of intricate
+attention modules to boost segmentation performance, but this comes
+with increased model complexity. To strike a balance between performance and simplicity, we introduce an efficient channel attention
+module (ECA) that boasts minimal parameters yet delivers remarkable
+
+3.5. Loss function
+A significant challenge in medical image segmentation is the imbalance in class distribution. To address this, we adopt a combined loss
+function (𝑡𝑜𝑡𝑎𝑙 ), which integrates cross-entropy loss (𝐶𝐸 ) and Dice
+loss (𝐷𝑖𝑐𝑒 ) for model optimization [17]. The formulas for these losses
+are as follows:
+1 ∑
+𝑔 . log (𝑝𝑖 ) + (1 − 𝑔𝑖 ). log (1 − 𝑝𝑖 )
+𝑁 𝑖=1 𝑖
+𝑁
+
+𝐶𝐸 = −
+5
+
+(1)
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+∑𝑁
+
+𝑖=1 𝑔𝑖 ⋅ 𝑝𝑖 + 𝜖
+∑𝑁
+𝑖=1 𝑔𝑖 +
+𝑖=1 𝑝𝑖 + 𝜖
+
+2
+𝐷𝑖𝑐𝑒 = 1 − ∑𝑁
+
+𝑡𝑜𝑡𝑎𝑙 = 𝐷𝑖𝑐𝑒 + 𝐶𝐸
+
+Table 3
+Computational costs comparison of different methods.
+
+(2)
+(3)
+
+where 𝑔𝑖 and 𝑝𝑖 denote the ground-truth annotation and probability
+map, respectively. To avoid division by zero, we introduce a small
+constant 𝜖 (set to 0.00001) for numerical stability. Additionally, 𝑁 represents the total number of pixels (𝑊 × 𝐻). For consistent evaluation,
+all methods in our experiments utilize the combined 𝑡𝑜𝑡𝑎𝑙 as the default
+loss function.
+3.6. Evaluation criteria
+To evaluate the performance of various segmentation models, we
+employ three widely adopted metrics: Intersection over Union (IoU)
+for quantifying spatial overlap, Dice Similarity Coefficient (Dice) for
+measuring region similarity, and Area Under the ROC Curve (AUC) for
+assessing threshold-dependent robustness.
+In addition, to assess statistical significance, we apply a paired ttest algorithm [42] to calculate p-values comparing BMIS with each
+comparison method across three performance metrics: IoU, Dice, and
+AUC. Following commonly accepted statistical practice, we adopt a
+significance threshold of 𝑝-value < 0.01 for all comparisons [43,44].
+3.7. Network configuration and training procedure
+The proposed network is implemented using PyTorch on an NVIDIA
+GeForce RTX 2080Ti GPU. The initial learning rate is set to 0.001, and
+the learning rate schedule follows the CosineAnnealingWarmRestarts
+policy with parameters 𝑇0 = 10 and 𝑇mult = 2. In addition, the adaptive
+moment estimation (Adam) optimizer with a weight decay of 0.00005
+is used throughout training. All comparison methods are trained for
+250 epochs with a batch size of 4, and the best-performing model on
+the validation set is selected for testing. Importantly, to ensure fair
+comparisons, all input data is resized to 320 × 320 pixels and no data
+augmentation is applied.
+
+Methods
+
+Param
+(M)
+
+FLOPs
+(G)
+
+Memory
+(MB)
+
+Train-T
+(s)
+
+Inf-T
+(ms)
+
+U-Net [1]
+Res-UNet [45]
+AttU-Net [5]
+U-Net++ [15]
+DeeplabV3+ [18]
+DenseASPP [6]
+
+34.53
+35.75
+34.88
+36.63
+39.76
+35.37
+
+102.40
+109.03
+104.13
+215.87
+67.67
+61.10
+
+5546
+6484
+6106
+10 274
+3842
+8648
+
+53
+61
+59
+114
+79
+90
+
+18
+21
+20
+37
+21
+36
+
+Trans-UNet [46]
+Swin-UNet [19]
+H-Net [47]
+CPF-Net [17]
+MSCA-Net [7]
+HiFormer [48]
+TransFuse [8]
+VM-UNet [9]
+DSU-Net [20]
+
+93.19
+27.12
+49.85
+30.65
+27.09
+29.52
+26.33
+32.32
+35.36
+
+50.22
+11.96
+34.94
+12.58
+18.41
+24.23
+17.97
+11.81
+10.98
+
+6472
+3876
+3786
+3090
+4354
+6368
+3098
+7623
+4424
+
+60
+36
+32
+22
+30
+38
+37
+96
+34
+
+32
+23
+15
+15
+15
+30
+22
+33
+65
+
+EGE-UNet [30]
+ULVM-UNet [33]
+TinyU-Net [12]
+MambaU-Lite [14]
+MMViT-Seg [13]
+ShuffleNetV2+ [49]
+MobileNetV2+ [11]
+Ghost-UNet [50]
+MALUNet [31]
+ConvUNeXt [10]
+BATFormer [32]
+Rolling-UNet [36]
+CA-Net [34]
+MedT [35]
+
+0.05
+0.04
+0.48
+0.39
+1.01
+5.53
+7.01
+9.31
+0.18
+3.51
+1.40
+7.09
+2.79
+1.56
+
+0.12
+0.09
+2.52
+1.46
+4.12
+9.21
+12.13
+39.21
+0.13
+11.23
+6.20
+12.91
+9.34
+3.49
+
+1193
+759
+3975
+6444
+6096
+2482
+3606
+7128
+815
+5638
+4849
+2804
+2778
+8136
+
+23
+19
+31
+102
+46
+26
+29
+49
+15
+57
+41
+54
+41
+341
+
+17
+13
+12
+52
+36
+15
+13
+14
+14
+13
+17
+70
+44
+366
+
+BMIS
+
+0.87
+
+3.46
+
+2014
+
+14
+
+13
+
+is measured as the duration required to train 1000 images with a batch
+size of 4, while the inference time is the time taken to evaluate a single
+image with a batch size of 1.
+By analyzing the numerical results across the five dimensions in Table 3, it is evident that the computational efficiency of BMIS surpasses
+that of most networks, although it is slightly inferior to EGE-UNet,
+ULVM-UNet, TinyU-Net, and MALUNet. This result suggests that BMIS
+has the potential for deployment in devices with constrained resources.
+Next, we focus on evaluating the segmentation performance of different
+models across five distinct segmentation tasks.
+
+4. Experiments and results
+4.1. Comparison methods and computational costs
+To validate the effectiveness of our proposed BMIS, we compare
+it with twenty-nine state-of-the-art methods, which can be broadly
+categorized into three groups:
+(1) Six classical segmentation methods, including:
+U-Net [1], AttU-Net [5], Res-UNet [45], U-Net++ [15],
+DeeplabV3+ [18], and DenseASPP [6].
+(2) Nine high-performance medical image segmentation methods,
+including:
+Trans-UNet [46], Swin-UNet [19], H-Net [47], CPF-Net [17], MSCANet [7], HiFormer [48], TransFuse [8], VM-UNet [9], and DSU-Net
+[20].
+(3) Fourteen low-cost segmentation methods, including:
+ShuffleNetV2+ [49], MobileNetV2+ [11], Ghost-UNet [50], ConvUNeXt [10], Rolling-UNet [36], CA-Net [34], MedT [35],
+MALUNet [31], EGE-UNet [30], MMViT-Seg [13], BATFormer [32],
+TinyU-Net [12], ULVM-UNet [33], and MambaU-Lite [14].
+Since the computational resource requirements are a prerequisite
+for whether a model can be deployed on a medical device with limited
+computing resources, we first compare the computational efficiency of
+different models. Table 3 comprehensively compares the computational
+costs of different models from five dimensions, including parameter
+count, FLOPs, memory footprint, training and testing time. The computational costs of all models are evaluated under uniform experimental
+conditions. Specifically, the input scale is 320 × 320; the training time
+
+4.2. Task 1: dermoscopic skin lesion segmentation
+4.2.1. Dataset of skin lesion segmentation
+Skin lesion segmentation in dermoscopy images is crucial for automatic melanoma screening and detection. To validate the effectiveness
+of our proposed BMIS in this application, we utilized two publicly
+accessible datasets: ISIC2018 and PH2 [7].
+ISIC2018 is a dataset from the ‘‘Skin Lesion Analysis toward
+Melanoma Detection’’ challenge. It contains 2594 RGB images sourced
+from various clinical centers. The whole dataset is randomly partitioned
+into training (70%, 1816 samples), validation (10%, 259 samples), and
+test sets (20%, 519 samples).
+PH2 is a small dataset containing only 200 dermoscopic images. Notably, it is not used for training but rather to assess the generalizability
+of models initially trained on the ISIC2018 dataset.
+4.2.2. Performance of skin lesion segmentation
+Table 4 displays the skin lesion segmentation performance of various models. We conducted five-fold cross-validation on both ISIC2018
+and PH2 datasets and report the average performance across all evaluation metrics. The ‘‘ISIC2018’’ columns reflect the models’ performance
+when trained and tested on ISIC2018, while ‘‘ISIC2018→ PH2 ’’ columns
+6
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+Table 4
+Performance comparison of different methods for skin lesion segmentation. The best results are highlighted in bold.
+Methods
+
+ISIC2018→PH2
+
+ISIC2018
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+U-Net [1]
+Res-UNet [45]
+AttU-Net [5]
+U-Net++ [15]
+DeeplabV3+ [18]
+DenseASPP [6]
+
+81.33 ± 0.42
+81.89 ± 0.44
+81.91 ± 0.44
+82.00 ± 0.40
+82.17 ± 0.52
+82.25 ± 0.49
+
+88.69 ± 0.33
+88.99 ± 0.34
+89.14 ± 0.36
+89.09 ± 0.31
+89.42 ± 0.42
+89.37 ± 0.40
+
+92.52 ± 0.40
+92.96 ± 0.41
+93.06 ± 0.40
+93.07 ± 0.36
+93.32 ± 0.45
+93.37 ± 0.42
+
+81.18 ± 0.55
+81.50 ± 0.56
+81.86 ± 0.58
+82.38 ± 0.53
+82.13 ± 0.60
+82.15 ± 0.57
+
+88.93 ± 0.36
+89.06 ± 0.36
+89.25 ± 0.37
+89.84 ± 0.33
+89.32 ± 0.41
+89.54 ± 0.38
+
+90.66 ± 0.42
+90.88 ± 0.44
+91.16 ± 0.45
+91.75 ± 0.38
+91.40 ± 0.49
+91.47 ± 0.46
+
+Trans-UNet [46]
+Swin-UNet [19]
+H-Net [47]
+CPF-Net [17]
+MSCA-Net [7]
+HiFormer [48]
+TransFuse [8]
+VM-UNet [9]
+DSU-Net [20]
+
+82.22 ± 0.62
+82.30 ± 0.47
+82.34 ± 0.55
+82.43 ± 0.48
+82.49 ± 0.57
+82.61 ± 0.54
+82.67 ± 0.60
+82.73 ± 0.58
+82.78 ± 0.55
+
+89.39 ± 0.48
+89.29 ± 0.36
+89.41 ± 0.43
+89.58 ± 0.38
+89.54 ± 0.45
+89.62 ± 0.44
+89.67 ± 0.46
+89.69 ± 0.45
+89.71 ± 0.43
+
+93.36 ± 0.50
+93.34 ± 0.42
+93.43 ± 0.46
+93.56 ± 0.43
+93.58 ± 0.47
+93.68 ± 0.45
+93.74 ± 0.49
+93.78 ± 0.53
+93.82 ± 0.51
+
+83.02 ± 0.66
+82.24 ± 0.58
+81.88 ± 0.61
+82.31 ± 0.59
+82.95 ± 0.62
+83.11 ± 0.59
+83.24 ± 0.65
+83.36 ± 0.61
+83.42 ± 0.59
+
+90.24 ± 0.52
+89.58 ± 0.43
+89.49 ± 0.42
+89.82 ± 0.38
+90.28 ± 0.47
+90.29 ± 0.43
+90.41 ± 0.53
+90.45 ± 0.46
+90.50 ± 0.45
+
+92.29 ± 0.53
+91.53 ± 0.44
+91.31 ± 0.48
+91.71 ± 0.47
+92.29 ± 0.51
+92.36 ± 0.49
+92.49 ± 0.51
+92.57 ± 0.55
+92.63 ± 0.53
+
+EGE-UNet [30]
+ULVM-UNet [33]
+TinyU-Net [12]
+MambaU-Lite [14]
+MMViT-Seg [13]
+ShuffleNetV2+ [49]
+MobileNetV2+ [11]
+Ghost-UNet [50]
+MALUNet [31]
+ConvUNeXt [10]
+BATFormer [32]
+Rolling-UNet [36]
+CA-Net [34]
+MedT [35]
+
+78.44 ± 0.40
+78.79 ± 0.43
+79.43 ± 0.49
+79.88 ± 0.48
+80.16 ± 0.51
+80.50 ± 0.73
+80.76 ± 0.71
+81.82 ± 0.66
+81.84 ± 0.50
+82.04 ± 0.52
+82.09 ± 0.54
+82.20 ± 0.61
+82.36 ± 0.57
+82.54 ± 0.76
+
+86.19 ± 0.33
+86.65 ± 0.34
+87.24 ± 0.40
+87.45 ± 0.41
+87.71 ± 0.43
+88.14 ± 0.56
+88.04 ± 0.55
+88.99 ± 0.50
+89.07 ± 0.41
+89.13 ± 0.40
+89.22 ± 0.44
+89.28 ± 0.45
+89.43 ± 0.47
+89.60 ± 0.59
+
+89.64 ± 0.38
+90.08 ± 0.39
+90.75 ± 0.46
+91.08 ± 0.46
+91.37 ± 0.48
+91.80 ± 0.67
+91.85 ± 0.65
+92.93 ± 0.60
+92.95 ± 0.47
+93.12 ± 0.48
+93.19 ± 0.50
+93.28 ± 0.55
+93.45 ± 0.54
+93.64 ± 0.68
+
+79.42 ± 0.54
+80.90 ± 0.55
+80.75 ± 0.54
+81.78 ± 0.56
+81.91 ± 0.57
+82.40 ± 0.70
+82.36 ± 0.68
+82.05 ± 0.71
+82.69 ± 0.56
+82.71 ± 0.61
+82.89 ± 0.58
+83.08 ± 0.63
+83.29 ± 0.60
+83.35 ± 0.70
+
+87.99 ± 0.35
+88.77 ± 0.36
+88.42 ± 0.41
+89.31 ± 0.43
+89.53 ± 0.43
+89.74 ± 0.55
+89.85 ± 0.53
+89.56 ± 0.59
+89.84 ± 0.42
+90.00 ± 0.44
+90.11 ± 0.43
+90.26 ± 0.51
+90.45 ± 0.39
+90.42 ± 0.52
+
+89.29 ± 0.46
+90.43 ± 0.47
+90.15 ± 0.48
+91.16 ± 0.49
+91.35 ± 0.51
+91.70 ± 0.64
+91.75 ± 0.62
+91.43 ± 0.66
+91.89 ± 0.49
+92.00 ± 0.54
+92.15 ± 0.52
+92.33 ± 0.58
+92.54 ± 0.51
+92.55 ± 0.62
+
+BMIS
+
+83.15 ± 0.35
+
+90.00 ± 0.32
+
+94.17 ± 0.34
+
+84.22 ± 0.49
+
+91.04 ± 0.35
+
+93.32 ± 0.43
+
+P-values comparing BMIS with each of the competing methods are below 0.01 for all IoU, Dice and AUC metrics.
+
+showcase their performance when trained on ISIC2018 but tested on
+PH2 .
+Performance on ISIC2018 dataset: First, focusing on the
+‘‘ISIC2018’’ columns, our proposed BMIS significantly outperforms the
+comparison methods. Specifically, compared to U-Net, the IoU of BMIS
+improved by 1.82%. Compared with the best classical segmentation
+method (DenseASPP), the IoU of our BMIS improved by 0.90%. Compared with DSU-Net, the best-performing comparison method, the IoU
+of BMIS improved by 0.37%. Among low-cost segmentation networks,
+CA-Net and MedT are noteworthy, but BMIS still surpasses them with
+0.79% and 0.61% higher IoU, respectively. Similar improvements are
+observed in both the Dice and IoU metrics, further validating the
+advantages of BMIS.
+Generalization on PH2 dataset: Next, please pay attention to the
+columns labeled ‘‘ISIC2018→ PH2 ’’, which reflect the generalization
+capabilities of various models. It can be seen that the proposed BMIS
+maintains its superiority over other methods. Compared with U-Net, the
+IoU of BMIS improved by 3.04%. Compared with the best comparison
+method (DSU-Net), the IoU of BMIS improved by 0.80%. The good
+generalization ability of BMIS is primarily due to two factors: (i) The
+number of parameters in BMIS is very small (only 0.87M), which
+helps effectively mitigate overfitting. (ii) The EACM, DACM, and CSAM
+modules in BMIS enable comprehensive learning of both local and
+global information in images, resulting in strong discriminability and
+summarization ability.
+Statistical significance: Table 4 presents the p-values comparing
+BMIS’s segmentation performance with that of each competing method
+in terms of IoU, Dice, and ACU metrics. All p-values are below 0.01,
+indicating that the improvements achieved by BMIS are statistically
+significant and not due to random variation.
+Visualization results: Fig. 6 visually compares the segmentation
+results from various models. As shown in the figure, BMIS significantly
+outperforms EGE-UNet, ShuffleNetV2+, U-Net, CA-Net, DenseASPP,
+
+and MedT, which often exhibit noticeable over-segmentation or undersegmentation issues. Although TransFuse and DSU-Net produce results
+close to those of BMIS, they still fall short in accurately capturing fine
+edge details compared to our method.
+Performance-computational costs balance: A comprehensive
+analysis of the numerical results in Tables 3 and 4 demonstrates
+that BMIS achieves a better balance between segmentation performance and computational costs. For instance, compared to four models
+with lower computational costs (EGE-UNet, ULVM-UNet, TinyU-Net,
+and MALUNet), BMIS attains IoU improvements of 4.71%, 4.36%,
+3.72%, and 1.31% respectively. Moreover, compared to DSU-Net, the
+top-performing comparative method, BMIS reduces the number of
+parameters by 97.54%, FLOPs by 68.49%, GPU memory usage by
+54.48%, training time by 58.82%, and inference time by 80.00%.
+4.3. Task 2: colonoscopic polyp segmentation
+4.3.1. Dataset of polyp segmentation
+The second application involves polyp segmentation from
+colonoscopy images. Accurate polyp segmentation can provide crucial
+information for colorectal cancer diagnosis and surgical procedures. In
+this experiment, five publicly available polyp-associated datasets are
+used, including CVC-ClinicDB, Kvasir, EndoScene, CVC-ColonDB, and
+ETIS [51]. We follow the data partitioning method outlined in [8],
+where 1450 training images are selected exclusively from CVC-ClinicDB
+and Kvasir, while 798 testing images are drawn from all five datasets.
+To accurately and reliably evaluate the performance of different methods, we repeat the experiment five times using the same data split but
+different random seed values, and report the average IoU, Dice, and
+AUC scores.
+4.3.2. Performance of polyp segmentation
+Table 5 quantitatively analyzes the segmentation performance of
+various models across five polyp-related datasets, encompassing two
+7
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Fig. 6. Visualization results of skin lesion segmentation on ISIC2018 (first three rows) and PH2 (last two rows). Green lines indicate ground truth, and red lines represent predicted
+masks.
+Table 5
+Performance comparison of different methods for polyp segmentation. The best results are highlighted in bold.
+Methods
+
+Average
+
+ClinicDB
+
+Kvasir
+
+EndoScene
+
+ColonDB
+
+ETIS
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+IoU
+
+IoU
+
+IoU
+
+IoU
+
+U-Net [1]
+Res-UNet [45]
+AttU-Net [5]
+U-Net++ [15]
+DeeplabV3+ [18]
+DenseASPP [6]
+
+68.75 ± 0.47
+69.68 ± 0.50
+69.44 ± 0.50
+70.78 ± 0.44
+71.84 ± 0.53
+72.17 ± 0.52
+
+76.00 ± 0.41
+76.85 ± 0.42
+76.42 ± 0.43
+77.64 ± 0.41
+79.06 ± 0.48
+79.23 ± 0.44
+
+79.14 ± 0.48
+80.10 ± 0.50
+79.76 ± 0.52
+81.15 ± 0.46
+82.37 ± 0.54
+82.74 ± 0.53
+
+84.84 ± 0.37
+86.22 ± 0.39
+84.96 ± 0.40
+84.48 ± 0.35
+85.65 ± 0.44
+86.49 ± 0.42
+
+79.40 ± 0.43
+79.16 ± 0.46
+78.78 ± 0.43
+82.22 ± 0.38
+83.70 ± 0.46
+83.97 ± 0.48
+
+76.33 ± 0.47
+75.13 ± 0.48
+78.18 ± 0.51
+72.67 ± 0.44
+77.68 ± 0.53
+74.56 ± 0.50
+
+57.14 ± 0.52
+58.08 ± 0.55
+58.22 ± 0.54
+61.33 ± 0.46
+60.71 ± 0.59
+65.54 ± 0.57
+
+46.06 ± 0.56
+49.83 ± 0.58
+47.05 ± 0.59
+53.19 ± 0.53
+51.46 ± 0.62
+50.27 ± 0.60
+
+Trans-UNet [46]
+Swin-UNet [19]
+H-Net [47]
+CPF-Net [17]
+MSCA-Net [7]
+HiFormer [48]
+TransFuse [8]
+VM-UNet [9]
+DSU-Net [20]
+
+72.80 ± 0.66
+72.33 ± 0.50
+72.82 ± 0.59
+72.77 ± 0.48
+73.12 ± 0.58
+73.41 ± 0.59
+73.65 ± 0.63
+73.87 ± 0.59
+73.91 ± 0.59
+
+79.99 ± 0.63
+79.29 ± 0.44
+80.11 ± 0.51
+79.46 ± 0.43
+80.24 ± 0.56
+80.41 ± 0.55
+80.77 ± 0.57
+80.96 ± 0.54
+81.03 ± 0.55
+
+83.50 ± 0.70
+82.85 ± 0.51
+83.59 ± 0.61
+83.16 ± 0.49
+83.81 ± 0.62
+84.05 ± 0.62
+84.38 ± 0.65
+84.59 ± 0.61
+84.67 ± 0.62
+
+86.27 ± 0.57
+86.13 ± 0.41
+85.18 ± 0.49
+85.81 ± 0.40
+85.73 ± 0.51
+86.58 ± 0.52
+86.94 ± 0.55
+86.32 ± 0.51
+86.97 ± 0.50
+
+82.48 ± 0.59
+84.52 ± 0.43
+83.15 ± 0.54
+84.49 ± 0.39
+83.29 ± 0.49
+83.72 ± 0.52
+84.16 ± 0.55
+84.35 ± 0.52
+84.24 ± 0.53
+
+76.04 ± 0.67
+75.88 ± 0.49
+78.15 ± 0.58
+75.12 ± 0.48
+76.19 ± 0.60
+77.96 ± 0.61
+78.29 ± 0.65
+78.11 ± 0.59
+78.62 ± 0.59
+
+65.68 ± 0.79
+62.39 ± 0.54
+66.30 ± 0.69
+64.67 ± 0.52
+66.13 ± 0.64
+65.12 ± 0.69
+65.60 ± 0.73
+66.31 ± 0.69
+65.53 ± 0.68
+
+53.52 ± 0.68
+52.75 ± 0.59
+51.33 ± 0.64
+53.77 ± 0.57
+54.27 ± 0.63
+53.65 ± 0.60
+53.25 ± 0.65
+54.26 ± 0.64
+54.18 ± 0.62
+
+EGE-UNet [30]
+ULVM-UNet [33]
+TinyU-Net [12]
+MambaU-Lite [14]
+MMViT-Seg [13]
+ShuffleNetV2+ [49]
+MobileNetV2+ [11]
+Ghost-UNet [50]
+MALUNet [31]
+ConvUNeXt [10]
+BATFormer [32]
+Rolling-UNet [36]
+CA-Net [34]
+MedT [35]
+
+65.84 ± 0.45
+66.05 ± 0.47
+66.16 ± 0.51
+66.33 ± 0.48
+66.98 ± 0.53
+66.83 ± 0.74
+67.46 ± 0.72
+67.54 ± 0.70
+69.11 ± 0.50
+71.56 ± 0.55
+72.09 ± 0.58
+72.36 ± 0.59
+72.50 ± 0.61
+73.11 ± 0.75
+
+73.12 ± 0.41
+73.44 ± 0.42
+73.51 ± 0.46
+73.69 ± 0.45
+74.26 ± 0.49
+73.87 ± 0.68
+74.98 ± 0.64
+75.25 ± 0.67
+76.35 ± 0.47
+78.31 ± 0.49
+79.18 ± 0.55
+79.42 ± 0.54
+79.56 ± 0.58
+79.62 ± 0.73
+
+76.05 ± 0.46
+76.30 ± 0.48
+76.39 ± 0.52
+76.58 ± 0.50
+77.24 ± 0.55
+76.93 ± 0.77
+77.91 ± 0.73
+78.11 ± 0.74
+79.53 ± 0.52
+81.84 ± 0.56
+82.63 ± 0.61
+82.95 ± 0.61
+83.10 ± 0.64
+83.42 ± 0.80
+
+81.28 ± 0.35
+79.97 ± 0.38
+81.06 ± 0.43
+80.46 ± 0.40
+81.35 ± 0.44
+81.53 ± 0.69
+82.03 ± 0.66
+80.70 ± 0.63
+81.96 ± 0.43
+84.21 ± 0.46
+84.68 ± 0.51
+85.62 ± 0.52
+85.96 ± 0.53
+86.03 ± 0.71
+
+75.87 ± 0.40
+76.12 ± 0.42
+76.24 ± 0.44
+76.73 ± 0.41
+78.24 ± 0.47
+77.61 ± 0.63
+79.55 ± 0.62
+77.79 ± 0.60
+77.45 ± 0.42
+83.11 ± 0.48
+82.45 ± 0.50
+82.58 ± 0.48
+82.96 ± 0.53
+83.98 ± 0.64
+
+70.55 ± 0.45
+74.55 ± 0.47
+75.12 ± 0.50
+70.68 ± 0.48
+71.79 ± 0.52
+78.31 ± 0.78
+72.93 ± 0.75
+70.02 ± 0.72
+75.37 ± 0.50
+76.53 ± 0.56
+76.33 ± 0.60
+76.13 ± 0.57
+75.92 ± 0.62
+77.13 ± 0.79
+
+55.36 ± 0.48
+56.20 ± 0.51
+55.73 ± 0.56
+56.36 ± 0.53
+57.31 ± 0.58
+55.67 ± 0.84
+58.16 ± 0.82
+57.60 ± 0.81
+58.65 ± 0.55
+59.91 ± 0.62
+62.84 ± 0.68
+63.77 ± 0.68
+63.58 ± 0.72
+65.08 ± 0.88
+
+46.16 ± 0.54
+43.41 ± 0.56
+42.66 ± 0.59
+47.42 ± 0.56
+46.22 ± 0.60
+41.03 ± 0.73
+44.63 ± 0.71
+51.61 ± 0.72
+52.14 ± 0.56
+54.05 ± 0.62
+54.17 ± 0.59
+53.69 ± 0.61
+54.06 ± 0.62
+53.31 ± 0.72
+
+BMIS
+
+74.29 ± 0.43
+
+81.39 ± 0.40
+
+85.07 ± 0.45
+
+87.07 ± 0.33
+
+84.81 ± 0.39
+
+78.53 ± 0.43
+
+66.61 ± 0.45
+
+54.42 ± 0.51
+
+P-values comparing BMIS with each of the competing methods are below 0.01 for all IoU, Dice and AUC metrics.
+
+seen datasets (CVC-ClinicDB and Kvasir) and three unseen datasets
+(EndoSene, ColonDB, and ETIS).
+These quantitative results consistently show that the proposed BMIS
+is substantially superior to the comparison methods in terms of segmentation performance and generalization ability. Specifically, compared to
+U-Net, the average IoU of our BMIS is improved by 5.54%, the average
+Dice score is improved by 5.39%, and the average AUC is improved by
+5.93%. When compared to DenseASPP, the best classical segmentation
+method, our average IoU, Dice and AUC increase by 2.12%, 2.16%, and
+2.33%, respectively. Against DSU-Net, the best-performing comparison
+method, our average IoU, Dice and AUC improve by 0.38%, 0.36%, and
+0.40%, respectively. Additionally, our average IoU surpasses CA-Net
+
+and MedT, the two best-performing low-cost segmentation networks,
+by 1.79% and 1.18%, respectively.
+Fig. 7 qualitatively illustrates the segmentation results for five polyp
+samples. In these cases, the target lesions exhibit irregular shapes, complex backgrounds, and partial fusion with surrounding mucosal tissues.
+Under such challenging conditions, comparative methods often struggle
+to clearly distinguish between polyp and non-polyp regions. In contrast,
+BMIS demonstrates superior performance, more accurately differentiating polyp regions from healthy tissue while effectively preserving
+fine-grained structural details.
+These quantitative and qualitative results exhibit the superior performance of the proposed BMIS on polyp segmentation.
+8
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Fig. 7. Visualization results of polyp segmentation on five public datasets: ClinicDB, Kvasir, EndoScene, ColonDB, and ETIS from top to bottom. Green lines indicate ground truth,
+and red lines represent predicted masks.
+
+Fig. 8. Visualization results of breast cancer segmentation. Green lines indicate ground truth, and red lines represent predicted masks.
+
+4.4. Task 3: ultrasonic breast cancer segmentation
+
+4.5. Task 4: microscopic nuclei segmentation
+
+4.4.1. Dataset of breast cancer segmentation
+The third application focuses on breast cancer segmentation from
+ultrasound images, which uses the Breast UltraSound Images (BUSI)
+dataset [52] for model evaluation. This dataset comprises 647 ultrasound images of both benign and malignant breast cancer cases, along
+with their corresponding segmentation maps. These images are divided
+into training (70%, 453 samples), validation (10%, 65 samples), and
+test sets (20%, 129 samples), and a five-fold cross-validation conducted
+for performance assessment.
+
+4.5.1. Dataset of nuclei segmentation
+The fourth application focuses on cell nuclei segmentation from
+microscope images, a crucial step in numerous biological studies. The
+dataset used in this experiment comes from Kaggle 2018 Data Science
+Bowl (DSB for short) [53], containing 670 nucleus images and corresponding masks. The entire dataset is partitioned into the training
+(70%, 469 samples), validation (10%, 67 samples), and test sets (20%,
+134 samples), with five-fold cross-validation conducted for performance evaluation.
+
+4.4.2. Performance of breast cancer segmentation
+Table 6 quantitatively exhibits the segmentation performance of
+different models for breast cancer. The results indicate a clear superiority of our proposed BMIS over other comparison models. Specifically, compared to U-Net, our BMIS shows an improvement in IoU by
+4.37%. When pitted against DenseASPP, the best classical segmentation
+method, our IoU improves by 1.28%. Even when compared to DSUNet, the top-performing comparative method, our IoU outperforms it
+by 0.33%. Among low-cost segmentation networks, MedT performs the
+best, but our IoU still manages to improve by 0.84% over it. Additionally, when compared to recently proposed low-cost segmentation
+networks TinyU-Net and ULVM-UNet, our proposed BMIS demonstrates
+an improvement in IoU by 6.90% and 7.11%, respectively.
+Fig. 8 qualitatively presents the segmentation results for three breast
+cancer samples. In these cases, the segmentation targets exhibit irregular shapes and low contrast against the background. Under such
+challenging conditions, comparative methods often struggle to accurately locate the lesion regions. In contrast, BMIS effectively identifies
+the lesion extents and delivers relatively precise boundary delineation.
+
+4.5.2. Performance of nuclei segmentation
+Table 6 offers a quantitative comparison of cell nuclei segmentation
+performance, revealing that our proposed BMIS consistently outperforms other methods. Specifically, our BMIS achieves a 4.68% IoU
+improvement over U-Net, a 2.84% increase compared to DenseASPP
+(the best classical segmentation method), and a 0.30% boost over DSUNet (the top-performing comparative method). Furthermore, compared
+with MedT, the best-performance low-cost segmentation network, the
+IoU of our BMIS improved by 0.84%. Additionally, our BMIS shows IoU
+improvements of 5.61% and 5.77% over the recently proposed low-cost
+segmentation networks TinyU-Net and ULVM-UNet, respectively.
+Fig. 9 qualitatively illustrates the segmentation results for three
+cell nuclei samples. These samples contain multiple nuclei of varying
+sizes and clarity levels. Under such conditions, comparative methods
+often struggle to accurately detect small nuclei, distinguish overlapping
+nuclear regions, and precisely delineate nuclear boundaries. In contrast,
+the segmentation results of our BMIS closely match the ground truth.
+9
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+Table 6
+Performance comparison of different methods for breast cancer, nuclei, and lung segmentation. The best results are highlighted in bold.
+Methods
+
+Breast cancer (ultrasound)
+
+Nuclei (microscope)
+
+Lung (x-ray)
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+U-Net [1]
+Res-UNet [45]
+AttU-Net [5]
+U-Net++ [15]
+DeeplabV3+ [18]
+DenseASPP [6]
+
+69.69 ± 0.41
+70.28 ± 0.44
+70.20 ± 0.43
+70.61 ± 0.38
+71.61 ± 0.47
+72.78 ± 0.45
+
+78.41 ± 0.36
+79.24 ± 0.38
+78.82 ± 0.39
+79.56 ± 0.39
+80.37 ± 0.44
+81.55 ± 0.40
+
+81.54 ± 0.42
+82.34 ± 0.45
+82.04 ± 0.44
+82.75 ± 0.42
+83.72 ± 0.50
+84.95 ± 0.46
+
+80.76 ± 0.47
+81.13 ± 0.49
+81.17 ± 0.48
+81.72 ± 0.40
+82.26 ± 0.51
+82.60 ± 0.52
+
+88.11 ± 0.38
+88.65 ± 0.39
+88.97 ± 0.36
+89.28 ± 0.37
+89.72 ± 0.45
+90.01 ± 0.44
+
+90.83 ± 0.43
+91.31 ± 0.45
+91.52 ± 0.43
+91.96 ± 0.38
+92.48 ± 0.47
+92.81 ± 0.49
+
+93.11 ± 0.29
+93.96 ± 0.31
+93.62 ± 0.28
+94.77 ± 0.26
+94.90 ± 0.33
+95.12 ± 0.32
+
+96.41 ± 0.16
+96.86 ± 0.19
+96.69 ± 0.16
+97.31 ± 0.15
+97.38 ± 0.20
+97.49 ± 0.21
+
+96.84 ± 0.26
+97.45 ± 0.29
+97.22 ± 0.25
+98.07 ± 0.23
+98.18 ± 0.30
+98.34 ± 0.29
+
+Trans-UNet [46]
+Swin-UNet [19]
+H-Net [47]
+CPF-Net [17]
+MSCA-Net [7]
+HiFormer [48]
+TransFuse [8]
+VM-UNet [9]
+DSU-Net [20]
+
+73.08 ± 0.66
+73.21 ± 0.43
+73.53 ± 0.55
+73.34 ± 0.40
+73.51 ± 0.58
+73.58 ± 0.61
+73.64 ± 0.64
+73.69 ± 0.56
+73.73 ± 0.58
+
+81.65 ± 0.58
+81.77 ± 0.48
+82.18 ± 0.47
+81.95 ± 0.38
+82.05 ± 0.52
+82.12 ± 0.59
+82.16 ± 0.60
+82.22 ± 0.49
+82.26 ± 0.50
+
+85.16 ± 0.68
+85.29 ± 0.49
+85.70 ± 0.56
+85.46 ± 0.42
+85.61 ± 0.60
+85.68 ± 0.66
+85.74 ± 0.68
+85.80 ± 0.57
+85.84 ± 0.59
+
+83.86 ± 0.72
+83.30 ± 0.46
+84.57 ± 0.62
+82.91 ± 0.43
+84.95 ± 0.55
+84.99 ± 0.63
+84.97 ± 0.65
+85.08 ± 0.60
+85.14 ± 0.61
+
+90.81 ± 0.58
+90.48 ± 0.41
+91.27 ± 0.49
+90.25 ± 0.35
+91.49 ± 0.49
+91.55 ± 0.55
+91.54 ± 0.54
+91.58 ± 0.47
+91.63 ± 0.50
+
+93.89 ± 0.66
+93.42 ± 0.44
+94.48 ± 0.57
+93.10 ± 0.40
+94.81 ± 0.53
+94.87 ± 0.60
+94.85 ± 0.61
+94.92 ± 0.55
+94.98 ± 0.57
+
+95.44 ± 0.35
+95.28 ± 0.30
+95.75 ± 0.34
+95.49 ± 0.26
+95.86 ± 0.32
+95.87 ± 0.31
+96.03 ± 0.32
+96.11 ± 0.35
+96.17 ± 0.34
+
+97.66 ± 0.26
+97.55 ± 0.21
+97.83 ± 0.22
+97.69 ± 0.16
+97.88 ± 0.22
+97.82 ± 0.20
+97.96 ± 0.22
+97.89 ± 0.23
+97.93 ± 0.21
+
+98.59 ± 0.35
+98.45 ± 0.29
+98.82 ± 0.32
+98.68 ± 0.24
+98.90 ± 0.31
+98.87 ± 0.30
+99.02 ± 0.31
+99.03 ± 0.33
+99.07 ± 0.31
+
+EGE-UNet [30]
+ULVM-UNet [33]
+TinyU-Net [12]
+MambaU-Lite [14]
+MMViT-Seg [13]
+ShuffleNetV2+ [49]
+MobileNetV2+ [11]
+Ghost-UNet [50]
+MALUNet [31]
+ConvUNeXt [10]
+BATFormer [32]
+Rolling-UNet [36]
+CA-Net [34]
+MedT [35]
+
+66.58 ± 0.39
+66.95 ± 0.41
+67.16 ± 0.46
+67.49 ± 0.42
+67.94 ± 0.48
+67.67 ± 0.82
+68.29 ± 0.78
+69.03 ± 0.76
+70.44 ± 0.45
+71.74 ± 0.51
+72.25 ± 0.60
+72.49 ± 0.54
+72.67 ± 0.62
+73.22 ± 0.83
+
+75.70 ± 0.37
+76.04 ± 0.38
+76.18 ± 0.40
+76.55 ± 0.38
+76.92 ± 0.43
+76.10 ± 0.83
+77.64 ± 0.72
+78.03 ± 0.71
+79.41 ± 0.41
+80.48 ± 0.42
+80.66 ± 0.55
+80.76 ± 0.55
+80.91 ± 0.63
+81.86 ± 0.79
+
+78.39 ± 0.42
+78.78 ± 0.43
+78.96 ± 0.47
+79.35 ± 0.44
+79.79 ± 0.50
+79.53 ± 0.91
+80.40 ± 0.80
+80.76 ± 0.79
+82.52 ± 0.47
+83.80 ± 0.51
+84.15 ± 0.63
+84.33 ± 0.60
+84.50 ± 0.69
+85.35 ± 0.85
+
+79.35 ± 0.43
+79.67 ± 0.45
+79.83 ± 0.48
+79.95 ± 0.44
+80.22 ± 0.50
+80.13 ± 0.72
+80.28 ± 0.74
+80.53 ± 0.72
+79.95 ± 0.46
+82.88 ± 0.55
+83.12 ± 0.61
+83.24 ± 0.57
+83.48 ± 0.65
+84.60 ± 0.79
+
+87.28 ± 0.36
+87.49 ± 0.37
+87.64 ± 0.40
+87.72 ± 0.36
+87.88 ± 0.43
+87.77 ± 0.67
+87.94 ± 0.67
+87.98 ± 0.66
+87.72 ± 0.39
+90.21 ± 0.43
+90.31 ± 0.52
+90.37 ± 0.49
+90.54 ± 0.57
+91.32 ± 0.68
+
+89.65 ± 0.40
+89.92 ± 0.42
+90.09 ± 0.45
+90.19 ± 0.41
+90.42 ± 0.47
+90.31 ± 0.70
+90.50 ± 0.72
+90.61 ± 0.69
+90.19 ± 0.43
+93.06 ± 0.50
+93.24 ± 0.58
+93.33 ± 0.54
+93.55 ± 0.62
+94.54 ± 0.73
+
+91.86 ± 0.27
+92.10 ± 0.29
+92.17 ± 0.30
+92.22 ± 0.28
+92.34 ± 0.32
+91.97 ± 0.39
+92.66 ± 0.38
+93.50 ± 0.37
+93.98 ± 0.28
+94.27 ± 0.31
+94.36 ± 0.30
+94.50 ± 0.30
+94.78 ± 0.32
+95.46 ± 0.38
+
+95.54 ± 0.16
+95.68 ± 0.17
+95.72 ± 0.19
+95.76 ± 0.18
+96.03 ± 0.19
+95.59 ± 0.26
+96.27 ± 0.27
+96.64 ± 0.25
+96.89 ± 0.18
+97.04 ± 0.23
+97.12 ± 0.19
+97.23 ± 0.19
+97.31 ± 0.24
+97.67 ± 0.28
+
+95.75 ± 0.24
+95.94 ± 0.26
+95.99 ± 0.28
+96.04 ± 0.26
+96.25 ± 0.28
+95.82 ± 0.37
+96.49 ± 0.37
+97.12 ± 0.35
+97.48 ± 0.26
+97.70 ± 0.31
+97.78 ± 0.28
+97.91 ± 0.28
+98.09 ± 0.32
+98.61 ± 0.38
+
+BMIS
+
+74.06 ± 0.39
+
+82.56 ± 0.35
+
+86.18 ± 0.40
+
+85.44 ± 0.41
+
+91.86 ± 0.38
+
+95.26 ± 0.39
+
+96.43 ± 0.27
+
+98.18 ± 0.16
+
+99.34 ± 0.24
+
+P-values comparing BMIS with each of the competing methods are below 0.01 for all IoU, Dice and AUC metrics.
+
+Fig. 9. Visualization results of cell nuclei segmentation. Due to the numerous targets involved in nuclei segmentation, we do not outline the ground truth with green lines or use
+red lines for predicted masks as in other figures. Instead, we highlight the advantages of BMIS using yellow arrows in the ground truth images to facilitate comparison.
+
+outperforms it by 1.31% in IoU. Furthermore, when compared to DSU-
+
+4.6. Task 5: radiographic lung segmentation
+
+Net, the top-performing comparative method, our BMIS still manages
+4.6.1. Dataset of lung segmentation
+The fifth application involves lung segmentation from chest X-ray
+images, a crucial step in computer-aided pulmonary disease detection
+and diagnosis. In this experiment, we assess various models using
+the Montgomery County (MC) Dataset [54], consisting of 138 chest
+X-rays: 80 from healthy subjects and 58 from tuberculosis patients.
+The dataset is partitioned into training (70%, 97 samples), validation
+(10%, 13 samples), and test sets (20%, 28 samples), and a five-fold
+cross-validation conducted for performance evaluation.
+
+to improve IoU by 0.26%. Among the low-cost segmentation networks,
+CA-Net and MedT are widely recognized for their performance. However, our BMIS performs even better, surpassing CA-Net by 1.65% and
+MedT by 0.97% in IoU. Additionally, our BMIS outperforms the recently
+proposed low-cost segmentation networks TinyU-Net and ULVM-UNet
+by impressive margins of 4.26% and 4.33% in IoU, respectively.
+Fig. 10 qualitatively illustrates the segmentation results for three
+lung samples. In these cases, the segmentation targets are relatively
+clear and exhibit modest morphological variations. While all compar-
+
+4.6.2. Performance of lung segmentation
+Table 6 quantitatively exhibits the lung segmentation performance
+achieved by different models. The quantitative results indicate that
+the proposed BMIS outperforms the comparison models. Specifically,
+against U-Net, our BMIS achieves a 3.32% increase in IoU. When pitted
+against the best classical segmentation method, DenseASPP, our BMIS
+
+ative methods perform reasonably well under these conditions, BMIS
+stands out by delivering finer segmentation details and more accurate
+boundary delineation.
+These quantitative and qualitative results demonstrate the superior
+performance of our BMIS in lung segmentation.
+10
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Fig. 10. Visualization results of lung segmentation. Green lines indicate ground truth, and red lines represent predicted masks.
+
+Table 7
+A comprehensive comparison of DSU-Net, CA-Net, MedT, and the proposed BMIS.
+Methods
+
+Computational costs
+
+IoU scores of different segmentation tasks
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Train-T (s)
+
+Inf-T (ms)
+
+Task 1
+
+Task 2
+
+Task 3
+
+Task 4
+
+Task 5
+
+Average
+
+DSU-Net [20]
+CA-Net [34]
+MedT [35]
+
+35.36
+2.79
+1.56
+
+10.98
+9.34
+3.49
+
+4424
+2778
+8136
+
+34
+41
+341
+
+65
+44
+366
+
+82.78
+82.36
+82.54
+
+73.91
+72.50
+73.11
+
+73.73
+72.67
+73.22
+
+85.14
+83.48
+84.60
+
+96.17
+94.78
+95.46
+
+82.35
+81.16
+81.79
+
+BMIS
+
+0.87
+
+3.46
+
+2014
+
+14
+
+13
+
+83.15
+
+74.29
+
+74.06
+
+85.44
+
+96.43
+
+82.67
+
+Model 6: This architecture infuses both EACM (for layers 3–7)
+and CSAM (for the 13th layer) to replace traditional convolutions into
+Model 1.
+Model 7: This model is a progression of Model 5, but it additionally
+replaces the traditional convolutions in the 13th layer with CSAM.
+Model 8 (BMIS): This is the complete form of the proposed method.
+Here, PCDM replaces the strided convolution in layers 1, 2, and 8 of
+Model 7.
+Table 8 presents both the computational costs and segmentation
+performance of different models in our framework.
+Initially, we evaluate the segmentation performance of different
+models. Compared with the classical U-Net (see Table 9), Model 1
+shows markedly diminished computational costs, yet its segmentation
+performance is notably enhanced, underscoring the effectiveness of the
+proposed segmentation framework. Relative to Model 1, the segmentation performances of Model 2, Model 3, and Model 4 are improved,
+confirming the effectiveness of EACM, DACM, and CSAM, respectively.
+Comparing Model 2 with Model 5, we observe that the combined use
+of EACM and DACM enhances segmentation performance, highlighting
+their compatibility and synergistic effect. Similarly, Model 6 shows
+the synergistic effect of EACM and CSAM. Furthermore, by integrating
+EACM, DACM, and CSAM concurrently, Model 7 achieves superior
+segmentation performance compared to both Model 5 and Model 6.
+This finding substantiates the compatibility and synergistic effect of
+these three modules. Notably, Model 7 utilizes strided convolution for
+down-sampling, while Model 8 employs the PCDM module for this
+purpose. It can be seen from the table that Model 8 exhibits superior segmentation performance compared to Model 7. This enhanced
+performance can be attributed to the dual benefits derived from the
+pooling and convolution operations of PCDM. Consequently, PCDM can
+selectively retain the features from preceding layers and simultaneously
+learn new features based on the preceding layers.
+Secondly, it can be seen that as EACM, DACM, CSAM, and PCDM
+modules are gradually replaced, the model’s parameter and FLOPs
+decreases, segmentation performance improves, and both memory footprint and inference time increase. Therefore, after a comprehensive
+evaluation, Model 6 is recommended for scenarios that demand fast
+inference, while Model 8 is preferred when inference speed is not the
+primary concern.
+Fig. 11 illustrates the segmentation results of different models in
+our system. Evidently, the proposed BMIS can accurately identify lesion areas and delineate lesion boundaries. As a result, it achieves
+better segmentation performance, particularly for objects with blurred
+boundaries and irregular shapes.
+
+4.7. Summary of computational costs and segmentation performance
+Through extensive experiments on five segmentation tasks, we observed that among the comparative methods (excluding BMIS), DSUNet is the best-performing model when computational costs are not
+considered, MedT is the top-performing lightweight method, and CANet achieves the best balance between segmentation performance and
+computational costs (see Tables 3 to 6). However, our proposed BMIS
+surpasses DSU-Net, MedT, and CA-Net in both segmentation performance and computational efficiency (see Table 7). Specifically, compared to DSU-Net, BMIS achieves an average IoU improvement of
+0.32% across the five segmentation tasks, while requiring significantly
+lower computational costs. When compared to MedT, BMIS boosts the
+average IoU by 0.88% and significantly improves training and inference
+speeds. Moreover, BMIS outperforms CA-Net with a 1.51% increase
+in average IoU, while demanding substantially fewer computational
+resources, particularly in reference time.
+These findings highlight that the proposed BMIS attains a better
+balance between segmentation performance and computational costs
+compared to other state-of-the-art methods, making it well-suited for
+integration into medical devices with limited computational resources.
+5. Discussion
+5.1. Ablation study
+To evaluate the effectiveness of the proposed segmentation framework and various modules, we conduct a systematic ablation experiment. In summary, the following models are compared:
+Model 1: This model served as the baseline. Here, we replace
+EACM, DACM, and CSAM in BMIS with a traditional 3 × 3 convolution. Additionally, PCDM is substituted with strided convolution. The
+replacement ensures that Model 1 retains the overall architecture of
+BMIS but incorporates distinct internal components.
+Model 2: This model incorporates the EACM, replacing the traditional convolutions in layers 3–7 of Model 1.
+Model 3: The DACM is integrated to replace the traditional convolutions in layers 9–12 of Model 1.
+Model 4: The CSAM is integrated to replace the traditional convolutions in layers 13 of Model 1.
+Model 5: The EACM is integrated to replace the traditional convolutions in layers 3–7 of Model 1, and the DACM is integrated to replace
+the traditional convolutions in layers 9–12 of Model 1.
+11
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+Table 8
+Segmentation performances of different models in our system. Model 8 is our proposed BMIS. The best results are in bold.
+Models
+
+Different modules
+EACM
+
+DACM
+
+Computational costs
+CSAM
+
+PCDM
+
+Model 1
+Model 2
+Model 3
+Model 4
+Model 5
+Model 6
+Model 7
+Model 8
+
+✓
+✓
+✓
+✓
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+✓
+✓
+
+✓
+
+Skin leison
+
+Breast cancer
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Inf-T (ms)
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+1.41
+
+5.07
+
+1640
+
+8.5
+
+81.83
+
+89.06
+
+92.98
+
+71.72
+
+81.13
+
+84.19
+
+1.26
+1.17
+1.26
+1.04
+1.13
+0.91
+0.87
+
+4.09
+4.52
+4.66
+3.74
+3.88
+3.53
+3.46
+
+1708
+1666
+1866
+1736
+1966
+1994
+2014
+
+11.0
+10.5
+9.0
+12.0
+11.0
+12.0
+13.0
+
+82.11
+82.16
+82.05
+82.65
+82.67
+82.98
+83.15
+
+89.22
+89.29
+89.20
+89.64
+89.68
+89.86
+90.00
+
+93.20
+93.27
+93.16
+93.71
+93.75
+94.00
+94.17
+
+72.80
+72.86
+72.69
+73.42
+73.38
+73.85
+74.06
+
+81.62
+81.76
+81.52
+82.08
+81.93
+82.25
+82.56
+
+85.00
+85.12
+84.89
+85.58
+85.47
+85.91
+86.18
+
+Table 9
+The impact of asymmetric structure on computational costs and segmentation performance.
+Methods
+
+Symmetric
+
+Computational costs
+
+Skin leison
+
+Breast cancer
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Inf-T (ms)
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+U-Net [1]
+
+Yes
+No
+
+34.53
+22.61
+
+102.40
+72.06
+
+5546
+5006
+
+18.0
+13.0
+
+81.33
+80.32
+
+88.69
+87.96
+
+92.52
+91.6
+
+69.69
+68.29
+
+78.41
+77.36
+
+81.54
+80.23
+
+BMIS
+
+Yes
+No
+
+1.52
+0.87
+
+5.36
+3.46
+
+2236
+2014
+
+13.5
+13.0
+
+83.17
+83.15
+
+90.02
+90.00
+
+94.19
+94.17
+
+74.09
+74.06
+
+82.6
+82.56
+
+86.22
+86.18
+
+Fig. 11. Visual comparison between different models in our system for skin lesion and
+breast cancer segmentation. Green lines indicate ground truth, and red lines represent
+predicted masks.
+
+5.2. Study of asymmetric structure
+The classical U-Net [1] has a symmetric encoder–decoder structure,
+in which the decoder is often used to compensate for the loss of
+spatial details, restore resolution, and predict pixel-wise labels. Subsequent segmentation networks have widely adopted this symmetric
+codec design. This study explores the impact of an asymmetric codec
+structure on both U-Net and BMIS. The experimental results are shown
+in Table 9, where an asymmetric structure indicates that the decoder is
+considerably less complex than its encoder. The data in Table 9 reveals
+two key insights: (i) Adopting an asymmetric decoder dramatically cuts
+computational costs for both U-Net and BMIS; (ii) While the asymmetric
+decoder significantly impacts U-Net’s segmentation performance, our
+proposed BMIS remains largely unchanged.
+
+Fig. 12. The heat maps of the decoding stage of the original BMIS, BMIS with skip
+connections, and BMIS with symmetric structure.
+
+5.3. Study of skip connection
+The classical U-Net [1] introduces the skip connection mechanism
+between the encoder and decoder to mitigate the information loss
+caused by frequent down-sampling. Since then, the skip connection
+has almost become a standard configuration in modern segmentation
+networks. This study explores the impact of skip connections on both
+the classical U-Net and our proposed BMIS, and present pertinent
+experimental results in Table 10. Analyzing the data in Table 10, we
+observe that: (i) Removing the skip connections results in lower computational costs for both U-Net and BMIS; (ii) While U-Net’s segmentation
+performance notably decreases without skip connections, our BMIS
+remains largely unaffected.
+Fig. 12 depicts the heat maps generated during BMIS’s decoding
+phase in three configurations: with skip connections, with a symmetric
+design, and in its original form. Upon careful examination, it becomes
+
+BMIS is capable of maintaining segmentation performance while
+using a decoder that is significantly simpler than the encoder, primarily due to its shallow yet wide network structure. This design
+not only enables effective learning of high-level semantic features but
+also markedly mitigates the loss of fine-grained details caused by frequent downsampling. Therefore, the decoder of BMIS primarily focuses
+on spatial reconstruction rather than compensating for lost details,
+significantly reducing its workload.
+12
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+Table 10
+The impact of skip connection on computational costs and segmentation performance.
+Methods
+
+Skip connection
+
+Computational costs
+
+Skin leison
+
+Breast cancer
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Inf-T (ms)
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+U-Net [1]
+
+Yes
+No
+
+34.53
+31.39
+
+102.40
+87.20
+
+5546
+5156
+
+18.0
+16.0
+
+81.33
+80.66
+
+88.69
+88.18
+
+92.52
+91.89
+
+69.69
+68.64
+
+78.41
+77.52
+
+81.54
+80.49
+
+BMIS
+
+Yes
+No
+
+0.95
+0.87
+
+4.05
+3.46
+
+2046
+2014
+
+13.5
+13.0
+
+83.17
+83.15
+
+90.00
+90.00
+
+94.18
+94.17
+
+74.05
+74.06
+
+82.62
+82.56
+
+86.22
+86.18
+
+Table 11
+The impact of the number of feature maps on computational costs and segmentation performance. Setting III is the proposed BMIS.
+Settings
+
+Setting I
+Setting II
+Setting III
+Setting IV
+Setting V
+
+Number of channel
+
+Computational costs
+
+EACM
+
+DACM
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Inf-T (ms)
+
+Skin leison
+IoU
+
+Dice
+
+AUC
+
+Breast cancer
+IoU
+
+Dice
+
+AUC
+
+48
+48
+64
+64
+128
+
+72
+96
+96
+128
+256
+
+0.50
+0.73
+0.87
+1.29
+5.09
+
+2.05
+2.47
+3.46
+4.20
+15.88
+
+1906
+1934
+2014
+2046
+2580
+
+12.5
+13.0
+13.0
+13.5
+14.0
+
+82.72
+82.74
+83.15
+83.09
+83.33
+
+89.73
+89.69
+90.00
+89.99
+90.08
+
+93.80
+93.79
+94.17
+94.13
+94.30
+
+73.86
+73.84
+74.06
+74.08
+74.29
+
+82.38
+82.33
+82.56
+82.52
+82.61
+
+85.98
+85.94
+86.18
+86.17
+86.32
+
+Table 12
+The impact of the number of different modules on the proposed segmentation framework. Setting 5 is the proposed BMIS.
+Settings
+
+Setting 1
+Setting 2
+Setting 3
+Setting 4
+Setting 5
+Setting 6
+Setting 7
+Setting 8
+
+Modules in Encoder
+
+Decoder
+
+Computational costs
+
+Skin leison
+
+Breast cancer
+
+EACM
+
+DACM
+
+CSAM
+
+EACM
+
+EACM
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Inf-T (ms)
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+2
+3
+4
+5
+5
+5
+5
+5
+
+1
+2
+3
+4
+4
+4
+4
+5
+
+1
+1
+1
+1
+1
+1
+2
+1
+
+1
+1
+1
+0
+1
+2
+1
+1
+
+1
+1
+1
+1
+1
+2
+1
+1
+
+0.39
+0.55
+0.71
+0.77
+0.87
+0.93
+0.91
+0.99
+
+1.97
+2.46
+2.96
+2.90
+3.46
+3.86
+3.52
+3.63
+
+1798
+1864
+1930
+1954
+2014
+2094
+2100
+2020
+
+9.0
+10.0
+11.5
+12.0
+13.0
+15.0
+14.0
+13.5
+
+81.87
+82.36
+82.79
+82.98
+83.15
+83.17
+83.14
+83.15
+
+88.96
+89.44
+89.70
+89.91
+90.00
+90.00
+89.98
+89.99
+
+92.93
+93.47
+93.81
+94.03
+94.17
+94.18
+94.15
+94.16
+
+72.66
+73.24
+73.70
+73.92
+74.06
+74.10
+74.07
+74.08
+
+81.27
+81.79
+82.21
+82.43
+82.56
+82.59
+82.55
+82.57
+
+84.72
+85.32
+85.80
+86.04
+86.18
+86.22
+86.18
+86.20
+
+evident that the heat maps and corresponding segmentation results
+across these three configurations are highly similar. This similarity
+highlights that BMIS does not require skip connections or a symmetric
+decoder, which significantly helps reduce computational cost.
+
+comparing Settings 1, 2, 3, and 5, we observe that as the number
+of EACM and DACM modules in the encoder increases, the model
+becomes wider, and segmentation performance improves significantly.
+By comparing Settings 4, 5, and 6, it is clear that using two EACMs
+in the decoder is sufficient, whereas using four EACMs leads to a
+substantial increase in computational costs without improving segmentation performance. This demonstrates that the decoder of BMIS
+can effectively restore high-level features into accurate segmentation
+masks without requiring a complex structure or heavy parameters.
+Furthermore, by comparing Settings 5, 7, and 8, it becomes evident that
+once the number of modules reaches a certain level, further increases
+only lead to higher computational costs without boosting segmentation performance. Therefore, after balancing computational costs and
+segmentation performance, we recommend Setting 5.
+
+5.4. Study of the number of feature maps
+Existing segmentation networks typically double the number of feature maps after each down-sampling, which enhances feature capacity
+and learning capability, but also leads to increased computational costs.
+This study explores the impact of varying feature map counts on the
+proposed BMIS and presents the experimental results in Table 11.
+The comparison between Setting I and Setting II underscores that
+increasing the number of feature maps leads to enhanced segmentation
+performance. Compared with Setting III, Setting IV incurs a higher
+computational costs but does not improve segmentation performance.
+This indicates that doubling the number of feature maps after each
+downsampling step is not the most efficient approach. A further comparison between Setting III and Setting V reveals that once the number
+of feature maps reaches a certain threshold, further increments do not
+enhance segmentation performance but rather significantly increase
+computational costs. This is mainly because redundant feature maps
+can only capture approximate and overlapping representations, which
+have limited impact on enhancing the model’s learning capabilities.
+Therefore, to strike a better balance between computational costs and
+segmentation performance, we recommend adopting Setting 3 as the
+preferred configuration.
+
+5.6. Study of different input scales
+This experiment examines the impact of input scale on both computational costs and segmentation performance, with results presented in
+Table 13. As shown in the table, as the input scale gradually increases,
+the computational cost of the models rises, accompanied by an improvement in segmentation performance. In addition, we observe that
+input scale has a significant effect on the inference speed of U-Net and
+CA-Net, while its influence on BMIS remains minimal. Notably, even
+at an input scale of 512 × 512, BMIS maintains a low parameter count
+(0.87M), FLOPs (8.85G), memory footprint (4060 MB), and inference
+time (15 ms). This advantage of BMIS is particularly valuable for processing high-resolution medical images, which require both abundant
+spatial information and extensive receptive fields.
+
+5.5. Study of the number of different modules
+Unlike traditional U-Nets, which have a deep and narrow symmetric
+structure, the proposed BMIS is shallower, wider, and asymmetric (see
+Fig. 2 and Table 2). Therefore, this experiment studies the impact
+of varying the number of different modules on the proposed segmentation framework, and the results are presented in Table 12. By
+
+5.7. Limitation and future works
+This paper proposes an effective and efficient segmentation backbone named BMIS. By adopting a shallow yet wide architecture, an
+asymmetric encoder–decoder design, and discarded skip connections,
+13
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+
+Table 13
+The impact of input scale on computational costs and segmentation performance. Note that the default input scale in this paper is 320 × 320.
+Methods
+
+Image size
+
+Computational costs
+
+Skin leison
+
+Breast cancer
+
+Param (M)
+
+FLOPs (G)
+
+Memory (MB)
+
+Inf-T (ms)
+
+IoU
+
+Dice
+
+AUC
+
+IoU
+
+Dice
+
+AUC
+
+U-Net [1]
+
+224 × 224
+320 × 320
+512 × 512
+
+34.53
+34.53
+34.53
+
+50.17
+102.40
+262.14
+
+3768
+5546
+10 792
+
+10
+18
+42
+
+80.99
+81.33
+81.58
+
+88.35
+88.69
+88.89
+
+92.15
+92.52
+92.76
+
+69.44
+69.69
+70.42
+
+78.20
+78.41
+79.37
+
+81.29
+81.54
+82.44
+
+CA-Net [34]
+
+224 × 224
+320 × 320
+512 × 512
+
+2.79
+2.79
+2.79
+
+4.58
+9.34
+23.91
+
+1992
+2778
+5110
+
+25
+44
+87
+
+82.12
+82.36
+82.57
+
+89.21
+89.43
+89.61
+
+93.20
+93.45
+93.66
+
+72.42
+72.67
+73.29
+
+80.79
+80.91
+81.46
+
+84.31
+84.50
+85.14
+
+BMIS
+
+224 × 224
+320 × 320
+512 × 512
+
+0.87
+0.87
+0.87
+
+1.69
+3.46
+8.85
+
+1552
+2014
+4060
+
+12
+13
+15
+
+82.90
+83.15
+83.36
+
+89.87
+90.00
+90.12
+
+93.97
+94.17
+94.35
+
+73.84
+74.06
+74.42
+
+82.31
+82.56
+82.82
+
+85.92
+86.18
+86.53
+
+BMIS reduces computational resource demands while maintaining robust feature learning capabilities, thereby achieving a better balance
+between segmentation performance and computational costs. To preserve the simplicity, practicality, and scalability of BMIS, this study
+only optimized parameters such as the number of internal components
+(e.g., EACM, DACM, and CSAM), the number of feature channels in
+each stage, and whether to include skip connections using grid search
+technology, a subset of neural architecture search [55]. No specialized
+optimization was performed to reduce the computational complexity
+of BMIS’s internal components themselves. As a result, BMIS’s computational costs are not the lowest among the compared methods, being
+higher than that of EGE-UNet, ULVM-UNet, TinyU-Net, and MALUNet
+(see Table 3). To address this limitation, future work will incorporate
+grouped feature learning, linear attention computation, and hardwareaware neural architecture search to further optimize BMIS’s internal
+components, thereby significantly reducing their computational overhead. This will enable us to further refine the configuration of the BMIS
+backbone, achieving the best possible segmentation performance under
+given computational resource constraints.
+
+CRediT authorship contribution statement
+
+6. Conclusion
+
+This research was supported by the National Natural Science Foundation of China (Grant Nos. 82302309, 62301413, and 12026609).
+The authors would like to thank the editors and reviewers for their
+insightful suggestions, which have significantly improved this paper.
+
+Duwei Dai: Writing – original draft, Software, Methodology, Funding acquisition, Formal analysis, Conceptualization. Caixia Dong: Visualization, Validation, Software, Project administration, Funding acquisition. Xu Yang: Software, Project administration, Data curation,
+Visualization, Validation. Zongfang Li: Writing – original draft, Supervision, Resources, Funding acquisition, Formal analysis. Songhua
+Xu: Writing – review & editing, Resources, Funding acquisition, Formal
+analysis, Conceptualization.
+Declaration of competing interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to
+influence the work reported in this paper.
+Acknowledgments
+
+By strategically integrating severe well-established modules, such as
+asymmetric convolution, dilated convolution, and attention modules,
+this paper proposed a novel 2D medical image segmentation backbone named BMIS. In contrast to conventional U-Nets, BMIS adopts
+a shallower yet wider asymmetric structure and eliminates the need
+for encoder-to-decoder skip connections. To verify the effectiveness of
+the proposed BMIS, we compared it with twenty-nine state-of-the-art
+methods across segmentation tasks involving five different data modalities. Extensive experimental results consistently demonstrate that the
+proposed BMIS achieves a better balance between segmentation performance and computational costs through a minimalistic network
+design.
+Beyond its technical strengths, BMIS holds significant potential for
+clinical applications by enabling real-time, on-device medical image
+analysis across diverse healthcare settings. For example, when deployed
+on handheld dermatoscopes such as the DermLite IV and FotoFinder
+Vexia, BMIS could enable instant segmentation of skin lesions, reducing
+reliance on cloud-based diagnostics while preserving patient privacy
+and accelerating early melanoma detection. Similarly, when integrated
+into portable ultrasound systems like Butterfly iQ+ and GE Logiq E10,
+BMIS could automate breast lesion segmentation, assisting radiologists
+in the early diagnosis of breast cancer with enhanced precision. Furthermore, BMIS could operate efficiently on mobile X-ray platforms like
+Carestream DRX-Revolution Mobile and Nanox.ARC, delivering rapid
+imaging analysis for lung abnormalities (e.g., pneumonia, tuberculosis,
+and lung cancer) in emergency and primary care environments.
+In summary, the proposed BMIS represents both a technical advancement in medical image segmentation and a valuable benchmark
+model for clinical applications, particularly in resource-constrained
+devices. Its compatibility with existing and emerging medical technologies positions it as a promising tool for improving global diagnostic
+accuracy, accessibility, and healthcare equity.
+
+Data availability
+Data will be made available on request.
+
+References
+[1] O. Ronneberger, P. Fischer, T. Brox, U-net: Convolutional networks for
+biomedical image segmentation, in: International Conference on Medical Image
+Computing and Computer-Assisted Intervention, Springer, 2015, pp. 234–241.
+[2] J. Zhang, X. Chen, B. Yang, Q. Guan, Q. Chen, J. Chen, Q. Wu, Y. Xie, Y. Xia,
+Advances in attention mechanisms for medical image segmentation, Comput. Sci.
+Rev. 56 (2025) 100721.
+[3] S. Islam, H. Elmekki, A. Elsebai, J. Bentahar, N. Drawel, G. Rjoub, W. Pedrycz,
+A comprehensive survey on applications of transformers for deep learning tasks,
+Expert Syst. Appl. 241 (2024) 122666.
+[4] H. Zhang, Y. Zhu, D. Wang, L. Zhang, T. Chen, Z. Wang, Z. Ye, A survey on
+visual mamba, Appl. Sci. 14 (13) (2024) 5683.
+[5] O. Oktay, J. Schlemper, L.L. Folgoc, M. Lee, M. Heinrich, K. Misawa, K. Mori,
+S. McDonagh, N.Y. Hammerla, B. Kainz, et al., Attention u-net: Learning where
+to look for the pancreas, 2018, arXiv preprint arXiv:1804.03999.
+[6] M. Yang, K. Yu, C. Zhang, Z. Li, K. Yang, Denseaspp for semantic segmentation
+in street scenes, in: Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, 2018, pp. 3684–3692.
+[7] Y. Sun, D. Dai, Q. Zhang, Y. Wang, S. Xu, C. Lian, MSCA-net: Multi-scale
+contextual attention network for skin lesion segmentation, Pattern Recognit. 139
+(2023) 109524.
+[8] Y. Zhang, H. Liu, Q. Hu, Transfuse: Fusing transformers and cnns for medical
+image segmentation, in: International Conference on Medical Image Computing
+and Computer-Assisted Intervention, Springer, 2021, pp. 14–24.
+[9] J. Ruan, J. Li, S. Xiang, Vm-unet: Vision mamba unet for medical image
+segmentation, 2024, arXiv preprint arXiv:2402.02491.
+14
+
+Applied Soft Computing 182 (2025) 113549
+
+D. Dai et al.
+[10] Z. Han, M. Jian, G.-G. Wang, ConvUNeXt: An efficient convolution neural network for medical image segmentation, Knowl.-Based Syst. 253 (2022)
+109512.
+[11] Z. Chen, L. Rajamanickam, X. Tian, J. Cao, Application of optimized convolution
+neural network model in mural segmentation, Appl. Comput. Intell. Soft Comput.
+2022 (2022).
+[12] J. Chen, R. Chen, W. Wang, J. Cheng, L. Zhang, L. Chen, TinyU-net: Lighter yet
+better U-net with cascaded multi-receptive fields, in: International Conference on
+Medical Image Computing and Computer-Assisted Intervention, Springer, 2024,
+pp. 626–635.
+[13] Y. Yang, L. Zhang, L. Ren, X. Wang, MMViT-Seg: A lightweight transformer and
+CNN fusion network for COVID-19 segmentation, Comput. Methods Programs
+Biomed. 230 (2023) 107348.
+[14] T.-N.-Q. Nguyen, Q.-H. Ho, D.-T. Nguyen, H.-M.-Q. Le, V.-T. Pham, T.-T. Tran,
+MambaU-Lite: A lightweight model based on mamba and integrated channelspatial attention for skin lesion segmentation, 2024, arXiv preprint arXiv:2412.
+01405.
+[15] Z. Zhou, M.M. Rahman Siddiquee, N. Tajbakhsh, J. Liang, Unet++: A nested unet architecture for medical image segmentation, in: Deep Learning in Medical
+Image Analysis and Multimodal Learning for Clinical Decision Support, Springer,
+2018, pp. 3–11.
+[16] H. Huang, L. Lin, R. Tong, H. Hu, Q. Zhang, Y. Iwamoto, X. Han, Y.-W. Chen,
+J. Wu, Unet 3+: A full-scale connected unet for medical image segmentation,
+in: ICASSP 2020-2020 IEEE International Conference on Acoustics, Speech and
+Signal Processing, ICASSP, IEEE, 2020, pp. 1055–1059.
+[17] S. Feng, H. Zhao, F. Shi, X. Cheng, M. Wang, Y. Ma, D. Xiang, W. Zhu, X. Chen,
+CPFNet: Context pyramid fusion network for medical image segmentation, IEEE
+Trans. Med. Imaging 39 (10) (2020) 3008–3018.
+[18] L.-C. Chen, Y. Zhu, G. Papandreou, F. Schroff, H. Adam, Encoder-decoder with
+atrous separable convolution for semantic image segmentation, in: Proceedings
+of the European Conference on Computer Vision, ECCV, 2018, pp. 801–818.
+[19] H. Cao, Y. Wang, J. Chen, D. Jiang, X. Zhang, Q. Tian, M. Wang, Swin-unet: Unetlike pure transformer for medical image segmentation, in: European Conference
+on Computer Vision, Springer, 2022, pp. 205–218.
+[20] L. Zhong, T. Li, M. Cui, S. Cui, H. Wang, L. Yu, DSU-net: Dual-stage U-net based
+on CNN and transformer for skin lesion segmentation, Biomed. Signal Process.
+Control. 100 (2025) 107090.
+[21] J. Ma, F. Li, B. Wang, U-mamba: Enhancing long-range dependency for
+biomedical image segmentation, 2024, arXiv preprint arXiv:2401.04722.
+[22] C. Szegedy, V. Vanhoucke, S. Ioffe, J. Shlens, Z. Wojna, Rethinking the inception
+architecture for computer vision, in: Proceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition, 2016, pp. 2818–2826.
+[23] F.N. Iandola, S. Han, M.W. Moskewicz, K. Ashraf, W.J. Dally, K. Keutzer,
+SqueezeNet: AlexNet-level accuracy with 50x fewer parameters and< 0.5 MB
+model size, 2016, arXiv preprint arXiv:1602.07360.
+[24] F. Chollet, Xception: Deep learning with depthwise separable convolutions, in:
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition,
+2017, pp. 1251–1258.
+[25] A.G. Howard, M. Zhu, B. Chen, D. Kalenichenko, W. Wang, T. Weyand, M.
+Andreetto, H. Adam, Mobilenets: Efficient convolutional neural networks for
+mobile vision applications, 2017, arXiv preprint arXiv:1704.04861.
+[26] M. Sandler, A. Howard, M. Zhu, A. Zhmoginov, L.-C. Chen, Mobilenetv2: Inverted
+residuals and linear bottlenecks, in: Proceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition, 2018, pp. 4510–4520.
+[27] S. Lu, Z. Lu, Y.-D. Zhang, Pathological brain detection based on AlexNet and
+transfer learning, J. Comput. Sci. 30 (2019) 41–47.
+[28] X. Zhang, X. Zhou, M. Lin, J. Sun, Shufflenet: An extremely efficient convolutional neural network for mobile devices, in: Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition, 2018, pp. 6848–6856.
+[29] N. Ma, X. Zhang, H.-T. Zheng, J. Sun, Shufflenet v2: Practical guidelines for
+efficient cnn architecture design, in: Proceedings of the European Conference on
+Computer Vision, ECCV, 2018, pp. 116–131.
+[30] J. Ruan, M. Xie, J. Gao, T. Liu, Y. Fu, Ege-unet: an efficient group enhanced
+unet for skin lesion segmentation, in: International Conference on Medical Image
+Computing and Computer-Assisted Intervention, Springer, 2023, pp. 481–490.
+[31] J. Ruan, S. Xiang, M. Xie, T. Liu, Y. Fu, Malunet: A multi-attention and lightweight unet for skin lesion segmentation, in: 2022 IEEE International Conference
+on Bioinformatics and Biomedicine, BIBM, IEEE, 2022, pp. 1150–1156.
+[32] X. Lin, L. Yu, K.-T. Cheng, Z. Yan, Batformer: Towards boundary-aware
+lightweight transformer for efficient medical image segmentation, IEEE J.
+Biomed. Heal. Informatics 27 (7) (2023) 3501–3512.
+[33] R. Wu, Y. Liu, P. Liang, Q. Chang, Ultralight vm-unet: Parallel vision mamba
+significantly reduces parameters for skin lesion segmentation, 2024, arXiv
+preprint arXiv:2403.20035.
+[34] R. Gu, G. Wang, T. Song, R. Huang, M. Aertsen, J. Deprest, S. Ourselin, T.
+Vercauteren, S. Zhang, CA-net: Comprehensive attention convolutional neural
+networks for explainable medical image segmentation, IEEE Trans. Med. Imaging
+40 (2) (2020) 699–711.
+
+[35] J.M.J. Valanarasu, P. Oza, I. Hacihaliloglu, V.M. Patel, Medical transformer:
+Gated axial-attention for medical image segmentation, in: Medical Image Computing and Computer Assisted Intervention–MICCAI 2021: 24th International
+Conference, Strasbourg, France, September 27–October 1, 2021, Proceedings,
+Part I 24, Springer, 2021, pp. 36–46.
+[36] Y. Liu, H. Zhu, M. Liu, H. Yu, Z. Chen, J. Gao, Rolling-unet: Revitalizing
+mlp’s ability to efficiently extract long-distance dependencies for medical image
+segmentation, in: Proceedings of the AAAI Conference on Artificial Intelligence,
+Vol. 38, 2024, pp. 3819–3827.
+[37] L. Mou, Y. Zhao, H. Fu, Y. Liu, J. Cheng, Y. Zheng, P. Su, J. Yang, L. Chen, A.F.
+Frangi, et al., CS2-net: Deep learning segmentation of curvilinear structures in
+medical imaging, Med. Image Anal. 67 (2021) 101874.
+[38] Q. Wang, B. Wu, P. Zhu, P. Li, W. Zuo, Q. Hu, ECA-net: Efficient channel attention for deep convolutional neural networks, in: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2020, pp.
+11534–11542.
+[39] K. Kahatapitiya, R. Rodrigo, Exploiting the redundancy in convolutional filters
+for parameter reduction, in: Proceedings of the IEEE/CVF Winter Conference on
+Applications of Computer Vision, 2021, pp. 1410–1420.
+[40] J. Fu, J. Liu, H. Tian, Y. Li, Y. Bao, Z. Fang, H. Lu, Dual attention network for
+scene segmentation, in: Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, 2019, pp. 3146–3154.
+[41] L. Mou, Y. Zhao, L. Chen, J. Cheng, Z. Gu, H. Hao, H. Qi, Y. Zheng, A. Frangi,
+J. Liu, CS-net: Channel and spatial attention network for curvilinear structure
+segmentation, in: Medical Image Computing and Computer Assisted Intervention–
+MICCAI 2019: 22nd International Conference, Shenzhen, China, October 13–17,
+2019, Proceedings, Part I 22, Springer, 2019, pp. 721–730.
+[42] S. Afifah, A. Mudzakir, A.B.D. Nandiyanto, How to calculate paired sample ttest using SPSS software: From step-by-step processing for users to the practical
+examples in the analysis of the effect of application anti-fire bamboo teaching
+materials on student learning outcomes, Indones. J. Teach. Sci. 2 (1) (2022)
+81–92.
+[43] N. Altman, M. Krzywinski, Points of significance: interpreting p values, Nature
+Methods 14 (3) (2017) 213–215.
+[44] H.-Y. Zhou, J. Guo, Y. Zhang, X. Han, L. Yu, L. Wang, Y. Yu, Nnformer:
+Volumetric medical image segmentation via a 3d transformer, IEEE Trans. Image
+Process. (2023).
+[45] X. Xiao, S. Lian, Z. Luo, S. Li, Weighted res-unet for high-quality retina vessel
+segmentation, in: 2018 9th International Conference on Information Technology
+in Medicine and Education, ITME, IEEE, 2018, pp. 327–331.
+[46] J. Chen, J. Mei, X. Li, Y. Lu, Q. Yu, Q. Wei, X. Luo, Y. Xie, E. Adeli, Y. Wang,
+et al., TransUNet: Rethinking the U-net architecture design for medical image
+segmentation through the lens of transformers, Med. Image Anal. 97 (2024)
+103280.
+[47] X. Zhou, X. Nie, Z. Li, X. Lin, E. Xue, L. Wang, J. Lan, G. Chen, M. Du, T.
+Tong, H-Net: A dual-decoder enhanced FCNN for automated biomedical image
+diagnosis, Inform. Sci. 613 (2022) 575–590.
+[48] M. Heidari, A. Kazerouni, M. Soltany, R. Azad, E.K. Aghdam, J. Cohen-Adad, D.
+Merhof, Hiformer: Hierarchical multi-scale representations using transformers for
+medical image segmentation, in: Proceedings of the IEEE/CVF Winter Conference
+on Applications of Computer Vision, 2023, pp. 6202–6212.
+[49] K. Pang, L. Weng, Y. Zhang, J. Liu, H. Lin, M. Xia, SGBNet: An ultra light-weight
+network for real-time semantic segmentation of land cover, Int. J. Remote Sens.
+43 (15–16) (2022) 5917–5939.
+[50] I.A. Kazerouni, G. Dooly, D. Toal, Ghost-UNet: An asymmetric encoder-decoder
+architecture for semantic segmentation from scratch, IEEE Access 9 (2021)
+97457–97465.
+[51] T. Zhou, Y. Zhou, K. He, C. Gong, J. Yang, H. Fu, D. Shen, Cross-level feature
+aggregation network for polyp segmentation, Pattern Recognit. 140 (2023)
+109555.
+[52] W. Al-Dhabyani, M. Gomaa, H. Khaled, A. Fahmy, Dataset of breast ultrasound
+images, Data Brief 28 (2020) 104863.
+[53] J.C. Caicedo, A. Goodman, K.W. Karhohs, B.A. Cimini, J. Ackerman, M. Haghighi,
+C. Heng, T. Becker, M. Doan, C. McQuin, et al., Nucleus segmentation across
+imaging experiments: the 2018 data science bowl, Nature Methods 16 (12)
+(2019) 1247–1253.
+[54] Y. Liu, Y.-H. Wu, Y. Ban, H. Wang, M.-M. Cheng, Rethinking computer-aided
+tuberculosis diagnosis, in: Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, 2020, pp. 2646–2655.
+[55] A. Heuillet, A. Nasser, H. Arioui, H. Tabia, Efficient automation of neural network
+design: A survey on differentiable neural architecture search, ACM Comput. Surv.
+56 (11) (2024) 1–36.
+
+15
+
+

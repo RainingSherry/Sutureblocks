@@ -1,0 +1,2852 @@
+MobileMamba: Lightweight Multi-Receptive Visual Mamba Network
+Haoyang He1∗ Jiangning Zhang1,2 * Yuxuan Cai3 Hongxu Chen1 Xiaobin Hu2
+Zhenye Gan2 Yabiao Wang2 Chengjie Wang2 Yunsheng Wu2 Lei Xie1†
+
+arXiv:2411.15941v1 [cs.CV] 24 Nov 2024
+
+1
+
+Zhejiang University 2 Youtu Lab, Tencent 3 Huazhong University of Science and Technology
+Code: https://github.com/lewandofskee/MobileMamba
+
+Abstract
+Previous research on lightweight models has primarily focused on CNNs and Transformer-based designs.
+CNNs, with their local receptive fields, struggle to capture long-range dependencies, while Transformers, despite their global modeling capabilities, are limited by
+quadratic computational complexity in high-resolution scenarios. Recently, state-space models have gained popularity in the visual domain due to their linear computational complexity. Despite their low FLOPs, current lightweight Mamba-based models exhibit suboptimal
+throughput. In this work, we propose the MobileMamba
+framework, which balances efficiency and performance.
+We design a three-stage network to enhance inference
+speed significantly. At a fine-grained level, we introduce
+the Multi-Receptive Field Feature Interaction (MRFFI)
+module, comprising the Long-Range Wavelet TransformEnhanced Mamba (WTE-Mamba), Efficient Multi-Kernel
+Depthwise Convolution (MK-DeConv), and Eliminate Redundant Identity components. This module integrates multireceptive field information and enhances high-frequency
+detail extraction. Additionally, we employ training and
+testing strategies to further improve performance and efficiency. MobileMamba achieves up to 83.6% on Top1, surpassing existing state-of-the-art methods which is
+maximum ×21↑ faster than LocalVim on GPU. Extensive
+experiments on high-resolution downstream tasks demonstrate that MobileMamba surpasses current efficient models, achieving an optimal balance between speed and accuracy. The full code is available in https://github.
+com/lewandofskee/MobileMamba.
+
+Figure 1.
+Top: Visualization of the Effective Receptive
+Fields (ERF) for different architectures. Bottom: Performance
+vs. FLOPs with recent CNN/Transformer/Mamba-based methods.
+
+enhancing inference speed. Current lightweight models
+are primarily categorized into CNN-based and Transformerbased structures. CNN-based MobileNets [24, 26, 56] use
+depth-wise separable convolutions to reduce computational
+complexity, laying a foundation for subsequent CNN-based
+work [3, 45, 61, 63, 79]. However, the major drawback
+of CNN-based methods is their local Effective Receptive
+Field (ERF), as shown in Fig. 1(i), which is confined to the
+central region and lacks long-range correlations. In downstream tasks (Tab. 5) with high-resolution inputs, CNNbased methods can only achieve performance improvements by increasing computational load.
+Vision Transformers (ViTs) exhibit a global ERF and
+long-range modeling capabilities in Fig. 1(ii). However,
+their quadratic computational complexity results in higher
+overhead compared to CNNs. Some works [33, 34, 38, 46,
+56, 66, 76] have reduced resolution or channel count to alleviate this complexity, achieving notable results. Despite
+this, pure ViTs lack inductive bias, prompting researchers to
+develop hybrid CNN-ViT structures [32, 74, 78] that com-
+
+1. Introduction
+The proliferation of mobile devices has increased the
+demand for efficient and accurate visual processing in
+resource-constrained environments. Lightweight models
+significantly reduce computational and storage costs while
+* Equal contributions.
+† Corresponding author.
+
+1
+
+bine local and global ERF for improved performance in
+Fig. 1(iii). However, ViT-based methods still face the issue of quadratic computational complexity, especially with
+high-resolution inputs in downstream tasks (Tab. 6).
+State-space models [13–15, 58] have gained attention
+for capturing long-range dependencies with linear computational complexity. Researchers have successfully applied
+these models to the visual domain [39, 57, 83], achieving
+notable effectiveness and efficiency. The recent lightweight
+Mamba-based models [29, 51] introduce different efficient
+scanning methods to reduce complexity. However, only
+FLOPs are reported in their works, which do not necessarily correlate with fast inference speed. Experimental results
+in Fig. 2 show that current Mamba-based structures suffer
+from slow inference speeds and poor performance.
+Based on the above motivation, we propose MobileMamba, designed as an efficient lightweight network through Coarse-Grained, Fine-Grained, and Training/Testing Strategies. Firstly, in Sec. 3.1, we discuss
+the trade-offs between four-stage and three-stage networks
+in terms of accuracy, speed, and FLOPs. As shown in
+Fig. 3, under the same throughput, a three-stage network
+achieves higher accuracy. Similarly, for the same performance, a three-stage network has higher throughput. Therefore, we select a three-stage network as our Coarse-Grained
+framework. In the design of the MobileMamba module in
+Sec. 3.2, we introduce an efficient Multi-Receptive Field
+Feature Interaction (MRFFI) module. Specifically, the input features are divided into three parts along the channel dimension. The first part uses a Long-Range Wavelet
+Transform-Enhanced Mamba (WTE-Mamba) module to
+extract global features while enhancing the extraction of
+fine-grained details such as edge information. The second
+part employs Multi-Kernel Depthwise Convolution (MKDeConv) operations to capture multi-scale receptive fields.
+The final part uses Eliminate redundant Identity mapping to
+reduce channel redundancy in high-dimensional space, decreasing computational complexity and increasing processing speed. The features obtained through MRFFI integrate
+global and multi-scale local receptive field information, enhancing the extraction of high-frequency edge details. Finally, we enhance the model’s learning capability through
+two training phase strategies in Sec. 3.3, Knowledge Distillation, and Extended Training Epochs. Additionally, a
+Normalization Layer Fusion strategy in the testing phase
+improves the model’s inference speed.
+In Fig. 1(iv), our approach utilizes a global ERF,
+whereas multi-kernel local convolution operations facilitate the extraction of adjacent information. The comparison with SoTA methods at the bottom of Fig. 1 shows
+that MobileMamba† (with training strategies) achieves Top1 accuracies of 76.9/78.9/80.7/82.2/83.3/83.6 on ImageNet1K [10] for models ranging from 200M to 4G FLOPs, sur-
+
+passing existing CNN, ViT, and Mamba-based methods.
+Compared to efficient Mamba-based methods in Fig. 2,
+MobileMamba
+improves
+Top-1
+by
++0.7↑ while
+being ×21↑
+times faster
+than
+LocalVim [30],
+and improves
+by
++2.0↑
+while being
+Figure 2. Accuracy vs. Speed with Mamba×3.3↑ times
+based methods.
+faster than EfficientVMamba [51]. This demonstrates a significant advantage over existing Mamba-based lightweight
+model designs. Extensive experiments on downstream
+tasks further validate the effectiveness of our method.
+On Mask RCNN [22], MobileMamba improves mAP b
+by +1.3↑, mAP m by +1.0↑ and throughput by +56%↑
+compared to EMO [78]. On RetinaNet [35], it improves
+mAP b by +2.1↑ and throughput by ×4.3↑ compared to
+EfficientVMamba [51]. On SSDLite [25], it achieves mAPs
+of 24.0/29.5 by increasing resolution. On DeepLabv3 [5],
+Semantic FPN [31], and PSPNet [80], it achieves mIoUs
+of up to 37.4/42.5/36.9 with fewer FLOPs. Compared
+to CNN-based MobileNetv2 [56] and ViT-based MobileViTv2 [47], our approach achieves improvements of +7.2↑
+and +0.4↑, respectively, in high-resolution 512x512 input
+downstream tasks, while only requiring 8.5% and 11.2%
+of their FLOPs for PSPNet [80].
+In summary, our contributions are as follows:
+• We propose a lightweight three-stage MobileMamba
+framework that achieves a good balance between performance and efficiency. The effectiveness and efficiency of
+MobileMamba have been validated on classification tasks
+as well as three high-resolution input downstream tasks.
+• We designed an efficient Multi-Receptive Field Feature
+Interaction (MRFFI) module to enhance multi-scale perception capabilities with larger ERF and improve the extraction of fine-grained high-frequency edge information.
+• MobileMamba significantly enhances performance and
+efficiency by employing training and testing strategies
+across a range of models of different FLOPs sizes.
+
+2. Related Work
+2.1. Lightweight Visual Models
+The most extensively studied lightweight visual networks
+can be categorized into CNN-based and Vision Transformer
+(ViT)-based structures. The CNN-based MobileNets [24,
+26, 56] transitions from standard convolution to depthwise
+separable convolution, significantly reducing computational
+2
+
+complexity. GhostNets [18, 40, 63] replaces the original
+convolution with a cheap operation on half of the channels. Additionally, numerous CNN-based works [3, 44, 61,
+62, 79]demonstrate excellent performance and efficiency
+on mobile devices. The main limitation of these methods
+is their local receptive field. In contrast, ViT possesses a
+global receptive field and the ability to capture long-range
+dependencies. Nevertheless, their quadratic computational
+complexity results in higher computational costs compared
+to CNNs. Therefore, lightweight vision Transformers are
+designed to retain their global receptive field while reducing computational overhead. EfficientViT [38] designs a
+three-stage network and proposes Cascaded Group Attention to significantly improve inference speed. SHViT [76]
+introduces Single Head Self-Attention, selecting only a few
+channels to use ViT while directly connecting the remaining channels via Identity, greatly enhancing operational efficiency. Furthermore, many hybrid methods [33, 34, 46,
+47, 50, 65, 66, 78], have achieved outstanding performance.
+
+Figure 3. Coarse-Grained Design. (A) illustrates the structure of a commonly used four-stage network, where the first two
+stages can be configured with either (1) a purely CNN-based structure or (2) the MobileMamba structure. (B) depicts the threestage network structure employed in this study. The following
+table presents the model parameters for different structures and
+the ImageNet-1K Top-1 and Top-5 at equivalent throughput.
+
+2.2. State Space Models
+State Space Models (SSMs) [13, 15–17, 58] inspired by
+control systems, can be regarded as linear time-invariant
+systems mapping input x(t) ∈ RL to output y(t) ∈ RL via
+hidden state h(t) ∈ RM : h′ (t) = Ah(t) + Bx(t), y(t) =
+Ch(t), where A ∈ RM ×M , B ∈ RM ×1 , and C ∈ R1×M .
+Mamba [14] uses zero-order hold with timescale ∆ to
+convert continuous A and B to discrete A and B:
+A = exp(∆A), B = (∆A)−1 (exp(∆A) − I) · ∆B.
+(1)
+The discrete system is: ht = Aht−1 + Bxt , yt = Cht .
+From a global convolution perspective:
+K = (CB, CAB, . . . , CA
+
+L−1
+
+B), y = x ∗ K,
+
+3. Methdology
+3.1. Coarse-Grained Design of MobileMamba
+In this section, we design the efficient MobileMamba structure, which includes a three-stage network as shown in
+Fig. 3(B). Most existing network [3, 33, 74] follow the fourstage framework depicted in Fig. 3(A). Specifically, in a
+four-stage network, the first downsampling reduces the inW
+put image H × W × 3 to H
+4 × 4 × C1 , and the final outW
+H
+put feature map is 32 × 32 × C4 . In contrast, the threeH
+stage network reduces the input image to 16
+× W
+16 × C1
+during the first downsampling, and the final output feaH
+×W
+ture map is 64
+64 × C4 . Due to the larger feature map
+size in the four-stage network, it requires more computation and consequently operates at a slower speed. The table below Fig. 3 compares the classification results on the
+ImageNet-1K [10] dataset for the three-stage network and
+various four-stage networks under similar throughput conditions. In the first two experiments, the initial two stages
+of the four-stage network are designed with a purely CNN
+architecture, which enhances inference speed. The third experiment employs the MobileMamba blocks across all four
+stages of the network. The results indicate that although
+the four-stage network with a purely CNN structure in the
+first two stages shows improved inference speed and performance, the three-stage network achieves faster inference
+with both Top-1 and Top-5 accuracy improvement of +0.4↑.
+Ultimately, we select the three-stage network structure to
+enhance inference speed and improve classification results.
+
+(2)
+
+where ∗ is convolution, L is the sequence length, and K ∈
+RL is the SSM kernel.
+SSMs for Vision. SSMs [13, 15, 58] have garnered significant attention due to their efficient computational complexity in capturing long-range dependencies. Mamba [14]
+introduces the S6 module, achieving a simple structure with
+excellent efficiency in long-sequence modeling. Due to
+this advantage, numerous works have applied it to visual
+tasks [19, 20, 39, 43, 54, 72, 83]. Vim [83] proposes a bidirectional Mamba block, demonstrating its speed and memory advantages over ViTs at high resolutions. VMamba [39]
+introduces Cross-Scan to enhance modeling capabilities.
+EfficientVMamba [51] proposes Efficient Scan, improving
+scanning efficiency through skip sampling. LocalVim [29]
+proposes local window scanning to enhance local information acquisition. Despite various designs, no lightweight
+Mamba-based network surpasses existing CNN and ViT
+methods. This paper explores lightweight Mamba-based visual networks to achieve better performance, lower computational complexity, and faster inference speed.
+3
+
+Figure 4. Overview of MobileMamba. (a) Architecture of MobileMamba. (b) 16 ×16 DownSample PatchEmbed. (c) Structure of
+MobileMamba Block. (d) Fine-Grained Design. The proposed efficient Multi-Receptive Field Feature Interaction (MRFFI) module.
+h
+
+w
+
+xIw ∈ R 2 × 2 ×4ξc at different frequency scales. Local
+convolutional information extraction and Inverse Wavelet
+Transformation (IWT) are then performed to restore the
+h×w×ξc
+.
+original feature map size xO
+w ∈R
+
+xIwt = WT xIw , [fLL , fLH , fHL , fHH ] ,
+(4)
+
+I
+xO
+w = IWT Conv(xwt ), [fLL , fLH , fHL , fHH ] ,
+
+3.2. Fine-Grained Design of MobileMamba
+The proposed efficient Multi-Receptive Field Feature
+Interaction (MRFFI) module is placed between symmetric local information perception and an FFN in each MobileMamba block. In the MRFFI module, features are divided into three parts along the channel dimension. 1). The
+first part of the features undergoes the Long-Range Wavelet
+Transform-Enhanced Mamba (WTE-Mamba), which enhances the extraction of high-frequency edge information
+while performing global modeling. 2). The second part
+is processed through Multi-Kernel Depthwise Convolution
+(MK-DeConv) operations to enhance the perception capability of different receptive fields. 3). The remaining features are subjected to Identity mapping to reduce feature redundancy in high-dimensional space and decrease computational complexity, thereby improving processing speed.
+Long-range WTE-Mamba. The purpose is to enhance the
+ability to extract fine-grained information, such as highfrequency edge details, based on global modeling. Also,
+the convolution operations [12] on the WT feature maps
+have a larger ERF compared to normal scales and exhibit lower computational complexity. For the input feature
+xI ∈ Rh×w×c , the features xIG ∈ Rh×w×ξc are processed
+through a bidirectional scanning Mamba module to learn
+global information, with the global channel proportion denoted as 0 ≤ ξ ≤ 1.
+
+
+xIm1 = SSM σ Conv Linear xIG [: ξc]
+,
+
+
+I
+I
+(3)
+xm2 = σ Linear xG [ξc :] ,
+
+O
+I
+I
+xm = Linear xm1 ⊗ xm2 .
+
+h i
+1 1
+where fLL = 12 1 1 is a low-pass filter, and fLH =
+h
+h
+h
+i
+i
+i
+1 1
+1 −1
+1
+1
+1 1 −1
+,
+f
+=
+,
+f
+=
+are
+HL
+HH
+2 1 −1
+2 −1 −1
+2 −1 1
+a set of high filters. The final output feature map for this
+part is obtained by adding the output feature map from the
+Mamba module, which has extracted global information, to
+the output feature map from the wavelet-transformed and
+convolved local information.
+O
+O
+O
+h×w×ξc
+xO
+,
+G = xm + xw , where xG ∈ R
+
+(5)
+
+Efficient MK-DeConv. This approach extracts local information with varying ERF, enabling multi-receptive field interaction. For the remaining features, xIL ∈ Rh×w×µc are
+selected, where the local channel proportion is denoted as
+µ ≤ 1 − ξ. These channels are then divided into n ∈ N
+µc
+parts. Each part xILj ∈ Rh×w× n undergoes local convolution operations with different kernel sizes. Finally, the
+results from the different convolution operations are conh×w×µc
+.
+catenated to form the output features xO
+L ∈R
+
+I
+xO
+Lj = Conv xLj , k = (2j + 1) , j ∈ 1, ..., n.
+(6)
+O
+O
+xO
+L = Concat([xL1 , ..., xLn ], dim = −1),
+Eliminate redundant Identity. Finally, to reduce the issue of feature redundancy in high-dimensional space [18],
+we apply identity mapping to the remaining (1 − ξ − µ)c
+
+Simultaneously, the same feature map undergoes Haar
+Wavelet transformation to obtain feature representations
+4
+
+Model
+
+Reso.
+
+{C1 , C2 , C3 }
+
+{D1 , D2 , D3 }
+
+{ξ1 , ξ2 , ξ3 }
+
+{µ1 , µ2 , µ3 }
+
+MobileMamba-T2
+MobileMamba-T4
+MobileMamba-S6
+MobileMamba-B1
+MobileMamba-B2
+MobileMamba-B4
+
+192
+192
+224
+256
+384
+512
+
+{144, 272, 368}
+{176, 368, 448}
+{192, 384, 448}
+{200, 376, 448}
+{200, 376, 448}
+{200, 376, 448}
+
+{1, 2, 2}
+{1, 2, 2}
+{1, 2, 2}
+{2, 3, 2}
+{2, 3, 2}
+{2, 3, 2}
+
+{0.8, 0.7, 0.6}
+{0.8, 0.7, 0.6}
+{0.8, 0.7, 0.6}
+{0.8, 0.7, 0.6}
+{0.8, 0.7, 0.6}
+{0.8, 0.7, 0.6}
+
+{0.2, 0.2, 0.3}
+{0.2, 0.2, 0.3}
+{0.2, 0.2, 0.3}
+{0.2, 0.2, 0.3}
+{0.2, 0.2, 0.3}
+{0.2, 0.2, 0.3}
+
+has not reached its potential. Therefore, to improve the performance ceiling of the lightweight model, we extend the
+training to 1000 epochs.
+Normalization Layer Fusion. Convolution operations are
+typically followed by batch normalization. During inference, batch normalization can be fused with preceding convolution or linear layers. Recalculating the new convolution layer’s weights and biases ensures its combined output
+matches the original layers’ output. This fusion enhances
+computational efficiency and speeds up the forward pass by
+reducing the number of layers.
+
+Table 2. Architecture details of MobileMamba model variants.
+
+channels. This approach minimizes unnecessary computations and enhances operational efficiency. Therefore, the
+final output after processing through the MRFFI module is
+computed as follows:
+O
+I
+xO = Concat(xO
+G , xL , x [(1 − ξ − µ)c :]).
+
+(7)
+
+4. Experiments
+
+MobileMamba is designed with six structures in Tab. 2.
+Across different models, we maintain the same global and
+local channel proportions. For the small model, we use
+a smaller input resolution to achieve lower computational
+complexity and faster runtime. Conversely, for the large
+model, we use a larger input resolution to obtain better
+performance, as detailed in Sec. 4.4. By adjusting the
+input resolution according to the model size, we balance
+the trade-offs between computational efficiency and performance. This design strategy ensures that MobileMamba can
+be effectively scaled to meet different requirements while
+maintaining consistent channel proportions.
+Replace Mamba
+Method
+FLOPs Throughput Params Top-1
+with other RNN
+TTT [59]
+625
+9569
+14.2
+77.0
+paradigm modxLSTM [2]
+695
+6868
+14.6
+77.3
+RWKV6 [52]
+658
+10331
+14.8
+77.8
+els. We replace
+Mamba [14]
+652
+11000
+15.0
+78.0
+Mamba with the
+Table 1. Other RNN Paradigm models.
+currently popular
+global ERF RNN paradigm models that have linear computational complexity. The results are shown in Tab. 1.
+Under similar FLOPs, Mamba [14] still demonstrates the
+best performance and higher throughput. RWKV6 [52]
+achieves results second only to Mamba. In contrast,
+TTT [59] and xLSTM [2] fall short in both throughput and
+performance compared to the former.
+
+4.1. Implementation Details
+We conduct image classification on the ImageNet-1K [10]
+dataset. The baseline model is trained from scratch for 300
+epochs at a resolution of 2242 . The AdamW [41] optimizer is employed with betas (0.9, 0.999), a weight decay of 5e-2, a learning rate of 1.5e-3, and a batch size of
+1024. We use a Cosine scheduler [42] with 20 warmup
+epochs, Label Smoothing [60] of 0.1, stochastic depth [28],
+and RandAugment [9] during training. For a fair comparison, we follow the same data augmentation techniques proposed in [64], including Mixup [77], random erasing [81],
+and auto-augmentation [8]. For the enhanced model† , we
+train for 1000 epochs and follow the Knowledge Distillation recipe as used in DeiT [64] with TResNet-L [53] as
+the teacher model. For object detection tasks, we validate
+using lightweight SSDLite [25] and RetinaNet [35] on the
+MS-COCO 2017 [36] dataset. For instance segmentation
+tasks, we conduct experiments using Mask R-CNN [22]
+on the COCO [36] dataset. For semantic segmentation
+tasks, we experiment with DeepLabv3 [5], PSPNet [80],
+and FPN [37] on the ADE20K [82] dataset. For all downstream task experiments, we use the standard MMDetection [4] and MMSegmentation [7] libraries, and we only replace the optimizer with AdamW [41] without tuning other
+parameters. GPU throughput is measured on a single Nvidia
+L40S with a batch size of 256.
+
+3.3. Training and Testing Strategies
+We employ two training strategies to further enhance the
+performance and efficiency of the small model while maintaining the same number of parameters and computational
+complexity. Additionally, we use a testing strategy to ensure model effectiveness while improving inference speed.
+Knowledge Distillation. To enable the lightweight student model, MobileMamba, to learn from the more robust
+teacher classification model, we follow the Soft Distillation setup from DeiT [64]. This involves minimizing the
+Kullback-Leibler divergence between the softmax outputs
+of the teacher model and the student model.
+Extended Training Epochs. We observe that under the
+conventional 300 epochs, the loss of the small model MobileMamba has not fully converged, and the Top-1 accuracy
+
+4.2. MobileMamba on ImageNet-1K Classification
+The results of MobileMamba across six different model
+scales compared to other SoTA methods on ImageNet-1K
+are presented in Tab. 3. The different model scales are
+categorized by FLOPs. For instance, compared to the
+MobileMamba-B1 model, the B2 and B4 models only increase the input resolution without adding network depth
+or width. In the first two model scales, there are currently no Mamba-based models with equivalent FLOPs.
+MobileMamba-T2 outperforms Transformer-based SHViTS1 [76] by +0.8↑ in Top-1. MobileMamba-T4 surpasses the linear attention-based VRWKV-T [11] by +1↑
+in Top-1 while having only 33% of its FLOPs. For the
+5
+
+Model
+FLOPs↓
+EdgeNeXt-XXS [45]
+260
+ShuffleNetV2×1.5 [44]
+300
+FasterNet-T0 [3]
+340
+MobileViTv3-0.5 [66]
+481
+EfficientViT-M2 [38]
+201
+EMO-1M [78]
+261
+SHViT-S1 [76]
+241
+MobileMamba-T2
+255
+†
+MobileMamba-T2
+255
+EdgeNeXt-XS [45]
+540
+InceptionNeXt-A [75]
+510
+EfficientFormerV2-S0 [34]
+400
+EfficientViT-M4 [38]
+299
+EMO-2M [78]
+439
+SHViT-S2 [76]
+366
+VRWKV-T [11]
+1200
+MobileMamba-T4
+413
+MobileMamba-T4†
+413
+FasterNet-T1 [3]
+850
+MobileViTv3-XS [66]
+927
+EfficientViT-M5 [38]
+522
+SHViT-S3 [76]
+601
+MSVMamba-N [57]
+900
+Vim-Ti [83]
+1500
+LocalVim-T [30]
+1500
+EfficientVMamba-T [51]
+800
+MobileMamba-S6
+652
+†
+MobileMamba-S6
+652
+MambaOut-Femto [73]
+1200
+MPViT-T [32]
+1600
+EMO-6M [78]
+961
+SHViT-S4 [76]
+986
+ViL-T [1]
+1500
+MSVMamba-M [57]
+1500
+PlainMamba-L1 [72]
+3000
+EfficientVMamba-S [51]
+1300
+MobileMamba-B1
+1080
+†
+MobileMamba-B1
+1080
+FasterNet-S [3]
+4560
+MobileViTv3-0.75 [66]
+2395
+MPViT-XS [32]
+2900
+EfficientViT-M4r384 [38]
+1486
+SHViT-S4r384 [76]
+2225
+ViL-S [1]
+5100
+VRWKV-S [11]
+4600
+LocalVim-S [30]
+4800
+MobileMamba-B2
+2427
+†
+MobileMamba-B2
+2427
+InceptionNeXt-T [75]
+4200
+MobileViTv3-1.0 [66]
+4220
+EfficientViT-M5r512 [38]
+2670
+SHViT-S4r512 [76]
+3973
+ViL-B [1]
+18600
+VRWKV-B [11]
+18200
+PlainMamba-L2 [72]
+8100
+Vim-S [83]
+5100
+VMamba-T [39]
+5600
+EfficientVMamba-B [51]
+4000
+MobileMamba-B4
+4313
+†
+MobileMamba-B4
+4313
+
+Params↓
+1.3
+3.5
+3.9
+1.4
+4.2
+1.3
+6.3
+8.8
+8.8
+2.3
+4.2
+3.5
+8.8
+2.3
+11.4
+6.2
+14.2
+14.2
+7.6
+2.5
+12.4
+14.2
+7.0
+7.0
+8.0
+6.0
+15.0
+15.0
+7.0
+5.8
+6.1
+16.5
+6.0
+12.0
+7.0
+11.0
+17.1
+17.1
+31.1
+30.0
+10.5
+12.4
+16.5
+23.0
+23.8
+28.0
+17.1
+17.1
+28.0
+5.1
+12.4
+16.5
+89.0
+93.7
+25.0
+26.0
+22.0
+33.0
+17.1
+17.1
+
+Reso.
+224
+224
+224
+256
+224
+224
+224
+192
+192
+224
+224
+224
+224
+224
+224
+224
+192
+192
+224
+256
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+256
+224
+224
+224
+224
+256
+256
+224
+384
+224
+384
+384
+224
+224
+224
+384
+384
+224
+384
+512
+512
+224
+224
+224
+224
+224
+224
+512
+512
+
+Mask R-CNN Object Detection & Instance Segmentation on COCO
+
+Top-1
+#Pub
+71.2 ECCVW’22
+72.6
+ECCV’18
+71.9
+CVPR’23
+72.3 arXiv’2209
+70.8
+CVPR’23
+71.5
+ICCV’23
+72.8
+CVPR’24
+73.6
+76.9
+75.0 ECCVW’22
+75.3
+CVPR’24
+75.7
+ICCV’23
+74.3
+CVPR’23
+75.1
+ICCV’23
+75.2
+CVPR’24
+75.1 arXiv’2403
+76.1
+78.9
+76.2
+CVPR’23
+76.7 arXiv’2209
+77.1
+CVPR’23
+77.4
+CVPR’24
+77.3
+NIPS’24
+76.1
+ICML’24
+76.2 arXiv’2403
+76.5 arXiv’2403
+78.0
+80.7
+78.9 arXiv’2405
+78.2
+CVPR’22
+79.0
+ICCV’23
+79.4
+CVPR’24
+78.3 arXiv’2406
+79.8
+NIPS’24
+77.9
+BMVC’24
+78.7 arXiv’2403
+79.9
+82.2
+81.3
+CVPR’23
+77.8 arXiv’2209
+80.9
+CVPR’22
+79.8
+CVPR’23
+81.0
+CVPR’24
+81.5 arXiv’2406
+80.1 arXiv’2403
+81.2 arXiv’2403
+81.6
+83.3
+82.3
+CVPR’24
+79.7 arXiv’2209
+80.8
+CVPR’23
+82.0
+CVPR’24
+82.4 arXiv’2406
+82.0 arXiv’2403
+81.6
+BMVC’24
+80.5
+ICML’24
+82.2
+NIPS’24
+81.8 arXiv’2403
+82.5
+83.6
+-
+
+Backbone
+EfficientNet-B0[61]
+ResNet-50 [21]
+FastViT-SA12 [65]
+EfficientViT-M4[38]
+PoolFormer-S12 [74]
+EfficientFormer-L1 [33]
+SHViT-S4 [76]
+EMO-5M [78]
+MobileMamba-B1
+
+b
+b
+mAP b mAP50
+mAP75
+mAP m
+31.9
+51.0
+34.5
+29.4
+38.0
+58.6
+41.4
+34.4
+38.9
+60.5
+42.2
+35.9
+32.8
+54.4
+34.5
+31.0
+37.3
+59.0
+40.1
+34.6
+37.9
+60.3
+41.0
+35.4
+39.0
+61.2
+41.9
+35.9
+39.3
+61.7
+42.4
+36.4
+40.6
+61.8
+43.8
+37.4
+RetinaNet Object Detection on COCO
+
+m
+mAP50
+47.9
+55.1
+57.6
+51.2
+55.8
+57.3
+57.9
+58.4
+58.9
+
+m
+mAP75
+31.2
+36.7
+38.1
+32.2
+36.9
+37.3
+37.9
+38.7
+39.9
+
+TP
+71
+41
+36
+121
+32
+45
+136
+97
+152
+
+Backbone
+MobileNetV3 [24]
+EfficientViT-M4 [38]
+PVTv2-B0 [69]
+MobileFormer-508M [6]
+EdgeViT-XXS [50]
+SHViT-S4 [76]
+EMO-5M [78]
+EfficientVMamba-T [51]
+MobileMamba-B1
+
+mAP b
+29.9
+32.7
+37.2
+38.0
+38.7
+38.8
+38.9
+37.5
+39.6
+
+b
+mAPM
+33.3
+35.3
+40.4
+41.2
+42.0
+42.4
+42.2
+40.7
+43.1
+
+mAPLb
+41.1
+46.0
+49.7
+49.7
+51.6
+52.7
+51.7
+49.1
+53.9
+
+TP
+153
+160
+71
+58
+60
+186
+138
+42
+181
+
+b
+mAP50
+49.3
+52.2
+57.2
+58.3
+59.0
+59.8
+59.8
+57.8
+59.8
+
+b
+mAP75
+30.8
+34.1
+39.5
+40.3
+41.0
+41.1
+41.0
+39.6
+42.4
+
+mAPSb
+14.9
+17.6
+23.1
+22.9
+22.4
+22.0
+23.8
+22.6
+21.5
+
+Table 4. Object Detection and Instance Segmentation results by
+RetinaNet [35] and Mask RCNN [22] on MS-COCO 2017 [36]
+dataset. TP: GPU Throughput on a single NVIDIA L40S.
+Backbone
+MobileNetv1 [27]
+MobileNetv2 [55]
+MobileNetv3 [23]
+MobileViTv1-XXS [48]
+MobileViTv2-0.5 [49]
+EMO-1M [78]
+MobileMamba-B1
+ResNet50 [21]
+EdgeNeXt-S [45]
+MobileViTv2-0.75 [49]
+EMO-2M [78]
+MobileViTv1-S [48]
+MobileViTv2-1.25 [49]
+EMO-5M [78]
+MobileMamba-B1
+
+Reso.
+320
+320
+320
+320
+320
+320
+320
+512
+512
+512
+512
+512
+512
+512
+512
+
+FLOPs ↓
+1.3G
+0.8G
+0.6G
+0.9G
+0.9G
+0.6G
+1.7G
+8.8G
+2.1G
+1.8G
+0.9G
+3.4G
+4.7G
+1.8G
+4.4G
+
+#Params ↓
+5.1
+4.3
+5.0
+1.7
+2.0
+2.3
+18.0
+26.6
+6.2
+3.6
+3.3
+5.7
+8.2
+6.0
+18.0
+
+mAP
+22.2
+22.1
+22.0
+19.9
+21.2
+22.0
+24.0
+25.2
+27.9
+24.6
+25.2
+27.7
+27.8
+27.9
+29.5
+
+Table 5. Object Detection performance by SSDLite [23] on MSCOCO 2017 [36] dataset at 320×320 resolution.
+
+and B4 models achieve higher classification results while
+having fewer FLOPs compared to other models. Additionally, the use of training strategies † further enhances
+model performance. For instance, applying training strategies to the MobileMamba-T2† model results in a +3.3↑ increase in Top-1 and a +1.7↑ increase in Top-5. Across all
+model scales, training strategies consistently demonstrate
+their ability to significantly improve performance.
+
+4.3. MobileMamba on Downstream Tasks
+
+Table 3. Classification Performance on ImageNet-1K [10]
+dataset. White, gray, yellow, and blue backgrounds indicate CNNbased, Transformer-based, Mamba/RWKV-based and our MobileMamba, respectively. This kind of display continues for all subsequent experiments. † indicates the use of training strategies.
+
+Object Detection and Instance Segmentation. The pretrained MobileMamba model is evaluated for object detection using light SSDLite [25] and heavy RetinaNet [35], as
+well as for instance segmentation with Mask R-CNN [22]
+on MS-COCO 2017 [36] dataset. For SSDLite in Tab. 5,
+we initially experiment at 3202 resolution and subsequently
+increase to 5122 while keeping other parameters constant. MobileMamba-B1 achieves +2↑ compared to EMO1M [78] at 3202 resolution. MobileMamba-B1 has -0.3G↓
+FLOPs than MViTv2-1.25 [49] while achieving +1.7↑ in
+mAP at 5122 . For RetinaNet in Tab. 4, MobileMambaB1 demonstrates a GPU throughput ×4.3↑ higher than
+EfficientVMamba-T [51], with +2.1↑ in mAP b . Compared to EMO-5M [78], it shows +31%↑ in GPU throughput and +0.7↑ in mAP b . For Mask R-CNN in Tab. 4,
+
+MobileMamba-S6 and B1 models, we also observe significant improvements over other CNN, Transformer, and
+Mamba-based models. MobileMamba-S6 achieves 1.5
+higher Top-1 accuracy than EfficientVMamba-T [51] while
+reducing FLOPs by 18.5%↓.
+To demonstrate the scaling capability of the lightweight
+models, we maintain the network architecture of the
+MobileMamba-B1 model and increase the input resolution to 3842 and 5122 , resulting in models with about
+2G and 4G FLOPs, respectively. The MobileMamba-B2
+6
+
+DeepLabv3
+[5]
+Semantic FPN
+[31]
+PSPNet
+[80]
+
+Backbone
+MobileNetv2 [55]
+MobileNetv2-0.5 [49]
+MobileViTv3-0.5 [67]
+EMO-1M [78]
+MobileViTv2-0.75 [49]
+MobileViTv3-0.75 [67]
+EMO-2M [78]
+MobileMamba-B4
+ResNet-18 [21]
+ResNet-50 [21]
+ResNet-101 [21]
+ResNeXt-101 [71]
+EMO-1M [78]
+PVTv1-Tiny [68]
+PVTv2-BO [69]
+EMO-2M [78]
+PVTv1-Small [68]
+EdgeViT-XXS [50]
+EdgeViT-XS [50]
+PVTv2-B1 [69]
+EMO-5M [78]
+MobileMamba-B4
+MobileNetv2 [55]
+MobileNetv2-0.5 [49]
+EMO-1M [78]
+MobileViTv2-0.75 [49]
+MobileViTv2-1.0 [49]
+EMO-2M [78]
+MobileMamba-B4
+
+FLOPs↓
+75.4G
+26.1G
+2.4G
+40.0G
+3.5G
+4.7G
+32.2G
+45.6G
+65.1G
+64.7G
+22.5G
+33.2G
+25.0G
+23.5G
+44.5G
+24.4G
+27.7G
+34.2G
+25.8G
+5.6G
+53.1G
+15.4G
+2.1G
+26.6G
+40.3G
+3.1G
+4.5G
+
+#Params.↓
+18.7
+6.3
+6.3
+5.6
+9.6
+9.7
+6.6
+23.0
+15.5
+28.5
+47.5
+47.1
+5.2
+17.0
+7.6
+6.2
+28.2
+7.9
+10.6
+17.8
+8.9
+19.8
+13.7
+3.6
+4.3
+6.2
+9.4
+5.5
+20.5
+
+mIoU
+34.1
+31.9
+33.5
+33.5
+34.7
+36.4
+35.3
+36.6
+32.9
+36.7
+38.8
+39.7
+34.2
+35.7
+37.2
+37.3
+39.8
+39.7
+41.4
+42.5
+40.4
+42.5
+29.7
+31.8
+33.2
+35.2
+36.5
+34.5
+36.9
+
+Table 6. Semantic Segmentation results by DeepLabv3 [5], Semantic FPN [31], and PSPNet [80] on ADE20K [82] dataset at
+512×512 resolution.
+
+Figure 5. Incremental Experiments on the ImageNet-1K for MobileMamba compare Top1/Top5 Acc., FLOPs, and Throughput.
+
+MobileMamba-B1 shows +57%↑ in throughput compared
+to EMO-5M [78], with +1.3↑ and +1.0↑ in mAP b and
+mAP m , respectively. Compared to SHViT-S4 [76], it
+achieves +1.6↑ and 1.5↑ in mAP b and mAP m .
+Semantic Segmentation. The pre-trained MobileMamba
+is evaluated for semantic segmentation performance using DeepLabv3 [5], Semantic FPN [31], and PSPNet [80]
+on the ADE20K [82] dataset in Tab. 6. For DeepLabv3,
+MobileMamba-B4 achieves +1.3↑ in mIoU over EMO2M [78]. For Semantic FPN, MobileMamba demonstrates
+a significant advantage. Compared to EMO-5M [78], it has
+only 22% of the FLOPs while +2.1↑ in mIoU. Compared to
+EdgeViT-XS [50], it achieves +1.1↑ mIoU with only 20%
+of the FLOPs. Compared to PVTv2-B1 [69] with similar
+results, the FLOPs of our model are only 16% of theirs.
+For PSPNet, MobileMamba-B4 achieves +2.4↑ in mIoU
+over EMO-2M [78]. Compared to MobileViTv2-1.0 [49], it
+achieves +0.4↑ higher mIoU with only 11% of the FLOPs.
+
+increasing the dimension and global proportion ξ can decrease FLOPs and simultaneously increase throughput with
+similar accuracy. Finally, by decreasing d state and scan
+directions and increasing the expanding ratio of SSM, the
+model’s performance is further enhanced, and its throughput is significantly increased. Ultimately, compared to the
+baseline, MobileMamba achieves an improvement of +0.9↑
+in Top-1 and +0.6↑ in Top-5 accuracy, while also increasing
+throughput by +729↑ images per second.
+Efficiency Comparison. Tab. 7 presents a comparison
+with SoTA methods in efficiency and effectiveness. MobileMamba surpasses all methods in GPU throughput. On
+average, the three different sizes of MobileMamba models achieve ×3.5 ↑ faster in GPU throughput compared
+to EfficientVMamba [51]. However, for CPU throughput
+on AMD EPYC 9K84 96-Core and latency and latency
+on the mobile iPhone15 (ms), MobileMamba lags behind
+Transformer-based models. This is attributed to the cur-
+
+4.4. Extra Ablation and Explanatory Analysis
+Incremental Experiments. Fig. 5 illustrates the process
+of deriving the MobileMamba model from the baseline
+EfficientViT-M5 [38] model through incremental experiments. Since FLOPs do not always fully reflect the inference speed of a model, we include the GPU throughput metric to demonstrate the model’s efficiency. At the
+structural level, the Cascaded Group Attention is gradually
+transformed into the proposed MRFFI module. This process integrates multi-scale receptive fields while enhancing
+the model’s throughput. Subsequently, a Fine-Grained design is applied to enhance the model’s representation capabilities in terms of Mamba’s global receptive field and
+frequency domain details, thereby improving model performance. Reducing the number of network layers while
+
+FLOPs
+
+#Params
+
+Model
+
+(M)
+
+(M)
+
+Reso.
+
+GPU
+
+Throughput
+CPU
+
+CPU
+
+Latency
+Mobile
+
+Top-1(%)
+
+EfficientViT-M2 [38]
+EMO-1M [78]
+MobileMamba-T2
+
+201
+261
+255
+
+4.2
+1.3
+8.8
+
+224
+224
+192
+
+18693
+8361
+21071
+
+255
+91
+85
+
+3.9
+10.9
+11.8
+
+1.1
+5.1
+11.7
+
+70.8
+71.5
+73.6
+
+EfficientViT-M4 [38]
+EMO-2M [78]
+MobileMamba-T4
+
+299
+439
+413
+
+8.8
+2.3
+14.2
+
+224
+224
+192
+
+14612
+6301
+16571
+
+228
+67
+84
+
+4.4
+15.0
+11.8
+
+1.6
+7.6
+16.9
+
+74.3
+75.1
+76.1
+
+EfficientViT-M5 [38]
+EfficientVMamba-T [51]
+MobileMamba-S6
+
+522
+800
+652
+
+12.4
+6.0
+15.0
+
+224
+224
+224
+
+10271
+6285
+11000
+
+180
+14
+80
+
+5.6
+70.0
+12.5
+
+2.0
+113.6
+19.7
+
+77.1
+76.5
+78.0
+
+EfficientVMamba-S [51]
+EMO-6M [78]
+MobileMamba-B1
+
+1300
+961
+1080
+
+11.0
+6.1
+17.1
+
+224
+224
+256
+
+3327
+4038
+6986
+
+7
+42
+49
+
+137.8
+23.5
+20.3
+
+287.9
+14.8
+47.0
+
+78.7
+79.0
+79.9
+
+EfficientViT-M5r512 [38]
+EfficientVMamba-B [51]
+MobileMamba-B4
+
+2670
+4000
+4313
+
+12.4
+33.0
+17.1
+
+512
+224
+512
+
+1694
+648
+1862
+
+31
+5
+12
+
+32.4
+198.2
+84.2
+
+3.5
+834.8
+291.7
+
+80.8
+81.8
+82.5
+
+Table 7. Comparison with SoTAs in Effectiveness and Efficiency.
+
+7
+
+Reso.
+
+FLOPs
+
+Throughput
+
+Params
+
+Top-1
+
+160
+192
+224
+
+252
+255
+269
+
+21548
+21071
+20203
+
+11.7
+8.8
+6.5
+
+72.6
+73.5
+73.3
+
+(a) Small model for Lower Resolution.
+S
+4
+4
+4
+2
+2
+
+R
+1
+1
+2
+1
+2
+
+D
+1
+16
+1
+16
+1
+
+FLOPs
+607
+651
+663
+624
+652
+
+Throughput
+11782
+9945
+10069
+11121
+11000
+
+Reso.
+224
+384
+224
+512
+
+FLOPs
+2305
+2427
+4374
+4313
+
+Throughput
+3602
+3175
+2145
+1862
+
+Params
+50.7
+17.1
+79.4
+17.1
+
+Top-1
+80.0
+81.6
+80.7
+82.5
+
+(b) Large model for Higher Resolution.
+Params
+14.1
+14.3
+15.2
+14.1
+15.0
+
+(d) Impact of Mamba Component.
+
+Top-1
+77.7
+77.8
+78.1
+77.6
+78.0
+
+n.
+1
+2
+3
+
+TP
+11000
+10847
+10791
+
+Top-1
+78.0
+77.9
+78.0
+
+(e) Impact of MK-DeConv.
+
+Method
+S6
++KD
++1000e
++NLF
+
+FLOPs
+652
+652
+652
+648
+
+Throughput
+9200
+9200
+9200
+11000
+
+Top-1
+78.0
+80.0
+80.7
+80.7
+
+(c) Training and Testing Strategies.
+Method
+
+Params
+
+FLOPs
+
+Throughput
+
+Top-1
+
+wo WT
+
+14.9
+
+652
+
+11687
+
+77.8
+
+w WT
+
+15.0
+
+652
+
+11000
+
+78.0
+
+(f) Impact of Wave Transformation.
+
+Table 8. Ablation Studies and comparison analysis on ImageNet-1K [10].
+
+throughput, albeit with a slight decrease in performance.
+With the same number of S, using R=2 and D=1 results in
+higher throughput and better performance compared to R=1
+and D=16. Therefore, the final choice is to use bidirectional
+scanning with an R=2 and D=1.
+Ablations on MK-DeConv. We experimented with the
+number of splits n in the efficient MK-DeConv operation
+(see Tab. 8e). For n = 1, all channels use a single convolution module with a kernel size of 3. For n = 3, channels are
+split into three groups with k = 3, 5, 7 respectively and then
+concatenated along the channel dimension. The methods
+show no significant differences in parameters, FLOPs, and
+throughput yielding similar results. Thus, we adopt n = 1
+for simplicity. However, using k = 3 results in an ERF
+of 3. After WT, the feature map size is halved, followed
+by convolution with the same k = 3 and an IWT, restoring
+the original feature size and effectively doubling the ERF to
+6. This approach achieves multi-kernel and multi-receptive
+field characteristics by combining single-branch convolutions and wavelet transformations.
+Effect of Wave Transformation Component. The wavelet
+transform generates one low-frequency and three highfrequency feature maps. The low-frequency map retains the
+original feature information, while the high-frequency maps
+capture edge details. Post wavelet transform, the halved
+feature maps undergo convolution and then inverse wavelet
+transform, restoring the original size and effectively doubling the receptive field. Despite a potential reduction in
+throughput, the wavelet transform’s benefits in enhancing
+the receptive field and extracting edge information can improve model performance (see Tab. 8f).
+
+rent engineering implementation of the Mamba method on
+CPUs, which still has room for improvement and optimization. Nevertheless, compared to other Mamba-based methods, MobileMamba achieves only 15%-42% latency over
+EfficientVMamba on CPUs, while also achieving an average improvement of +1.5↑ in Top-1.
+Ablations on Small Models with Low-Resolution. To enhance the performance of smaller models while increasing
+their throughput, we investigate the impact of input resolution. We set three input resolutions: 1602 , 1922 , and 2242 ,
+and adjust the model parameters to ensure that the FLOPs
+are approximately 250M for each resolution. As shown in
+Tab. 8a, despite similar FLOPs, lower input resolutions result in higher model throughput and larger parameter sizes.
+Considering throughput, parameter size, and performance,
+we design the small model with an input resolution of 1922 ,
+achieving a good balance and satisfactory results.
+Ablations on Large Models with High-Resolution. We
+explore ways to enhance the scaling capability of small
+models. In Tab. 8b, at the standard resolution of 2242 , increasing the model’s depth and width to achieve 2G and 4G
+FLOPs does not significantly improve performance despite
+the increased computational load. This is due to the excessively low input resolution in the current three-stage framework. Therefore, we increase the input resolutions to 3842
+and 5122 . With similar FLOPs and a slight loss in throughput, the Top-1 improved by +1.6↑ and +1.8↑, respectively.
+Effect of Training Strategies. Tab. 8c presents the incremental experiments using training and testing strategies.
+After applying KD, there is an increase of +2↑ in Top-1 and
++0.7↑ in Top-5 accuracy on the ImageNet-1K dataset. Extending the training to 1000 epochs further improves these
+metrics by +0.7↑ and +0.5↑, respectively. Ultimately, the
+model with 652M FLOPs achieves results of 80.7 in Top1 and 95.2 in Top-5 accuracy, surpassing the model with
+1080M FLOPs that did not use the training strategies. Additionally, employing normalization fusion during the testing
+phase can further enhance the speed by ×1.2% ↑.
+Ablations on Mamba Component. Experiments on the internal parameters of the Mamba model are shown in Tab. 8d.
+S, R, and D represent scanning directions, expanding ratios and d state, respectively. Reducing the S can increase
+
+5. Conclusion
+We designed the MobileMamba framework to balance performance and efficiency, addressing the limitations of existing Mamba-based models. The proposed MRFFI module
+enhances perception across various receptive fields while
+preserving high-frequency features and inference efficiency.
+The training and testing strategies further enhance performance and efficiency. Extensive experiments on ImageNet1K dataset validate the method’s effectiveness, efficiency,
+and transferability in high-resolution downstream tasks.
+8
+
+Limitations and Future Work. Mamba models, despite
+their advancements, still exhibit engineering implementation shortcomings, including the need for substantial
+improvements in CPU acceleration and edge device acceleration. In the future, we will continue to concentrate on enhancing the inference capabilities of Mamba models across
+a range of devices, with a particular focus on efficiency.
+
+wards language modeling with state space models. arXiv
+preprint arXiv:2212.14052, 2022. 2, 3
+[14] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+modeling with selective state spaces.
+arXiv preprint
+arXiv:2312.00752, 2023. 3, 5
+[15] Albert Gu, Karan Goel, and Christopher Ré. Efficiently
+modeling long sequences with structured state spaces. arXiv
+preprint arXiv:2111.00396, 2021. 2, 3
+[16] Albert Gu, Isys Johnson, Karan Goel, Khaled Saab, Tri
+Dao, Atri Rudra, and Christopher Ré. Combining recurrent,
+convolutional, and continuous-time models with linear state
+space layers. In NeurIPS, 2021.
+[17] Ankit Gupta, Albert Gu, and Jonathan Berant. Diagonal state
+spaces are as effective as structured state spaces. In NeurIPS,
+2022. 3
+[18] Kai Han, Yunhe Wang, Qi Tian, Jianyuan Guo, Chunjing Xu,
+and Chang Xu. Ghostnet: More features from cheap operations. In CVPR, 2020. 3, 4
+[19] Ali Hatamizadeh and Jan Kautz. Mambavision: A hybrid mamba-transformer vision backbone. arXiv preprint
+arXiv:2407.08083, 2024. 3
+[20] Haoyang He, Yuhu Bai, Jiangning Zhang, Qingdong He,
+Hongxu Chen, Zhenye Gan, Chengjie Wang, Xiangtai Li,
+Guanzhong Tian, and Lei Xie. Mambaad: Exploring state
+space models for multi-class unsupervised anomaly detection. In NeurIPS, 2024. 3
+[21] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition. In CVPR,
+2016. 6, 7
+[22] Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross Girshick. Mask r-cnn. In ICCV, 2017. 2, 5, 6, 12, 13, 14
+[23] Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh
+Chen, Bo Chen, Mingxing Tan, Weijun Wang, Yukun Zhu,
+Ruoming Pang, Vijay Vasudevan, et al. Searching for mobilenetv3. In ICCV, 2019. 6, 13, 14
+[24] Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh
+Chen, Bo Chen, Mingxing Tan, Weijun Wang, Yukun Zhu,
+Ruoming Pang, Vijay Vasudevan, et al. Searching for mobilenetv3. In ICCV, 2019. 1, 2, 6, 13
+[25] Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh
+Chen, Bo Chen, Mingxing Tan, Weijun Wang, Yukun Zhu,
+Ruoming Pang, Vijay Vasudevan, et al. Searching for mobilenetv3. In ICCV, 2019. 2, 5, 6, 13
+[26] Andrew G Howard. Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv preprint
+arXiv:1704.04861, 2017. 1, 2, 13
+[27] Andrew G Howard, Menglong Zhu, Bo Chen, Dmitry
+Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig Adam. Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv
+preprint arXiv:1704.04861, 2017. 6
+[28] Gao Huang, Yu Sun, Zhuang Liu, Daniel Sedra, and Kilian Q
+Weinberger. Deep networks with stochastic depth. In ECCV.
+Springer, 2016. 5
+[29] Tao Huang, Xiaohuan Pei, Shan You, Fei Wang, Chen Qian,
+and Chang Xu. Localmamba: Visual state space model with
+windowed selective scan. arXiv preprint arXiv:2403.09338,
+2024. 2, 3
+
+References
+[1] Benedikt Alkin, Maximilian Beck, Korbinian Pöppel, Sepp
+Hochreiter, and Johannes Brandstetter. Vision-lstm: xlstm as
+generic vision backbone. arXiv preprint arXiv:2406.04303,
+2024. 6
+[2] Maximilian Beck, Korbinian Pöppel, Markus Spanring, Andreas Auer, Oleksandra Prudnikova, Michael Kopp, Günter
+Klambauer, Johannes Brandstetter, and Sepp Hochreiter. xlstm: Extended long short-term memory. arXiv preprint
+arXiv:2405.04517, 2024. 5
+[3] Jierun Chen, Shiu-hong Kao, Hao He, Weipeng Zhuo, Song
+Wen, Chul-Ho Lee, and S-H Gary Chan. Run, don’t walk:
+chasing higher flops for faster neural networks. In CVPR,
+2023. 1, 3, 6
+[4] Kai Chen, Jiaqi Wang, Jiangmiao Pang, Yuhang Cao, Yu
+Xiong, Xiaoxiao Li, Shuyang Sun, Wansen Feng, Ziwei Liu,
+Jiarui Xu, et al. Mmdetection: Open mmlab detection toolbox and benchmark. arXiv preprint arXiv:1906.07155, 2019.
+5
+[5] Liang-Chieh Chen.
+Rethinking atrous convolution
+for semantic image segmentation.
+arXiv preprint
+arXiv:1706.05587, 2017. 2, 5, 7, 13, 14
+[6] Yinpeng Chen, Xiyang Dai, Dongdong Chen, Mengchen
+Liu, Xiaoyi Dong, Lu Yuan, and Zicheng Liu. Mobileformer: Bridging mobilenet and transformer. In CVPR,
+2022. 6
+[7] MMSegmentation Contributors. Mmsegmentation: Openmmlab semantic segmentation toolbox and benchmark,
+2020. 5
+[8] Ekin D Cubuk, Barret Zoph, Dandelion Mane, Vijay Vasudevan, and Quoc V Le. Autoaugment: Learning augmentation
+strategies from data. In CVPR, 2019. 5
+[9] Ekin D Cubuk, Barret Zoph, Jonathon Shlens, and Quoc V
+Le. Randaugment: Practical automated data augmentation
+with a reduced search space. In CVPR workshops, 2020. 5
+[10] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,
+and Li Fei-Fei. Imagenet: A large-scale hierarchical image
+database. In CVPR, 2009. 2, 3, 5, 6, 8, 12, 13
+[11] Yuchen Duan, Weiyun Wang, Zhe Chen, Xizhou Zhu, Lewei
+Lu, Tong Lu, Yu Qiao, Hongsheng Li, Jifeng Dai, and
+Wenhai Wang. Vision-rwkv: Efficient and scalable visual perception with rwkv-like architectures. arXiv preprint
+arXiv:2403.02308, 2024. 5, 6
+[12] Shahaf E Finder, Roy Amoyal, Eran Treister, and Oren
+Freifeld. Wavelet convolutions for large receptive fields. In
+ECCV, 2025. 4
+[13] Daniel Y Fu, Tri Dao, Khaled K Saab, Armin W Thomas,
+Atri Rudra, and Christopher Ré. Hungry hungry hippos: To-
+
+9
+
+[46] Sachin Mehta and Mohammad Rastegari. Mobilevit: lightweight, general-purpose, and mobile-friendly vision transformer. arXiv preprint arXiv:2110.02178, 2021. 1, 3
+[47] Sachin Mehta and Mohammad Rastegari. Separable selfattention for mobile vision transformers. arXiv preprint
+arXiv:2206.02680, 2022. 2, 3
+[48] Sachin Mehta and Mohammad Rastegari. Mobilevit: Lightweight, general-purpose, and mobile-friendly vision transformer. In ICLR, 2022. 6
+[49] Sachin Mehta and Mohammad Rastegari. Separable selfattention for mobile vision transformers. TMLR, 2023. 6,
+7
+[50] Junting Pan, Adrian Bulat, Fuwen Tan, Xiatian Zhu, Lukasz
+Dudziak, Hongsheng Li, Georgios Tzimiropoulos, and Brais
+Martinez. Edgevits: Competing light-weight cnns on mobile
+devices with vision transformers. In ECCV, 2022. 3, 6, 7
+[51] Xiaohuan Pei, Tao Huang, and Chang Xu. Efficientvmamba:
+Atrous selective scan for light weight visual mamba. arXiv
+preprint arXiv:2403.09977, 2024. 2, 3, 6, 7
+[52] Bo Peng, Daniel Goldstein, Quentin Anthony, Alon Albalak,
+Eric Alcaide, Stella Biderman, Eugene Cheah, Teddy Ferdinan, Haowen Hou, Przemysław Kazienko, et al. Eagle and
+finch: Rwkv with matrix-valued states and dynamic recurrence. arXiv preprint arXiv:2404.05892, 2024. 5
+[53] Tal Ridnik, Hussam Lawen, Asaf Noy, Emanuel Ben Baruch,
+Gilad Sharir, and Itamar Friedman. Tresnet: High performance gpu-dedicated architecture. In WACV, 2021. 5
+[54] Jiacheng Ruan and Suncheng Xiang. Vm-unet: Vision
+mamba unet for medical image segmentation. arXiv preprint
+arXiv:2402.02491, 2024. 3
+[55] Mark Sandler, Andrew Howard, Menglong Zhu, Andrey Zhmoginov, and Liang-Chieh Chen. Mobilenetv2: Inverted
+residuals and linear bottlenecks. In CVPR, 2018. 6, 7
+[56] Mark Sandler, Andrew Howard, Menglong Zhu, Andrey Zhmoginov, and Liang-Chieh Chen. Mobilenetv2: Inverted
+residuals and linear bottlenecks. In CVPR, 2018. 1, 2, 13
+[57] Yuheng Shi, Minjing Dong, and Chang Xu. Multi-scale
+vmamba: Hierarchy in hierarchy visual state space model.
+arXiv preprint arXiv:2405.14174, 2024. 2, 6
+[58] Jimmy TH Smith, Andrew Warrington, and Scott W Linderman. Simplified state space layers for sequence modeling.
+arXiv preprint arXiv:2208.04933, 2022. 2, 3
+[59] Yu Sun, Xinhao Li, Karan Dalal, Jiarui Xu, Arjun Vikram,
+Genghan Zhang, Yann Dubois, Xinlei Chen, Xiaolong
+Wang, Sanmi Koyejo, et al. Learning to (learn at test
+time): Rnns with expressive hidden states. arXiv preprint
+arXiv:2407.04620, 2024. 5
+[60] Christian Szegedy, Vincent Vanhoucke, Sergey Ioffe, Jon
+Shlens, and Zbigniew Wojna. Rethinking the inception architecture for computer vision. In CVPR, 2016. 5
+[61] Mingxing Tan and Quoc Le. Efficientnet: Rethinking model
+scaling for convolutional neural networks. In ICML, 2019.
+1, 3, 6
+[62] Mingxing Tan and Quoc Le. Efficientnetv2: Smaller models
+and faster training. In ICML. PMLR, 2021. 3
+[63] Yehui Tang, Kai Han, Jianyuan Guo, Chang Xu, Chao Xu,
+and Yunhe Wang. Ghostnetv2: Enhance cheap operation
+with long-range attention. In NeurIPS, 2022. 1, 3
+
+[30] Tao Huang, Xiaohuan Pei, Shan You, Fei Wang, Chen Qian,
+and Chang Xu. Localmamba: Visual state space model with
+windowed selective scan. arXiv preprint arXiv:2403.09338,
+2024. 2, 6
+[31] Alexander Kirillov, Ross Girshick, Kaiming He, and Piotr
+Dollár. Panoptic feature pyramid networks. In CVPR, 2019.
+2, 7, 13, 14
+[32] Youngwan Lee, Jonghee Kim, Jeffrey Willette, and Sung Ju
+Hwang. Mpvit: Multi-path vision transformer for dense prediction. In CVPR, 2022. 1, 6
+[33] Yanyu Li, Geng Yuan, Yang Wen, Ju Hu, Georgios Evangelidis, Sergey Tulyakov, Yanzhi Wang, and Jian Ren. Efficientformer: Vision transformers at mobilenet speed. In
+NeurIPS, 2022. 1, 3, 6
+[34] Yanyu Li, Ju Hu, Yang Wen, Georgios Evangelidis, Kamyar
+Salahi, Yanzhi Wang, Sergey Tulyakov, and Jian Ren. Rethinking vision transformers for mobilenet size and speed.
+In ICCV, 2023. 1, 3, 6
+[35] T Lin. Focal loss for dense object detection. arXiv preprint
+arXiv:1708.02002, 2017. 2, 5, 6, 13, 14
+[36] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays,
+Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence
+Zitnick. Microsoft coco: Common objects in context. In
+ECCV, 2014. 5, 6, 12, 13, 14
+[37] Tsung-Yi Lin, Piotr Dollár, Ross Girshick, Kaiming He,
+Bharath Hariharan, and Serge Belongie. Feature pyramid
+networks for object detection. In CVPR, 2017. 5
+[38] Xinyu Liu, Houwen Peng, Ningxin Zheng, Yuqing Yang,
+Han Hu, and Yixuan Yuan. Efficientvit: Memory efficient
+vision transformer with cascaded group attention. In CVPR,
+2023. 1, 3, 6, 7, 13
+[39] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi
+Xie, Yaowei Wang, Qixiang Ye, and Yunfan Liu. Vmamba:
+Visual state space model. arXiv preprint arXiv:2401.10166,
+2024. 2, 3, 6
+[40] Zhenhua Liu, Zhiwei Hao, Kai Han, Yehui Tang, and Yunhe
+Wang. Ghostnetv3: Exploring the training strategies for
+compact models. arXiv preprint arXiv:2404.11202, 2024.
+3
+[41] I Loshchilov. Decoupled weight decay regularization. arXiv
+preprint arXiv:1711.05101, 2017. 5
+[42] Ilya Loshchilov and Frank Hutter.
+Sgdr: Stochastic gradient descent with warm restarts. arXiv preprint
+arXiv:1608.03983, 2016. 5
+[43] Jun Ma, Feifei Li, and Bo Wang. U-mamba: Enhancing
+long-range dependency for biomedical image segmentation.
+arXiv preprint arXiv:2401.04722, 2024. 3
+[44] Ningning Ma, Xiangyu Zhang, Hai-Tao Zheng, and Jian Sun.
+Shufflenet v2: Practical guidelines for efficient cnn architecture design. In Proceedings of the ECCV (ECCV), 2018. 3,
+6
+[45] Muhammad Maaz, Abdelrahman Shaker, Hisham
+Cholakkal, Salman Khan, Syed Waqas Zamir, Rao Muhammad Anwer, and Fahad Shahbaz Khan. Edgenext: efficiently
+amalgamated cnn-transformer architecture for mobile vision
+applications. In ECCV. Springer, 2022. 1, 6
+
+10
+
+[80] Hengshuang Zhao, Jianping Shi, Xiaojuan Qi, Xiaogang
+Wang, and Jiaya Jia. Pyramid scene parsing network. In
+CVPR, 2017. 2, 5, 7, 13, 14
+[81] Zhun Zhong, Liang Zheng, Guoliang Kang, Shaozi Li, and
+Yi Yang. Random erasing data augmentation. In AAAI, 2020.
+5
+[82] Bolei Zhou, Hang Zhao, Xavier Puig, Tete Xiao, Sanja Fidler, Adela Barriuso, and Antonio Torralba. Semantic understanding of scenes through the ade20k dataset. IJCV, 2019.
+5, 7, 12, 14
+[83] Lianghui Zhu, Bencheng Liao, Qian Zhang, Xinlong Wang,
+Wenyu Liu, and Xinggang Wang. Vision mamba: Efficient
+visual representation learning with bidirectional state space
+model. arXiv preprint arXiv:2401.09417, 2024. 2, 3, 6
+
+[64] Hugo Touvron, Matthieu Cord, Matthijs Douze, Francisco
+Massa, Alexandre Sablayrolles, and Hervé Jégou. Training
+data-efficient image transformers & distillation through attention. In ICML, 2021. 5
+[65] Pavan Kumar Anasosalu Vasu, James Gabriel, Jeff Zhu, Oncel Tuzel, and Anurag Ranjan. Fastvit: A fast hybrid vision
+transformer using structural reparameterization. In ICCV,
+2023. 3, 6
+[66] Shakti N Wadekar and Abhishek Chaurasia. Mobilevitv3:
+Mobile-friendly vision transformer with simple and effective fusion of local, global and input features. arXiv preprint
+arXiv:2209.15159, 2022. 1, 3, 6
+[67] Shakti N Wadekar and Abhishek Chaurasia. Mobilevitv3:
+Mobile-friendly vision transformer with simple and effective fusion of local, global and input features. arXiv preprint
+arXiv:2209.15159, 2022. 7
+[68] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao
+Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao. Pyramid vision transformer: A versatile backbone for dense prediction without convolutions. In ICCV, 2021. 7
+[69] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao
+Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao. Pvt
+v2: Improved baselines with pyramid vision transformer.
+CVM, 2022. 6, 7
+[70] Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar,
+Jose M Alvarez, and Ping Luo. Segformer: Simple and efficient design for semantic segmentation with transformers.
+In NeurIPS, 2021. 14
+[71] Saining Xie, Ross Girshick, Piotr Dollár, Zhuowen Tu, and
+Kaiming He. Aggregated residual transformations for deep
+neural networks. In CVPR, 2017. 7
+[72] Chenhongyi Yang, Zehui Chen, Miguel Espinosa, Linus Ericsson, Zhenyu Wang, Jiaming Liu, and Elliot J Crowley.
+Plainmamba: Improving non-hierarchical mamba in visual
+recognition. arXiv preprint arXiv:2403.17695, 2024. 3, 6
+[73] Weihao Yu and Xinchao Wang. Mambaout: Do we really
+need mamba for vision? arXiv preprint arXiv:2405.07992,
+2024. 6
+[74] Weihao Yu, Mi Luo, Pan Zhou, Chenyang Si, Yichen Zhou,
+Xinchao Wang, Jiashi Feng, and Shuicheng Yan. Metaformer
+is actually what you need for vision. In CVPR, 2022. 1, 3, 6
+[75] Weihao Yu, Pan Zhou, Shuicheng Yan, and Xinchao Wang.
+Inceptionnext: When inception meets convnext. In CVPR,
+pages 5672–5683, 2024. 6
+[76] Seokju Yun and Youngmin Ro. Shvit: Single-head vision
+transformer with memory efficient macro design. In CVPR,
+2024. 1, 3, 5, 6, 7
+[77] Hongyi Zhang. mixup: Beyond empirical risk minimization.
+arXiv preprint arXiv:1710.09412, 2017. 5
+[78] Jiangning Zhang, Xiangtai Li, Jian Li, Liang Liu, Zhucun
+Xue, Boshen Zhang, Zhengkai Jiang, Tianxin Huang, Yabiao
+Wang, and Chengjie Wang. Rethinking mobile block for efficient attention-based models. In ICCV, 2023. 1, 2, 3, 6, 7,
+13
+[79] Xiangyu Zhang, Xinyu Zhou, Mengxiao Lin, and Jian Sun.
+Shufflenet: An extremely efficient convolutional neural network for mobile devices. In CVPR, 2018. 1, 3
+
+11
+
+Supplementary Material Overview
+
+nificantly higher, but performance is poor. After trade-offs,
+we chose a depth of {1, 2, 2}.
+
+The supplementary material presents more comprehensive
+analysis and results of our MobileMamba to facilitate the
+comparison of subsequent methods:
+• Sec. A.1 provides more detailed Fine-Grained design
+analysis and experiments on ImageNet-1K [10] dataset.
+• Sec. A.2 provides more detailed Kernel Size analysis and
+experiments on ImageNet-1K [10] dataset.
+• Sec. A.3 provides more detailed DropPath analysis and
+experiments on ImageNet-1K [10] dataset.
+• Sec. A.4 provides more detailed ERF Visualization analysis compared with different structure SoTA methods on
+ImageNet-1K [10] dataset.
+• Sec. A.5 provides more detailed Pre-trained Models with
+Different Resolutions for Downstream Tasks analysis and
+experiments on MS-COCO 2017 [36] and ADE20K [82]
+dataset.
+• Sec. B.1 provides more detailed object detection results
+using different frameworks on MS-COCO 2017 [36]
+dataset.
+• Sec. B.2 provides more detailed semantic segmentation
+results using Mask R-CNN [22] for multiple magnitudes
+of MobileMamba on ADE20K [82] dataset.
+• The Codes folder in the supplementary materials contains
+all the training and testing code for the models, as well as
+the log files for each model.
+
+Table A1. Ablations on Global ξ and Local µ Ratios.
+{C1 , C2 , C3 }
+{D1 , D2 , D3 }
+
+{ξ1 , ξ2 , ξ3 }
+{µ1 , µ2 , µ3 }
+
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1, 2, 2}
+{192, 384, 448}
+{1,2,2}
+
+{0.6, 0.6, 0.6}
+{0.4, 0.3, 0.3}
+{0.7, 0.6, 0.5}
+{0.2, 0.2, 0.3}
+{0.8, 0.6, 0.6}
+{0.2, 0.3, 0.3}
+{0.8, 0.7, 0.6}
+{0.2, 0.3, 0.4}
+{0.8, 0.8, 0.8}
+{0.2, 0.1, 0.1}
+{0.0, 0.7, 0.8}
+{1.0, 0.2, 0.1}
+{0.6, 0.7, 0.8}
+{0.4, 0.2, 0.1}
+{0.8, 0.7, 0.6}
+{0.2, 0.2, 0.3}
+
+FLOPs
+(M)
+
+Params
+(M)
+
+Throughput
+
+Top-1
+
+620
+
+14.6
+
+11353
+
+77.5
+
+619
+
+14.3
+
+11815
+
+77.7
+
+637
+
+14.7
+
+11222
+
+77.7
+
+652
+
+15.0
+
+10949
+
+77.8
+
+675
+
+16.0
+
+10560
+
+78.0
+
+618
+
+14.8
+
+12735
+
+77.2
+
+646
+
+15.6
+
+11546
+
+77.8
+
+652
+
+15.0
+
+11000
+
+78.0
+
+Table A2. Ablations on Dimensions C.
+
+A. More Ablation and Explanatory Analysis
+A.1. Fine-Grained design analysis
+We conducted experiments to analyze the impact of global
+and local channel ratios in Tab. A1, dimensions in Tab. A2,
+and depth in Tab. A3. For the global and local channel
+ratios, we observed the importance of global channels for
+model performance, despite a slight decrease in throughput.
+In higher stages, due to the increased number of channels,
+some redundancy may exist. To reduce computational load,
+we directly map 10% of the channels in the last two stages.
+Regarding dimensionality, we controlled variables by
+maintaining similar FLOPs and throughput while adjusting
+the global and local ratios to accommodate different dimensional changes. Altering the dimensions in stage 1 significantly affects FLOPs and throughput, whereas changes in
+stage 3 primarily impact the number of model parameters.
+To maximize dimensions in each stage while maintaining
+low FLOPs and high throughput, we selected {192, 384,
+448} as the dimensions for each stage.
+For model depth, we found that increasing depth significantly reduces throughput. Therefore, we increased depth
+while maintaining similar throughput, but the effect was
+limited due to lower FLOPs under the same conditions. In
+extreme cases, where each stage has only one layer and
+FLOPs are balanced with other models, throughput is sig-
+
+{C1 , C2 , C3 }
+{D1 , D2 , D3 }
+
+{ξ1 , ξ2 , ξ3 }
+{µ1 , µ2 , µ3 }
+
+{192, 320, 368}
+{1, 3, 4}
+{172, 320, 368}
+{1, 3, 4}
+{180, 336, 368}
+{1, 3, 4}
+{192, 336, 368}
+{1, 3, 4}
+{208, 400, 464}
+{1, 2, 2}
+{224, 336, 400}
+{1,2,2}
+{208, 384, 416}
+{1,2,2}
+{176, 384, 480}
+{1,2,2}
+{192, 384, 448}
+{1,2,2}
+
+{0., 0.75, 0.75}
+{0.9, 0.15, 0.15}
+{0.65, 0.65, 0.65}
+{0.25, 0.25, 0.25}
+{0.5, 0.5, 0.5}
+{0.4, 0.4, 0.4}
+{0.4, 0.4, 0.4}
+{0.5, 0.5, 0.5}
+{0.6, 0.5, 0.4}
+{0.3, 0.4, 0.5}
+{0.8,0.7,0.6}
+{0.2,0.2,0.3}
+{0.8,0.7,0.6}
+{0.2,0.2,0.3}
+{0.8,0.7,0.6}
+{0.2,0.2,0.3}
+{0.8,0.7,0.6}
+{0.2,0.2,0.3}
+
+FLOPs
+(M)
+
+Params
+(M)
+
+Throughput
+
+Top-1
+
+632
+
+15.9
+
+10811
+
+77.7
+
+581
+
+15.1
+
+10809
+
+77.6
+
+595
+
+14.8
+
+10916
+
+77.6
+
+599
+
+14.2
+
+11373
+
+77.5
+
+678
+
+15.2
+
+11120
+
+77.8
+
+659
+
+12.6
+
+11337
+
+77.4
+
+681
+
+14.5
+
+10956
+
+78.1
+
+622
+
+15.7
+
+11599
+
+77.8
+
+652
+
+15.0
+
+11000
+
+78.0
+
+Table A3. Ablations on Depth D.
+{C1 , C2 , C3 }
+{D1 , D2 , D3 }
+
+{ξ1 , ξ2 , ξ3 }
+{µ1 , µ2 , µ3 }
+
+{160, 304, 448}
+{2, 3, 3}
+{128, 256, 384}
+{3, 4, 5}
+{192, 384, 448}
+{1,2,2}
+{208, 416, 624}
+{1, 1, 1}
+{192, 384, 576}
+{1, 2, 1}
+
+{0.15, 0.55, 0.55}
+{0.35, 0.35, 0.35}
+{0.15, 0.55, 0.55}
+{0.35, 0.35, 0.35}
+{0.8,0.7,0.6}
+{0.2,0.2,0.3}
+{0.8, 0.7, 0.6}
+{0.2, 0.2, 0.3}
+{0.8, 0.7, 0.6}
+{0.2, 0.2, 0.3}
+
+FLOPs
+(M)
+
+Params
+(M)
+
+Throughput
+
+Top-1
+
+560
+
+14.8
+
+11236
+
+77.6
+
+510
+
+15.0
+
+11155
+
+77.1
+
+652
+
+15.0
+
+11006
+
+78.0
+
+648
+
+15.3
+
+12397
+
+77.4
+
+651
+
+15.1
+
+11000
+
+77.8
+
+A.2. Effect of kernel sizes
+We experimented with the impact of different convolution
+kernel sizes across stages, as shown in Tab. A4. Using the
+same kernel size across different stages yields similar results. However, reducing the kernel size as the feature map
+scale decreases with increasing stages improves model performance.
+12
+
+Table A4. Ablations on Kernel Size
+
+Size
+{7,7,7}
+{5,5,3}
+{5,3,3}
+{7,5,3}
+
+FLOPs(M)
+15.2
+15.0
+15.0
+15.0
+
+Params(M)
+653
+652
+652
+652
+
+Throughput
+10937
+11142
+11130
+11000
+
+Top-1
+77.7
+77.8
+77.6
+78.0
+
+A.3. Effect of DropPath
+For the MobileMamba-T2, T4, and S6 models, we did
+not use DropPath due to their shallow depth. In the B1
+model, we applied DropPath, with specific results shown in
+Tab. A5. A DropPath value of 0.03 achieved the best performance, increasing Top-1 accuracy by 0.2 compared to not
+using DropPath. Further increasing the DropPath value did
+not lead to additional performance improvements.
+Table A5. Ablations on Drop-path rate.
+Drop-path Rate
+0.0
+0.03
+0.05
+0.07
+0.1
+
+Top-1
+79.7
+79.9
+79.8
+79.8
+79.8
+
+A.4. Visualization of the ERF of different model
+methods
+
+Figure A1. Visualization of the ERF of different model methods.
+
+In Fig. A1, we compare the ERF visualization results of
+CNN-based MobileNet [24, 26, 56], Transformer-based EfficientViT [38], hybrid-structured EMO [78], and our MobileMamba at different stages. The input resolution is fixed
+at 224x224. Both our method and EfficientViT [38] employ
+a three-stage approach, while MobileNet [24, 26, 56] and
+EMO [78] follow the traditional four-stage approach. Our
+MobileMamba method exhibits a larger and more intense
+ERF at each stage compared to the other SoTAs.
+
+MobileMamba-B1 on all metrics in DeepLabv3 [5], Semantic FPN [31], and PSPNet [80]. This may be because object detection tasks require stronger semantic feature information, while semantic segmentation tasks demand higher segmentation accuracy. MobileMamba-B4,
+pre-trained at a high resolution of 512, extracts features
+with higher segmentation accuracy but slightly weaker semantic information. In contrast, MobileMamba-B1, pretrained at a lower resolution of 256, extracts features with
+stronger semantic information but lower accuracy. Therefore, we use MobileMamba-B1 pre-trained weights as the
+backbone for object detection tasks to enhance semantic information extraction. For semantic segmentation tasks, we
+use MobileMamba-B4 pre-trained weights as the backbone
+to improve segmentation accuracy.
+
+A.5. Analysis of Pre-trained Models with Different
+Resolutions for Downstream Tasks
+The specific experimental results for downstream tasks
+are shown in Tab. A6,A7,A8. We investigate the impact
+of pre-trained model weights with different input resolutions on downstream tasks. We use two pre-trained model
+weights, MobileMamba-B1 and MobileMamba-B4. The
+only difference between them is the resolution used during pre-training on ImageNet-1K [10]: MobileMamba-B1
+is pre-trained at a resolution of 256, while MobileMambaB4 is pre-trained at a resolution of 512. All other
+model parameters are identical. For the object detection
+task in downstream tasks, MobileMamba-B1 outperforms
+MobileMamba-B4 on all metrics in SSDLite [25], RetinaNet [35], and Mask RCNN [22]. Conversely, for the semantic segmentation task, MobileMamba-B4 outperforms
+
+B. Detailed Downstream Results
+B.1. Detailed Object Detection Results
+Tab. A6 shows more detailed object detection results using
+SSDLite [23] and RetinaNet [35] of our MobileMamba on
+MS-COCO 2017 [36] dataset, while Tab. A7 provide detailed object detection results using Mask R-CNN [22].
+13
+
+Table A6. Detailed object detection performance using SSDLite [23] and RetinaNet [35] of our MobileMamba on MSCOCO 2017 [36] dataset. †: 512 × 512 resolution.
+
+b
+b
+b
+#Params ↓ FLOPs ↓ mAP mAP50
+mAP75
+mAPSb mAPM
+mAPLb
+
+RetinaNet
+[35]
+
+SSDLite
+[23]
+
+Backbone
+
+MobileMamba-B1
+
+18.0
+
+1.7G
+
+24.0
+
+39.5
+
+24.0
+
+3.1
+
+23.4
+
+46.9
+
+MobileMamba-B4
+
+18.0
+
+1.7G
+
+23.9
+
+39.5
+
+24.2
+
+2.9
+
+23.5
+
+47.1
+
+MobileMamba-B1†
+
+18.0
+
+4.4G
+
+29.5
+
+47.7
+
+30.4
+
+8.9
+
+35.0
+
+47.0
+
+MobileMamba-B4†
+
+18.0
+
+4.4G
+
+29.1
+
+47.1
+
+30.0
+
+8.7
+
+34.3
+
+46.7
+
+MobileMamba-B1
+
+27.1
+
+151G
+
+39.6
+
+59.8
+
+42.4
+
+21.5
+
+43.1
+
+53.9
+
+MobileMamba-B4
+
+27.1
+
+151G
+
+39.5
+
+59.9
+
+42.1
+
+21.5
+
+42.9
+
+54.6
+
+Table A7. Detailed object detection performance using Mask
+RCNN [22] of our MobileMamba on MS-COCO 2017 [36]
+dataset.
+
+Table A8. Detailed semantic segmentation performance using
+DeepLabv3 [5], Semantic FPN [31], and PSPNet [80] to adequately evaluate our MobileMamba on ADE20K [82] dataset.
+
+b
+b
+b
+mAPLb
+mAP mAP50
+mAP75
+mAPSb mAPM
+
+MobileMamba-B4
+
+38.0
+
+mAPSm
+
+m
+mAPM
+
+mAPLm
+
+40.6
+
+61.8
+
+43.8
+
+22.4
+
+43.5
+
+55.9
+
+37.4
+
+58.9
+
+39.9
+
+17.1
+
+39.9
+
+56.4
+
+40.1
+
+61.8
+
+43.0
+
+22.0
+
+42.9
+
+56.1
+
+36.9
+
+58.6
+
+39.2
+
+16.4
+
+39.0
+
+56.8
+
+DeepLabv3
+[5]
+
+38.0
+
+m
+mAP75
+
+178G
+
+FPN
+[31]
+
+MobileMamba-B1
+
+mAP
+
+m
+mAP50
+
+#Params ↓
+
+FLOPs ↓
+
+mIoU
+
+aAcc
+
+mAcc
+
+MobileMamba-B1
+
+23.0
+
+4.7G
+
+36.7
+
+76.0
+
+46.8
+
+MobileMamba-B4
+
+23.0
+
+4.7G
+
+36.6
+
+76.3
+
+47.1
+
+MobileMamba-B1
+
+19.8
+
+5.6G
+
+40.7
+
+79.4
+
+51.8
+
+MobileMamba-B4
+
+19.8
+
+5.6G
+
+42.5
+
+79.9
+
+53.7
+
+MobileMamba-B1
+
+20.5
+
+4.5G
+
+36.5
+
+76.2
+
+46.7
+
+MobileMamba-B4
+
+20.5
+
+4.5G
+
+36.9
+
+76.2
+
+47.9
+
+Backbone
+
+#Params ↓ FLOPs ↓
+
+178G
+
+PSPNet
+[80]
+
+Backbone
+
+B.2. Detailed Semantic Segmentation Results
+Tab. A8 shows more detailed semantic segmentation results
+using DeepLabv3 [5], Semantic FPN [31], SegFormer [70],
+and PSPNet [80] of our MobileMamba on ADE20K [82]
+dataset.
+
+14
+
+

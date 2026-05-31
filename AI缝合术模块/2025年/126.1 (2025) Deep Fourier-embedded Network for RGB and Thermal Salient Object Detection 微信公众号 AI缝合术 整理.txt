@@ -1,0 +1,2399 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+1
+
+Deep Fourier-embedded Network for RGB and
+Thermal Salient Object Detection
+
+arXiv:2411.18409v2 [cs.CV] 10 Feb 2025
+
+Pengfei Lyu, Pak-Hei Yeung, Xiaosheng Yu, Chengdong Wu, and Jagath C. Rajapakse, Fellow, IEEE
+
+Abstract—The rapid development of deep learning has significantly improved salient object detection (SOD) combining
+both RGB and thermal (RGB-T) images. However, existing deep
+learning-based RGB-T SOD models suffer from two major limitations. First, Transformer-based models with quadratic complexity
+are computationally expensive and memory-intensive, limiting
+their application in high-resolution bi-modal feature fusion.
+Second, even when these models converge to an optimal solution,
+there remains a frequency gap between the prediction and
+ground-truth. To overcome these limitations, we propose a purely
+Fourier transform-based model, namely Deep Fourier-Embedded
+Network (DFENet), for accurate RGB-T SOD. To address the
+computational complexity when dealing with high-resolution
+images, we leverage the efficiency of fast Fourier transform with
+linear complexity to design three key components: (1) the Modalcoordinated Perception Attention, which fuses RGB and thermal
+modalities with enhanced multi-dimensional representation; (2)
+the Frequency-decomposed Edge-aware Block, which clarifies
+object edges by deeply decomposing and enhancing frequency
+components of low-level features; and (3) the Fourier Residual
+Channel Attention Block, which prioritizes high-frequency information while aligning channel-wise global relationships. To
+mitigate the frequency gap, we propose Co-focus Frequency
+Loss, which dynamically weights hard frequencies during edge
+frequency reconstruction by cross-referencing bi-modal edge
+information in the Fourier domain. Extensive experiments on
+four RGB-T SOD benchmark datasets demonstrate that DFENet
+outperforms fifteen existing state-of-the-art RGB-T SOD models.
+Comprehensive ablation studies further validate the value and
+effectiveness of our newly proposed components. The code is
+available at https://github.com/JoshuaLPF/DFENet.
+Index Terms—Fast Fourier transform, global dependency,
+RGB and thermal modalities, salient object detection.
+
+I. I NTRODUCTION
+
+S
+
+ALIENT object detection (SOD) identifies the most
+attention-grabbing objects in a scene, with broad applica-
+
+This work was supported in part by the National Natural Science Foundation
+of China under Grant U20A20197 and 62306187, the Foundation of Ministry
+of Industry and Information Technology TC220H05X-04, Liaoning Key
+Research and Development Project under Grant 2020JH2/10100040, Natural
+Science Foundation of Liaoning Province under Grant 2021-KF-12-01, the
+Foundation of National Key Laboratory under Grant OEIP-O-202005, the
+Fundamental Research Fund for the Central Universities of China under
+Grant N2326001 and the China Scholarship Fund. (Corresponding author:
+Chengdong Wu and Jagath C. Rajapakse).
+Pengfei Lyu is with the Faculty of Robot Science and Engineering,
+Northeastern University, Shenyang, 110169 China, and also with the College
+of Computing and Data Science, Nanyang Technological University, 639798
+Singapore (e-mail:lyupengfei@stumail.neu.edu.cn).
+Pak-Hei Yeung and Jagath C. Rajapakse are with the College of Computing
+and Data Science, Nanyang Technological University, 639798 Singapore (email: pakhei.yeung@ntu.edu.sg; asjagath@ntu.edu.sg).
+Xiaosheng Yu and Chengdong Wu are with the Faculty of Robot Science
+and Engineering, Northeastern University, Shenyang, 110169 China (e-mail:
+yuxiaosheng@mail.neu.edu.cn; wuchengdong@mail.neu.edu.cn).
+
+tions spanning image compression [1], object recognition [2],
+scene perception [3], and more. Despite significant progress
+being made in RGB-based salient object detection [4]–[6], it
+remains challenging to separate salient objects from complex
+backgrounds or low-contrast scenes. To address this challenge,
+depth information was introduced to complement RGB features, enhancing the understanding of scenes [7]–[10].
+However, the accuracy and stability of depth information
+are susceptible to environmental factors, such as varying light
+intensity, occlusions, and other conditions, limiting its applicability. In contrast, thermal infrared information offers distinct
+advantages in environmental adaptability. Even under adverse
+weather or low-light conditions, thermal images can effectively
+characterize objects by capturing their infrared radiations. As a
+result, RGB and thermal (RGB-T) SOD has gained increasing
+attention [11]–[14].
+The Transformer architecture [15] has demonstrated excellent ability to acquire global dependencies, outperforming
+convolutional neural networks (CNNs) in various computer
+vision tasks [16], [17]. This success has led to the development of Transformer-based models for RGB-T SOD, which
+have achieved impressive performance [18]–[23]. However, a
+significant challenge arises from the high memory consumption and computational complexity of Transformers, particularly when handling high-resolution bi-modal features and
+inputs [23]. To mitigate these computational expenses during
+training, existing Transformer-based models usually employ
+compromise strategies, such as constructing CNN-based fusion
+modules [18]–[21], utilizing CNN-based backbones [21], [22],
+restricting Multi-head Self-attention (MHSA)-based modules
+to low-resolution feature fusion [7], [24], [25], and developing
+lightweight student models [26]. Despite these efforts, these
+approaches only partially explore global relationships, leading
+to less effective performance. This raises the question: is there
+a more efficient operation that can capture global relationships
+without compromising computational efficiency.
+Recently, benefiting from its powerful global representation
+capabilities, fast Fourier transform (FFT) [27] has demonstrated remarkable performance in image enhancement tasks
+[28]–[31]. Notably, FFT is a global-based transform that
+represent all previous elements with each transformed element,
+making it memory-efficient. Inspired by this observation, we
+propose the purely FFT-based DFENet that aims to achieve
+high-resolution RGB-T SOD and bi-modal feature fusion by
+aligning global dependencies at every stage.
+The differences in imaging techniques between RGB and
+thermal modalities result in vast disparities in information
+distribution. As a result, while both modalities depict the same
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+salient objects, they differ in the degree of saliency in the
+spatial dimension and exhibit distinct patterns in the channel
+dimension. To address this problem, we propose Modalcoordinated Perception Attention (MPA), a Transformerlike module designed to align and fuse the two modalities
+effectively across both spatial and channel dimensions through
+a re-embedding strategy.
+Given that SOD is a pixel-level dense prediction task,
+the decoding stage needs to integrate low-resolution encoder
+features from different levels to predict the high-resolution
+saliency map with detailed information. Therefore, it is important to prioritize high-frequency information in the decoding
+stage. However, the low-resolution high-level features tend to
+favor semantic information, while low-level features possess
+rich edge details but are accompanied by noisy textures. To
+overcome these challenges, we propose two novel components:
+the Frequency-decomposed Edge-aware Block (FEB) and
+the Fourier Residual Channel Attention Block (FRCAB).
+Specifically, the FEB is designed to clarify edge features
+amidst cluttered textures by deeply decomposing low-level
+features, thereby guiding the integration of decoder features.
+Meanwhile, the FRCAB is applied at each decoder layer to
+mitigate excessive low-frequency pattern information, allowing the model to focus on learning high-frequency details.
+By considering global dependencies between channels in the
+frequency domain, FRCAB adaptively adjusts the channel features, enhancing the model’s discriminative learning capability.
+Furthermore, neural networks inherently tend to lose vital visual details as they deepen, while reconstructing highfrequency edge information is prone to spectral bias [32],
+causing models to prioritize learning easier frequencies over
+the hard ones. However, existing edge modules based on
+spatial domain learning tend to generate sparse spectra [19],
+[26], [33], treating all frequencies equally and making it difficult to accurately characterize edges. To address these issues,
+inspired by [34]–[36], we propose the Co-focus Frequency
+Loss (CFL) to guide FEB in the frequency domain while
+optimizing the entire model. In CFL, we measure the prediction and ground-truth using the Fourier frequency distance
+and introduce original edge frequency information of RGB and
+thermal modalities as a cross-reference to dynamically weight
+hard frequencies. This approach leads to refined edge features
+that further improve the quality of the saliency map in spatial
+domain learning.
+By integrating these components, DFENet efficiently fuses
+RGB and thermal modalities by utilizing complementary relationships from the frequency perspective, ultimately producing
+saliency maps with high accuracy.
+In summary, the main contributions of this paper are as
+follows:
+• We propose DFENet, an FFT-based model designed
+to achieve high-resolution RGB-T SOD and bi-modal
+feature fusion while minimizing memory consumption.
+Through comprehensive ablation studies, we verify the effectiveness of the proposed components, including MPA,
+FEB, FRCAB, and CFL.
+• We conduct extensive experiments on four benchmark
+datasets and show that our proposed DFENet achieves
+
+2
+
+superior performance and robustness compared to fifteen
+existing state-of-the-art models. Notably, DFENet is able
+to process bi-modal inputs with resolution up to 512×512
+on an NVIDIA Tesla P100 GPU with 16GB of memory.
+• To the best of our knowledge, DFENet is the first
+FFT-based supervised model for SOD tasks. This work
+demonstrates the strong potential of FFT-based operations
+for dense prediction, highlighting their unique advantages
+while also exploring their limited compatibility with
+spatial domain operations.
+II. R ELATED W ORK
+A. RGB and Depth Salient Object Detection (RGB-D SOD)
+To address the limitations of RGB-based salient object
+detection, depth information is introduced to better perceive
+the shape and spatial relationships of objects. Existing RGBD SOD models can be broadly categorized into two types:
+CNN-based and Transformer-based.
+CNN-based RGB-D SOD models typically leverage foundational attention mechanisms, such as convolutional block
+attention module [37] utilized in [38]–[43], dilated convolution
+[44] employed in [45], [46] and atrous spatial pyramid pooling
+[47] utilized in [48]–[50]. In addition, Ji et al. [9] proposed
+an unsupervised network that automatically generates pseudolabels through iterative refinement. In [8], a depth calibration
+and fusion framework was proposed to mitigate the effect of
+noise and ambiguity in depth images. Furthermore, Yao et al.
+[51] augmented semantic representation by integrating depth
+maps into the single-stream encoder.
+To address the limitations imposed by the local connectivity
+of CNNs, several Transformer-based models [15], [17] have
+been proposed. Liu et al. [52] introduced three Vision Transformers [16] with shared weights to refine high-level fused
+features. The pure Transformer networks were proposed in [7],
+[25] for simultaneous salient object and edge detection. Sun
+et al. [24] employed the Swin Transformer [17] as a dualstream encoder, utilizing Multi-head Self-attention (MHSA)
+to handle high-level features. Wu et al. [10] proposed a crossmodality interaction parallel Transformer to fuse RGB and
+depth features, complemented by a contrast learning strategy.
+In contrast to these Transformer-based spatial domain models,
+our proposed DFENet employed Fourier Transform (FFT)based operations to solve bi-modal SOD in the frequency
+domain.
+B. RGB and Thermal Salient Object Detection (RGB-T SOD)
+In complex environments with varying lighting conditions
+or occlusions, depth information can become unreliable. To
+address this limitation, researchers [11]–[13] have introduced
+thermal modality as an alternative to depth information for
+SOD. Thermal imaging captures the infrared radiation emitted
+by objects and is more adaptable to different environmental
+conditions.
+Similar to RGB-D SOD (Sec. II-A), recent efforts in RGBT SOD primarily focus on inter-modal fusion. Several CNNbased fusion strategies have been proposed [14], [53]–[59] to
+combine multi-modal, multi-scale, and multi-granular features.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+For example, Song et al. [14] utilized graph structures to
+reduce the impact of negative information. Inspired by style
+transfer, Chen et al. [57] devised a modal transfer mechanism
+to bridge complementary features. In addition, Tu et al. [60]
+proposed a weak alignment model for RGB and thermal
+modalities. Cong et al. [61] re-examined the role of thermal
+modality in relation to light variations.
+To capture long-range relationships, researchers have introduced Transformers for various purposes, including use as
+backbones [18]–[20], post-processing of fused features [20],
+[21], or feature fusion [22]. In [22], Pang et al. proposed
+a cross-modal and cross-scale Transformer with a token reembedding strategy to alleviate complexity. However, the substantial memory consumption of MHSA makes it challenging
+to apply Transformers in each stage of the model. A pure
+transformer model [23] using the Swin Transformer [17] in
+both encoder and decoder required four RTX3090 GPUs for
+training due to its computational demands.
+To address the expensive computation, several studies [33],
+[62], [63] have explored lightweight modeling, but their performance has often fallen short of expectations. Zhou et al.
+[26] employed knowledge distillation, designing a wavelet
+transform-based WaveNet to acquire semantic and geometric
+knowledge from a complex teacher model [19]. Despite its
+merits, the wavelet transform is inherently locally based and
+fails to capture long-range dependencies effectively.
+Considering these limitations, we design a purely FFTbased DFENet. The FFT is a globally based transform that
+has an advantage over MHSA and the wavelet transform in
+efficiently obtaining global relationships. This property allows
+each component of DFENet to access and optimize global
+relationships effectively. Moreover, DFENet offers memory
+efficiency and supports input resolution up to 5122 on an
+NVIDIA Tesla P100 GPU with 16GB of memory (see Sec.
+IV-C for details).
+C. Fast Fourier Transform (FFT)-based Networks
+Despite the recent advancement achieved by MHSA-based
+Transformers [16], [17] in various tasks, the trade-off between
+the perceived field size and computational cost remains a
+challenge. To address this problem, researchers have explored
+alternative approaches based on the FFT. For example, Rao
+et al. [64] proposed an FFT-based global filter to learn longdistance dependencies with linear complexity. Guibas et al.
+[65] constructed a token mixer as a globally continuous convolution, while Tatsunami et al. [66] incorporated the concept
+of data correlation into the global filter to dynamically extract
+image features. Despite these advancements, existing works
+have primarily focused on the spatial dimension, overlooking
+the exploration of intrinsic discriminative features in the
+channel dimension. Zhou et al. [67] addressed this limitation
+by designing two branches to perform FFT in both spatial and
+channel dimensions for image restoration.
+Meanwhile, researchers have also applied FFT-based models
+for various downstream tasks, including image enhancement
+[28]–[31], image inpainting [68], image compression [36], and
+image reconstruction [69], [70]. However, there is a notable
+
+3
+
+scarcity of research on dense prediction tasks. Existing dense
+prediction models [71], [72] typically focus on high- and lowfrequency components of the Fourier signal, neglecting deeper
+components such as amplitude and phase.
+In this paper, we proposed DFENet to develop FFT for
+addressing dense prediction tasks, specifically SOD. To the
+best of our knowledge, this is the first FFT-based supervised
+model specifically designed for this task.
+III. M ETHODS
+A. Overview
+In this section, we introduce the proposed DFENet, a novel
+architecture designed for RGB and thermal salient object
+detection (RGB-T SOD), as illustrated in Fig. 1.
+The network begins with a dual-stream encoder based on
+fast Fourier transform (FFT)-based CDFFormer-m [66], which
+processes the RGB and thermal modalities separately to extract
+4
+set of features at four different scales, denoted as {ri }i=1 and
+4
+{ti }i=1 , respectively.
+The extracted features are then processed by our Modalcoordinated Perception Attention (MPA) (Sec. III-B), which
+4
+is designed to obtain cross-modal fusion features {fi }i=1 .
+2
+Subsequently, {ti , fi }i=1 are input into our Frequencydecomposed Edge-aware Block (FEB) (Sec. III-C), which is
+3
+designed to extract detailed edge features {ei }i=1 .
+In the decoding stage, we employ a pyramid design to
+handle object scale variations. Each layer of the decoder
+concatenates the corresponding fusion feature fi with features
+from all previous layers. These concatenated features are then
+refined using our Fourier Residual Channel Attention Block
+4
+(FRCAB) (Sec. III-D), resulting in refined features {di }i=1 .
+Finally, the network is optimized using a bi-domain learning
+approach (Sec. III-E), which combines the proposed Cofocus Frequency Loss (CFL) LCF L , binary cross-entropy loss
+(BCE) [73] LBCE , and intersection-over union loss (IoU)
+[74] LIoU . LCF L in the frequency domain facilitates global
+optimization, prioritizing the resolution of hard frequencies
+during the edge-frequency reconstruction process. Meanwhile,
+LBCE and LIoU in the spatial domain achieve substantial
+pixel-wise saliency prediction S.
+B. Modal-coordinated Perception Attention (MPA)
+The differences in feature distribution between RGB and
+thermal modalities stem from their distinct physical meanings,
+encapsulating complementary information. Specifically, while
+objects share the same spatial location across both modalities,
+they exhibit varying degrees of saliency, leading to differences
+in spatial representation. The RGB modality provides richer
+appearance and texture details, whereas the thermal modality
+emphasizes overall shape and structure. As a result, the importance of feature channels differs across modalities [19]. This
+observation highlights the need to align and integrate bi-modal
+features in both spatial and channel dimensions.
+To address these challenges, we propose the MPA to effectively integrate and align information from both modalities.
+MPA employs a re-embedding strategy, which first extracts
+the spatial Fourier components from both modalities and
+
+AB
+
+FT
+
+LC1
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+4
+
+FEB
+DownSampling
+DownSampling
+CDFFormer
+CDFFormer
+DownSampling
+DownSampling
+CDFFormer
+CDFFormer
+
+DownSampling
+DownSampling
+CDFFormer
+CDFFormer
+
+CFL
+
+t1
+MPA
+
+r1
+
+FRCAB
+
+f1
+
+d1
+
+DNRU
+
+t2
+MPA
+
+r2
+
+FRCAB
+
+f2
+
+Ground Truth Supervision
+in the Spatial Domain
+
+d2
+
+Edge Supervision in the
+Spatial Domain
+
+t3
+MPA
+
+r3
+
+Edge Supervision in the
+Frequency Domain
+
+FRCAB
+
+f3
+
+d3
+CFL
+
+DownSampling
+DownSampling
+CDFFormer
+CDFFormer
+
+t4
+MPA
+
+r4
+
+FRCAB
+
+f4
+
+DNRU
+
+Co-focus Frequency Loss
+DConv3 + Normal +
+ReLU + Up-sampling
+
+d4
+
+Fig. 1. The framework of our proposed DFENet. RGB and thermal images a’re first extracted initial features {ri }4i=1 and {ti }4i=1 by a dual-stream encoder.
+Next, the bi-modal features enter the Modal-coordinated Perception Attention (MPA) to bridge the complementary information and fuse. During decoding, the
+fused features {fi }4i=1 are integrated in a low- to high-resolution manner by Fourier Residual Channel Attention Block (FRCAB) to obtain decoder features
+{di }4i=1 . Meanwhile, the shallow features {ti , fi }2i=1 are fed into the Frequency-decomposed Edge-aware Block (FEB) to obtain elaborate edge features
+{ei }3i=1 for guiding the decoding process in generating the accurate saliency map S. In the training stage, the Co-focus Frequency Loss (CFL) LCF L
+favoring the synthesis of difficult frequencies and spatial-domain losses are employed together to supervise the generation of the high-quality edge map E.
+
+tc
+ts
+firc = CF F T (ars
+i ), fi = CF F T (ai ).
+
+then enhances the channel Fourier components for each spatial Fourier component separately. Notably, the spatial-based
+Fourier component serves as an efficient representation of
+global information, while delving into its channel-dimensional
+representation further enhances its descriptive power.
+The diagram of MPA is shown in Fig. 2, which follows a
+Transformer-like structure of Transformer. It primarily consists
+of a Modal-coordinated Perception Filter (MPF), normalization layers N orm(·), a 3×3 depth-wise separable convolution
+layer DConv3 (·) in the feed-forward network, and residual
+connections. This process can be formulated as:
+
+We then enhance the amplitude and phase components using
+CLC1 (·), which consists of two Conv1 (·) and a LeakyReLU
+layer. This process is applied to the amplitude component arc
+i ,
+W
+rc
+(C
+2 +1)×H×( 2 +1) and atc ,
+the phase component prc
+of
+f
+∈
+R
+i
+i
+i
+W
+tc
+(C
+2 +1)×H×( 2 +1) , respectively. After that, the
+ptc
+i of fi ∈ R
+channel-enhanced components are composed into complexes
+and undergo an inverse CFFT (ICFFT). The process is denoted
+as:
+
+fei = M P F (N orm (ri ) , N orm (ti )) , i = 1, 2, 3, 4, (1)
+
+
+
+fi = DConv3 N orm fei + ri + ti + fei + ri + ti , (2)
+
+rs = ICF F T (Complex (CLC (arc ) , CLC (prc ))) , (8)
+af
+1
+1
+i
+i
+i
+
+where + is element-wise addition. fei and fi ∈ RC×H×W
+represent the output of MPF and MPA, respectively, with C,
+H, and W denoting the number of channels, height, and width,
+respectively.
+In MPF, we apply a sequence of operations to the normalized bi-modal features rei and tei : a 1 × 1 convolution layer
+Conv1 (·), followed by a StarReLU [75] layer SR(·), and
+finally, a fast Fourier transform (FFT) in the spatial dimension,
+to obtain the spatial Fourier components firs and fits :
+firs = F F T (SR(Conv1 (rei ))),
+
+(3)
+
+fits = F F T (SR(Conv1 (tei )).
+
+(4)
+
+In the channel Fourier component enhancement stage, we
+rs
+C×H×( W
+2 +1) and ats of
+extract the amplitude ars
+i of fi ∈ R
+i
+W
+ts
+C×H×( 2 +1)
+fi ∈ R
+for the secondary FFT in the channel
+dimension (CFFT), obtaining the channel Fourier components
+firc and fitc :
+rs
+ts
+ts
+ars
+i = Amp(fi ), ai = Amp(fi )
+
+(5)
+
+rc
+rc
+rc
+arc
+i = Amp(fi ), pi = P ha(fi ),
+
+(6)
+
+(7)
+
+tc
+tc
+tc
+atc
+(9)
+i = Amp(fi ), pi = P ha(fi ),
+
+
+tc
+ts = ICF F T Complex CLC
+af
+, CLC1 ptc
+.
+1 ai
+i
+i
+(10)
+To effectively integrate the channel-enhanced components with
+the original amplitude components, we utilize a shortcut
+connection in each branch. Subsequently, we combine the
+amplitude and phase components of the spatial Fourier representations from both branches as complexes. We then employ
+an element-wise addition to facilitate complementarity of two
+modalities:
+
+
+
+rs f
+rs = Complex
+rs , CLC (prs ) ,
+ff
+a
+·
+a
+(11)
+1
+i
+i
+i
+i
+
+
+
+ts
+ts
+f
+ts , CLC
+ff
+ats
+,
+(12)
+1 pi
+i · ai
+i = Complex
+s
+rs
+f
+ts
+f
+ff
+i = fi + fi ,
+
+(13)
+
+In the spatial Fourier component enhancement stage, we
+W
+introduce a dynamic filter DF (·) ∈ RC×H×( 2 +1) [66]
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+5
+
+2D FFT
+
+Modality-coordinated Perception Filter (MPF)
+
+2D ICFFT
+
+2D IFFT
+
+Spatial Fourier Inverse Transform
+
+2D CFFT
+
+Channel Fourier Transform
+
+2D ICFFT
+
+Channel Fourier Inverse Transform
+
+fi
+
+Dynamic
+Dynamic
+Dynamic
+Filter
+Dynamic
+Filter
+Filter
+Filter
+
+2D ICFFT
+
+CLC1
+
+Amp
+
+Complex
+
+Pha
+
+2D CFFT
+
+Amp
+
+CLC1
+
+Complex
+
+CLC1
+
+Pha
+
+2D FFT
+
+Norm
+
+StarReLU
+
+Norm
+
+t~i
+
+Conv1
+
+Modality-coordinated
+Perception Filter
+
+DConv3
+
+3x3 Depth-wise Convolution Layer
+
+Conv1
+
+1x1 Convolution Layer
+
+CLC1
+
+Conv1 + LeakyReLU + Conv1
+
+Norm
+
+Normalization
+
+Amp
+
+Amplitude
+
+Pha
+
+Phase
+
+MLP
+SoftMax
+
+MLP
+
+ri
+
+ti
+
+Spatial Fourier Transform
+
+~
+
+2D IFFT
+
+CLC1
+
+Complex
+
+CLC1
+
+Complex
+
+CLC1
+
+Pha
+
+2D CFFT
+
+Pha
+
+Norm
+
+Amp
+
+2D FFT
+
+StarReLU
+
+i
+
+DConv3
+
+Conv1
+
+r~
+
+Amp
+
+fi
+
+Weightings
+
+Multi-Layer Perception
+
+Element-wise Multiplication
+Element-wise Addition
+
+Fig. 2. Architectures of the Modal-coordinated Perception Attention (MPA) and its core component Modal-coordinated Perception Filter (MPF).
+
+Amp
+
+Complex
+
+CLC
+
+Pha
+
+2D FFT
+
+FRCAB
+
+2D IFFT
+
+and
+
+n=1
+
+eS(j−1)N +n
+PN
+
+m=1 e
+
+DownSampling
+DownSampling
+
+!
+
+CDFFormer
+CDFFormer
+
+S(j−1)N +m
+
+LFn ,
+
+(15)
+
+where
+T
+
+(s1 , . . . , sN C ) = M LP
+
+h,w
+
+ei
+
+Fig. 4. Architecture of the Edge Frequency Extraction Block (EFEB).
+
+boundary details and mitigate the impact of noise, we propose
+the FEB, a novel module specifically designed to provide the
+decoder with reliableFEB
+edge features.
+In
+Fig.
+3,
+we
+present
+a decomposition of RGB and thermal
+t1
+FRCABIt can be observed
+DNRU
+images inMPA
+the frequency
+domain.
+that
+f1
+d1
+r1
+the amplitude and low-frequency components predominantly
+style and content information, whereas the phase and
+tcapture
+2
+Ground Truth Supervision
+MPA
+FRCAB
+high-frequency
+components
+encapsulate
+detailed edges
+and Domain
+in the Spatial
+d2
+f2
+r2
+Edge Supervision
+textures. Furthermore, compared to RGB images, thermal
+im- in the
+Spatial Domain
+ages
+exhibit
+clearer
+object
+contours
+and
+less
+complex
+textures.
+t3
+Edge Supervision in the
+MPA this observation,
+FRCAB we develop a key component
+Building on
+Frequency Domain
+f3
+r3
+d3
+of the FEB, namely the Edge Frequency Extraction
+Block
+Co-focus
+Frequency Loss
+(EFEB),
+as
+illustrated
+in
+Fig.
+4.
+t4
+DConv + Normal +
+DNRU
+2 Up-sampling
+MPA
+The FEB
+contains
+two FRCAB
+EFEBs, which begin with {ti ,ReLU
+fi }+i=1
+f4
+d4
+r4
+undergoing a Phase Enhancement Process (PEP) to highlight
+object boundaries, followed by integration. An adaptive highpass filter HF is then employed to retain detailed edge
+information while removing style information. Finally, the
+output is refined by a Fourier Residual Channel Attention
+Block (FRCAB) to mitigate the neural network’s preference
+for low-frequency information, with details provided in Sec.
+III-D.
+In PEP, a given input x undergoes a FFT in the spatial dimension initially, followed by phase component enhancement.
+The PEP can be mathematically expressed as:
+
+CFL
+
+CFL
+
+DownSampling
+DownSampling
+
+P
+
+FRCAB
+
+Low-frequency
+
+Adaptive
+High-pass
+Filter
+
+2D IFFT
+
+High-frequency
+
+Complex
+
+Phase
+
+CDFFormer
+CDFFormer
+
+DF rei , tei j,:,: =
+
+CLC1
+
+PEP
+
+to perform
+fusion
+Adaptive
+r spatial filtering for the channel-enhanced
+High-pass
+si. DF consists of N learnable filters
+feature ff
+{LF
+,
+...,
+LF
+1
+N}
+Filter
+i
+and a multi-layer perception M LP (·) is used to assign
+Phase Enhancement
+Process
+(PEP)
+DownSampling
+weights for learnable
+filters.
+Additionally,
+we
+utilize
+rei and
+DownSampling
+ti
+ei
+tei to provide
+initial weights
+for
+filters.
+This
+process
+can
+be
+CDFFormer
+PEP
+CDFFormer
+formulated
+as:
+fi
+PEP 
+
+ sDownSampling
+DownSampling
+fei = IF F T DF rei , tei · ff
+(14)
+i ,
+N
+X
+
+Pha
+
+fi
+
+Fig. 3. The visualization for the amplitude, phase, high-frequency, and lowfrequency components of RGB and thermal images.
+High-frequency Extraction Block (HEB):
+
+
+
+2D FFT
+
+DNRU
+
+CLC1
+
+Amplitude
+
+2D ICFFT
+
+Pha
+
+Complex
+
+Amp
+
+2D CFFT
+
+GAP
+
+CLC3
+
+RGB/Thermal
+
+ti
+
+Amp
+
+CLC1
+
+Phase Enhancement Process (PEP)
+
+CDFFormer
+!CDFFormer
+
+rei + tei :,h,w
+HW
+
+,
+
+(16)
+
+where j represents the channel index, m and n denote filter
+indexes. In this paper, N is set to 8 to avoid over-computing
+in all experiments.
+C. Frequency-decomposed Edge-aware Block (FEB)
+The precise identification of object details is crucial for
+improving detection performance. However, low-level features
+extracted from the initial layers of a network often contain
+boundary details alongside cluttered background noise and
+interference. This phenomenon poses a significant challenge
+for the decoder in making accurate predictions. To clarify
+
+3
+
+axs = Amp(F F T (x)), pxs = P ha(F F T (x)),
+x
+e = Complex(axs , CLC1 (pxs )).
+
+(17)
+(18)
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+6
+
+the decoding process proceeds as follows to generate the final
+saliency map S:
+DownSampling
+DownSampling
+
+d4 = F RCAB(f4 ),
+
+Due to the inherent bias of neural networks, low-resolution
+encoder features tend to emphasize low-frequency semantic
+information. However, for dense prediction tasks, the decoding
+stage should focus more on high-frequency components to
+generate precise high-resolution saliency maps. Additionally,
+as the channel dimensions are progressively reduced, treating
+all feature channels equally can hinder the generation of
+accurate saliency maps. To address these issues, we draw inspiration from the Residual Channel Attention Block (RCAB)
+[76] and propose the FRCAB, which is strategically placed at
+each layer of the decoding stage.
+The FRCAB integrates two key components: the residualin-residual (RIR) structure [76] and Fourier channel attention
+(FCA), as shown in Fig. 5. The RIR enables the decoder
+to focus more on high-frequency information, while FCA
+extracts inter-channel statistics to further enhance the model’s
+capability to discriminate global information.
+As illustrated in Fig. 5, given an input feature x ∈ C×H×W ,
+the FRCAB operates as follows: First, a global vector is
+extracted using global average pooling GAP (·) after processing x with a CLC3 (·) with 3 × 3 kernel size. Then,
+a fast Fourier transform in the channel dimension (CFFT)
+is performed and CLC1 (·) operations are used to enhance
+C
+C
+the amplitude ax ∈ ( 2 +1)×1×1 and phase px ∈ ( 2 +1)×1×1
+components of x. Subsequently, an inverse CFFT (ICFFT)
+is performed, and two residual connections are constructed.
+Finally, we employ a DN RU (·) to reduce the number of
+channels and up-sampling features, and obtain the output y.
+The FRCAB can be mathematically described as:
+
+x
+
+c
+
+x
+
+c
+
+fi
+
+Fig. 5. Architecture of the Fourier Residual Channel Attention Block
+(FRCAB).
+
+D. Fourier Residual Channel Attention Block (FRCAB)
+
+xc = CF F T (GAP (CLC3 (x))),
+
+DNRU
+
+where U P2 (·) represents 2× up-sampling, and Concat (·) denotes concatenation. DN RU (·) represents a set of operations
+including DConv3 (·), N orm(·), a ReLU layer, and U P2 (·).
+
+2D ICFFT
+
+(21)
+
+ti
+
+CLC1
+
+where × is element-wise multiplication. Finally, the output
+edge feature e3 of FEB is calculated as:
+e3 = DN RU (Concat (e1 , U P2 (e2 ))) ,
+
+Complex
+
+Pha
+
+2D CFFT
+
+(20)
+
+Amp
+
+ei = F RCAB (IF F T (eei ) + fi ) , i = 1, 2,
+
+GAP
+
+(19)
+CLC3
+
+eei = (P EP (ti ) + P EP (fi )) × HF,
+
+Pha
+
+CLC1
+
+Then, EFEB can then be formulated as:
+
+(22)
+
+a = Amp(x ), p = P ha(x ),
+
+(23)
+
+axc = ax × GAP (CLC1 (x)) ,
+
+(24)
+
+pxc = px × GAP (CLC1 (x)) ,
+
+(25)
+
+xic = ICF F T (Complex (axc , pxc )) × CLC3 (x) + x,
+(26)
+(27)
+y = DN RU (xic ).
+where × is element-wise multiplication.
+After applying the FRCAB in the decoding stage, guided by
+the clear edge features e3 generated by the FEB (Sec. III-C),
+
+(28)
+
+CDFFormer
+CDFFormer
+
+d3 = F RCAB(Concat(f3 , d4DownSampling
+)),
+
+M
+
+r1
+
+(29)
+
+DownSampling
+
+CDFFormer
+d2 = F RCAB(Concat(f2 , d3 , U P2 (d
+(30)
+4 ))), CDFFormer
+
+d1 = F RCAB(Concat(f1 , d2 , U P2 (d3 ), UDownSampling
+P4 (d4DownSampling
+))), (31)
+CDFFormer
+CDFFormer
+
+S = DN RU (Concat(d1 , e3 )),
+
+t1
+
+t2
+
+M
+
+r2
+t3
+
+M
+
+(32)
+
+r3
+
+DownSampling
+DownSampling
+where {di }i=1 and {fi }i=1 stand for decoder
+features
+and
+CDFFormer
+CDFFormer
+fusion features obtained by the MPA (Sec. III-B).
+
+t4
+
+4
+
+4
+
+E. Bi-domain Learning
+We trained our DFENet with various learning strategies in
+the spatial and frequency domains, aiming to generate accurate
+saliency maps and reliable edge features.
+1) Frequency Domain Learning: As the model deepens,
+important visual details can be lost, and spectral bias may
+hinder the model’s ability to learn high-accuracy edge features.
+To address these problems, we propose Co-focus Frequency
+Loss (CFL), designed to provide effective guidance for FEB
+(Sec. III-C). CFL leverages fast Fourier transform (FFT) to
+measure distances in Fourier domain while cross-referencing
+details in the original feature space. This allows for the
+optimization of global information and aids FEB in addressing
+difficult frequencies.
+For every pixel (u, v) in the frequency domain, CFL is
+defined as:
+H−1 W −1
+
+LCF L =
+
+1 X X
+2
+w|F F T (E) − F F T (E)| ,
+HW u=0 v=0
+
+(33)
+
+where
+E = U P2 (DConv3 (e3 )) ,
+
+(34)
+
+and E denotes the edge of objects in ground-truth G, obtained
+by the Canny operator [77].
+To focus learning on hard frequencies, we introduce the Cofocus Frequency Matrix (CFM) w to enhance their associated
+weights. As discussed in Sec. III-C, the phase component
+contains plentiful edge frequencies. Thus, while adopting r1
+and t1 as co-directors, we set amplitude components of r1 ,
+t1 to the mean values to emphasize their phase components.
+CFM is expressed as:
+R = U P4 (DConv3 (r1 )), T = U P4 (DConv3 (t1 )),
+
+(35)
+
+M
+
+r4
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+7
+
+e = Complex(mean (Amp (F F T (R))) , P ha (F F T (R)))
+R
+(36)
+Te = Complex(mean (Amp (F F T (T ))) , P ha (F F T (T )))
+(37)
+
+e − F F T (E) + Te − F F T (E)
+w= R
+(38)
+α
++ |F F T (E) − F F T (E)|) ,
+where α is a scaling factor. The introduction of r1 and t1 not
+only provides raw frequency information but also enhances
+the representation of edge information in the original feature
+space of both modalities.
+2) Spatial Domain Learning: We employ LBCE to supervise the learning of E in the spatial domain:
+LE = LBCE (E, E) .
+
+(39)
+
+In addition, to alleviate network bias and ensure the accuracy of the features in the decoding stage, we construct a
+multi-level loss with LBCE and LIoU :
+4 
+X
+ 
+LD =
+LBCE U P DConv3 (di ) , G
+(40)
+i=1
+ 
++ LIoU U P DConv3 (di ) , G .
+Similarly, the saliency loss is defined as:
+LS = LBCE (S, G) + LIoU (S, G) .
+
+(41)
+
+In summary, the total loss Ltotal for training is denoted as:
+Ltotal = λ1 LS + λ2 LD + λ3 LE + λ4 LCF L ,
+
+(42)
+
+4
+
+where {λi }i=1 denote weight parameters corresponding to
+different losses. In this paper, we set them to 1.
+IV. E XPERIMENTS
+A. Experimental Setup
+1) Datasets: To demonstrate the effectiveness of our proposed DFENet, we conducted a series of experiments on
+four RGB-T SOD benchmark datasets, namely VT821 [11],
+VT1000 [12], VT5000 [13], and VI-RGBT1500 [14]. The
+VT821 dataset consists of 821 pairs of RGB-T images captured under different environmental conditions. The VT1000
+dataset comprises 1000 aligned RGB-T images with detailed
+annotations tailored for evaluation, providing a reliable benchmark for performance comparison. The VT5000 dataset offers
+5000 pairs of high-resolution, low-bias RGB-T images that
+cover a broad range of challenging scenes. The VI-RGBT1500
+dataset consists of 1500 RGB-T image pairs captured under
+different illuminations to validate the benefits of incorporating
+thermal modality. Following previous works [22], [61], we
+used 2500 RGB-T image pairs from the VT5000 dataset as
+our training set, while the remaining images and those from
+the other three datasets served as our testing set.
+2) Evaluation Metrics: To comprehensively evaluate the
+results of each experiment, we employed six widely used
+evaluation metrics. The E-measure [78] (Em) considers both
+image-level statistics and local pixel differences between the
+predictions and the ground-truths. The S-measure [79] (Sm)
+evaluates the structural similarity between the predictions and
+
+TABLE I
+S ELECTION OF SCALING FACTOR α IN C O - FOCUS F REQUENCY L OSS . T HE
+B EST R ESULTS ARE L ABELED R ED .
+Settings
+
+VT821
+VT1000
+VT5000
+VI-RGBT1500
+Fβ ↑ M ↓ Fβ ↑ M ↓ Fβ ↑ M ↓ Fβ ↑ M ↓
+
+α = 0.5
+α = 1.0
+α = 1.5
+α = 2.0
+
+0.866 0.025
+0.872 0.024
+0.863 0.025
+0.859 0.026
+
+0.901 0.016
+0.905 0.015
+0.903 0.015
+0.892 0.016
+
+0.871 0.025
+0.881 0.024
+0.876 0.025
+0.869 0.026
+
+0.886
+0.891
+0.893
+0.878
+
+0.028
+0.027
+0.026
+0.031
+
+the ground-truths. The F-measure [80] (Fβ ) is a comprehensive
+metric, calculated by weighted harmonic averaging on precision and recall. We also used the weighted F-measure [81]
+(wFβ ) to complement the F-measure, addressing issues such as
+interpolation defects and dependency defects. Additionally, we
+calculated the Mean absolute error [82] (M), which represents
+the average discrepancy between each pixel in the prediction
+and the ground-truth. Finally, Precision-recall (PR) curve [22]
+is drawn based on precision-recall pairs, where curves closer
+to (1, 1) indicate better model performance.
+3) Implementation Details: The backbone of DFENet was
+initialized with the training parameters of CDFFormer-m [66],
+while the remaining parameters were initialized using Kaiming
+initialization [83]. The model was trained on an NVIDIA Tesla
+P100 GPU with 16GB of memory using Adam optimization
+[84] and a batch size of 3. Training lasted for 200 epochs, starting with an initial learning rate of 3 × 10−5 , which decayed to
+one-tenth every 100 epochs. We set the input size to 384×384,
+and performed a series of data augmentation operations like
+random cropping, horizontal flipping, and multi-angle rotation
+to prevent overfitting.
+The hyperparameters of CFL, specifically the scaling factor
+α in Eq. (38), were determined through careful testing. We
+fixed α = 1 for our experiments, unless stated otherwise. The
+representative values of α used in the tests are presented in
+Table I.
+B. Model Comparison
+To validate the effectiveness of the proposed DFENet, we
+conducted a comprehensive comparison with fifteen state-ofthe-art (SOTA) RGB-T SOD models, namely CSRNet [62],
+MIDD [56], OSRNet [63], SwinNet [19], ADF [13], TNet
+[61], MGAI [14], LSNet [33], IFFNet [18], HRTNet [20],
+CAVER [22], WaveNet [26], LAFB [58], CAFCNet [59],
+and VST++ [25]. To ensure a fair comparison, all saliency
+maps used for the model comparison were acquired from the
+corresponding papers’ homepages or by running open-source
+code.
+1) Quantitative Evaluation: Table II and Fig. 6 presented
+the quantitative comparison of our DFENet with fifteen existing models using six evaluation metrics: Em, Sm, wFβ ,
+Fβ , M, and PR curve. In summary, DFENet outperformed
+existing models across all six metrics on all four benchmark
+datasets. Specifically, our DFENet surpassed the previously
+top-performing WaveNet across all four datasets, achieving
+average improvements of 0.6%, 0.3%, 0.9%, 1.1%, 2.2%
+in Em, Sm, wFβ , Fβ , and M, respectively. On the more
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+8
+
+TABLE II
+C OMPARISON OF E- MEASURE (Em), S- MEASURE (Sm), F- MEASURE (Fβ ), W EIGHTED F- MEASURE (wFβ ), AND M EAN A BSOLUTE E RROR (M)
+B ETWEEN O UR DFEN ET AND S TATE - OF - THE -A RT RGB-T SOD M ODELS ON VT821, VT1000, VT5000, AND VI-RGBT1500 DATASETS . T HE B EST
+R ESULTS ARE L ABELED R ED AND THE S ECOND B EST R ESULTS ARE L ABELED B LUE .
+Model
+
+Backbone
+
+CSRNet21 [62]
+ESPNetv2
+VGG-16
+MIDD21 [56]
+OSRNet22 [63]
+VGG-16
+Swin-B
+SwinNet22 [19]
+VGG-16
+ADF23 [13]
+TNet23 [61]
+ResNet-50
+MGAI23 [14]
+ResNet-50
+LSNet23 [33] MobileNetv2
+IFFNet23 [18]
+Segformer
+HRTNet23 [20]
+HRFormer
+CAVER23 [22] ResNet-101
+WaveNet23 [26] WaveMLP
+LAFB24 [58]
+Res2Net-50
+CAFCNet24 [59] ResNet-50
+VST++24 [25]
+Swin-B
+
+VT821
+VT1000
+VT5000
+VI-RGBT1500
+Param(M) FLOPs(G)
+Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓ Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓ Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓ Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓
+0.908
+0.895
+0.896
+0.926
+0.842
+0.919
+0.913
+0.911
+0.918
+0.929
+0.929
+0.929
+0.915
+0.927
+0.921
+
+0.885
+0.871
+0.875
+0.904
+0.810
+0.899
+0.891
+0.878
+0.907
+0.906
+0.898
+0.912
+0.884
+0.891
+0.904
+
+0.821
+0.760
+0.801
+0.818
+0.626
+0.841
+0.824
+0.809
+0.849
+0.849
+0.846
+0.863
+0.817
+0.845
+0.850
+
+0.830 0.038 0.925
+0.804 0.045 0.933
+0.813 0.043 0.935
+0.847 0.030 0.947
+0.716 0.077 0.921
+0.842 0.030 0.937
+0.829 0.031 0.935
+0.825 0.033 0.935
+0.848 0.029 0.947
+0.853 0.026 0.945
+0.854 0.026 0.949
+0.857 0.024 0.952
+0.842 0.034 0.945
+0.856 0.028 0.951
+0.848 0.030 0.951
+
+0.918
+0.915
+0.926
+0.938
+0.910
+0.929
+0.929
+0.925
+0.938
+0.938
+0.938
+0.945
+0.932
+0.935
+0.943
+
+0.878
+0.856
+0.891
+0.894
+0.804
+0.895
+0.893
+0.887
+0.912
+0.913
+0.912
+0.921
+0.905
+0.915
+0.920
+
+0.877 0.024 0.905
+0.822 0.027 0.897
+0.892 0.022 0.908
+0.896 0.018 0.942
+0.847 0.034 0.891
+0.889 0.021 0.927
+0.885 0.021 0.915
+0.885 0.023 0.915
+0.900 0.017 0.938
+0.900 0.017 0.945
+0.906 0.016 0.935
+0.909 0.015 0.940
+0.905 0.018 0.931
+0.913 0.017 0.939
+0.908 0.016 0.945
+
+0.868
+0.868
+0.875
+0.912
+0.864
+0.895
+0.883
+0.877
+0.905
+0.912
+0.900
+0.912
+0.893
+0.900
+0.915
+
+0.797
+0.763
+0.807
+0.846
+0.722
+0.840
+0.815
+0.806
+0.856
+0.870
+0.849
+0.865
+0.841
+0.858
+0.873
+
+0.811 0.042
+0.801 0.043 0.870
+0.823 0.040 0.917
+0.865 0.026 0.948
+0.778 0.048
+0.846 0.033 0.943
+0.824 0.034 0.938
+0.825 0.037 0.935
+0.864 0.028
+0.871 0.025 0.947
+0.856 0.028 0.949
+0.867 0.026 0.951
+0.857 0.030
+0.869 0.027
+0.875 0.025
+-
+
+0.762
+0.872
+0.901
+0.894
+0.881
+0.883
+0.899
+0.900
+0.909
+-
+
+0.665
+0.811
+0.863
+0.855
+0.834
+0.835
+0.870
+0.868
+0.874
+-
+
+0.765 0.069
+0.836 0.044
+0.882 0.031
+0.869 0.034
+0.862 0.038
+0.859 0.037
+0.892 0.030
+0.881 0.029
+0.879 0.027
+-
+
+4.6
+52.4
+42.4
+198.7
+83.1
+87.0
+86.8
+5.4
+58.9
+93.8
+80.7
+453.0
+217.7
+
+4.2
+257.9
+15.6
+124.3
+77.6
+39.7
+94.2
+1.2
+17.3
+63.9
+64.0
+139.7
+-
+
+DFENet (Ours) CDFFormer-m 0.938 0.916 0.873 0.872 0.024 0.956 0.945 0.924 0.905 0.015 0.947 0.916 0.876 0.881 0.024 0.955 0.912 0.882 0.891 0.027
+
+149.6
+
+139.5
+
+VT821
+
+VT1000
+
+VT5000
+
+VI-RGBT1500
+
+VT821
+
+VT1000
+
+VT5000
+
+VI-RGBT1500
+
+Fig. 6. F-measure curves and precision-recall (PR) curves of the proposed DFENet and fifteen existing models on the VT821, VT1000, VT5000, and VIRGBT1500 datasets.
+
+challenging VT821, VT5000, and VI-RGBT1500 datasets,
+the improvements in wFβ , Fβ , and M were even more
+significant, with gains of 1.1%, 1.6%, and 2.6%, respectively.
+This advantage could be attributed to the rational design
+of our DFENet, which enables superior global information
+discrimination. Meanwhile, the proposed Co-focus Frequency
+Loss (CFL) provides support in optimizing global frequencies
+and resolving hard frequency problems.
+In addition, the comparison of F-measure and PR curves
+in Fig. 6 further validated the leading performance of our
+DFENet. In the 1st row, F-measure curves of DFENet demonstrated the highest Fβ across various thresholds. In the 2nd
+row, PR curves of DFENet were closer to the point with
+coordinates (1,1) compared to those of other models. These
+findings indicate DFENet’ superior balance between precision
+and recall.
+2) Qualitative Evaluation: Fig. 7 illustrated the saliency
+maps generated by our proposed DFENet and the fifteen exist-
+
+ing models. It is evident that our DFENet can more accurately
+detect salient objects in various complex scenes. Even in cases
+where one modality fails locally (2nd -3rd , 6th -7th rows) or
+both modalities provide poor-quality information (2nd and 7th 8th rows), DFENet can mitigate noise and extraneous contextual cues, enabling precise delineation of salient objects from
+the background. This is because our proposed MPA reliably
+captures long-range dependencies and effectively utilizes bimodal complementary information. Moreover, in fine-grained
+object detection, existing models, including WaveNet, often
+incur losses in object depiction. In contrast, DFENet excels in
+capturing intricate object details, such as the legs of a dog (5th
+row), a person on a motorcycle (7th row), and the frame of a
+chair (10th row). This superior performance can be attributed
+to the collaboration of our proposed DFENet’s components,
+namely FEB, FRCAB, and CFL. FEB provides reliable edge
+details through the depth frequency decomposition of low-level
+features. FRCAB enhances the model’s robustness, improving
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+9
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+RGB
+
+Thermal
+
+CSRNet
+
+MIDD
+
+OSRNet
+
+SwinNet
+
+ADF
+
+TNet
+
+MGAI
+
+LSNet
+
+IFFNet
+
+HRTNet
+
+CAVER
+
+WaveNet
+
+LAFB
+
+CAFCNet
+
+VST++
+
+DFENet
+
+GT
+
+Fig. 7. Visual comparison of our DFENet with fifteen existing models in various complex scenarios, including large objects (1st -3rd , 10th rows), small
+objects (5th -7th rows), multiple objects (4th and 9th rows), complex background (1st -4th , 6th and 8th rows), low light or contrast (3rd and 8th rows),
+small thermal difference (2nd -3rd , 6th -7th , and 9th rows), low-quality RGB images (2nd and 7th rows), and fine-grained objects (5th , 7th , and 10th
+rows). GT stands for ground-truth.
+TABLE III
+A BLATION S TUDY OF E ACH C OMPONENT IN O UR DFEN ET. T HE B EST R ESULTS ARE L ABELED R ED AND THE S ECOND B EST ARE L ABELED B LUE .
+Type
+
+Settings
+
+VT821
+VT1000
+VT5000
+VI-RGBT1500
+Params(M) FLOPs(G)
+Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓ Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓ Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓ Em ↑ Sm ↑ wFβ ↑ Fβ ↑ M ↓
+136.5
+132.7
+151.3
+
+129.1
+138.0
+138.0
+
+0.878 0.028
+0.851 0.038
+0.883 0.030
+0.886 0.027
+0.879 0.029
+0.888 0.028
+
+144.2
+146.3
+127.1
+148.1
+148.6
+149.6
+
+137.9
+138.8
+77.4
+139.5
+135.6
+139.5
+
+Input size 3842 → 5122 0.930 0.909 0.862 0.867 0.026 0.951 0.942 0.919 0.912 0.015 0.945 0.913 0.873 0.884 0.025 0.954 0.910 0.881 0.893 0.026
+
+149.6
+
+248.0
+
+0.938 0.916 0.873 0.872 0.024 0.956 0.945 0.924 0.905 0.015 0.947 0.916 0.876 0.881 0.024 0.955 0.912 0.882 0.891 0.027
+
+149.6
+
+139.5
+
+Backbone
+
+Module
+
+w/ GFNet-H-B 0.896 0.865 0.746 0.771 0.046 0.915 0.883 0.852 0.858 0.036 0.887 0.836 0.745 0.784 0.045 0.876 0.796 0.706 0.774 0.062
+w/ AFNO
+0.913 0.877 0.778 0.806 0.039 0.932 0.912 0.876 0.877 0.026 0.915 0.871 0.798 0.822 0.038 0.916 0.853 0.782 0.820 0.048
+w/ DFFormer-m 0.926 0.909 0.858 0.857 0.026 0.958 0.945 0.923 0.903 0.015 0.947 0.917 0.875 0.881 0.024 0.955 0.914 0.884 0.893 0.026
+w/o MPA
+w/ MHCA
+w/o FRCAB
+w/ RCAB
+w/o FEB
+w/o CFL
+
+Full model
+
+0.925
+0.912
+0.927
+0.929
+0.927
+0.932
+
+0.908
+0.898
+0.904
+0.908
+0.911
+0.909
+
+0.855
+0.836
+0.846
+0.857
+0.854
+0.863
+
+0.855 0.026 0.952
+0.843 0.029 0.946
+0.849 0.028 0.954
+0.865 0.027 0.954
+0.849 0.027 0.954
+0.865 0.024 0.955
+
+0.941
+0.940
+0.943
+0.945
+0.946
+0.943
+
+0.918
+0.909
+0.916
+0.923
+0.916
+0.922
+
+0.896 0.016 0.942
+0.886 0.018 0.936
+0.896 0.016 0.941
+0.904 0.015 0.946
+0.889 0.016 0.945
+0.911 0.015 0.946
+
+its performance in various scenes. More critically, CFL effectively addresses the problem of lost visual signals and hard
+frequencies unattended in the frequency domain.
+C. Ablation Study
+To comprehensively assess the effectiveness of each component in our proposed DFENet, we conducted ablation studies
+by comparing models with (w/) and without (w/o) these
+components, and replacing them with classical methods that
+operate similarly. The quantitative and qualitative evaluations
+of ablation studies are shown in Table III, Fig. 8, and Fig. 9.
+1) Effectiveness of backbone network: To validate the effectiveness of CDFFormer-m [66] as the backbone of DFENet,
+we compared it with three other FFT-based backbones, namely
+GFNet-H-B [64], AFNO [65], and DFFormer-m [66]. Notably,
+AFNO has the same dimension and depth as CDFFormerm. As shown in the 1st -2nd rows of Table III, the model
+with GFNet-H-B and AFNO yielded unsatisfactory results,
+with inferior performance across all four datasets compared to
+
+0.910
+0.903
+0.906
+0.914
+0.916
+0.913
+
+0.863
+0.851
+0.855
+0.874
+0.864
+0.873
+
+0.874 0.026 0.949
+0.862 0.029 0.929
+0.867 0.028 0.951
+0.878 0.025 0.952
+0.868 0.026 0.950
+0.879 0.024 0.952
+
+0.906
+0.885
+0.908
+0.909
+0.912
+0.907
+
+0.872
+0.834
+0.868
+0.880
+0.870
+0.878
+
+the model with CDFFormer-m. This trend was further highlighted in Fig. 8, where these models struggled to accurately
+detect salient objects. Meanwhile, the model with DFFormerm demonstrated uneven performance on the four datasets.
+Although it exhibited a slight advantage on the VI-RGBT1500
+dataset (3rd row of Table III), it substantially lagged behind
+the model with CDFFormer-m on the VT821 dataset.
+In addition, we attempted to apply spatial domain-based
+backbones to DFENet, such as VGG [85], ResNet [86], and
+Swin Transformer [17]. However, instability (loss reported as
+“Nan”) occurred during training due to gradient instability
+caused by the incompatibility of the spatial domain operations
+and the two Fourier transform operations in MPA.
+2) Effectiveness of MPA (Sec. III-B): First, we removed
+MPA and employed element-wise addition to fuse the bi-modal
+features, labeled “w/o MPA” in Table III and Fig. 8. The
+performance of the model lacking MPA declined obviously on
+the four datasets due to its inability to extract complementary
+information. In Fig. 8, when the salient region in one or
+both modalities showed a different appearance, the model
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+RGB
+
+Thermal
+
+w/ GFNet-H-B
+
+w/ AFNO
+
+w/ DFFormer-m
+
+10
+
+w/o MPA
+
+w/ MHCA
+
+w/o FRCAB
+
+w/ RCAB
+
+w/o FEB
+
+w/o CFL
+
+DFENet
+
+GT
+
+Fig. 8. Visualization results of ablation experiments. GT is ground-truth.
+
+(a)
+
+(b)
+
+(c)
+(d)
+
+(e)
+L1
+
+L2
+
+L3
+
+L4
+
+L1
+
+L2
+
+L3
+
+L4
+
+L1
+
+L2
+
+L3
+
+L4
+
+Fig. 9. Visualization of the feature maps pre- and post-processed by each component. L1 to L4 indicates the layers from low to high. (a) shows RGB images,
+thermal images, and the feature map after FEB. (b) and (c) stand for RGB and thermal feature maps generated by the encoder. (d) represents the fused feature
+map obtained by MPA. (e) is the feature maps after FRCAB.
+
+without MPA encountered considerable interference, impeding
+accurate detection of complete objects.
+To further validate the effectiveness of the Modalcoordinated Perception Filter (MPF), the core of MPA, we
+replaced MPF with the widely used multi-head cross-attention
+(MHCA) [7], [22]. Due to the considerable complexity and
+memory demands of MHCA, we applied it only to the last
+three low-resolution layers, while the largest resolution layer
+still employed element-wise addition. As shown in the 5th row
+of Table III and Fig. 8, the model with MHCA did not perform
+as well as expected, and even had less gain than the model
+with element-wise addition. The experiments highlight the
+suboptimal performance of MHCA compared to MPA in highresolution feature fusion and demonstrate the incompatibility
+of spatial-domain operations with frequency-domain models.
+Finally, we visualized in Fig. 9 the feature changes after
+processing by MPA. Even in instances of localized failure
+within the RGB (e.g., case 1) or thermal modalities (e.g.,
+cases 2 and 3), MPA demonstrated remarkable resilience,
+successfully fusing both modalities without succumbing to
+noise interference. The outcomes of the above experiments
+collectively reinforce the high efficacy of MPA.
+3) Effectiveness of FRCAB (Sec. III-D): To verify the
+effectiveness of the proposed FRCAB, we first replaced it
+with DN RU (·) in Eq. (21), labeled “w/o FRCAB” in Table
+III and Fig. 8. The results showed a significant decrease in
+metrics Em, Sm, wFβ , Fβ , and M, with an average reduction
+
+of 0.6%, 0.8%, 2.0%, 1.5%, and 13.3%, respectively. The
+visualization results confirmed this conclusion, revealing that
+the model would be more susceptible to cluttered backgrounds,
+lighting variations, and thermal imbalances without FRCAB.
+Subsequently, we replaced FRCAB with Residual Channel
+Attention Block (RCAB) [76], labeled “w/ RCAB” in Table III
+and Fig. 8. Comparing the 7th and last rows of Table III, we
+found that while the RCAB-equipped model performs well, it
+consistently falls short of the FRCAB-equipped model across
+all metrics. This clearly demonstrates that FRCAB can stably
+improve the model’s robustness and performance compared to
+RCAB in our DFENet.
+As shown in Fig. 9, the features fused by MPA are further
+refined and decoded by FRCAB. By acquiring channel-wise
+dependencies, FRCAB enables the model to prioritize highfrequency information and gradually generate high-resolution
+features.
+4) Effectiveness of FEB (Sec. III-C): To validate the gains
+made by the proposed FEB, we replaced its core component
+Edge Frequency Extraction Block (EFEB) with DN R(·) in
+Eq. (21), while retaining the FRCAB in it, and presented the
+results in the 8th row of Table III. The comparison revealed
+that without EFEB, all metrics of the model exhibit a decrease
+to varying degrees. Furthermore, the visualization results depicted in Fig. 8 failed to portray complete object boundaries.
+In contrast, as illustrated in Fig. 9(a), the complete FEB can
+consistently provide accurate edge features, regardless of the
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+RGB
+
+Thermal
+
+RGB
+
+HRTNet
+
+= 0.030
+
+= 0.026
+
+= 0.082
+
+= 0.047
+
+CAVER
+
+Thermal
+
+WaveNet
+
+DFENet
+
+= 0.056
+
+= 0.021
+
+w/o CFL
+
+w/ CFL
+
+GT
+
+RGB
+
+Thermal HRTransNet CAVER
+RGB
+
+Thermal
+
+WaveNet
+w/o CFL
+
+DFENet
+w/ CFL
+
+Thermal
+
+CAVER
+
+WaveNet
+
+VST++
+
+DFENet
+
+GT
+
+Fig. 12. Failure cases of the proposed DFENet. GT denotes ground-truth.
+
+GT
+
+Fig. 10. Frequency spectrum visualization of results from the model training
+with (w/) and without (w/o) CFL. GT stands for ground-truth.
+
+RGB
+
+11
+
+6) Increase input resolution: To verify the effectiveness
+of DFENet in handling high-resolution bi-modal images, we
+increased the input resolution to 5122 . A comparison of the last
+two rows in Table III showed that the 5122 resolution model
+has comparable performance to the 3842 resolution model
+on the VT1000, VT5000, and VI-RGBT1500 datasets, and
+a slight degradation on the VT821 dataset. This performance
+degradation is mainly caused by the small input resolution
+of the pre-trained encoder used in our practice. Notably, this
+is the first attempt at high-resolution RGB-T SOD, whereas
+existing RGB-T SOD models typically have input resolution
+ranging from 2242 to 3842 .
+
+GT
+Edge GT
+
+Fig. 11. Visual comparison of edge maps between the model (w/) and without
+(w/o) CFL. Edge GT stands for the ground-truth of edge.
+
+complexity of the scene. This ability to capture precise edge
+information offers a powerful boost to the model.
+5) Effectiveness of CFL (Sec. III-E): To evaluate the contribution of CFL, we removed it and kept only BCE to supervise
+the learning of the edge map, denoted as “w/o CFL” in
+Table III, Fig. 8 and 11. The results showed a degradation in
+performance on the three datasets after losing the supervision
+of CFL.
+Moreover, we displayed the 3D frequency spectrum of the
+results obtained with both settings in Fig. 10. It can be seen
+that 3D spectrograms constructed without CFL supervision
+exhibit oscillations and frequency distributions that deviate
+further from the ground-truth. Conversely, the presence of CFL
+optimizes the loss of frequency reconstruction and brings the
+frequency statistics closer to ground-truth.
+Furthermore, we presented a visual comparison of the
+edge maps for the two settings in Fig. 11. Even when both
+modalities provide clear objects (i.e., cases in the 1st and 2nd
+rows), the model trained only with BCE still focuses more on
+edge locations with high priority, making it difficult to detect
+complete object edges. In contrast, the model supervised with
+additional CFL not only demonstrates trustworthy performance
+in typical scenarios but also presents explicit object edges by
+learning difficult frequencies and reducing frequency gaps,
+even when object edges are difficult to distinguish from
+cluttered backgrounds. In conclusion, these findings strongly
+demonstrate the effectiveness of CFL in learning accurate edge
+maps and its importance in DFENet.
+
+D. Complexity Analysis
+We presented the number of parameters (Params) and the
+floating point operations (FLOPs) of RGB-T SOD models and
+each component of DFENet in Table II and Table III. Overall,
+the proposed DFENet is a heavyweight model. Compared
+to knowledge-distillation-based WaveNet [26], DFENet has
+better performance, but has 68.9M more Params and 75.5G
+more FLOPs, making it only slightly smaller than WaveNet’s
+teacher network, SwinNet [19]. While compared to the purely
+Transformer-based VST++ [25], we have a 31.3% reduction
+in Params. Specifically, most of DFENet’s computational cost
+comes from the backbone network, while our two proposed
+components, namely MPA and FEB contribute minimally. The
+MPA increases only 5.4M Params and 1.6G FLOPs compared
+to element-wise addition, whereas the FEB just requires 1.0M
+Params and 3.9G FLOPs. Additionally, the complexity of
+FRCAB is nearly identical to RCAB, with a 1.5M increase
+in Params overall.
+E. Limitations and Future Works
+Despite achieving outstanding performance, our DFENet
+still struggles with some complex scenarios. As shown in
+Fig. 12, DFENet erroneously identifies salient objects when
+the background exhibits more discriminative features than
+foreground objects, such as higher regional contrast, greater
+temperature change, and faster gradient change. In contrast,
+due to the existence of the category concept, it is easier for
+the human attention mechanism to focus on central objects
+or living organisms while ignoring cluttered backgrounds. To
+mimic this mechanism, future improvements could involve
+adding prompts such as text and audio, or introducing large
+models to get more discriminating information.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020
+
+Furthermore, while FFT-based operations demonstrate remarkable potential, their integration with spatial-domain operations remains an open challenge due to compatibility issues.
+Integrating spatial-domain techniques alongside FFT could
+enhance the model’s ability to capture local features and
+handle irregular object shapes. Therefore, combining FFTand spatial domain-based techniques holds promising research
+prospects and merits further attention.
+V. C ONCLUSION
+In this paper, we proposed DFENet to explore the potential
+of fast Fourier Transform (FFT) in solving RGB and thermal
+salient object detection (RGB-T SOD). Specifically, to fully
+bridge the complementary information and fuse the RGB
+and thermal modalities, we designed the Modal-coordinated
+Perception Attention (MPA), which embeds channel FFT into
+spatial Fourier components, achieving deep-level and multidimensional representation enhancement. Compared to conventional multi-head self-attention-based operations, MPA can
+be easily applied to high-resolution bi-modal feature fusion. In
+the decoding stage, we proposed the Frequency-decomposed
+Edge-aware Block (FEB) and Fourier Residual Channel Attention Block (FRCAB) to achieve high-resolution salient maps.
+Based on the analysis of bi-modal frequency decomposition,
+we presented FEB to clarify accurate object edges from the
+background and guide the integration of decoder features. We
+then deployed FRCAB in each decoder layer to focus on
+high-frequency information and obtain global dependencies
+in the channel dimension of the frequency domain. In the
+training stage, we proposed the Co-focus Frequency Loss
+(CFL) to assist FEB in solving hard frequencies and enhance
+edge representations within the bi-modal feature spaces. This
+frequency-domain learning synergized with spatial-domain
+learning to realize high-quality salient maps. Extensive experiments demonstrated that DFENet surpassed fifteen existing
+RGB-T SOD models on four benchmark datasets and exhaustively exhibited the representation capabilities of FFT-based
+operations, providing a new paradigm for a series of SOD
+tasks.
+R EFERENCES
+[1] C. Guo and L. Zhang, “A novel multiresolution spatiotemporal saliency
+detection model and its applications in image and video compression,”
+IEEE Trans. Image Process., vol. 19, no. 1, pp. 185–198, 2010.
+[2] C. F. Flores, A. Gonzalez-Garcia, J. van de Weijer, and B. Raducanu,
+“Saliency for fine-grained object recognition in domains with scarce
+training data,” Pattern Recogn., vol. 94, pp. 62–73, 2019.
+[3] Y. Shi, S. Zhao, J. Wu, Z. Wu, and H. Yan, “Fixated object detection
+based on saliency prior in traffic scenes,” IEEE Trans. Circuits Syst.
+Video Technol., vol. 34, no. 3, pp. 1413–1426, 2024.
+[4] H. Zhou, B. Qiao, L. Yang, J. Lai, and X. Xie, “Texture-guided saliency
+distilling for unsupervised salient object detection,” in Proc. CVPR,
+2023, pp. 7257–7267.
+[5] Y. Wang, R. Wang, X. Fan, T. Wang, and X. He, “Pixels, regions, and
+objects: Multiple enhancement for salient object detection,” in Proc.
+CVPR, 2023, pp. 10 031–10 040.
+[6] H. Wang, L. Wan, and H. Tang, “Leno: Adversarial robust salient object
+detection networks with learnable noise,” in Proc. AAAI, vol. 37, no. 2,
+2023, pp. 2537–2545.
+[7] N. Liu, N. Zhang, K. Wan, L. Shao, and J. Han, “Visual saliency
+transformer,” in Proc. ICCV, 2021, pp. 4722–4732.
+
+12
+
+[8] W. Ji, J. Li, S. Yu, M. Zhang, Y. Piao, S. Yao, Q. Bi, K. Ma, Y. Zheng,
+H. Lu et al., “Calibrated rgb-d salient object detection,” in Proc. CVPR,
+2021, pp. 9471–9481.
+[9] W. Ji, J. Li, Q. Bi, chuan guo, J. Liu, and L. Cheng, “Promoting saliency
+from depth: Deep unsupervised RGB-d saliency detection,” in Proc.
+ICLR, 2022.
+[10] J. Wu, F. Hao, W. Liang, and J. Xu, “Transformer fusion and pixellevel contrastive learning for rgb-d salient object detection,” IEEE Trans.
+Multimedia, 2023.
+[11] G. Wang, C. Li, Y. Ma, A. Zheng, J. Tang, and B. Luo, “Rgb-t saliency
+detection benchmark: Dataset, baselines, analysis and a novel approach,”
+in Proc. IGTA, 2018, pp. 359–369.
+[12] Z. Tu, T. Xia, C. Li, X. Wang, Y. Ma, and J. Tang, “Rgb-t image saliency
+detection via collaborative graph learning,” IEEE Trans. Multimedia,
+vol. 22, no. 1, pp. 160–173, 2020.
+[13] Z. Tu, Y. Ma, Z. Li, C. Li, J. Xu, and Y. Liu, “Rgbt salient object detection: A large-scale dataset and benchmark,” IEEE Trans. Multimedia,
+vol. 25, pp. 4163–4176, 2023.
+[14] K. Song, L. Huang, A. Gong, and Y. Yan, “Multiple graph affinity
+interactive network and a variable illumination dataset for rgbt image
+salient object detection,” IEEE Trans. Circuits Syst. Video Technol.,
+vol. 33, no. 7, pp. 3104–3118, 2023.
+[15] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez,
+Ł. Kaiser, and I. Polosukhin, “Attention is all you need,” in Proc. NIPS,
+vol. 30, 2017.
+[16] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly,
+J. Uszkoreit, and N. Houlsby, “An image is worth 16x16 words:
+Transformers for image recognition at scale,” in Proc. ICLR, 2021.
+[17] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and
+B. Guo, “Swin transformer: Hierarchical vision transformer using shifted
+windows,” in Proc. ICCV, 2021, pp. 10 012–10 022.
+[18] K. Song, Y. Bao, H. Wang, L. Huang, and Y. Yan, “A potential visionbased measurements technology: Information flow fusion detection
+method using rgb-thermal infrared images,” IEEE Trans. Instrum. and
+Meas., vol. 72, pp. 1–13, 2023.
+[19] Z. Liu, Y. Tan, Q. He, and Y. Xiao, “Swinnet: Swin transformer
+drives edge-aware rgb-d and rgb-t salient object detection,” IEEE Trans.
+Circuits Syst. Video Technol., vol. 32, no. 7, pp. 4486–4497, 2022.
+[20] B. Tang, Z. Liu, Y. Tan, and Q. He, “Hrtransnet: Hrformer-driven twomodality salient object detection,” IEEE Trans. Circuits Syst. Video
+Technol., vol. 33, no. 2, pp. 728–742, 2023.
+[21] G. Chen, F. Shao, X. Chai, H. Chen, Q. Jiang, X. Meng, and Y.-S.
+Ho, “Cgmdrnet: Cross-guided modality difference reduction network for
+rgb-t salient object detection,” IEEE Trans. Circuits Syst. Video Technol.,
+vol. 32, no. 9, pp. 6308–6323, 2022.
+[22] Y. Pang, X. Zhao, L. Zhang, and H. Lu, “Caver: Cross-modal viewmixed transformer for bi-modal salient object detection,” IEEE Trans.
+Image Process., vol. 32, pp. 892–904, 2023.
+[23] H. Zhou, C. Tian, Z. Zhang, C. Li, Y. Ding, Y. Xie, and Z. Li, “Positionaware relation learning for rgb-thermal salient object detection,” IEEE
+Trans. Image Process., 2023.
+[24] F. Sun, P. Ren, B. Yin, F. Wang, and H. Li, “Catnet: A cascaded and
+aggregated transformer network for rgb-d salient object detection,” IEEE
+Trans. Multimedia, 2023.
+[25] N. Liu, Z. Luo, N. Zhang, and J. Han, “Vst++: Efficient and stronger
+visual saliency transformer,” IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 2024.
+[26] W. Zhou, F. Sun, Q. Jiang, R. Cong, and J.-N. Hwang, “Wavenet:
+Wavelet network with knowledge distillation for rgb-t salient object
+detection,” IEEE Trans. Image Process., vol. 32, pp. 3027–3039, 2023.
+[27] M. Frigo and S. G. Johnson, “Fftw: An adaptive software architecture
+for the fft,” in Proc. ICASSP, vol. 3, 1998, pp. 1381–1384.
+[28] J. Huang, Y. Liu, F. Zhao, K. Yan, J. Zhang, Y. Huang, M. Zhou, and
+Z. Xiong, “Deep fourier-based exposure correction network with spatialfrequency interaction,” in Proc. ECCV, 2022, pp. 163–180.
+[29] C. Li, C.-L. Guo, man zhou, Z. Liang, S. Zhou, R. Feng, and C. C. Loy,
+“Embedding fourier for ultra-high-definition low-light image enhancement,” in Proc. ICLR, 2023.
+[30] C. Wang, H. Wu, and Z. Jin, “Fourllie: Boosting low-light image
+enhancement by fourier frequency information,” in Proc. ACM MM,
+2023, pp. 7459–7469.
+[31] J. Huang, M. Zhou, D. Li, B. Li, C.-L. Guo, and C. Li, “Revitalizing
+channel-dimension fourier transform for image enhancement,” 2024.
+[32] N. Rahaman, A. Baratin, D. Arpit, F. Draxler, M. Lin, F. Hamprecht,
+Y. Bengio, and A. Courville, “On the spectral bias of neural networks,”
+in Proc. ICML, 2019, pp. 5301–5310.
+
+

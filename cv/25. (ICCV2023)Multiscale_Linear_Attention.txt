@@ -1,0 +1,2456 @@
+EfficientViT: Multi-Scale Linear Attention for High-Resolution Dense Prediction
+
+arXiv:2205.14756v6 [cs.CV] 6 Feb 2024
+
+Han Cai1 , Junyan Li2 , Muyan Hu3 , Chuang Gan4 , Song Han1
+1
+MIT, 2 Zhejiang University, 3 Tsinghua University, 4 MIT-IBM Watson AI Lab
+https://github.com/mit-han-lab/efficientvit
+
+Abstract
+High-resolution dense prediction enables many appealing real-world applications, such as computational photography, autonomous driving, etc. However, the vast
+computational cost makes deploying state-of-the-art highresolution dense prediction models on hardware devices difficult. This work presents EfficientViT, a new family of highresolution vision models with novel multi-scale linear attention. Unlike prior high-resolution dense prediction models
+that rely on heavy softmax attention, hardware-inefficient
+large-kernel convolution, or complicated topology structure to obtain good performances, our multi-scale linear
+attention achieves the global receptive field and multi-scale
+learning (two desirable features for high-resolution dense
+prediction) with only lightweight and hardware-efficient operations. As such, EfficientViT delivers remarkable performance gains over previous state-of-the-art models with
+significant speedup on diverse hardware platforms, including mobile CPU, edge GPU, and cloud GPU. Without
+performance loss on Cityscapes, our EfficientViT provides
+up to 13.9× and 6.2× GPU latency reduction over SegFormer and SegNeXt, respectively. For super-resolution,
+EfficientViT delivers up to 6.4× speedup over Restormer
+while providing 0.11dB gain in PSNR. For Segment Anything, EfficientViT delivers 48.9× higher throughput on
+A100 GPU while achieving slightly better zero-shot instance segmentation performance on COCO.
+
+1. Introduction
+High-resolution dense prediction is a fundamental task
+in computer vision and has broad applications in the real
+world, including autonomous driving, medical image processing, computational photography, etc. Therefore, deploying state-of-the-art (SOTA) high-resolution dense prediction models on hardware devices can benefit many use
+cases.
+However, there is a large gap between the computational
+cost required by SOTA high-resolution dense prediction
+models and the limited resources of hardware devices. It
+
+makes using these models in real-world applications impractical. In particular, high-resolution dense prediction
+models require high-resolution images and strong context
+information extraction ability to work well [1, 2, 3, 4, 5, 6].
+Therefore, directly porting efficient model architectures
+from image classification is unsuitable for high-resolution
+dense prediction.
+This work introduces EfficientViT, a new family of vision transformer models for efficient high-resolution dense
+prediction. The core of EfficientViT is a new multi-scale
+linear attention module that enables the global receptive
+field and multi-scale learning with hardware-efficient operations. Our module is motivated by prior SOTA highresolution dense prediction models. They demonstrate that
+the multi-scale learning [3, 4] and global receptive field
+[7] are critical in improving models’ performances. However, they do not consider hardware efficiency when designing their models, which is essential for real-world applications. For example, SegFormer [7] introduces softmax attention [8] into the backbone to have a global receptive field. However, its computational complexity is
+quadratic to the input resolution, making it unable to handle
+high-resolution images efficiently. SegNeXt [9] proposes a
+multi-branch module with large-kernel convolutions (kernel
+size up to 21) to enable a large receptive field and multiscale learning. However, large-kernel convolution requires
+exceptional support on hardware to achieve good efficiency
+[10, 11], which is usually unavailable on hardware devices.
+Hence, the design principle of our module is to enable these two critical features while avoiding hardwareinefficient operations. Specifically, we propose substituting the inefficient softmax attention with lightweight ReLU
+linear attention [12] to have the global receptive field. By
+leveraging the associative property of matrix multiplication,
+ReLU linear attention can reduce the computational complexity from quadratic to linear while preserving functionality. In addition, it avoids hardware-inefficient operations
+like softmax, making it more suitable for hardware deployment (Figure 4).
+However, ReLU linear attention alone has limited capacity due to the lack of local information extraction and multi-
+
+Table 2
+EﬃcientViT
+
+EﬃcientNetV2
+
+EﬃcientNetV2
+
+ConvNeXt
+
+ConvNeXt
+
+Swin
+
+Swin
+
+CoAtNet
+
+CoAtNet
+
+FasterViT
+
+FasterViT
+
+MobileViTV2
+
+Untitled 1
+
+6207
+
+84.5
+
+5548
+
+82.1
+
+3303
+
+82.1
+
+5049
+
+81.3
+
+3011
+
+81.6
+
+5582
+
+84.2
+
+Untitled 2
+
+4998
+
+85.1
+
+2869
+
+83.9
+
+2081
+
+83.1
+
+3107
+
+83
+
+1512
+
+83.3
+
+3231
+
+84.9
+
+Untitled 3
+
+3969
+
+85.4
+
+1160
+
+85.1
+
+1579
+
+83.8
+
+2236
+
+83.5
+
+1174
+
+84.1
+
+1382
+
+85.4
+
+Untitled 4
+
+3102
+
+85.63
+
+85.7
+
+1032
+
+84.3
+
+642
+
+84.5
+
+746
+
+85.6
+
+2099
+
+85.9
+
+1784
+
+85.978
+
+EfficientViT-L
+
+SegNeXt
+
+81.2
+
+EfficientViT-L
+CoAtNet
+
+SegFormer
+5.0x speedup
+
+51
+
+6.2x speedup
+
+87
+
+EfficientNetV2
+FasterViT
+
+ConvNeXt
+MobileViTV2
+
+87
+
+47
+45
+43
+
+76
+
+85
+
+83
+
+41
+0
+
+325
+Jetson AGX Orin Latency (ms)
+
+650
+
+ImageNet Top1 Acc
+
+78
+
+ImageNet Top1 Acc
+
+80
+
+Swin
+
+4.2x
+speedup
+
+49
+
+82
+ADE20K mIoU
+
+Cityscapes mIoU
+
+84
+
+MobileViTV2
+2728.0
+
+81
+0
+
+15
+30
+Jetson AGX Orin Latency (ms)
+
+45
+
+85
+
+83
+
+81
+0
+
+4
+8
+12
+Jetson AGX Orin Latency (ms)
+
+16
+
+0
+
+1,300 2,600 3,900 5,200 6,500
+A100 GPU Throughput (image/s)
+
+Figure 1: Latency/Throughput vs. Performance. All performance results are obtained with the single model and singlescale inference. The GPU latency/throughput results are obtained on one edge GPU (Jetson AGX Orin) and one cloud
+GPU (A100) using TensorRT and fp16. EfficientViT consistently achieves a remarkable boost in speed on diverse hardware platforms while providing the same/higher performances on Cityscapes, ADE20K, and ImageNet than prior segmentation/classification models.
+ADE20k
+
+Cityscapes
+
+EﬃcientViT
+
+Orin(ms)
+
+A100(ms)
+
+SegNeXt
+
+EﬃcientViT
+
+Orin(ms)
+
+SegFormer
+
+A100(ms)
+
+Orin(ms)
+
+A100(ms)
+
+Untitled 1
+
+82.716
+
+45.9
+
+79.8
+
+93
+
+10.5
+
+76.2
+
+107
+
+14.4
+
+Untitled 2
+
+83.228
+
+60
+
+81.3
+
+127
+
+14.2
+
+78.5
+
+146
+
+20.4
+
+Untitled 3
+
+82.6
+
+228
+
+24.2
+
+81.0
+
+296
+
+37.5
+
+Untitled 4
+
+83.2
+
+374
+
+81.7
+
+407
+
+54.3
+
+82.3
+
+543
+
+73.8
+
+82.4
+
+638
+
+82
+
+Orin(ms)
+
+A100(ms)
+
+EﬃcientNetV2
+
+ConvNeXt
+
+ConvNeXt
+
+Swin
+
+Swin
+
+84.5
+
+2.68
+
+82.1
+
+3.82
+
+82.1
+
+3.00
+
+3.0
+
+42.2
+
+12.3
+
+2.7
+
+50.702
+
+9
+
+44.3
+
+17.2
+
+3.3
+
+46.5
+
+24.3
+
+4.6
+
+48.5
+
+32.9
+
+6.2
+
+49.4
+
+33.8
+
+50.3
+
+44.9
+
+Untitled 2
+
+3.34
+
+85.1
+
+4.28
+
+83.9
+
+6.50
+
+83.1
+
+4.90
+
+Untitled 3
+
+3.58
+
+85.4
+
+9.22
+
+85.1
+
+7.80
+
+83.8
+
+6.00
+
+Untitled 4
+
+4.29
+
+85.63
+
+85.7
+
+11.50
+
+84.3
+
+85.9
+
+6.06
+
+85.978
+
+CoAtNet
+
+81.3
+
+A100(ms)
+
+12.4
+
+Untitled 2
+
+Untitled 4
+
+2.62
+
+Orin(ms)
+
+41.1
+
+Untitled 3
+
+Untitled 1
+
+5.10
+
+SegFormer
+
+A100(ms)
+
+7.2
+
+Table 2-1
+
+EﬃcientNetV2
+
+Orin(ms)
+
+49.191
+
+scale learning ability. Therefore, we propose to enhance
+ReLU linear attention with convolution and introduce the
+multi-scale linear attention module to address the capacity
+limitation of ReLU linear attention. Specifically, we aggregate nearby tokens with small-kernel convolutions to generate multi-scale tokens. We perform ReLU linear attention
+on multi-scale tokens (Figure 2) to combine the global receptive field with multi-scale learning. We also insert depthwise convolutions into FFN layers to further improve the
+local feature extraction capacity.
+We extensively evaluate EfficientViT on two popular
+high-resolution dense prediction tasks: semantic segmentation and super-resolution. EfficientViT provides significant
+performance boosts over prior SOTA high-resolution dense
+prediction models. More importantly, EfficientViT does not
+involve hardware-inefficient operations, so our #FLOPs reduction can easily translate to latency reduction on hardware devices (Figure 1).
+In addition to these conventional high-resolution dense
+prediction tasks, we apply EfficientViT to Segment Anything [13], an emerging promptable segmentation task that
+allows zero-shot transfer to many vision tasks. EfficientViT
+achieves 48.9× acceleration on A100 GPU than SAM-ViTHuge [13] without performance loss. We summarize our
+contributions as follows:
+EﬃcientViT
+
+SegNeXt
+
+Untitled 1
+
+CoAtNet
+
+FasterViT
+
+81.6
+
+83
+
+8.32
+
+83.3
+
+7.44
+
+83.5
+
+10.33
+
+84.1
+
+12.95
+
+15.35
+
+84.5
+
+• We introduce a new multi-scale linear attention module
+for efficient high-resolution dense prediction. It achieves
+the global receptive field and multi-scale learning while
+maintaining good efficiency on hardware. To the best of
+our knowledge, our work is the first to demonstrate the
+effectiveness of linear attention for high-resolution dense
+prediction.
+• We design EfficientViT, a new family of high-resolution
+vision models, based on the proposed multi-scale linear
+attention module.
+
+• Our model demonstrates remarkable speedup on semantic
+segmentation, super-resolution, Segment Anything, and
+ImageNet classification on diverse hardware platforms
+(mobile CPU, edge GPU, and cloud GPU) over prior
+SOTA models.
+
+FasterViT
+
+4.50
+
+4.62
+
+MobileViTV2
+
+84.2
+
+MobileViTV2
+
+4.36
+
+81.2
+
+84.9
+85.4
+85.6
+
+2. Method
+This section first introduces the multi-scale linear attention module. Unlike prior works, our multi-scale linear attention simultaneously achieves the global receptive field
+and multi-scale learning with only hardware-efficient operations. Then, based on the multi-scale linear attention, we
+present a new family of vision transformer models named
+EfficientViT for high-resolution dense prediction.
+
+2.1. Multi-Scale Linear Attention
+Our multi-scale linear attention balances two crucial aspects of efficient high-resolution dense prediction, i.e., performance and efficiency. Specifically, the global receptive
+field and multi-scale learning are essential from the performance perspective. Previous SOTA high-resolution dense
+prediction models provide strong performances by enabling
+these features but fail to provide good efficiency. Our module tackles this issue by trading slight capacity loss for significant efficiency improvements.
+An illustration of the proposed multi-scale linear attention module is provided in Figure 2 (right). In particular,
+we propose to use ReLU linear attention [12] to enable the
+global receptive field instead of the heavy softmax attention
+[8]. While ReLU linear attention [12] and other linear attention modules [14, 15, 16, 17] have been explored in other
+domains, it has never been successfully applied to highresolution dense prediction. To the best of our knowledge,
+EfficientViT is the first work demonstrating ReLU linear attention’s effectiveness in high-resolution dense prediction.
+
+3x3
+
+DWConv
+
+Multi-Scale
+Linear Att
+
+1x1GConv
+5x5
+
+Input
+
+C
+
+Linear
+
+Q
+K
+V
+
+Linear
+
+Input
+
+FFN+DWC
+onv
+
+Aggregate nearby tokens to get
+multi-scale Q/K/V tokens
+
+ReLU
+Linear
+Attention
+
+Output
+
+ReLU
+Linear
+Attention
+
+ReLU
+Linear
+Attention
+
+EfficientViT
+Module
+
+Figure 2: EfficientViT’s Building Block (left) and Multi-Scale Linear Attention (right). Left: EfficientViT’s building
+block consists of a multi-scale linear attention module and an FFN with depthwise convolution (FFN+DWConv). Multiscale linear attention is responsible for capturing context information, while FFN+DWConv captures local information.
+Right: After getting Q/K/V tokens via the linear projection layer, we generate multi-scale tokens by aggregating nearby
+tokens via lightweight small-kernel convolutions. ReLU linear attention is applied to multi-scale tokens, and the outputs are
+concatenated and fed to the final linear projection layer for feature fusing.
+Softmax Attention
+ReLU Linear Attention
+…
+
+…
+
+head 2
+
+…
+
+Softmax
+Attention
+
+1.0
+
+DSConv
+
+ReLU Linear
+Attention
+
+head 1
+
+d 0.5
+
+d
+
+d
+
+DSConv
+
+Q
+
+K
+
+d
+
+d
+
+d
+
+Q
+
+V
+
+V
+
+K
+
+0.0
+Normalized Attention Score
+
+Figure 3: Softmax Attention vs. ReLU Linear Attention. Unlike softmax attention, ReLU linear attention cannot produce
+sharp attention distributions due to a lack of the non-linear similarity function. Thus, its local information extraction ability
+Table 2
+is weaker than the softmax attention.
+With Softmax
+Untitled 1
+
+Latency
+1
+
+Without Softmax
+0.0171
+
+Latency
+1
+
+0.1111
+
+Untitled 2
+2
+0.0171
+2
+0.1111
+In addition,
+our work introduces
+novel
+designs to address
+matrix. Oi represents the i-th row of matrix O. Sim(·, ·) is
+Untitled 3
+3
+0.9317
+3
+0.5556
+its capacity
+limitation.
+Untitled
+4
+4
+0.0171
+4
+0.1111 the similarity function. When using the similarity function
+T
+5
+0.0171
+5
+0.1111
+√ ), Eq. (1) becomes the original
+Sim(Q, K) = exp( QK
+Enable Global Receptive Field with ReLU Linear Atd
+softmax attention [8].
+tention. Given input x ∈ RN ×f , the generalized form of
+T
+√ ), we can use other similarity funcApart from exp( QK
+softmax attention can be written as:
+d
+tions. In this work, we use ReLU linear attention [12] to
+achieve both the global receptive field and linear computa \label {eq:generalizedSoftmaxAtt}\small O_i = \sum _{j=1}^N\frac {Sim(Q_i, K_j)}{\sum _{j=1}^N{Sim(Q_i, K_j)}}V_j, 
+(1)
+tional complexity. In ReLU linear attention, the similarity
+function is defined as
+where Q = xWQ , K = xWK , V = xWV and
+WQ /WK /WV ∈ Rf ×d is the learnable linear projection
+ \small Sim(Q, K) = \text {ReLU}(Q) \text {ReLU}(K)^T. 
+(2)
+
+Softmax Attention
+
+111
+
+111
+
+Latency
+
+ReLU-based
+Linear Attention
+
+Latency
+
+Untitled 1
+
+556
+
+111
+
+111
+
+Softmax Attention
+ReLU Linear Attention
+
+Mobile CPU Latency (ms)
+
+200
+160
+
+4.5x
+faster
+
+120
+80
+40
+0
+
+3.3x fa
+24
+
+ster
+
+32
+Input Feature Map Size
+
+40
+
+Figure 4: Latency Comparison Between Softmax Attention and ReLU Linear Attention. ReLU linear attention is
+3.3-4.5× faster than softmax attention with similar computation, thanks to removing hardware-unfriendly operations
+(e.g., softmax). Latency is measured on the Qualcomm
+Snapdragon 855 CPU with TensorFlow-Lite, batch size 1,
+and fp32.
+With Sim(Q, K) = ReLU(Q)ReLU(K)T , Eq. (1) can
+be rewritten as:
+  O_i &= \sum _{j=1}^N\frac {\text {ReLU}(Q_i) \text {ReLU}(K_j)^T}{\sum _{j=1}^N{{\color {red}\text {ReLU}(Q_i)} \text {ReLU}(K_j)^T}}V_j \\ &= \frac {\sum _{j=1}^N (\text {ReLU}(Q_i) \text {ReLU}(K_j)^T) V_j}{{\color {red}\text {ReLU}(Q_i)} \sum _{j=1}^N \text {ReLU}(K_j)^T}.
+
+Then, we can leverage the associative property of matrix
+multiplication to reduce the computational complexity and
+memory footprint from quadratic to linear without changing
+its functionality:
+
+Untitled 2
+
+24
+
+21.7
+
+24
+
+6.6
+
+Untitled 3
+
+32
+
+103
+
+32
+
+19.8
+
+Untitled 4
+
+40
+
+189
+
+40
+
+41.8
+
+Address ReLU Linear Attention’s Limitations. Although ReLU linear attention is superior to softmax attention in terms of computational complexity and hardware latency, ReLU linear attention has limitations. Figure 3 visualizes the attention maps of softmax attention and ReLU
+linear attention. Because of the lack of the non-linear similarity function, ReLU linear attention cannot generate concentrated attention maps, making it weak at capturing local
+information.
+To mitigate its limitation, we propose to enhance ReLU
+linear attention with convolution. Specifically, we insert a
+depthwise convolution in each FFN layer. An overview of
+the resulting building block is illustrated in Figure 2 (left),
+where the ReLU linear attention captures context information and the FFN+DWConv captures local information.
+Furthermore, we propose to aggregate the information
+from nearby Q/K/V tokens to get multi-scale tokens to enhance the multi-scale learning ability of ReLU linear attention. This information aggregation process is independent
+for each Q, K, and V in each head. We only use small-kernel
+depthwise-separable convolutions [18] for information aggregation to avoid hurting hardware efficiency. In the practical implementation, independently executing these aggregation operations is inefficient on GPU. Therefore, we take
+advantage of the group convolution to reduce the number of
+total operations. Specifically, all DWConvs are fused into
+a single DWConv while all 1x1 Convs are combined into
+a single 1x1 group convolution (Figure 2 right) where the
+number of groups is 3 × #heads and the number of channels in each group is d. After getting multi-scale tokens, we
+perform ReLU linear attention upon them to extract multiscale global features. Finally, we concatenate the features
+along the head dimension and feed them to the final linear
+projection layer to fuse the features.
+
+2.2. EfficientViT Architecture
+
+ \label {eq:linearAtt} O_i &= \frac {\sum _{j=1}^N {\color {red}[\text {ReLU}(Q_i) \text {ReLU}(K_j)^T]} V_j}{\text {ReLU}(Q_i) \sum _{j=1}^N \text {ReLU}(K_j)^T} \nonumber \\ &= \frac {\sum _{j=1}^N {\color {blue}\text {ReLU}(Q_i)} {\color {red}[(\text {ReLU}(K_j)^T V_j)]}}{\text {ReLU}(Q_i) \sum _{j=1}^N \text {ReLU}(K_j)^T} \nonumber \\ &= \frac {{\color {blue}\text {ReLU}(Q_i)} (\sum _{j=1}^N \text {ReLU}(K_j)^T V_j)}{\text {ReLU}(Q_i) (\sum _{j=1}^N \text {ReLU}(K_j)^T)}.
+
+(3)
+
+As
+need to compute
+PNshown in Eq. (3), we only P
+N
+( j=1 ReLU(Kj )T Vj ) ∈ Rd×d and ( j=1 ReLU(Kj )T )
+∈ Rd×1 once, then can reuse them for each query, thereby
+only requires O(N ) computational cost and O(N ) memory.
+Another key merit of ReLU linear attention is that it does
+not involve hardware-unfriendly operations like softmax,
+making it more efficient on hardware. For example, Figure 4 shows the latency comparison between softmax attention and ReLU linear attention. With similar computation,
+ReLU linear attention is significantly faster than softmax
+attention on the mobile CPU.
+
+We build a new family of vision transformer models
+based on the proposed multi-scale linear attention module.
+The core building block (denoted as ‘EfficientViT Module’)
+is illustrated in Figure 2 (left). The macro architecture of EfficientViT is demonstrated in Figure 5. We use the standard
+backbone-head/encoder-decoder architecture design.
+• Backbone. The backbone of EfficientViT also follows
+the standard design, which consists of the input stem and
+four stages with gradually decreased feature map size and
+gradually increased channel number. We insert the EfficientViT module in Stages 3 and 4. For downsampling,
+we use an MBConv with stride 2.
+• Head. P2, P3, and P4 denote the outputs of Stages 2, 3,
+and 4, forming a pyramid of feature maps. For simplicity and efficiency, we use 1x1 convolution and standard
+upsampling operation (e.g., bilinear/bicubic upsampling)
+
+× L3
+
+× L4
+
+4x up
+
+Output
+
+P4
+
+MBConv
+
+Head
+C5 x 128 x 256
+
+EfficientViT
+Module
+
+MBConv
+
+× L2
+
+EfficientViT
+Module
+
+MBConv
+
+× L1
+
+Stage 4
+C4 x 32 x 64
+
+Stage 3
+C3 x 64 x 128
+
+MBConv
+
+MBConv
+
+DSConv
+
+Conv
+
+Input
+
+3 x 1024 x 2048
+
+Input Stem
+Stage 1
+Stage 2
+C0 x 512 x 1024 C1 x 256 x 512 C2 x 128 x 256
+
+× L5
+
+2x up
+P3
+P2
+
+Figure 5: Macro Architecture of EfficientViT. We adopt the standard backbone-head/encoder-decoder design. We insert
+our EfficientViT modules in Stages 3 and 4 in the backbone. Following the common practice, we feed the features from the
+last three stages (P2, P3, and P4) to the head. We use addition to fuse these features for simplicity and efficiency. We adopt a
+simple head design that consists of several MBConv blocks and output layers.
+to match their spatial and channel size and fuse them via
+addition. Since our backbone already has a strong context information extraction capacity, we adopt a simple
+head design that comprises several MBConv blocks and
+the output layers (i.e., prediction and upsample). In the
+experiments, we empirically find this simple head design
+is sufficient for achieving SOTA performances.
+In addition to dense prediction, our model can be applied to other vision tasks, such as image classification,
+by combining the backbone with task-specific heads.
+Following the same macro architecture, we design a series of models with different sizes to satisfy various efficiency constraints. We name these models EfficientViTB0, EfficientViT-B1, EfficientViT-B2, and EfficientViT-B3,
+respectively. In addition, we designed the EfficientViT-L
+series for the cloud platforms. Detailed configurations of
+these models are provided in our official GitHub repository1 .
+
+3. Experiments
+3.1. Setups
+Datasets. We evaluate the effectiveness of EfficientViT
+on three representative high-resolution dense prediction
+tasks, including semantic segmentation, super-resolution,
+and Segment Anything.
+For semantic segmentation, we use two popular benchmark datasets: Cityscapes [24] and ADE20K [25]. In
+addition, we evaluate EfficientViT under two settings for
+super-resolution: lightweight super-resolution (SR) and
+high-resolution SR. We train models on DIV2K [26] for
+lightweight SR and test on BSD100 [27]. For highresolution SR, we train models on the first 3000 training
+images of FFHQ [28] and test on the first 500 validation
+images of FFHQ2 .
+
+Components
+Multi-scale
+✓
+✓
+
+mIoU ↑
+
+Params ↓
+
+MACs ↓
+
+68.1
+72.3
+72.2
+74.5
+
+0.7M
+0.7M
+0.7M
+0.7M
+
+4.4G
+4.4G
+4.4G
+4.4G
+
+Global att.
+
+✓
+✓
+
+Table 1: Ablation Study. The mIoU and MACs are measured on Cityscapes with 1024x2048 input resolution. We
+rescale the width of the models so that they have the same
+MACs. Multi-scale learning and the global receptive field
+are essential for obtaining good semantic segmentation performance.
+Apart from dense prediction, we also study the effectiveness of EfficientViT for image classification using the ImageNet dataset [29].
+Latency Measurement. We measure the mobile latency
+on Qualcomm Snapdragon 8Gen1 CPU with TensorflowLite3 , batch size 1 and fp32. We use TensorRT4 and fp16 to
+measure the latency on edge GPU and cloud GPU. The data
+transfer time is included in the reported latency/throughput
+results.
+Implementation Details. We implement our models using Pytorch [30] and train them on GPUs. We use the
+AdamW optimizer with cosine learning rate decay for training our models. For multi-scale linear attention, we use
+a two-branch design for the best trade-off between performance and efficiency, where 5x5 nearby tokens are aggregated to generate multi-scale tokens.
+For semantic segmentation experiments, we use the
+mean Intersection over Union (mIoU) as our evaluation
+
+1 https://github.com/mit-han-lab/efficientvit
+
+3 https://www.tensorflow.org/lite
+
+2 https://rb.gy/7je1a
+
+4 https://docs.nvidia.com/deeplearning/tensorrt/
+
+1
+
+Latency ↓
+Nano(bs1) Orin(bs1)
+
+Throughput ↑
+A100 (image/s)
+
+Top1 Acc ↑
+
+Top5 Acc ↑
+
+Params ↓
+
+MACs ↓
+
+CoAtNet-0 [19]
+ConvNeXt-T [20]
+EfficientViT-B2 (r256)
+
+81.6
+82.1
+82.7
+
+96.1
+
+25M
+29M
+24M
+
+4.2G
+4.5G
+2.1G
+
+95.8ms
+87.9ms
+58.5ms
+
+4.5ms
+3.8ms
+2.8ms
+
+3011
+3303
+5325
+
+Swin-B [21]
+CoAtNet-1 [19]
+ConvNeXt-S [20]
+EfficientViT-B3 (r224)
+
+83.5
+83.3
+83.1
+83.5
+
+96.4
+
+88M
+42M
+50M
+49M
+
+15G
+8.4G
+8.7G
+4.0G
+
+240ms
+171ms
+146ms
+101ms
+
+6.0ms
+8.3ms
+6.5ms
+4.4ms
+
+2236
+1512
+2081
+3797
+
+CoAtNet-2 [19]
+ConvNeXt-B [20]
+EfficientViT-B3 (r288)
+
+84.1
+83.8
+84.2
+
+96.7
+
+75M
+89M
+49M
+
+16G
+15G
+6.5G
+
+254ms
+211ms
+141ms
+
+10.3ms
+7.8ms
+5.6ms
+
+1174
+1579
+2372
+
+CoAtNet-3 [19]
+ConvNeXt-L [20]
+EfficientNetV2-S [22]
+EfficientViT-L1 (r224)
+
+84.5
+84.3
+83.9
+84.5
+
+96.9
+
+168M
+198M
+22M
+53M
+
+35G
+34G
+8.8G
+5.3G
+
+-
+
+15.4ms
+11.5ms
+4.3ms
+2.6ms
+
+642
+1032
+2869
+6207
+
+EfficientNetV2-M [22]
+FasterViT-4 [23]
+EfficientViT-L2 (r288)
+
+85.2
+85.4
+85.6
+
+97.3
+97.4
+
+54M
+425M
+64M
+
+25G
+37G
+11G
+
+-
+
+9.2ms
+13.0ms
+4.3ms
+
+1160
+1382
+3102
+
+FasterViT-6 [23]
+EfficientNetV2-L [22]
+EfficientViT-L2 (r384)
+
+85.8
+85.7
+86.0
+
+97.4
+97.5
+
+1360M
+120M
+64M
+
+142G
+53G
+20G
+
+-
+
+-
+
+594
+696
+1784
+
+Models
+
+Table 2: Backbone Performance on ImageNet Classification. ‘r224’ means the input resolution is 224x224. ‘bs1’ represents that the latency is measured with batch size 1.
+metric. The backbone is initialized with weights pretrained
+on ImageNet and the head is initialized randomly, following
+the common practice.
+For super-resolution, we use PSNR and SSIM on the Y
+channel as the evaluation metrics, same as previous work
+[31]. The models are trained with random initialization.
+
+3.2. Ablation Study
+Effectiveness of EfficientViT Module. We conduct ablation study experiments on Cityscapes to study the effectiveness of two key design components of our EfficientViT
+module, i.e., multi-scale learning and global attention. To
+eliminate the impact of pre-training, we train all models
+from random initialization. In addition, we rescale the
+width of the models so that they have the same #MACs. The
+results are summarized in Table 1. We can see that removing either global attention or multi-scale learning will significantly hurt the performances. It shows that all of them
+are essential for achieving a better trade-off between performance and efficiency.
+Backbone Performance on ImageNet. To understand
+the effectiveness of EfficientViT’s backbone in image classification, we train our models on ImageNet following the
+standard training strategy. We summarize the results and
+
+compare our models with SOTA image classification models in Table 2.
+Though EfficientViT is designed for high-resolution
+dense prediction, it achieves highly competitive performances on ImageNet classification.
+In particular,
+EfficientViT-L2-r384 obtains 86.0 top1 accuracy on ImageNet, providing +0.3 accuracy gain over EfficientNetV2-L
+and 2.6x speedup on A100 GPU.
+
+3.3. Semantic Segmentation
+Cityscapes. Table 3 reports the comparison between EfficientViT and SOTA semantic segmentation models on
+Cityscapes. EfficientViT achieves remarkable efficiency
+improvements over prior SOTA semantic segmentation
+models without sacrificing performances. Specifically,
+compared with SegFormer, EfficientViT obtains up to 13x
+#MACs saving and up to 8.8x latency reduction on the
+edge GPU (Jetson AGX Orin) with higher mIoU. Compared
+with SegNeXt, EfficientViT provides up to 2.0x MACs reduction and 3.8x speedup on the edge GPU (Jetson AGX
+Orin) while maintaining higher mIoU. On A100 GPU, EfficientViT delivers up to 3.9x higher throughput than SegNeXt and 10.2x higher throughput than SegFormer while
+achieving the same or higher mIoU. Having similar computational cost, EfficientViT also yields significant perfor-
+
+Latency ↓
+Nano(bs1) Orin(bs1)
+
+Throughput ↑
+A100(image/s)
+
+Models
+
+mIoU ↑
+
+Params ↓
+
+MACs ↓
+
+DeepLabV3plus-Mbv2 [32]
+EfficientViT-B0
+
+75.2
+75.7
+
+15M
+0.7M
+
+555G
+4.4G
+
+0.28s
+
+83.5ms
+9.9ms
+
+102
+263
+
+SegFormer-B1 [7]
+SegNeXt-T [9]
+EfficientViT-B1
+
+78.5
+79.8
+80.5
+
+14M
+4.3M
+4.8M
+
+244G
+51G
+25G
+
+5.6s
+2.2s
+0.82s
+
+146ms
+93.2ms
+24.3ms
+
+49
+95
+175
+
+SegFormer-B3 [7]
+SegNeXt-S [9]
+EfficientViT-B2
+
+81.7
+81.3
+82.1
+
+47M
+14M
+15M
+
+963G
+125G
+74G
+
+3.4s
+1.7s
+
+407ms
+127ms
+46.5ms
+
+18
+70
+112
+
+SegFormer-B5 [7]
+SegNeXt-B [9]
+EfficientViT-B3
+EfficientViT-L1
+
+82.4
+82.6
+83.0
+82.7
+
+85M
+28M
+40M
+40M
+
+1460G
+276G
+179G
+282G
+
+-
+
+638ms
+228ms
+81.8ms
+45.9ms
+
+12
+41
+70
+122
+
+SegNeXt-L [9]
+EfficientViT-L2
+
+83.2
+83.2
+
+49M
+53M
+
+578G
+396G
+
+-
+
+374ms
+60.0ms
+
+26
+102
+
+Table 3: Comparison with SOTA Semantic Segmentation Models on Cityscapes. The input resolution is 1024x2048 for
+all models. Models with similar mIoU are grouped for efficiency comparison.
+Latency ↓
+Nano(bs1) Orin(bs1)
+
+Throughput ↑
+A100(image/s)
+
+Models
+
+mIoU ↑
+
+Params ↓
+
+MACs ↓
+
+SegFormer-B1 [7]
+SegNeXt-T [9]
+EfficientViT-B1
+
+42.2
+41.1
+42.8
+
+14M
+4.3M
+4.8M
+
+16G
+6.6G
+3.1G
+
+389ms
+281ms
+110ms
+
+12.3ms
+12.4ms
+4.0ms
+
+542
+842
+1142
+
+SegNeXt-S [9]
+EfficientViT-B2
+
+44.3
+45.9
+
+14M
+15M
+
+16G
+9.1G
+
+428ms
+212ms
+
+17.2ms
+7.3ms
+
+592
+846
+
+Mask2Former [33]
+MaskFormer [34]
+SegFormer-B2 [7]
+SegNeXt-B [9]
+EfficientViT-B3
+EfficientViT-L1
+
+47.7
+46.7
+46.5
+48.5
+49.0
+49.2
+
+47M
+42M
+28M
+28M
+39M
+40M
+
+74G
+55G
+62G
+35G
+22G
+36G
+
+920ms
+806ms
+411ms
+-
+
+24.3ms
+32.9ms
+12.5ms
+7.2ms
+
+345
+347
+555
+947
+
+SegFormer-B4 [7]
+EfficientViT-L2
+
+50.3
+50.7
+
+64M
+51M
+
+96G
+45G
+
+-
+
+44.9ms
+9.0ms
+
+212
+758
+
+Table 4: Comparison with SOTA Semantic Segmentation Models on ADE20K. The shorter side of the image is resized
+to 512, following the common practice.
+mance gains over previous SOTA models. For example,
+EfficientViT-B3 delivers +4.5 mIoU gain over SegFormerB1 with lower MACs.
+In addition to the quantitative results, we visualize
+EfficientViT and the baseline models qualitatively on
+Cityscapes. The results are shown in Figure 6. We can find
+that EfficientViT can better recognize boundaries and small
+objects than the baseline models while achieving lower latency on GPU.
+
+ficientViT also achieves significant efficiency improvements on ADE20K. For example, with +0.6 mIoU gain,
+EfficientViT-B1 provides 5.2x MACs reduction and up to
+3.5x GPU latency reduction than SegFormer-B1. With +1.6
+mIoU gain, EfficientViT-B2 requires 1.8x fewer computational costs and runs 2.4x faster on Jetson AGX Orin GPU
+than SegNeXt-S.
+
+ADE20K. Table 4 summarizes the comparison between
+EfficientViT and SOTA semantic segmentation models
+on ADE20K. Like Cityscapes, we can see that Ef-
+
+Table 5 presents the comparison of EfficientViT with
+SOTA ViT-based SR methods (SwinIR [31] and Restormer
+[35]) and SOTA CNN-based SR methods (VapSR [36]
+
+3.4. Super-Resolution
+
+Cityscapes
+
+egNeXt
+
+GMACs
+
+8Gen(s)
+
+Nano(s)
+
+Xavier(ms)
+
+Orin(ms)
+
+SegFormer
+
+A100(ms)
+
+GMACs
+
+8Gen(s)
+
+Nano(ms)
+
+79.8
+
+50.5
+
+7.6
+
+2.2
+
+287
+
+93
+
+10.5
+
+76.2
+
+125.5
+
+6.9
+
+3.9
+
+81.3
+
+124.6
+
+18
+
+3.4
+
+415
+
+127
+
+14.2
+
+78.5
+
+243.7
+
+12
+
+5.6
+
+82.6
+
+275.7
+
+767
+
+228
+
+24.2
+
+962.9
+BSD100 (160x240 → 320x480)
+
+FFHQ (512x512 → 1024x1024)
+
+Model
+
+717.1
+
+PSNR ↑
+
+SSIM ↑
+
+A100(bs1) ↓
+
+Speedup ↑
+
+Restormer [35]
+SwinIR [31]
+VapSR [36]
+BSRN [37]
+
+43.43
+43.49
+-
+
+0.9806
+0.9807
+-
+
+92.0ms
+61.2ms
+-
+
+1x
+1.5x
+June
+July
+August
+
+EfficientViT w0.75
+EfficientViT
+
+43.54
+43.58
+
+0.9809
+0.9810
+
+14.3ms
+17.8ms
+
+6.4x
+October
+November
+5.2x
+
+PSNR ↑
+April
+
+April
+
+September
+
+SSIM ↑
+
+A100(bs1)
+↓ 1240.6
+Speedup ↑
+Table 2
+
+EdgeSAM
+32.31 SAM 0.9021MobileSAM 15.1ms
+278
+38.7
+32.31449
+0.9012
+9.7ms
+32.27183
+0.9011
+4.8ms
+32.24762
+0.9006
+4.5ms
+638
+538
+
+32.31294
+32.3311
+
+1460.4
+EﬃcientSAM
+
+1x EﬃcientViT-SAM-L EﬃcientViT-SAMXL
+1.6x
+3.1x44.4
+45.7
+3.4x
+46.2
+
+42.1
+
+2.8ms
+3.2ms
+
+0.9016
+46.5
+0.9019
+
+46.6
+
+5.4x
+4.7x
+
+Untitled 1
+Untitled 2
+
+278
+
+47.5
+
+Untitled 3
+
+182
+
+47.8
+
+Table 5: Comparison with SOTA super-resolution models.
+
+EfficientViT
+47ms@Orin
+
+49
+
+SegFormer
+105ms@Orin
+
+SegNeXt
+90ms@Orin
+
+Zero-Shot COCO mAP
+
+SAM-ViT-H 16.5
+
+46 46.5
+
+46.6
+
+48.9x faster
+
+46.2
+
+45.7
+
+EfficientSAM
+44.4
+
+43
+EdgeSAM
+42.1
+
+40
+
+37
+0
+
+81.0
+
+3.5. Segment Anything
+We build EfficientViT-SAM, a new family of accelerated
+segment anything models, by leveraging EfficientViT to replace SAM’s image encoder. Meanwhile, we retain SAM’s
+lightweight prompt encoder and mask decoder. The training
+process consists of two phases. First, we train the image encoder of EfficientViT-SAM using SAM’s image encoder as
+the teacher. Second, we train EfficientViT-SAM end-to-end
+using the whole SA-1B dataset [13].
+We thoroughly test EfficientViT-SAM on various zero-
+
+200
+
+400
+
+600
+
+800
+
+A100 GPU TRT FP16 Throughput (image/s)
+
+EfficientViT
+Module
+
+MBConv
+
+EfficientViT
+Module
+
+MBConv
+
+F-MBConv
+
+F-MBConv
+
+F-MBConv
+
+ResBlock
+
+Conv
+
+Input
+
+Figure 7: Throughput vs. COCO Zero-Shot Instance
+Segmentation mAP. EfficientViT-SAM is the first accelerated SAM model that matches/outperforms SAMViT-H’s Input
+[13]
+performance,
+delivering
+theStage
+SOTA
+Stemzero-shot
+Stage1
+Stage2
+Stage3
+Stage
+4
+5
+performance-efficiency trade-off.
+3 x 1024 x 1024
+
+and BSRN [37]). EfficientViT provides a better latencyperformance trade-off than all compared methods.
+On lightweight SR, EfficientViT provides up to 0.09dB
+gain in PSNR on BSD100 while maintaining the same or
+lower GPU latency compared with SOTA CNN-based SR
+methods. Compared with SOTA ViT-based SR methods, EfficientViT provides up to 5.4× speedup on GPU and maintains the same PSNR on BSD100.
+On high-resolution SR, the advantage of EfficientViT
+over previous ViT-based SR methods becomes more significant. Compared with Restormer, EfficientViT achieves
+up to 6.4× speedup on GPU and provides 0.11dB gain in
+78.5
+PSNR on FFHQ.
+
+46.5
+
+EfficientViT-SAM-L
+
+47.8 47.5
+
+MobileSAM
+38.7
+
+Figure 6: Qualitative results on Cityscapes.
+
+42.2
+
+EfficientViT-SAM-XL
+
+r
+ste
+x fa
+
+× L0
+× L4
+× L3
+× Lto
+× L2
+1
+shot benchmarks
+verify
+its effectiveness.
+Table× L5 6
+demonstrates the zero-shot instance segmentation results
+on COCO [38] and LVIS [39], prompted with the predicted bounding boxes from ViTDet [40]. EfficientViTSAM provides superior performance/efficiency compared
+with SAM-ViT-H [13]. In particular, EfficientViT-SAMXL1 outperforms SAM-ViT-H on COCO and LVIS while
+having 16.5× higher throughput on A100 GPU.
+Figure 7 shows the comparison between EfficientViTSAM and prior SAM models. EfficientViT-SAM is the first
+1
+accelerated SAM model that matches/outperforms
+SAMViT-H’s [13] zero-shot performance, delivering the SOTA
+performance-efficiency trade-off.
+Apart from box-prompted instance segmentation, we
+also evaluate EfficientViT-SAM on point-prompted segmentation.
+The results are summarized in Table 7.
+EfficientViT-SAM-XL1 outperforms SAM-ViT-H in most
+
+P5
+
+P4
+P3
+
+4x up
+
+2x up
+
+Params ↓
+
+MACs ↓
+
+Throughput ↑
+
+COCO
+
+A100(image/s)
+
+mAP
+
+S
+
+LVIS
+
+AP
+
+M
+
+AP
+
+L
+
+AP
+
+mAP
+
+APS
+
+APM
+
+APL
+
+SAM-ViT-H [13]
+
+641M
+
+2973G
+
+11
+
+46.5
+
+30.8
+
+51.0
+
+61.7
+
+44.2
+
+31.8
+
+57.1
+
+65.3
+
+EfficientViT-SAM-L0
+EfficientViT-SAM-L1
+EfficientViT-SAM-L2
+
+35M
+48M
+61M
+
+35G
+49G
+69G
+
+762
+638
+538
+
+45.7
+46.2
+46.6
+
+28.2
+28.7
+28.9
+
+49.5
+50.4
+50.8
+
+63.4
+64.0
+64.2
+
+41.8
+42.1
+42.7
+
+28.8
+29.1
+29.4
+
+53.4
+54.3
+55.1
+
+64.7
+65.0
+65.5
+
+EfficientViT-SAM-XL0
+EfficientViT-SAM-XL1
+
+117M
+203M
+
+185G
+322G
+
+278
+182
+
+47.5
+47.8
+
+30.0
+30.5
+
+51.5
+51.8
+
+64.6
+64.7
+
+43.9
+44.4
+
+31.2
+31.6
+
+56.2
+57.0
+
+65.9
+66.4
+
+Table 6: Zero-Shot Instance Segmentation Results, Prompted with ViTDet Boxes. Throughput is profiled on A100 GPU
+with TensorRT and fp16, including the image encoder and SAM head.
+COCO
+
+LVIS
+
+1 click 3 click 5 click 1 click 3 click 5 click
+SAM-ViT-H [13]
+
+58.4
+
+69.6
+
+71.4
+
+59.2
+
+66.0
+
+66.8
+
+EfficientViT-SAM-XL1 59.8
+
+71.3
+
+75.3
+
+56.6
+
+67.0
+
+71.7
+
+Table 7: Zero-Shot Point-Prompted Segmentation Results.
+cases, especially when more points are given. On LVIS,
+when given a single point, we find SAM-ViT-H performs
+better than EfficientViT-SAM-XL1. This might be because
+we do not have the interactive segmentation setup during the
+end-to-end training phase. Further investigation is needed
+to improve the performance of the single-point setting.
+
+4. Related Work
+High-Resolution Dense Prediction. Dense prediction
+targets producing predictions for each pixel given the input image. It can be viewed as an extension of image
+classification from per-image prediction to per-pixel predictions. Extensive studies have been done to improve the performance of CNN-based high-resolution dense prediction
+models [1, 2, 3, 4, 5, 6].
+In addition, there are also some works targeting improving the efficiency of high-resolution dense prediction models [41, 42, 43, 44]. While these models provide good
+efficiency, their performances are far behind SOTA highresolution dense prediction models.
+Compared to these works, our models provide a better trade-off between performance and efficiency by enabling a global receptive field and multi-scale learning with
+lightweight operations.
+Efficient Vision Transformer. While ViT provides impressive performances in the high-computation region, it is
+usually inferior to previous efficient CNNs [45, 46, 47, 48]
+when targeting the low-computation region. To close the
+gap, MobileViT [49] proposes to combine the strength of
+CNN and ViT by replacing local processing in convolu-
+
+tions with global processing using transformers. MobileFormer [50] proposes to parallelize MobileNet and Transformer with a two-way bridge in between for feature fusing. NASViT [51] proposes to leverage neural architecture
+search to search for efficient ViT architectures.
+However, these models mainly focus on image classification and still rely on softmax attention with quadratic computational complexity, thus unsuitable for high-resolution
+dense prediction.
+Efficient Deep Learning. Our work is also related to efficient deep learning, which aims at improving the efficiency
+of deep neural networks so that we can deploy them on
+hardware platforms with limited resources, such as mobile
+phones and IoT devices. Typical technologies in efficient
+deep learning include network pruning [52, 53, 54], quantization [55], efficient model architecture design [18, 56],
+and training techniques [57, 58, 59]. In addition to manual designs, many recent works use AutoML techniques
+[60, 61, 62] to automatically design [47], prune [63] and
+quantize [64] neural networks.
+
+5. Conclusion
+In this work, we studied efficient architecture design
+for high-resolution dense prediction. We introduced a
+lightweight multi-scale attention module that simultaneously achieves a global receptive field, and multi-scale
+learning with lightweight and hardware-efficient operations, thus providing significant speedup on diverse hardware devices without performance loss than SOTA highresolution dense prediction models. For future work, we
+will explore applying EfficientViT to other vision tasks and
+further scaling up our EfficientViT models.
+
+Acknowledgments
+We thank MIT-IBM Watson AI Lab, MIT AI Hardware
+Program, Amazon and MIT Science Hub, Qualcomm Innovation Fellowship, National Science Foundation for supporting this research.
+
+References
+[1] Vijay Badrinarayanan, Alex Kendall, and Roberto Cipolla.
+Segnet: A deep convolutional encoder-decoder architecture
+for image segmentation. IEEE transactions on pattern analysis and machine intelligence, 39(12):2481–2495, 2017. 1,
+9
+[2] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. Unet: Convolutional networks for biomedical image segmentation. In Medical Image Computing and Computer-Assisted
+Intervention–MICCAI 2015: 18th International Conference,
+Munich, Germany, October 5-9, 2015, Proceedings, Part III
+18, pages 234–241. Springer, 2015. 1, 9
+[3] Liang-Chieh Chen, George Papandreou, Iasonas Kokkinos,
+Kevin Murphy, and Alan L Yuille. Deeplab: Semantic image
+segmentation with deep convolutional nets, atrous convolution, and fully connected crfs. IEEE transactions on pattern
+analysis and machine intelligence, 40(4):834–848, 2017. 1,
+9
+[4] Hengshuang Zhao, Jianping Shi, Xiaojuan Qi, Xiaogang
+Wang, and Jiaya Jia. Pyramid scene parsing network. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 2881–2890, 2017. 1, 9
+[5] Yuhui Yuan, Xilin Chen, and Jingdong Wang. Objectcontextual representations for semantic segmentation. In
+European conference on computer vision, pages 173–190.
+Springer, 2020. 1, 9
+[6] Jingdong Wang, Ke Sun, Tianheng Cheng, Borui Jiang,
+Chaorui Deng, Yang Zhao, Dong Liu, Yadong Mu, Mingkui
+Tan, Xinggang Wang, et al. Deep high-resolution representation learning for visual recognition. IEEE transactions
+on pattern analysis and machine intelligence, 43(10):3349–
+3364, 2020. 1, 9
+[7] Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar,
+Jose M Alvarez, and Ping Luo. Segformer: Simple and
+efficient design for semantic segmentation with transformers. Advances in Neural Information Processing Systems,
+34, 2021. 1, 7
+[8] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. In NeurIPS, 2017. 1,
+2, 3
+[9] Meng-Hao Guo, Cheng-Ze Lu, Qibin Hou, Zheng-Ning Liu,
+Ming-Ming Cheng, and Shi min Hu. Segnext: Rethinking convolutional attention design for semantic segmentation. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave,
+and Kyunghyun Cho, editors, Advances in Neural Information Processing Systems, 2022. 1, 7
+[10] Xiaohan Ding, Xiangyu Zhang, Yizhuang Zhou, Jungong
+Han, Guiguang Ding, and Jian Sun. Scaling up your kernels
+to 31x31: Revisiting large kernel design in cnns. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, 2022. 1
+[11] Yihan Wang, Muyang Li, Han Cai, Wei-Ming Chen, and
+Song Han. Lite pose: Efficient architecture design for 2d
+
+human pose estimation. In Proceedings of the IEEE conference on computer vision and pattern recognition, 2022. 1
+[12] Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and
+François Fleuret. Transformers are rnns: Fast autoregressive
+transformers with linear attention. In International Conference on Machine Learning, pages 5156–5165. PMLR, 2020.
+1, 2, 3
+[13] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao,
+Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al. Segment anything. arXiv preprint arXiv:2304.02643, 2023. 2, 8, 9
+[14] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao
+Zhang, and Judy Hoffman. Hydra attention: Efficient attention with many heads. In Computer Vision–ECCV 2022
+Workshops: Tel Aviv, Israel, October 23–27, 2022, Proceedings, Part VII, pages 35–49. Springer, 2023. 2
+[15] Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Andreea Gane, Tamas Sarlos, Peter
+Hawkins, Jared Davis, Afroz Mohiuddin, Lukasz Kaiser,
+et al. Rethinking attention with performers. arXiv preprint
+arXiv:2009.14794, 2020. 2
+[16] Zhuoran Shen, Mingyuan Zhang, Haiyu Zhao, Shuai Yi,
+and Hongsheng Li. Efficient attention: Attention with linear complexities. In Proceedings of the IEEE/CVF winter
+conference on applications of computer vision, pages 3531–
+3539, 2021. 2
+[17] Sinong Wang, Belinda Z Li, Madian Khabsa, Han Fang, and
+Hao Ma. Linformer: Self-attention with linear complexity.
+arXiv preprint arXiv:2006.04768, 2020. 2
+[18] Andrew G Howard, Menglong Zhu, Bo Chen, Dmitry
+Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig Adam. Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv
+preprint arXiv:1704.04861, 2017. 4, 9
+[19] Zihang Dai, Hanxiao Liu, Quoc V Le, and Mingxing Tan.
+Coatnet: Marrying convolution and attention for all data
+sizes. Advances in Neural Information Processing Systems,
+34:3965–3977, 2021. 6
+[20] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A convnet for the
+2020s. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, 2022. 6
+[21] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 10012–10022, 2021. 6
+[22] Mingxing Tan and Quoc Le. Efficientnetv2: Smaller models
+and faster training. In International Conference on Machine
+Learning, pages 10096–10106. PMLR, 2021. 6
+[23] Ali Hatamizadeh, Greg Heinrich, Hongxu Yin, Andrew Tao,
+Jose M Alvarez, Jan Kautz, and Pavlo Molchanov. Fastervit:
+Fast vision transformers with hierarchical attention. arXiv
+preprint arXiv:2306.06189, 2023. 6
+
+[24] Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo
+Rehfeld, Markus Enzweiler, Rodrigo Benenson, Uwe
+Franke, Stefan Roth, and Bernt Schiele. The cityscapes
+dataset for semantic urban scene understanding. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pages 3213–3223, 2016. 5
+[25] Bolei Zhou, Hang Zhao, Xavier Puig, Sanja Fidler, Adela
+Barriuso, and Antonio Torralba. Scene parsing through
+ade20k dataset. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 633–641,
+2017. 5
+[26] Eirikur Agustsson and Radu Timofte. Ntire 2017 challenge
+on single image super-resolution: Dataset and study. In Proceedings of the IEEE conference on computer vision and pattern recognition workshops, pages 126–135, 2017. 5
+[27] David Martin, Charless Fowlkes, Doron Tal, and Jitendra
+Malik. A database of human segmented natural images
+and its application to evaluating segmentation algorithms and
+measuring ecological statistics. In Proceedings Eighth IEEE
+International Conference on Computer Vision. ICCV 2001,
+volume 2, pages 416–423. IEEE, 2001. 5
+[28] Tero Karras, Samuli Laine, and Timo Aila. A style-based
+generator architecture for generative adversarial networks.
+In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 4401–4410, 2019. 5
+[29] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,
+and Li Fei-Fei. Imagenet: A large-scale hierarchical image
+database. In CVPR, 2009. 5
+[30] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer,
+James Bradbury, Gregory Chanan, Trevor Killeen, Zeming
+Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An imperative style, high-performance deep learning library. Advances in neural information processing systems, 32, 2019.
+5
+[31] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc
+Van Gool, and Radu Timofte. Swinir: Image restoration using swin transformer. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 1833–1844,
+2021. 6, 7, 8
+[32] Liang-Chieh Chen, Yukun Zhu, George Papandreou, Florian
+Schroff, and Hartwig Adam. Encoder-decoder with atrous
+separable convolution for semantic image segmentation. In
+Proceedings of the European conference on computer vision
+(ECCV), pages 801–818, 2018. 7
+[33] Bowen Cheng, Ishan Misra, Alexander G Schwing, Alexander Kirillov, and Rohit Girdhar. Masked-attention mask
+transformer for universal image segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 1290–1299, 2022. 7
+[34] Bowen Cheng, Alex Schwing, and Alexander Kirillov. Perpixel classification is not all you need for semantic segmentation. Advances in Neural Information Processing Systems,
+34, 2021. 7
+[35] Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang.
+
+Restormer: Efficient transformer for high-resolution image
+restoration. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 5728–
+5739, 2022. 7, 8
+[36] Lin Zhou, Haoming Cai, Jinjin Gu, Zheyuan Li, Yingqi Liu,
+Xiangyu Chen, Yu Qiao, and Chao Dong. Efficient image
+super-resolution using vast-receptive-field attention. arXiv
+preprint arXiv:2210.05960, 2022. 7, 8
+[37] Zheyuan Li, Yingqi Liu, Xiangyu Chen, Haoming Cai, Jinjin
+Gu, Yu Qiao, and Chao Dong. Blueprint separable residual
+network for efficient image super-resolution. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 833–843, 2022. 8
+[38] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays,
+Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence
+Zitnick. Microsoft coco: Common objects in context. In
+European conference on computer vision, pages 740–755.
+Springer, 2014. 8
+[39] Agrim Gupta, Piotr Dollar, and Ross Girshick. Lvis: A
+dataset for large vocabulary instance segmentation. In Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pages 5356–5364, 2019. 8
+[40] Yanghao Li, Hanzi Mao, Ross Girshick, and Kaiming He.
+Exploring plain vision transformer backbones for object detection. arXiv preprint arXiv:2203.16527, 2022. 8
+[41] Hengshuang Zhao, Xiaojuan Qi, Xiaoyong Shen, Jianping
+Shi, and Jiaya Jia. Icnet for real-time semantic segmentation on high-resolution images. In Proceedings of the European conference on computer vision (ECCV), pages 405–
+420, 2018. 9
+[42] Rudra PK Poudel, Stephan Liwicki, and Roberto Cipolla.
+Fast-scnn: Fast semantic segmentation network. arXiv
+preprint arXiv:1902.04502, 2019. 9
+[43] Hanchao Li, Pengfei Xiong, Haoqiang Fan, and Jian Sun.
+Dfanet: Deep feature aggregation for real-time semantic segmentation. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 9522–9531,
+2019. 9
+[44] Changqian Yu, Jingbo Wang, Chao Peng, Changxin Gao,
+Gang Yu, and Nong Sang. Bisenet: Bilateral segmentation
+network for real-time semantic segmentation. In Proceedings of the European conference on computer vision (ECCV),
+pages 325–341, 2018. 9
+[45] Mingxing Tan and Quoc Le. Efficientnet: Rethinking model
+scaling for convolutional neural networks. In ICML, 2019. 9
+[46] Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh
+Chen, Bo Chen, Mingxing Tan, Weijun Wang, Yukun Zhu,
+Ruoming Pang, Vijay Vasudevan, et al. Searching for mobilenetv3. In ICCV, 2019. 9
+[47] Han Cai, Chuang Gan, Tianzhe Wang, Zhekai Zhang, and
+Song Han. Once for all: Train one network and specialize it
+for efficient deployment. In ICLR, 2020. 9
+[48] Kai Han, Yunhe Wang, Qi Tian, Jianyuan Guo, Chunjing
+Xu, and Chang Xu. Ghostnet: More features from cheap
+
+operations. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pages 1580–1589,
+2020. 9
+
+[63] Yihui He, Ji Lin, Zhijian Liu, Hanrui Wang, Li-Jia Li, and
+Song Han. Amc: Automl for model compression and acceleration on mobile devices. In ECCV, 2018. 9
+
+[49] Sachin Mehta and Mohammad Rastegari. Mobilevit: Lightweight, general-purpose, and mobile-friendly vision transformer. In International Conference on Learning Representations, 2022. 9
+
+[64] Tianzhe Wang, Kuan Wang, Han Cai, Ji Lin, Zhijian Liu,
+Hanrui Wang, Yujun Lin, and Song Han. Apq: Joint search
+for network architecture, pruning and quantization policy. In
+CVPR, 2020. 9
+
+[50] Yinpeng Chen, Xiyang Dai, Dongdong Chen, Mengchen
+Liu, Xiaoyi Dong, Lu Yuan, and Zicheng Liu. Mobileformer: Bridging mobilenet and transformer. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, 2022. 9
+[51] Chengyue Gong, Dilin Wang, Meng Li, Xinlei Chen,
+Zhicheng Yan, Yuandong Tian, qiang liu, and Vikas Chandra. NASVit: Neural architecture search for efficient vision
+transformers with gradient conflict aware supernet training.
+In International Conference on Learning Representations,
+2022. 9
+[52] Song Han, Jeff Pool, John Tran, and William Dally. Learning
+both weights and connections for efficient neural network. In
+NeurIPS, 2015. 9
+[53] Yihui He, Xiangyu Zhang, and Jian Sun. Channel pruning
+for accelerating very deep neural networks. In ICCV, 2017.
+9
+[54] Zhuang Liu, Jianguo Li, Zhiqiang Shen, Gao Huang,
+Shoumeng Yan, and Changshui Zhang. Learning efficient
+convolutional networks through network slimming. In ICCV,
+2017. 9
+[55] Song Han, Huizi Mao, and William J Dally. Deep compression: Compressing deep neural networks with pruning,
+trained quantization and huffman coding. In ICLR, 2016. 9
+[56] Ningning Ma, Xiangyu Zhang, Hai-Tao Zheng, and Jian Sun.
+Shufflenet v2: Practical guidelines for efficient cnn architecture design. In ECCV, 2018. 9
+[57] Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. Distilling the knowledge in a neural network. arXiv preprint
+arXiv:1503.02531, 2015. 9
+[58] Han Cai, Chuang Gan, Ji Lin, and Song Han. Network augmentation for tiny deep learning. arXiv preprint
+arXiv:2110.08890, 2021. 9
+[59] Han Cai, Chuang Gan, Ligeng Zhu, and Song Han. Tinytl:
+Reduce memory, not parameters for efficient on-device
+learning. Advances in Neural Information Processing Systems, 33:11285–11297, 2020. 9
+[60] Barret Zoph and Quoc V Le. Neural architecture search with
+reinforcement learning. In ICLR, 2017. 9
+[61] Han Cai, Tianyao Chen, Weinan Zhang, Yong Yu, and Jun
+Wang. Efficient architecture search by network transformation. In AAAI, 2018. 9
+[62] Han Cai, Ligeng Zhu, and Song Han. ProxylessNAS: Direct
+neural architecture search on target task and hardware. In
+ICLR, 2019. 9
+
+

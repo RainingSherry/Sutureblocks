@@ -1,0 +1,1288 @@
+Reverse Convolution and Its Applications to Image Restoration
+
+arXiv:2508.09824v1 [cs.CV] 13 Aug 2025
+
+Xuhong Huang1, * Shiqi Liu1, * Kai Zhang1,† Ying Tai1 Jian Yang1 Hui Zeng3 Lei Zhang2,3
+1
+Nanjing University 2 The Hong Kong Polytechnic University 3 OPPO Research Institute
+https://github.com/cszn/ConverseNet
+
+Abstract
+Convolution and transposed convolution are fundamental operators widely used in neural networks. However, transposed
+convolution (a.k.a. deconvolution) does not serve as a true
+inverse of convolution due to inherent differences in their
+mathematical formulations. To date, no reverse convolution
+operator has been established as a standard component in
+neural architectures. In this paper, we propose a novel depthwise reverse convolution operator as an initial attempt to
+effectively reverse depthwise convolution by formulating and
+solving a regularized least-squares optimization problem.
+We thoroughly investigate its kernel initialization, padding
+strategies, and other critical aspects to ensure its effective
+implementation. Building upon this operator, we further
+construct a reverse convolution block by combining it with
+layer normalization, 1×1 convolution, and GELU activation,
+forming a Transformer-like structure. The proposed operator and block can directly replace conventional convolution
+and transposed convolution layers in existing architectures,
+leading to the development of ConverseNet. Corresponding
+to typical image restoration models such as DnCNN, SRResNet and USRNet, we train three variants of ConverseNet
+for Gaussian denoising, super-resolution and deblurring,
+respectively. Extensive experiments demonstrate the effectiveness of the proposed reverse convolution operator as a
+basic building module. We hope this work could pave the
+way for developing new operators in deep model design and
+applications.
+
+a
+
+b
+
+c
+
+Figure 1. Illustration of the structural differences among (a) standard convolution, (b) transposed convolution, and (c) reverse convolution. Each subfigure shows a single input feature map (in orange)
+and its corresponding output feature map (in blue).
+
+has led some studies to regard transposed convolution as a
+form of reverse convolution. However, from a mathematical
+perspective, transposed convolution is not the true inverse of
+convolution; rather, it can be described as performing upsampling by inserting zeros between input elements, followed
+by a standard convolution.
+One notable approach related to reverse convolution is
+deconvolution for image deblurring [20, 32, 33, 42], which
+aims to recover a sharp image from a blurred one by approximating the inverse of the blurring process. However,
+deconvolution methods typically involve iterative optimization [20, 23, 44, 45] and are generally specialized for deblurring, limiting their flexibility as general neural network
+modules. Another closely related work is invertible convolution [7, 8, 18], which ensures exact invertibility by imposing
+specific constraints, such as identical input-output shapes
+and a tractable Jacobian. These constraints restrict its applicability in deep networks. Notably, invertible convolution
+is essentially a constrained form of standard convolution,
+rather than a fundamentally new operator. Therefore, developing a true reverse convolution operator remains an open
+and valuable research direction.
+In this paper, we make the first attempt to propose a reverse convolution operator, explicitly designed as the inverse
+of depthwise convolution. The main idea is to formulate
+the reverse convolution problem as the minimization of a
+
+1. Introduction
+Convolution and transposed convolution (the latter sometimes referred to as deconvolution) are fundamental operations commonly used in deep neural networks. Convolution
+is used for feature extraction and can achieve downsampling
+to reduce spatial dimensions [21]. In contrast, transposed
+convolution is widely used for upsampling the spatial dimensions of its inputs [4, 27, 29, 30]. This functional relationship
+* Equal contribution.
+† Corresponding author (email: kaizhang@nju.edu.cn).
+
+1
+
+2. Related Work
+
+quadratic regularized function, which enjoys a closed-form
+analytical solution. Unlike deconvolution methods for image
+deblurring, which typically require iterative optimization
+and mainly operate on single-channel grayscale or threechannel RGB images with limited applications, our operator
+is computed in a single step and supports arbitrary channel
+dimensions, enabling broad adaptability across network architectures and tasks. Unlike invertible convolution, which
+is primarily used in invertible neural networks or normalizing flows, our proposed operator offers broader applicability
+across various network structures. Furthermore, similar to
+transposed convolution, our operator can perform spatial
+upsampling on feature maps. As illustrated in Fig. 1, while
+standard and transposed convolution apply the kernel to the
+input, reverse convolution applies the kernel to the output to
+reconstruct the input.
+The proposed reverse convolution operator includes learnable kernel parameters and adjustable configurations such
+as kernel size and scaling factor. To ensure effective implementation, we examine essential aspects such as kernel
+initialization and padding strategies. Building on this, we
+construct a reverse convolution block by combining it with
+layer normalization [24], 1 × 1 convolution, and GELU activation [12], in a structure similar to a Transformer block [37].
+We use this block to build a network, which we refer to as
+ConverseNet. In ConverseNet, the reverse convolution block
+is used to replace corresponding components in existing architectures such as DnCNN [46] and SRResNet [22]. We
+evaluate its effectiveness on representative image restoration
+tasks, including Gaussian denoising and super-resolution.
+Furthermore, due to its functional similarity to deconvolution, we incorporate it into USRNet [47] for deblurring,
+where experimental results demonstrate its clear advantages.
+The main contributions of this work are as follows:
+• We propose a novel reverse convolution operator specifically designed as the mathematical inverse of depthwise
+convolution. By formulating the problem as a quadratic
+regularized minimization, we obtain a closed-form solution that enables non-iterative computation.
+• We integrate the reverse convolution operator into a reverse
+convolution block, which serves as the fundamental building unit of ConverseNet. This design enables the network
+to explicitly capture spatial dependencies by incorporating
+the reverse convolution operator.
+• We demonstrate the effectiveness of our reverse convolution operator through extensive experiments on typical
+image restoration tasks, including Gaussian denoising,
+super-resolution and deblurring.
+• We demonstrate that the proposed operator enables nonblind deblurring by directly conditioning on the blur kernel
+at the feature level, in contrast to most unfolding-based
+methods that operate in the single-channel grayscale or
+three-channel RGB image domain.
+
+2.1. Convolution
+Convolution is a basic operator in deep neural networks, primarily used for feature extraction and spatial downsampling.
+Its key parameters such as kernel size and stride control
+the receptive field and resolution reduction, respectively.
+To meet diverse computational and architectural demands,
+several convolution variants have been proposed. Group
+convolution reduces computational cost by splitting channels into groups [15, 34, 38, 41], while depthwise convolution improves efficiency by applying spatial convolution
+independently on each channel [6, 13, 14, 35, 49]. Dilated
+convolution expands the receptive field by inserting zeros
+(dilations) between kernel elements, allowing the network
+to capture broader context without increasing the number of
+parameters [3, 10, 17, 43]. Invertible convolution has been
+introduced in normalizing flow models [1, 5, 7, 8, 11, 18, 19],
+but its adoption in general deep architectures is limited due
+to rigid shape constraints and mathematical restrictions. Despite the progress in convolutional design, constructing an
+effective reverse convolution operator remains an open challenge.
+
+2.2. Transposed Convolution
+Transposed convolution is widely used for upsampling in
+encoder-decoder architectures [27, 30] and super-resolution
+tasks. It increases spatial resolution by adjusting stride,
+but often introduces checkerboard artifacts due to uneven
+kernel overlap [28]. A common remedy is to use nearestneighbor upsampling followed by a standard convolution.
+Despite its name, transposed convolution is not a true reverse
+of standard convolution. It can be interpreted as inserting
+zeros between feature map elements, followed by a standard
+convolution. However, designing a mathematically rigorous
+reverse convolution operator has received limited attention,
+and popular deep learning frameworks such as PyTorch lack
+native support for such functionality.
+
+2.3. Deconvolution
+Deconvolution generally aims to invert convolution operations and recover sharp images from blurred observations.
+Unlike transposed convolution, deconvolution is conceptually closer to reverse convolution. Existing deconvolution
+methods can be broadly categorized into one-step and multistep solutions. Wiener deconvolution [39] represents a classical one-step approach that provides a closed-form solution
+based on inverse filtering and regularization, assuming a
+known blur kernel. In contrast, multi-step methods include
+plug-and-play frameworks [16, 48], which incorporate pretrained denoisers into iterative solvers, and deep unfolding
+methods [26, 40, 47], which unroll optimization procedures
+into end-to-end trainable networks.
+2
+
+where λ > 0 is a regularization parameter controlling the
+trade-off between reconstruction and regularization, and X0
+is an initial estimate for X that guides the solution towards
+a more stable and plausible result. More precisely, the first
+term in the objective function ensures that when convolution
+and downsampling are applied to our estimated X, the result
+approximates the observed Y. The second term acts as a
+regularizer to prevent overfitting and promote solutions close
+to X0 .
+Up to this point, we have reformulated the original problem as finding an estimated feature map \protect \mathbf  {X}^\ast  that minimizes
+the error between the observed \protect \mathbf  {Y} and the reconstructed output from \protect \mathbf  {X}^\ast  after convolution and downsampling. This
+minimization is balanced by a regularization term that encourages \protect \mathbf  {X}^\ast  to remain close to a prior estimation \protect \mathbf  {X}_0 . Two
+simple choices for X0 are given by:
+
+While effective, these methods typically assume a known
+blur kernel and operate within the single-channel grayscale
+or three-channel RGB image domain, which limits their applicability to high-dimensional feature representations in
+modern deep networks. Although the deep Wiener deconvolution [9] can be applied to deep features, it is primarily
+tailored for image deblurring. This limitation motivates the
+development of a more general reverse convolution operator
+that can be efficiently integrated into deep learning architectures.
+
+3. Method
+3.1. Objective
+We aim to develop a depthwise reverse convolution operator
+capable of recovering the original input feature map from
+the output of a depthwise convolution operation followed
+by downsampling. Specifically, consider a single feature
+map X ∈ RH×W , where H and W represent the height and
+width of the feature map, respectively. This feature map is
+convolved with a kernel K ∈ Rkh ×kw , where kh and kw
+are the height and width of the kernel K. The convolution
+is applied channel-wise, denoted by ⊗, and is followed by
+downsampling with a stride s, denoted by ↓s . The resulting
+′
+′
+feature map is Y ∈ RH ×W , where H ′ and W ′ are determined by the convolution and downsampling operations.
+Mathematically, this process is expressed as:
+  \label {eq:1} \mathbf {Y} = (\mathbf {X} \otimes \mathbf {K})\downarrow _{s}. 
+
+  \label {eq:5} \mathbf {X}_0 = \begin {cases} \mathbf {0} \\ \text {Interp}(\mathbf {Y}, s), \end {cases} 
+
+(5)
+
+where Interp(Y, s) denotes an interpolation operation applied to Y with a scaling factor of s.
+By solving the optimization problem above, we aim to
+develop a depthwise reverse convolution operator that effectively inverts depthwise convolution with downsampling.
+This operator can serve as a modular component in deep
+neural networks, enhancing their capacity to reconstruct
+complex spatial features and enabling more flexible architectures.
+
+(1)
+
+3.3. Closed-form Solution
+
+Our objective is to reconstruct X given the observed Y,
+the convolution kernel K, and the stride s, which can be
+expressed as:
+  \label {eq:2} \mathbf {X} = \mathcal {F}(\mathbf {Y}, \mathbf {K}, s). 
+(2)
+
+To solve the optimization problem in Eq. (4), we can get a
+closed-form solution for X under the assumption of circular
+boundary conditions for the convolution [50]:
+
+This involves inverting the combined effect of convolution
+and downsampling, which is a typical ill-posed problem.
+
+ \label {eq:solution} \mathbf {X}^{*} = \mathbf {F}^{-1}\!\left (\frac {1}{\lambda }\Big (\mathbf {L} - \overline {\mathbf {F}_K} \odot _{s}\frac {(\mathbf {F}_K\mathbf {L})\Downarrow _{{s}} }{|\mathbf {F}_K|^2\Downarrow _{{s}} +\lambda }\Big )\right ), 
+
+3.2. Problem Formulation
+
+(6)
+
+where ∥·∥F denotes the Frobenius norm and is used to measure the error between the actual output Y and the output
+reconstructed by (X ⊗ K) ↓s .
+However, directly solving Eq. (3) may lead to unstable
+solutions due to the ill-posed nature of the problem. To
+stabilize the solution, we introduce a quadratic regularization
+term, giving rise to
+
+where L = FK FY ↑s + λFX0 . Here, F(·) denotes the fast
+Fourier transform (FFT), and F−1 (·) represents the inverse
+FFT. The term FK indicates the complex conjugate of FK
+for kernel K, while |FK |2 = FK ⊙ FK denotes the elementwise squared magnitude of the Fourier transform of the kernel K. FY ↑s represents the FFT of the standard s-fold
+upsampling Y. The operator ⊙s signifies element-wise multiplication applied to s × s distinct blocks, and ⇓s represents
+the distinct block downsampling operator that averages over
+these s × s blocks. The notation ↑s refers to the standard
+s-fold upsampling operator, which increases the spatial dimensions by inserting zeros. Note that Eq. (6) holds under
+the assumption that ↓s denotes the standard s-fold downsampler, which selects the upper-left pixel from each s × s patch.
+When s = 1, Eq. (6) simplifies to:
+
+  \label {eq:regularized} \mathbf {X}^\ast = {\arg \min }_{\mathbf {X}} \left \| \mathbf {Y} - \left ( \mathbf {X} \otimes \mathbf {K} \right ) \downarrow _{s} \right \|_F^2 + \lambda \left \| \mathbf {X} - \mathbf {X}_0 \right \|_F^2, 
+(4)
+
+  \mathbf {X}^* = \mathbf {F}^{-1} \left ( \frac { \overline {\mathbf {F}_K}\mathbf {F}_{Y} + \lambda \mathbf {F}_{X_0}}{ |\mathbf {F}_K|^2 + \lambda }\right ). 
+
+To solve Eq. (2), we formulate the recovery of X as an
+optimization problem that seeks an approximate solution by
+minimizing the error between the observed output Y and the
+reconstructed output (X ⊗ K) ↓s . Specifically, we define
+the optimization problem as:
+  \label {eq:3} \mathbf {X}^\ast = {\arg \min }_{\mathbf {X}} \left \| \mathbf {Y} - \left ( \mathbf {X} \otimes \mathbf {K} \right ) \downarrow _{s} \right \|_F^2, 
+
+(3)
+
+3
+
+(7)
+
+Algorithm 1 Code of Converse2D in a PyTorch-like style.
+
+By applying the above closed-form solutions, we can effectively invert the convolution and downsampling operations to obtain X∗ . Notably, the kernel K can either be
+learned jointly with the network in an end-to-end fashion, or
+specified as a known prior to serve as a conditioning input.
+It is also worth noting that the regularization parameter λ
+can be jointly optimized during training, as demonstrated
+in Section 4, rather than being manually fixed as in most
+conventional deconvolution algorithms.
+Following the naming convention of Conv2D, we refer
+to our reverse convolution operator as Converse2D. The
+PyTorch-like implementation is provided in Algorithm 1.
+
+# X: input feature map
+# K: kernel
+# S: stride or upscaling factor
+# p2o: convert point-spread function (PSF) to optical
+transfer function (OTF)
+# splits: divide a tensor of shape [..., H, W] into
+[..., H/S, W/S, Sˆ2] distinct blocks
+B, C, H, W = X.shape # X: B, C, H, W
+# lambda: regularization parameter
+lambda = torch.sigmoid(bias-9.0) + 1e-5
+# upsample X: B, C, HxS, WxS
+Y_S = upsample(X, scale=S)
+# interpolate X: B, C, HxS, WxS
+X_0 = nn.functional.interpolate(X, scale_factor=S,
+mode=’nearest’)
+# FFT kernel: B, C, HxS, WxS
+FK = p2o(K, (H*S, W*S))
+# complex conjugate
+FK_conj = torch.conj(FK)
+# element-wise squared magnitude
+FK_2 = torch.pow(torch.abs(FK), 2)
+FKY = FK_conj*torch.fft.fftn(Y_S, dim=(-2, -1))
+# L: B, C, HxS, WxS
+L = FKY + torch.fft.fftn(lambda*X_0, dim=(-2,-1))
+FKL = FK.mul(L)
+# split and calculate mean: B, C, H, W
+FKL_S = torch.mean(splits(FKL, S), dim=-1,
+keepdim=False)
+FK2_S = torch.mean(splits(FK_2, S), dim=-1,
+keepdim=False)
+Fdiv = FKL_S.div(FK2_S + lambda)
+# element-wise multiplication
+Fmul = FK_conj*Fdiv.repeat(1, 1, S, S)
+Fout = (L-Fmul)/lambda
+# inverse FFT output: B, C, HxS, WxS
+out = torch.real(torch.fft.ifftn(Fout, dim=(-2, -1)))
+
+3.4. Reverse Convolution Block
+To evaluate the effectiveness of the proposed depthwise Converse2D operator, we construct a converse block, drawing
+inspiration from the design principles of Transformer blocks.
+Since Converse2D operates in a depthwise manner and lacks
+inherent cross-channel interactions, we integrate 1×1 convolutions to enable channel mixing. As illustrated in Fig. 2, the
+block also includes layer normalization, a GELU activation
+function, and residual connections. In this configuration,
+the Converse2D operator is solely responsible for modeling
+spatial dependencies, while the 1 × 1 convolutions facilitate
+inter-channel information exchange. Such separation of spatial and channel-wise processing makes the Converse block
+an effective and flexible module for building deep networks.
+Fig. 2 also shows three input feature maps (i.e., Y), corresponding kernels (i.e., K), and outputs (i.e., X∗ ) of a
+Converse2D operator within s = 1 in green dashed box,
+and reconstructed results (i.e., X∗ ⊗ K) and error maps
+(i.e., Y − X∗ ⊗ K) in the gray dashed box. We can see
+Converse2D provides an effective solution to Eq. (3), yielding X∗ with enhanced structural details. This behavior is
+consistent with that of typical deconvolution operations.
+
+1×1 Conv
+
+GELU
+
+1×1 Conv
+
+LayerNorm
+
+1×1 Conv
+
+GELU
+
+Converse2D
+
+GELU
+
+1×1 Conv
+
+LayerNorm
+
+return out
+
+4. Implementation of Converse2D Operator
+
+K
+
+...
+
+Y
+
+...
+
+Kernel K: The initialization of the kernel K plays a critical
+role, as it directly influences the stability and accuracy of the
+solution produced by the Converse2D operator. Inspired by
+classical deblurring methods, we apply a Softmax normalization to K during pre-processing to enforce non-negativity
+and sum-to-one constraints. Specifically, after random initialization, the kernel weights are normalized using the Softmax
+function:
+  \mathbf {K}_{\text {normalized}} = \text {Softmax}(\mathbf {K}). 
+(8)
+
+...
+
+...
+
+As Converse2D involves several critical factors that can influence effectiveness and stability, we carefully implemented
+it based on the denoising task. In the following, we discuss
+these key components in detail: the kernel K, the padding
+strategy, the regularization parameter λ, and the initial estimation X0 .
+
+X∗
+
+X∗⊗ K
+
+Y − X∗⊗ K
+
+Figure 2. The architecture of the proposed reverse convolution
+block. The green dashed box shows three input feature maps (i.e.,
+...
+...
+Y), the corresponding kernels
+(i.e., K),
+and the corresponding
+∗
+outputs (i.e., X ) of a Converse2D operator with s = 1, while
+the gray dashed box shows the corresponding reconstructed results
+(i.e., X∗ ⊗ K) and error maps (i.e., Y − X∗ ⊗ K).
+
+4
+...
+
+As shown in Table 1, Softmax-based initialization outperforms both uniform and Gaussian initialization in the
+Gaussian denoising task. Based on this observation, we
+adopt Softmax initialization in subsequent experiments and
+investigate the effect of kernel size. Results in Table 1 indicate that a 5 × 5 kernel offers a favorable trade-off between
+performance and model complexity.
+
+Converse2D is applied in a channel-wise manner, it is natural
+to assign separate regularization parameters for each channel
+to account for variations in feature statistics. To this end, we
+parameterize λ using a learnable transformation:
+  \lambda = \text {Sigmoid}(b - 9.0) + \epsilon 
+
+where b is a learnable scalar and ϵ = 1 × 10−5 is a small
+constant added for numerical stability. All b values are initialized to zero, allowing λ to be adaptively learned during
+training. The subtraction of 9.0 shifts the Sigmoid function
+to produce small initial values for λ, which helps encourage strong data fidelity at the beginning of training. This
+formulation enables the model to learn channel-specific regularization strengths in a stable and data-driven manner.
+
+Table 1. The average PSNR(dB) results of Converse-DnCNN with
+different kernel initialization methods and kernel sizes on Set12
+and BSD68 datasets.
+Initialization
+
+Datasets
+
+Methods
+
+Set12
+
+Kernel
+
+Datasets
+
+BSD68
+
+Sizes
+
+Set12
+
+BSD68
+
+Uniform
+
+30.31
+
+28.92
+
+3×3
+
+30.58
+
+29.29
+
+Gaussian
+
+30.60
+
+29.30
+
+5×5
+
+30.70
+
+29.36
+
+Gauss.+Softmax
+
+30.70
+
+29.36
+
+7×7
+
+30.71
+
+29.36
+
+Initial Estimation X0 : To evaluate the effect of X0 initialization on denoising and super-resolution, we compare two
+strategies from Eq. (5): zero initialization and Interp(Y, s),
+which denotes an upsampled version of Y by a scale factor s.
+Table 3 shows clear performance differences between the two
+strategies across both tasks. For denoising, initializing with
+Interp(Y, 1) (i.e., Y) leads to significantly higher PSNR, indicating better preservation of high-frequency details critical
+for noise removal. In super-resolution, Interp(Y, s) similarly yields better results, likely because it provides a closer
+approximation to the high-resolution target. In contrast,
+zero initialization results in lower PSNR, potentially due
+to slower convergence and reduced capacity to recover fine
+structures. These results demonstrate that initializing X0
+with Interp(Y, s) consistently improves performance by stabilizing optimization and accelerating convergence toward
+high-quality solutions.
+
+Padding Strategy: Padding affects how boundary information is treated during convolution and directly influences
+the spatial dimensions of the output. Therefore, it is important to investigate the impact of both padding mode and
+padding size in the proposed reverse convolution operator.
+The padding mode determines how values beyond the input
+boundaries are handled, with common choices including circular, reflect, replicate, and zero padding. The padding size
+specifies the number of pixels added to the borders of the
+input feature map.
+As shown in Table 2, the padding size has little impact
+on the performance of the reverse convolution operator. In
+contrast, the choice of padding mode plays a more significant role. Among all evaluated modes, circular padding
+consistently achieves the best results. This observation is
+consistent with prior findings in deblurring literature, where
+circular padding is known to better handle boundary conditions and reduce artifacts. Based on this, we adopt circular
+padding as the default setting in our operator.
+
+Table 3. The average PSNR(dB) results of Converse-DnCNN and
+Converse-SRResNet with different initial estimations X0 .
+Datasets
+X0
+
+Table 2. The average PSNR(dB) results of Converse-DnCNN with
+different kernel padding modes and padding sizes.
+Padding
+
+Datasets
+
+Padding
+
+(9)
+
+Set12
+
+BSD68
+
+0
+
+30.66
+
+29.34
+
+Y
+
+30.70
+
+29.36
+
+Datasets
+X0
+
+Set5
+
+Urban100
+
+32.22
+
+26.24
+
+Interp(Y, s) 32.25
+
+26.26
+
+0
+
+Datasets
+
+Modes
+
+Set12
+
+BSD68
+
+Sizes
+
+Set12
+
+BSD68
+
+5. Applications to Image Restoration
+
+Zero
+
+30.63
+
+29.33
+
+0×0
+
+30.67
+
+29.34
+
+Reflect
+
+30.65
+
+29.34
+
+2×2
+
+30.68
+
+29.35
+
+Replicate
+
+30.66
+
+29.35
+
+4×4
+
+30.70
+
+29.36
+
+Circular
+
+30.70
+
+29.36
+
+5×5
+
+30.67
+
+29.34
+
+To evaluate the effectiveness of the proposed Converse2D operator and Converse Block, we consider two classical image
+restoration tasks: Gaussian denoising and super-resolution.
+Following the architecture designs of DnCNN and SRResNet, we replace their core building blocks with the proposed Converse2D operator and converse block, resulting in
+two variants: Converse-DnCNN and Converse-SRResNet.
+The architectures of these models are shown in Fig. 3a and
+Fig. 3b, containing 20 and 16 converse blocks, respectively.
+
+Regularization Parameter λ: The regularization parameter
+λ plays a key role in stabilizing the solution to the ill-posed
+inverse problem inherent in the Converse2D operation. Since
+5
+
+Table 4. The number of parameters and average PSNR(dB) results
+of different models for Gaussian denoising with noise level 25 on
+Set12 and BSD68 datasets.
+
+Converse Block
+
+1×1 Conv
+1×1 Conv
+
+...
+...
+
+Converse Block
+
+Converse Block
+
+Converse Block
+
+1×1 Conv
+
+...
+...
+
+Models
+
+Converse2D+GELU
+
+Converse Block
+
+Converse2D+GELU
+
+Converse Block
+
+Converse Block
+
+1×1 Conv+GELU
+
+b Converse-SRResNet
+
+30.43
+
+29.23
+
+Conv-DnCNN
+ConvT-DnCNN
+Converse-DnCNN
+
+734,913
+734,913
+734,913
+
+30.64
+30.61
+30.70
+
+29.30
+29.29
+29.36
+
+In our super-resolution experiments, we evaluate the proposed Converse-SRResNet by comparing it with the original SRResNet [22] and two modified versions of ConverseSRResNet, named Conv-SRResNet and ConvT-SRResNet.
+In these two modified versions, the Converse2D operator is replaced with depthwise convolution and depthwise
+transposed convolution, respectively. Table 5 provides a
+comparison of PSNR results for each model on different
+
+c Converse-USRNet
+
+Figure 3. Architectures of the proposed converse-based networks
+for denoising, super-resolution, and deblurring.
+...
+
+557,057
+
+5.2. Image Super-Resolution
+1×1 Conv
+
+...
+
+Iterative Module
+
+Iterative Module
+
+Converse Block
+
+Converse Block
+
+Converse2D
+
+1×1 Conv
+
+KernelNet
+
+...
+
+DnCNN [46]
+
+In our denoising experiments, we evaluate the proposed
+Converse-DnCNN by comparing it with the original DnCNN
+and two modified variants: Conv-DnCNN and ConvTDnCNN, where the Converse2D operator is replaced by
+depthwise convolution and depthwise transposed convolution, respectively. Table 4 reports the number of parameters and average PSNR values on the Set12 and BSD68
+datasets [25, 31, 46] for Gaussian noise with σ = 25.
+Although Converse-DnCNN includes 20 Converse Blocks
+and thus has more parameters than the original DnCNN,
+it achieves a substantial PSNR improvement. DnCNN is
+included as a baseline for reference, while the main comparison focuses on the effectiveness of the proposed operator.
+As shown in Table 4, Converse-DnCNN consistently outperforms both Conv-DnCNN and ConvT-DnCNN, demonstrating the effectiveness of the Converse2D operator for image
+denoising.
+Fig. 4 shows the visual results comparison between different models on a noisy image “butterfly” from Set12 with
+noise level uniformly ranging from 0 on the left and 50 on
+the right. We emphasize here that deconvolution algorithms
+tend to produce border artifacts due to the lack of effective boundary constraints. This limitation stems from the
+inherent properties of deconvolution. To address this issue,
+various techniques, such as padding strategies and regularization terms, are often commonly employed. However, these
+methods can only partially solve the problem. In contrast,
+our Converse-DnCNN model is trained end-to-end and does
+not introduce border artifacts in the denoised results.
+
+Interpolate
+
+K
+
+Datasets
+
+5.1. Image Denoising
+
+a Converse-DnCNN
+
+...
+...
+
+# Parameters
+
+Set12 BSD68
+
+...
+...
+...
+
+...
+...
+...
+
+...
+...
+...
+
+...
+...
+...
+
+Second, to demonstrate the applicability of our operator in
+kernel-conditioned scenarios, we consider non-blind deblurring. We modify USRNet by replacing its data module with
+our Converse2D operator and substituting the ResUNet denoiser with a ConverseNet consisting of 7 Converse Blocks.
+...
+Since Converse2D supports
+arbitrary channel dimensions,
+...
+we first project the input image to a 64-channel feature map
+using a 1 × 1 convolution, and map it back to 3 channels
+at the output. We also design KernelNet, which maps the
+blurred kernel to a 64-dimensional embedding via three fully
+connected layers with GELU activation, followed by a 1 × 1
+convolution. The resulting kernel embedding is directly used
+to parameterize Converse2D, with λ as the only learnable
+parameter. The overall architecture of Converse-USRNet is
+illustrated in Fig. 3c.
+For the Converse2D operator, we use a kernel size of
+5 × 5, circular padding of size 4, and initialize X0 with
+Interp(Y, s) as the default setting. To focus on validating
+the effectiveness of the proposed operator rather than achieving state-of-the-art performance, we adopt simplified experimental settings across all tasks. For denoising, we use
+Gaussian noise with a standard deviation of σ = 25. For
+super-resolution, we consider ×4 upscaling from bicubically
+downsampled images. For deblurring, we employ both motion and Gaussian blur kernels with a kernel size of 7 and
+additive noise of standard deviation 2.55. We follow the
+training settings in [48], including dataset selection, loss
+function, and learning rate.
+
+6
+
+a Noisy image
+
+b DnCNN/23.49dB
+
+c Conv-DnCNN/23.40dB
+
+d ConvT-DnCNN/23.24dB
+
+e Converse-DnCNN/23.53dB
+
+Figure 4. Denoising results of different methods on the image “butterfly” from Set12 with noise level uniformly ranging from 0 on the left to
+50 on the right.
+
+a Low-resolution image
+
+b SRResNet/32.90dB
+
+c Conv-SRResNet/32.79dB
+
+d ConvT-SRResNet/32.59dB
+
+e Converse-SRResNet/32.89dB
+
+Figure 5. Single image super-resolution results of different models on the image “bird” from Set5 with an upscaling factor of 4.
+
+a Blurry image
+
+b ConvNet/20.93dB
+
+c ConverseNet/22.73dB
+
+d USRNet/34.20dB
+
+e Converse-USRNet/34.27dB
+
+Figure 6. Deblurring results of different methods on the image “building” from Urban100 with noise level 2.55.
+Table 5. The average PSNR(dB) results of different variants of
+SRResNet for ×4 super-resolution.
+
+Table 6. The average PSNR(dB) results of different variants of SRResNet with different upscaling methods for ×4 super-resolution.
+Upscaling
+
+Datasets
+
+Models
+Set5
+
+Set14
+
+SRResNet [22]
+
+32.21
+
+28.60
+
+Conv-SRResNet
+ConvT-SRResNet
+Converse-SRResNet
+
+32.23
+32.09
+32.25
+
+28.73
+28.61
+28.72
+
+Datasets
+
+Urban100
+
+Methods
+
+Set5
+
+Set14
+
+BSD100
+
+Urban100
+
+27.59
+
+26.09
+
+27.62
+27.56
+27.62
+
+26.24
+25.89
+26.24
+
+Pixelshuffle (Default)
+Nearest Interpolation
+ConvT
+Converse2D
+
+32.26
+32.26
+32.24
+32.26
+
+28.74
+28.77
+28.74
+28.78
+
+27.65
+27.65
+27.64
+27.66
+
+26.33
+26.36
+26.33
+26.36
+
+BSD100
+
+datasets [2, 36]. We can see that our Converse-SRResNet
+achieves performance comparable to the other models. This
+indicates that Converse2D can effectively replace its counterpart operators without reducing performance. Additionally,
+we conduct experiments by replacing the original upsampling module in SRResNet with different upsampling methods, including nearest-neighbor interpolation, transposed
+
+convolution, and Converse2D. Table 6 shows that our proposed Converse2D operator performs on par with these other
+upsampling methods. This demonstrates the effectiveness of
+Converse2D as an upsampling module for super-resolution
+tasks. Fig. 5 compares visual outputs across models, demonstrating that our Reverse-SRResNet achieves comparable
+reconstruction quality.
+7
+
+5.3. Image Deblurring
+
+contrast, ConverseNet mitigates these artifacts and produces
+sharper, more structurally consistent results. By contrast,
+both Conv-USRNet and Converse-USRNet, operating in the
+non-blind setting with access to kernel information, generate well-aligned and visually sharp outputs with accurately
+preserved straight structures.
+
+In our deblurring experiments, we evaluate the proposed
+Converse-USRNet in a non-blind setting by comparing it
+with Conv-USRNet, where the data module operates on
+three-channel inputs. To further assess the impact of the proposed converse operator, we compare against ConvNet and
+ConverseNet, both implemented by removing the KernelNet
+and operating in a blind deblurring setting without access to
+kernel information. Table 7 reports average PSNR results,
+where blurred images are synthesized by convolving clean
+images with a 7 × 7 motion blur kernel and adding Gaussian
+noise with a standard deviation of 2.55. Note that 7 × 7
+isotropic Gaussian blur kernels are also used during training
+for both blind and non-blind models.
+
+6. Conclusion
+In this paper, we proposed a novel depthwise reverse convolution operator that serves as an explicit inversion of depthwise
+convolution by solving a regularized least-squares problem
+in closed form. Unlike conventional transposed convolution,
+the proposed operator provides mathematically grounded
+inversion and enables stable, efficient integration into deep
+networks. To enhance its applicability, we further introduced a reverse convolution block that combines the operator with layer normalization, 1 × 1 convolutions, and
+GELU activation. This design decouples spatial modeling
+and channel interaction, reflecting the modular structure
+commonly used in Transformer-based architectures. We
+applied the proposed block to three representative image
+restoration tasks: Gaussian denoising, super-resolution, and
+deblurring, by constructing Converse-DnCNN, ConverseSRResNet, and Converse-USRNet. Extensive experiments
+demonstrated that the proposed operator achieves competitive or superior performance compared to conventional convolution and transposed convolution, validating its effectiveness as a general-purpose module.
+This work provides a principled alternative to transposed
+convolution and opens new directions for designing learnable
+inverse operators in deep architectures. Future work includes
+extending this operator to large-scale vision models and
+generative tasks such as image synthesis and restoration
+under complex degradations.
+
+Table 7. Average PSNR(dB) of different methods for image deblurring under various blur kernels on the BSD100 and Urban100
+datasets.
+
+Blur Kernels
+Methods
+
+Blind
+
+Datasets
+
+BSD100
+
+ConvNet
+
+✓
+
+25.26
+
+22.96
+
+27.16
+
+26.91
+
+23.98
+
+ConverseNet
+
+✓
+
+27.69
+
+24.43
+
+31.28
+
+27.64
+
+27.31
+
+Conv-USRNet
+
+✗
+
+32.18
+
+31.03
+
+37.80
+
+31.82
+
+34.33
+
+Converse-USRNet
+
+✗
+
+32.46
+
+31.20
+
+38.40
+
+32.21
+
+34.62
+
+Datasets
+
+Urban100
+
+ConvNet
+
+✓
+
+22.27
+
+20.59
+
+23.43
+
+23.92
+
+21.12
+
+ConverseNet
+
+✓
+
+24.24
+
+21.52
+
+23.16
+
+24.56
+
+22.56
+
+Conv-USRNet
+
+✗
+
+31.48
+
+30.19
+
+36.80
+
+31.23
+
+33.63
+
+Converse-USRNet
+
+✗
+
+31.96
+
+30.59
+
+37.48
+
+31.95
+
+33.99
+
+We can have two key observations from Table 7. First,
+in the non-blind setting, Converse-USRNet outperforms its
+counterpart Conv-USRNet. The performance gain over blind
+models can be largely attributed to kernel conditioning and
+multi-channel processing enabled by the Converse2D framework. While Converse-USRNet and USRNet share similar
+overall architectures, the main distinction lies in their design:
+USRNet performs deconvolution and denoising directly in
+the image domain, whereas Converse-USRNet operates in
+the feature domain. This design offers greater flexibility and
+learning capacity. Moreover, the proposed reverse convolution operator enables Eq. (6) to serve as a general module
+that jointly incorporates kernel information and captures
+spatial dependencies.
+Second, in the blind setting, ConverseNet consistently outperforms ConvNet. This improvement is primarily attributed
+to the inherent deconvolution capability of the Converse2D
+operator, even without explicit kernel input. As shown in
+Fig. 6, ConvNet introduces geometric distortions; for example, straight lines such as walls may appear bent or curved. In
+
+Acknowledgments: This work was supported by Suzhou
+Key Technologies Project (Grant No. SYG2024136), Natural Science Foundation of China (Grant No. 62406135), and
+Natural Science Foundation of Jiangsu Province (Grant No.
+BK20241198).
+
+References
+[1] Jens Behrmann, Will Grathwohl, Ricky T. Q. Chen, David
+Duvenaud, and Jörn-Henrik Jacobsen. Invertible residual
+networks. In ICML, pages 573–582. PMLR, 2019. 2
+[2] Marco Bevilacqua, Aline Roumy, Christine Guillemot, and
+Marie Line Alberi-Morel. Low-complexity single-image
+super-resolution based on nonnegative neighbor embedding.
+BMVA press, 2012. 7
+[3] Linwei Chen, Lin Gu, Dezhi Zheng, and Ying Fu. Frequencyadaptive dilated convolution for semantic segmentation. In
+CVPR, pages 3414–3425, 2024. 2
+[4] Liang-Chieh Chen. Semantic image segmentation with deep
+convolutional nets and fully connected crfs. In ICLR, 2015. 1
+
+8
+
+[5] Tian Qi Chen, Jens Behrmann, David Duvenaud, and JörnHenrik Jacobsen. Residual flows for invertible generative
+modeling. In NeurIPS, pages 9913–9923, 2019. 2
+[6] François Chollet. Xception: Deep learning with depthwise
+separable convolutions. In CVPR, pages 1251–1258, 2017. 2
+[7] Laurent Dinh, David Krueger, and Yoshua Bengio. Nice:
+Non-linear independent components estimation. In ICLR,
+2015. 1, 2
+[8] Laurent Dinh, Jascha Sohl-Dickstein, and Samy Bengio. Density estimation using real nvp. In ICLR, 2017. 1, 2
+[9] Jiangxin Dong, Stefan Roth, and Bernt Schiele. Deep wiener
+deconvolution: Wiener meets deep learning for image deblurring. NeurIPS, 33:1048–1059, 2020. 3
+[10] Roland Gao. Rethinking dilated convolution for real-time
+semantic segmentation. In CVPR, pages 4675–4684, 2023. 2
+[11] Will Grathwohl, Ricky T. Q. Chen, Jesse Bettencourt, Ilya
+Sutskever, and David Duvenaud. FFJORD: free-form continuous dynamics for scalable reversible generative models. In
+ICLR, 2019. 2
+[12] Dan Hendrycks and Kevin Gimpel. Gaussian error linear
+units (gelus). arXiv, 2016. 2
+[13] Andrew G Howard. Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv, 2017.
+2
+[14] Binh-Son Hua, Minh-Khoi Tran, and Sai-Kit Yeung. Pointwise convolutional neural networks. In CVPR, pages 984–993,
+2018. 2
+[15] Gao Huang, Shichen Liu, Laurens Van der Maaten, and Kilian Q Weinberger. Condensenet: An efficient densenet using
+learned group convolutions. In CVPR, pages 2752–2761,
+2018. 2
+[16] Ulugbek S Kamilov, Hassan Mansour, and Brendt Wohlberg.
+A plug-and-play priors approach for solving nonlinear imaging inverse problems. IEEE SPL, 24(12):1872–1876, 2017.
+2
+[17] Ismail Khalfaoui-Hassani, Thomas Pellegrini, and Timothée
+Masquelier. Dilated convolution with learnable spacings. In
+ICLR, 2023. 2
+[18] Durk P Kingma and Prafulla Dhariwal. Glow: Generative
+flow with invertible 1x1 convolutions. NeurIPS, 31, 2018. 1,
+2
+[19] Manoj Kumar, Mohammad Babaeizadeh, Dumitru Erhan,
+Chelsea Finn, Sergey Levine, Laurent Dinh, and Durk
+Kingma. Videoflow: A flow-based generative model for
+video. arXiv, 2019. 2
+[20] Deepa Kundur and Dimitrios Hatzinakos. Blind image deconvolution. IEEE SPM, 13(3):43–64, 1996. 1
+[21] Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick
+Haffner. Gradient-based learning applied to document recognition. Proceedings of the IEEE, 86(11):2278–2324, 1998.
+1
+[22] Christian Ledig, Lucas Theis, Ferenc Huszár, Jose Caballero,
+Andrew Cunningham, Alejandro Acosta, Andrew Aitken,
+Alykhan Tejani, Johannes Totz, Zehan Wang, et al. Photorealistic single image super-resolution using a generative adversarial network. In CVPR, pages 4681–4690, 2017. 2, 6,
+7
+
+[23] Junyong Lee, Hyeongseok Son, Jaesung Rim, Sunghyun Cho,
+and Seungyong Lee. Iterative filter adaptive network for
+single image defocus deblurring. In CVPR, pages 2034–2042,
+2021. 1
+[24] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton.
+Layer normalization. arXiv, 2016. 2
+[25] David Martin, Charless Fowlkes, Doron Tal, and Jitendra
+Malik. A database of human segmented natural images and
+its application to evaluating segmentation algorithms and
+measuring ecological statistics. In ICCV, pages 416–423,
+2001. 6
+[26] Chong Mou, Qian Wang, and Jian Zhang. Deep generalized
+unfolding networks for image restoration. In CVPR, pages
+17399–17410, 2022. 2
+[27] Hyeonwoo Noh, Seunghoon Hong, and Bohyung Han. Learning deconvolution network for semantic segmentation. In
+ICCV, pages 1520–1528, 2015. 1, 2
+[28] Augustus Odena, Vincent Dumoulin, and Chris Olah. Deconvolution and checkerboard artifacts. Distill, 1(10):e3, 2016.
+2
+[29] Alec Radford. Unsupervised representation learning with
+deep convolutional generative adversarial networks. In ICLR,
+2016. 1
+[30] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net:
+Convolutional networks for biomedical image segmentation.
+In MICCAI, pages 234–241. Springer, 2015. 1, 2
+[31] Stefan Roth and Michael J Black. Fields of experts. IJCV, 82
+(2):205–229, 2009. 6
+[32] Christian J Schuler, Harold Christopher Burger, Stefan
+Harmeling, and Bernhard Scholkopf. A machine learning
+approach for non-blind image deconvolution. In CVPR, pages
+1067–1074, 2013. 1
+[33] Hyeongseok Son, Junyong Lee, Sunghyun Cho, and Seungyong Lee. Single image defocus deblurring using kernelsharing parallel atrous convolutions. In ICCV, pages 2642–
+2650, 2021. 1
+[34] Zhuo Su, Linpu Fang, Wenxiong Kang, Dewen Hu, Matti
+Pietikäinen, and Li Liu. Dynamic group convolution for
+accelerating convolutional neural networks. In ECCV, pages
+138–155, 2020. 2
+[35] Mingxing Tan and Quoc V Le. Mixconv: Mixed depthwise
+convolutional kernels. In BMVC, 2019. 2
+[36] Radu Timofte, Vincent De Smet, and Luc Van Gool. A+:
+Adjusted anchored neighborhood regression for fast superresolution. In ACCV, pages 111–126, 2014. 7
+[37] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. NeurIPS, 2017. 2
+[38] Xijun Wang, Meina Kan, Shiguang Shan, and Xilin Chen.
+Fully learnable group convolution for acceleration of deep
+neural networks. In CVPR, pages 9049–9058, 2019. 2
+[39] Norbert Wiener. Extrapolation, interpolation, and smoothing
+of stationary time series: with engineering applications. The
+MIT press, 1949. 2
+[40] Wenhui Wu, Jian Weng, Pingping Zhang, Xu Wang, Wenhan Yang, and Jianmin Jiang. Uretinex-net: Retinex-based
+deep unfolding network for low-light image enhancement. In
+CVPR, pages 5901–5910, 2022. 2
+
+9
+
+[41] Saining Xie, Ross Girshick, Piotr Dollár, Zhuowen Tu, and
+Kaiming He. Aggregated residual transformations for deep
+neural networks. In CVPR, pages 1492–1500, 2017. 2
+[42] Li Xu, Jimmy S Ren, Ce Liu, and Jiaya Jia. Deep convolutional neural network for image deconvolution. NeurIPS, 27,
+2014. 1
+[43] Fisher Yu and Vladlen Koltun. Multi-scale context aggregation by dilated convolutions. In ICML, 2015. 2
+[44] Jiawei Zhang, Jinshan Pan, Wei-Sheng Lai, Rynson WH
+Lau, and Ming-Hsuan Yang. Learning fully convolutional
+networks for iterative non-blind deconvolution. In CVPR,
+pages 3817–3825, 2017. 1
+[45] Jiangtao Zhang, Zongsheng Yue, Hui Wang, Qian Zhao, and
+Deyu Meng. Blind image deconvolution by generative-based
+kernel prior and initializer via latent encoding. In ECCV,
+pages 73–92. Springer, 2025. 1
+[46] Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and
+Lei Zhang. Beyond a gaussian denoiser: Residual learning of
+deep cnn for image denoising. IEEE TIP, 26(7):3142–3155,
+2017. 2, 6
+[47] Kai Zhang, Luc Van Gool, and Radu Timofte. Deep unfolding
+network for image super-resolution. In CVPR, pages 3217–
+3226, 2020. 2
+[48] Kai Zhang, Yawei Li, Wangmeng Zuo, Lei Zhang, Luc
+Van Gool, and Radu Timofte. Plug-and-play image restoration
+with deep denoiser prior. IEEE TPAMI, 44(10):6360–6376,
+2021. 2, 6
+[49] Pengfei Zhang, Eric Lo, and Baotong Lu. High performance
+depthwise and pointwise convolutions on mobile devices. In
+AAAI, pages 6795–6802, 2020. 2
+[50] Ningning Zhao, Qi Wei, Adrian Basarab, Nicolas Dobigeon,
+Denis Kouamé, and Jean-Yves Tourneret. Fast single image
+super-resolution using a new analytical solution for ℓ2-ℓ2
+problems. IEEE TIP, 25(8):3683–3697, 2016. 3
+
+10
+
+

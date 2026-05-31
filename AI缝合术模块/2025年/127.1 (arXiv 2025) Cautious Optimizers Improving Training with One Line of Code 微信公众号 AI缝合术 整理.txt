@@ -1,0 +1,1904 @@
+Cautious Optimizers: Improving Training with One Line of Code
+
+Kaizhao Liang 1 Lizhang Chen 1 Bo Liu 1 Qiang Liu 1
+
+arXiv:2411.16085v3 [cs.LG] 31 Jan 2025
+
+Abstract
+
+Algorithm 1 Caution an Optimizer (O PT) in PyTorch
+# param p, update u from O P T , grad g
+m = (u * g > 0).to(g.dtype)
+p.add (u * m/(m.mean()+eps), alpha=-lr)
+
+AdamW has been the default optimizer for transformer pretraining. For many years, our community searched for faster and more stable optimizers with only constrained positive outcomes.
+In this work, we propose a single-line modification in Pytorch to any momentum-based optimizer, which we rename cautious optimizer, e.g.
+C-AdamW and C-Lion. Our theoretical result
+shows that this modification preserves Adam’s
+Hamiltonian function and it does not break the
+convergence guarantee under the Lyapunov analysis. In addition, a whole new family of optimizers is revealed by our theoretical insight.
+Among them, we pick the simplest one for empirical experiments, showing not only speed-up
+on Llama and MAE pretraining up to 1.47 times,
+but also better results in LLM post-training tasks.
+Code is available at https://github.com/
+kyleliang919/C-Optim.
+
+Figure 1: Training Loss Curves on LLaMA 1B, using AdamW /
+Lion and their cautious variants (using Algorithm 1). The cautious
+variants achieve better convergence and are 1.47x and 1.28x sample
+efficient for AdamW and Lion respectively.
+
+1. Introduction
+progress in new AdamW alternatives such as Lion (Chen
+et al., 2024; 2023a), SHAMPOO (Gupta et al., 2018), and
+SOAP (Vyas et al., 2024), ADOPT (Taniguchi et al., 2024),
+and Schedule-Free (Defazio et al., 2024), all claim substantial improvement over AdamW.
+
+Optimization is an important and constantly evolving field
+in modern machine learning. Undoubtedly, Adam (Kingma,
+2014) and AdamW (Loshchilov, 2017) are the most consequential optimizers proposed almost a decade ago. Since
+then, many efforts (Zhang et al., 2021; Loshchilov et al.,
+2017) have been made to discover better and faster optimizers beyond these two. However, until now, AdamW remains
+the dominant workhorse for applications, from pre-training
+Large Language Models (LLMs) (Touvron et al., 2023) to
+fine-tuning text to image diffusion (Rombach et al., 2022),
+with no real challenges to their ruling status.
+
+1
+Department of Computer Science, University of Texas at
+Austin. Correspondence to: Qiang Liu <lqiang@utexas.edu>.
+
+However, these methods are either significantly more expensive or require non-trivial efforts to obtain optimal results,
+especially hyperparameter tuning, which greatly limits their
+potential and wide adoption. In light of this dilemma, we
+propose cautious optimizers, an exceptionally simple performance booster of any momentum-based optimizer that only
+requires one line of modification (see Algorithm 1). The
+change is simple: do not update unless the proposed update
+direction and the current gradients are aligned. With this
+minor change, we obtain universal improvement over the
+base optimizer without modification of the original optimal hyperparameters. For example, the cautious versions
+of AdamW and Lion, denoted as C-AdamW, and C-Lion,
+respectively, gain 1.47X and 1.28X speedups on LIama 1B
+with virtually no overhead (see Figure 1).
+
+Copyright 2025 by the author(s).
+
+To provide an overview of the idea, let us consider a general
+
+In the dawn of the era of LLMs, the arms race of model
+scaling intensifies (Achiam et al., 2023). A faster optimizer
+means more training tokens can be consumed within the
+same amount of time. Ultimately, this leads to more capable
+models (Kaplan et al., 2020). Hence, the interest in searching for an optimizer beyond AdamW is re-kindled. Recent
+
+1
+
+Cautious Optimizers
+
+optimizer for minimizing the loss L(w):
+
+momentum methods, the update direction ut continues to
+accumulate the gradients and will eventually be updated
+to have a positive inner product with gt if it is stuck at a
+non-stationary point.
+
+wt+1 ← wt − ϵt ut ,
+where ut is the negative update direction of the parameter
+wt at iteration t, and ϵt > 0 is the step size. We will assume that the update represents a generic momentum-based
+optimizer, including, for example, Polyak and Nesterov momentum, Adam, and Lion. In all these momentum-based
+optimizers, ut does not necessarily align with the gradient
+direction gt = ∇L(wt ), which can result in a temporary
+increase in the loss function and slow down convergence.
+
+Our theoretical analysis encompasses both continuous-time
+and discrete-time cases. In the continuous-time setting, our
+theory shows that the modified algorithm guarantees convergence to local optima for optimizers that admit a Hamiltonian+Descent structure (Chen et al., 2023a; Liang et al.,
+2024b), which broadly includes almost all existing popular
+algorithms, such as Adam, Lion, heavy ball, and Nesterov
+momentum. For these algorithms, we demonstrate that the
+cautious optimizer, with ϕ satisfying xϕ(x) ≥ max(x, 0),
+retains the monotonic decreasing properties of the original
+Lyapunov (or Hamiltonian) functions of these algorithms
+while additionally minimizing the loss function. In the
+discrete-time setting, we analyze the behavior of various
+variants of mask functions and establish general conditions
+under which updates from cautious optimizers yield larger
+local descents compared to their base optimizers.
+
+Cautious optimizers avoid this issue by adding a simple
+mask function based on the sign consistency of ut and gt :
+wt+1 ← wt − ϵt ut ◦ ϕ(ut ◦ gt ),
+where ◦ denotes an element-wise product, and ϕ is a map
+that reweights the update based on the product ut ◦ gt . We
+simply take it as
+ϕ(x) = α(x)I(x > 0),
+
+To summarize our contributions, we present the following:
+
+so that the update is zeroed out for coordinates on which the
+sign of ut and gt are inconsistent. Here α(x) is a positive
+scaling factor, introduced to compensate the decrease of
+update magnitude due to masking. A simple choice of α is
+α(x) =
+
+dim(x)
+,
+nnz(x > 0) + ξ
+
+• We propose Cautious Optimizer, an exceptionally simple performance booster for any momentum-based optimizer, implemented with just one line of code.
+• We theoretically demonstrate that cautious optimizers
+preserve the convergence guarantees of the base optimizer while also accelerating the decrease of the loss
+function.
+
+(1)
+
+where dim(·) and nnz(·) represent the total number of elements and the number of non-zero elements of the input
+vector, respectively. Here, ξ > 0 is a positive constant,
+which we set to ξ = 1 by default. See Algorithms 1 and 2
+for more details.
+
+• We show universal improvements across various tasks,
+from scaling LLaMA from 60M to 1B and pretraining MAE on ImageNet1K up to 1.47x faster to better
+alignment in instruction finetuing and RLHF with PPO.
+
+This modification ensures the new negative update to have
+a non-negative inner product with the gradient, and hence
+decreases the loss monotonically when the step size is sufficiently small. Specifically, Taylor approximation shows
+
+2. Theory
+We start with introducing a general Hamiltonian descent
+framework for the continuous-time forms of general momentum algorithms (Section 2.1). We then introduce the
+cautious optimizers in the continuous time form and discuss
+its theoretical properties (Section 2.2). Finally, we discuss
+in Section 2.3 theoretical properties of cautious optimizers
+in discrete time forms.
+
+L(wt+1 ) − L(wt ) ≈ −ϵt (ut ◦ gt )⊤ ϕ(ut ◦ gt ) ≤ 0.
+This ensures decrease of the loss, i.e., L(wt+1 ) ≤ L(wt ),
+when the step size is sufficiently small. In comparison, typical momentum-based optimizers do not always guarantee a
+monotonic decrease in loss even with infinitesimal step sizes.
+The nature of momentum dynamics introduces oscillations
+due to inertia-like effects.
+
+2.1. Hamiltonian+Descent
+In the continuous-time form, most momentum-based algorithms can be viewed as variants of the damped Hamiltonian
+system, which admit a Lyapunov (or Hamiltonian) function
+that certifies their convergence towards the stationary points.
+
+Our theoretical analysis shows that the modified algorithm
+converges to local optima under mild conditions on the base
+optimizers. An interesting aspect of this algorithm is that it
+does not get stuck at non-stationary points of the loss, even
+if ut can be temporarily completely conflicting with gt and
+is therefore entirely masked out. This is because, in typical
+
+The Lyapunov function is typically an augmented loss function H(w, s) defined over both the weights w and an op2
+
+Cautious Optimizers
+
+Figure 2: Left: We compare gradient descent with Polyak momentum (GDM) against its cautious variant (C-GDM) (we also provide
+gradient descent (GD) result as a baseline and use a 10x larger step size for GD than GDM and C-GDM). Details are provided in
+Section 3.1. The first plot shows the optimization trajectories from the two optimizers, where both optimizers start from (1, 1) with a
+zero-initialized momentum. C-GDM successfully lands at the optimum without overshooting. The second and third plots confirm that
+C-GDM always monotonically decreases both the objective and the Hamiltonian of the original GDM. Right: In this plot, we plot L(wt )
+versus t for C-GDM and GDM with different combinations (ϵ, β). Across all combinations, C-GDM outperforms GDM.
+
+Algorithm 2 Cautious AdamW (C-AdamW)
+
+where Φt (·) and Ψt (·) are monotonic mappings satisfying
+
+Require: parameter w, step sizes {ϵt }, dampening factors
+β1 , β2 ∈ [0, 1), e > 0, weight decay γ ≥ 0.
+1: Initialize t = 0, and m0 , v0 .
+2: while wt not converged do
+3:
+t←t+1
+4:
+gt ← ∇w Lt (wt−1 )
+5:
+mt ← β1 mt−1 + (1 − β1 )gt
+6:
+vt ← β2 vt−1 + (1 − β2 )gt2
+7:
+m̂t ← mt /(1 − β1t )
+8:
+v̂t ← vt /(1 √
+− β2t )
+9:
+ut ← m̂t /( v̂t + e)
+10:
+ϕt ← I(ut ◦ gt > 0)
+// Compute alignment mask
+11:
+ϵt = ϵt ∥ϕt ∥d +1
+// Scale lr, d is dimension of ϕt
+0
+12:
+wt ← wt−1 − ϵt ϕt ◦ut
+// Masked update
+13:
+wt ← wt − ϵt γwt
+// Add weight decay
+14: end while
+
+for any x. With Φ(x) = Ψ(x) = 0, the system in (2) reduces to the standard Hamiltonian system, which preserves
+H(wt , st ) = const along the trajectory. When the descending components Φt and Ψt are added, the system ensures
+that H(w, s) becomes monotonically non-decreasing:
+
+where
+
+d
+H(wt , st ) = −∆H (wt , st ) ≤ 0,
+(3)
+dt
+2
+2
+∆H (wt , st ) := ∥∇L(wt )∥Φt + ∥∇K(st )∥Ψt .
+
+On the other hand, L(w), which is the true objective, is not
+necessarily decreasing monotonically. There can be cases
+where L(w) increases temporarily in exchange for a large
+decrease in the kinetic energy K(s), while still ensuring a
+decrease in the total energy H = L + K. Specifically,
+
+timization state vector s (which includes the momentum).
+It must satisfy mins H(w, s) = L(w), so that minimizing
+L(w) is equivalent to minimizing H(w, s). This is typically
+achieved using a separable Hamiltonian of the form
+
+d
+L(wt ) = −∆L (wt , st ),
+(4)
+dt
+2
+∆L (wt , st ) := ∇L(wt )⊤ ∇K(st ) + ∥∇L(wt )∥Φt .
+
+H(w, s) = L(w) + K(s),
+where K(·) is any lower-bounded function. Consulting physical intuitions, we can think of H as the total energy of a
+system parameterized by (w, s), with L and K representing
+the potential energy and kinetic energy, respectively.
+
+Here, ∆L (wt , st ) may be negative due to the cross term.
+See Appendix for the Hamiltonian of common optimizers
+including Adam (Kingma, 2014) and Lion-K (Chen et al.,
+2023b;a).
+
+The continuous-time form of common momentum-based
+algorithms can be unified into:
+d
+wt = −∇K(st ) − Φt (∇L(wt ))
+dt
+d
+st = ∇L(wt ) − Ψt (∇K(st )),
+dt
+
+2
+
+2
+
+∥x∥Φt := ⟨x, Φt (x)⟩ ≥ 0, ∥x∥Ψt := ⟨x, Ψt (x)⟩ ≥ 0,
+
+2.2. Cautious Dynamics
+(2)
+
+Our idea is to change the dynamics to make it simultaneously decrease both H(w, s) and L(w). We do this with a
+3
+
+Cautious Optimizers
+
+Corollary 2.2. Assume that the norm ∥ · ∥2Ψ is positive
+definite, Ψ(0) = 0, and that H(w, s) = L(w) + K(s) is
+differentiable. Then, the bounded solutions of the original system (2) converge to a stationary point of H(w, s).
+Similarly, the bounded solutions of (5) also converge to a
+stationary point of H(w, s).
+
+modified system:
+xt = ∇L(wt ) ◦ ∇K(st )
+d
+wt = −ϕ(xt ) ◦ ∇K(st ) − Φt (∇L(wt ))
+(5)
+dt
+d
+st = ∇L(wt ) − Ψt (∇K(st )),
+dt
+where ◦ denotes the element-wise product and ϕ is a vector
+to vector mapping. Here we weigh each element of the
+update direction ∇K(st ) based on the product of ∇K(s)
+with the gradient ∇L(w). Note that we do not need to
+apply mask on the Φt (∇L(wt ) term since it is always have
+non-increasing by definition of Φt .
+
+2.3. Discrete-Time Analysis
+We analyze the discrete time case, demonstrating that each
+step of cautious optimizers are at least as good as the step
+of the original optimizers under mild conditions.
+We will consider a generic update of form
+wk+1 = wk − ϵk uk (wk , sk ),
+
+The following conditions on the choice of function ϕ ensure
+that the system decreases both H and L simultaneously.
+Theorem 2.1. Following the dynamics in (5) in Rd , we have
+
+sk+1 = sk + vk (wk , sk ),
+
+where uk , vk are vector fields that define the updates, and
+ϵk is the step size. We write the cautious variants as
+
+d
+H(wt , st ) = (x⊤
+t (1 − ϕ(xt )) − ∆Ht (w t , st ),
+dt
+d
+2
+L(wt ) = −x⊤
+t ϕ(xt ) − ∥∇L(w t )∥Φt
+dt
+= (x⊤
+t (1 − ϕ(xt )) − ∆Lt (w t , st ),
+
+wk+1 = wk − ϵk uk ◦ ϕk ,
+
+The follow is a comparison result showing that each step
+of the cautious optimizer yields lower yields larger loss decrease than the original optimizer under milded conditions.
+Theorem 2.3. Consider (7) and (8) with a µ-smooth loss
+function L(·). Assume the element-wise operator ϕ satisfies
+
+d
+H(wt , st ) ≤ −∆Ht (wt , st ) ≤ 0,
+dt
+d
+L(wt ) ≤ −∆Lt (wt , st ).
+dt
+
+∆(x) := −x⊤ (1 − ϕ(x)) ≥ 0.
+Starting from (wt , st ) = (wt , st ), we have
+L(wt+1 ) ≤ L(wt+1 ),
+
+• If x⊤ ϕ(x) ≥ 0 for any x ∈ Rd , then L decreases monod
+tonically, dt
+L(wt ) ≤ 0.
+
+2∆(ut ◦gt )
+which holds for step size ϵt ≤ µ∥rt ∥(2·∥u
+, where
+t ∥+∥r t ∥)
+
+One sufficient condition for ϕ to satisfy both conditions
+in Theorem 2.1 is to enforce the following element-wise
+constraint:
+ϕ(x)i ≤ 0 if xi < 0,
+
+(8)
+
+where ϕk is a mask vector determined by the algorithm,
+ϕk = α(uk ◦ g k )I(uk ◦ g k > 0), where g k = ∇L(wk ).
+
+• If x⊤ (1 − ϕ(x)) ≤ 0 for any x ∈ Rd , then both H and
+L decreases faster than the original system:
+
+and
+
+uk = uk (wk , sk )
+
+sk+1 = sk + vk (wk , sk ),
+
+Here, ∆Ht (wt , st ) and ∆Lt (wt , st ), as defined in (3) and
+(4), respectively, represent the decreasing rates of H and L
+in accordance with the original system (2). Hence:
+
+ϕ(x)i ≥ 1 if xi > 0,
+
+(7)
+
+r t = ut ◦ (1 − ϕt ) and g t = ∇L(wt ).
+This result works only for a range of step sizes due to the
+need of Taylor approximation. In Appendix A.5, we show
+a case when the comparison wholes for all step sizes when
+using a different mask function based on inner products and
+when L is convex. The following is another result showing
+that when imposing more restrictive conditions on the mask
+to the step size that ensure that the cautious optimizer is
+guaranteed to decrease loss at each step.
+Theorem 2.4. Consider updates (7) and (8). Assuming L(·)
+is µ-smooth, and consider the following mask function:
+
+
+µσ
+ϕk = αk I ∇L(wk ) ◦ uk ≥
+uk ◦ uk ,
+2
+
+(6)
+
+where ϕ(x)i denotes the i-th element of ϕ(x). Under this
+condition, both H and L decrease monotonically following
+the cautious dynamics, at a rate faster than the original systems. In particular, the default choice ϕ(x) = α(x)I(x ≥
+0) with α(x) ≥ 1 satisfies the conditions above.
+Convergence to Stationary Points In addition to monotonically decreasing the loss function, we want to ensure
+that the algorithm does not get stuck unless the solution
+reaches a stationary point, which in practice is typically
+a local optimum, of the loss function. The following result demonstrates that this property holds under the same
+conditions as the original Hamiltonian descent system.
+
+where {αk } is any sequence and σ ≥ ϵk αk . Starting from
+(wt , st ) = (wt , st ), we have
+L(wk+1 ) ≤ L(wk ).
+4
+
+Cautious Optimizers
+
+C-GDM ensures that L(wt ) monotonically decreases. In
+addition, C-GDM achieves a faster drop in terms of GDM’s
+Hamiltonian.
+
+The results above demonstrate that cautious optimizers reduce the loss more efficiently than the original optimizers at
+each single step. A natural question is whether these comparison results can be extended to multiple steps. This, however,
+becomes challenging because, after the first step, the two
+optimizers explore different regions of the loss landscape,
+making it easy to construct counterexamples where one
+method outperforms the other. This is consistent with the no
+free lunch theorems, which state that no single optimizer can
+dominate another across all possible loss functions (Wolpert
+& Macready, 1997). Nevertheless, it is reasonable to expect
+that the advantage observed in a single step would naturally
+extend to multiple steps for the practical loss functions encountered in deep learning, as evidenced by the experiments
+presented.
+
+In Figure 3, we compare GDM and C-GDM, each using their
+optimal (ϵ, β). For GDM, the optimal values are derived
+theoretically (e.g., (Goh, 2017)), while for C-GDM, they are
+obtained through a grid search. Despite using the optimal
+configuration, GDM exhibits significant overshooting, oscillations, and slower loss convergence. In contrast, C-GDM
+achieves smoother trajectories, reduced overshooting, and
+faster convergence, demonstrating its superior stability and
+efficiency.
+We estimate an algorithm’s convergence rate as the slope of
+log L(wt ) over time via linear regression and plot heatmaps
+over (ϵ, β)-space, where ϵ and β are the learning rate and
+momentum. Figure 8 shows that cautious methods achieve
+lower optimal√convergence rates compared to the momentum method ( √κ−1
+, red dot). The heatmaps highlight that
+κ+1
+all cautious momentum variants outperform GDM in convergence rates.
+
+3. Experiments
+In this section, we evaluate the performance of cautious
+optimizers compared to their standard counterparts, highlighting the benefits introduced by the cautious masking
+mechanism. We begin with a 2D toy experiment to provide
+a visual demonstration of how cautious masking improves
+optimization. Subsequently, we extend the evaluation to
+large-scale pretraining tasks for both language and vision
+models, comparing the performance of standard optimizers
+and their cautious variants.
+
+3.2. Pretraining Large Language Models (LLMs)
+We begin by investigating the language modeling task using
+the LLaMA (Touvron et al., 2023) model as the foundational
+architecture. Variants of LLaMA with parameter sizes ranging from 60M to 1B (specifically 60M, 100M, 350M, and
+1B) are considered in this study. The models are trained
+on the C4 (Colossal Clean Crawled Corpus) dataset (Raffel
+et al., 2020), a large-scale web-crawled text corpus containing billions of tokens.
+
+3.1. 2D Optimization Toy
+We consider a 2D optimization problem with objective
+L(w) = κ(w1 )2 + (w2 )2 , where w = (w1 , w2 ) ∈ R2
+is the parameter. Obviously, the optimum is at w∗ = (0, 0).
+We set κ = 4 in our experiments. We apply gradient descent
+(GD), gradient descent with Polyak momentum (GDM), and
+cautious gradient descent with momentum (C-GDM) on this
+toy example, starting from w0 = (1, 1). Specifically, for
+GDM, we adopt the conventional momentum update:
+st ← βst−1 + ∇L(wt ),
+
+The extensive scale of the C4 dataset, coupled with the
+complexity of the LLaMA architecture, results in prolonged
+training durations, often spanning weeks or months. For
+optimization, we employ AdamW (Loshchilov, 2017) and
+Lion (Chen et al., 2023c), two widely used optimizers in
+modern language modeling, as baselines. These are compared with their cautious counterparts, which we term Cautious AdamW (C-AdamW) and Cautious Lion (C-Lion).
+Figure 5 illustrates the training curves of LLaMA-1B for
+AdamW, C-AdamW, Lion, and C-Lion. Validation perplexities for all model sizes (60M, 100M, 350M, and 1B) across
+the four optimizers are summarized in Table 1. The complete hyperparameter configurations for language model
+training are detailed in Table 3 in the Appendix.
+
+wt ← wt−1 − ϵst ,
+
+where β ∈ [0, 1) and ϵ is the learning rate.
+Observation: On the right of Figure 2, we compare GDM and C-GDM with the same hyperparameters
+(ϵ, β). We ablate over different combinations of (β, ϵ)
+∈ {(0.01, 0.5), (0.01, 0.9), (0.01, 0.99), (0.01, 0.999),
+(0.1, 0.99), (0.001, 0.99)}. Across all settings, C-GDM
+outperforms GDM, confirming the importance of cautious
+masking. Given the same (ϵ, β), cautious is always not
+worse than momentum, and often it gives significant improvement, especially when the choice (ϵ, β) is suboptimal
+for momentum, meaning that cautious masking makes it
+more robust. From the left of Figure 2, one can see that
+GDM, due to the momentum, has fluctuating L(wt ), while
+
+Observation: As shown in Figure 5, C-AdamW and CLion demonstrate significant improvements in sample efficiency, achieving a 1.47x and 1.28x gain over AdamW and
+Lion, respectively, on the LLaMA-1B model. Notably, these
+improvements require only a single additional line of code
+and incur no extra computational overhead. On the other
+hand, we observe an interesting phenomenon that the gap
+5
+
+Cautious Optimizers
+
+a)
+
+b)
+
+c)
+
+d)
+
+Figure 3: We compare gradient descent with Polyak momentum (GDM) and its element-wise cautious variant (C-GDM), using gradient
+descent (GD) as a baseline. The step size for GD and the hyperparameters of GDM (including step size and momentum coefficients) are
+chosen to achieve the optimal convergence rates, which can be analytically derived (see, e.g., (Goh, 2017)). For cautious optimizers,
+step sizes ϵ and momentum coefficients β are empirically tuned, as shown in Figure 8. Detailed experimental settings are described
+in Section 3.1. In Plot (a), we visualize the optimization trajectories of the three methods, starting from the initial point (1, 1) with
+zero-initialized momentum. Notably, C-GDM converges to the optimum with significantly reduced overshooting and oscillation, Plot (b)
+zooms in on the trajectories from Plot (a), focusing on a smaller region (0.02 × 0.02) for enhanced clarity. Furthermore, Plots (c) and (d)
+show that C-GDM consistently and monotonically decreases both the objective and the Hamiltonian associated with the original GDM,
+highlighting its superior performance in minimizing these metrics compared to GDM.
+
+0.75
+
+nnz(x > 0)
+dim(x)
+
+Ratio
+
+0.70
+0.65
+0.60
+0.55
+0
+
+500
+
+1000
+
+Steps
+
+Perplexity (↓)
+
+# Params
+
+Figure 4: The sparsity ratio r(x) = nnz(x>0)
+durdim(x)
+ing pretraining of LLaMA
+100M on the C4 dataset
+using the C-AdamW optimizer. The ratio quantifies
+the proportion of nonzero
+elements in the representations over training steps.
+
+60M
+100M
+350M
+1B
+
+AdamW
+
+C-AdamW
+
+Lion
+
+C-Lion
+
+31.17
+26.96
+22.58
+24.02
+
+30.78
+26.82
+22.14
+22.00
+
+55.17
+41.69
+29.10
+22.00
+
+40.04
+33.21
+22.84
+21.17
+
+Table 1: To demonstrate scaling law (Kaplan et al., 2020), eval
+perplexity for LLaMA models pretrained on C4 for 10K steps. cautious optimizer is better across all model sizes. Lower perplexity
+is better. Hyperparameters can be found in table 3.
+
+1500
+
+between C-AdamW and AdamW increases as model size increases, but for Lion it is the reversed. Quantatively, Table 1
+reveals that the cautious optimizers consistently outperform
+their standard counterparts across all model sizes.
+
+the downstream performance of models pretrained using
+AdamW and C-AdamW on these six tasks, alongside their
+average score, which serves as an overall performance metric.
+
+To further assess the quality of models trained with cautious optimizers, we conduct downstream evaluations on
+the GLUE benchmark (Wang, 2018), a widely used suite
+for evaluating pretrained language models. GLUE comprises nine diverse natural language understanding tasks,
+including sentence similarity, text classification, entailment, and question answering, as well as a diagnostic
+dataset for fine-grained linguistic analysis. We focus on
+six tasks—Microsoft Research Paraphrase Corpus (MRPC),
+Recognizing Textual Entailment (RTE), Stanford Sentiment
+Treebank (SST-2), Multi-Genre Natural Language Inference
+(MNLI), Question Natural Language Inference (QNLI), and
+Quora Question Pairs (QQP)—which do not require additional fine-tuning for evaluation. Table 2 summarizes
+
+Figure 4 shows the ratio of active dimensions rk = nnz(uk ◦
+g k > 0)/dim(uk ◦ g k ) across the training iteration k on
+LLaMA 100M. It see that it decreases from 1 and stabilizes
+around 0.55. This suggests that the scaling factor generally
+lies within the range [1, 1.55]. The stable ratio does not
+change significantly across different models.
+As shown in Table 2, models trained with C-AdamW not
+only achieve lower training and validation perplexities but
+also deliver a notable 2% improvement in downstream
+scores, demonstrating the practical advantages of cautious
+optimization.
+6
+
+Cautious Optimizers
+
+LLaMA 60M
+
+LLaMA 100M
+
+LLaMA 350M
+
+LLaMA 1B
+
+Figure 5: Training loss curves for AdamW, C-AdamW, Lion, C-Lion on LLaMA with 60M, 100M, 350M, and 1B parameters.
+
+Method
+
+MRPC
+
+RTE
+
+SST2
+
+MNLI
+
+QNLI
+
+QQP
+
+AVG (↑)
+
+AdamW
+C-AdamW
+
+67.2
+68.4
+
+52.0
+46.6
+
+49.1
+63.0
+
+32.9
+32.7
+
+49.5
+49.5
+
+36.8
+36.8
+
+47.9
+49.5
+
+Table 2: Standardized GLUE evaluation for 1B model checkpoints using eval-harness. Results are reported for various downstream tasks.
+
+Training Loss
+
+To further test cautious optimizers in language modeling
+tasks, we perform two post-training experiments. First, we
+instruction-tune Qwen2.5-1.5B-Instruct (Yang et al., 2024)
+on the PowerInfer/QWQ-LONGCOT-500K (PowerInfer,
+2024), a dataset focusing on enhancing the model’s reasoning abilities by data distilled from QwQ-32B-Preview
+(Qwen, 2024). Then we follow the experiment setting in
+Huang et al. (2024) to perform RLHF alignment with PPO
+(Schulman et al., 2017) on EleutherAI/pythia-1b-deduped.
+
+(a) Instruction Tuning
+
+0.575
+0.550
+0.525
+0.500
+0.475
+0.450
+0.425
+
+(b) RLHF with PPO
+
+AdamW
+C-AdamW
+
+8
+Return
+
+3.3. Post-training LLM
+
+6
+4
+2
+
+0
+
+20k 40k 60k 80k 100k
+Training Steps
+
+AdamW
+C-AdamW
+0 200k 400k 600k 800k 1M
+Training Episodes
+
+Figure 6: (a) shows training loss on the task of instruction finetuing
+Qwen2.5-1.5B-instruct on the distilled dataset from QwQ for 500K
+question and answer pairs. (b) shows RLHF reward with PPO for 1
+million episodes. In both cases, C-AdamW outperforms AdamW.
+
+Observation: In both experiments, we find under same
+training steps and PPO episodes, cautious optimizers obtain
+lower training loss as well as higher rewards. This further
+confirms our proposal that cautious optimizers’ exceptional
+performance over baselines is not coincidental, but rather
+task agnostic and universal.
+
+datasets like ImageNet-1K (Russakovsky et al., 2015). This
+task involves reconstructing 75% of randomly masked image patches, a challenging objective that requires extensive
+training over hundreds of epochs and millions of images.
+The primary goal is to learn robust visual representations
+that are generalizable across downstream vision tasks. The
+quality of these representations is typically measured by
+the final evaluation loss, which reflects how accurately the
+
+3.4. Pretraining Masked Autoencoders (MAEs)
+Masked Autoencoders (MAEs) (He et al., 2022) have
+emerged as a powerful approach for pretraining Vision
+Transformers (ViTs) (Dosovitskiy, 2020) on large-scale
+7
+
+Cautious Optimizers
+
+model reconstructs masked test images; lower evaluation
+loss indicates higher-quality representations. The results
+of our experiments are summarized in Figure 7, where we
+compare the performance of the cautious optimizer against
+the AdamW baseline.
+AdamW
+C-AdamW
+
+Eval Loss
+
+0.70
+0.65
+0.60
+0.55
+0.50
+
+scent (OSD) (Liang et al., 2024a) generalizes GaLore by replacing infrequent SVD updates with a continuous subspace
+descent mechanism. In contrast to these approaches, our
+proposed C-AdamW introduces a single-line modification
+to the widely used AdamW optimizer. This modification
+not only retains the simplicity and efficiency of AdamW but
+also eliminates the need for hyperparameter tuning, as the
+default parameters of AdamW suffice. Furthermore, while
+many of the aforementioned methods focus on optimizing
+or extending specific aspects of the Adam algorithm, CAdamW is more general—it seamlessly integrates with all
+momentum-based optimizers, offering a universal solution
+with minimal implementation effort.
+
+Figure 7: Evaluation loss
+of pretrained MAEs on ImageNet1K on ViT backbone for
+50 epochs, using AdamW and
+C-AdamW. Hyperparameters
+can be found in Table 4.
+
+2000 4000 6000 8000
+Global Step
+
+Hamiltonian Dynamics Hamiltonian dynamics, rooted
+in classical mechanics, provides a powerful mathematical
+framework for analyzing the motion of systems in continuous spaces. This perspective has gained traction in optimization, where the introduction of Hamiltonian principles sheds light on momentum-based algorithms (Sutskever
+et al., 2013; Nesterov, 1983; Nguyen et al., 2024; Anonymous, 2024). Unlike Gradient Descent (GD), which ensures
+a monotonic decrease in the objective function, momentumbased methods often follow non-monotonic trajectories, posing unique analytical challenges (Jin et al., 2018). To address this, researchers have developed multiple Lyapunov
+functions for convex settings (Krichene et al., 2015; Wilson
+et al., 2016), providing a structured approach to analyze convergence. Sutskever et al. (2013) offered a physical interpretation of momentum in optimization, linking it to the dynamics described by Hamiltonian mechanics, and demonstrated
+how these principles underpin classical methods like those
+of Nesterov and Polyak (Nesterov, 1983). Furthermore,
+Hamiltonian dynamics have been instrumental in deriving
+convergence rates for accelerated methods (Jin et al., 2018)
+and, more recently, for advanced optimizers like Lion (Chen
+et al., 2023a) and its distributed variant (Liu et al., 2024). In
+a related vein, Maddison et al. (2018) explored optimization
+methods from the perspective of continuous-time ODEs,
+emphasizing their Hamiltonian structure. Mirror Descent, a
+related framework, has been shown to maintain efficiency
+estimates with a mild dependence on the dimensionality of
+decision variables, making it particularly suitable for largescale optimization problems (Tzen et al., 2023; Krichene
+et al., 2015). These advancements highlight the versatility
+and depth of Hamiltonian formalism in bridging the gap
+between optimization theory and practical algorithm design.
+
+Observation: From figure 7, we observe that the cautious
+optimizer achieves lower evaluation loss faster compared
+to AdamW. This result highlights the effectiveness of the
+cautious approach in improving the precision of reconstruction and, consequently, the quality of the learned visual
+representations.
+
+4. Related Work
+In this section, we provide a brief overview of existing
+efforts on designing Adam-like optimizers, and the related
+works on Hamiltonian dynamics.
+Adam and Its Variants A plethora of Adam variants have
+been developed to address different aspects of optimization
+challenges (Kingma, 2014; Loshchilov & Hutter, 2017).
+AdamW (Loshchilov & Hutter, 2017) introduced a key improvement by decoupling weight decay from optimization
+steps, restoring the original formulation of weight decay
+regularization. NAdam (Dozat, 2016) incorporated Nesterov updates into Adam, while AdaBelief (Zhuang et al.,
+2020) refined the second momentum vt to track the EMA
+of (gt − mt )2 , improving generalization. Adan (Xie et al.,
+2024) added an extra momentum term for better training
+performance, albeit at the cost of additional memory usage. More recently, ADOPT (Taniguchi et al., 2024) innovated by folding normalized updates into first-order momentum updates. From an efficiency perspective, several approaches target memory cost reduction. AdaFactor (Shazeer
+& Stern, 2018) factorizes second-order statistics into a rowcolumn outer product, enabling sub-linear memory usage.
+K-Fac (Martens & Grosse, 2015) approximates the Fisher information matrix with a Kronecker-factored representation,
+supporting sublinear natural gradient updates. Techniques
+like fused gradient computation (Lv et al., 2023) further minimize memory costs. GaLore (Zhao et al., 2024) exploits
+low-rank gradient structures to optimize memory use for
+first- and second-order statistics, and Online Subspace De-
+
+5. Conclusion and Limitation
+In summary, we introduce the cautious optimizer, a straightforward enhancement for momentum-based optimizers that
+can be implemented with a single line of code. Our theoretical analysis demonstrates that the cautious optimizer
+8
+
+Cautious Optimizers
+
+not only preserves the convergence guarantees of the base
+optimizer but also accelerates the reduction of the loss function. Empirically, it delivers universal performance improvements, as evidenced by scaling Llama models from 60M
+to 1B parameters up to 1.47 × more efficiently, faster pretraining of MAE on ImageNet1K and post-training of LLM.
+As future work, we suggest a few promising directions:
+(1) improved ϕ functions; (2) masking in the eigenspace
+rather than the parameter space; (3) rigorous analyses of
+how cautious optimizers strictly improve the convergence
+rate (empirically shown in 2).We hope that our work serves
+as a strong foundation for further exploration.
+
+Defazio, A., Yang, X. A., Mehta, H., Mishchenko, K.,
+Khaled, A., and Cutkosky, A. The road less scheduled.
+arXiv preprint arXiv:2405.15682, 2024.
+Dosovitskiy, A. An image is worth 16x16 words: Transformers for image recognition at scale. arXiv preprint
+arXiv:2010.11929, 2020.
+Dozat, T. Incorporating nesterov momentum into adam.
+2016.
+Goh, G. Why momentum really works. Distill, 2017.
+doi: 10.23915/distill.00006. URL http://distill.
+pub/2017/momentum.
+
+Limitations: Due to limited resources, despite promising
+early results, it remains uncertain whether cautious optimizers will deliver the anticipated improvements in broader
+applications and large-scale experiments.
+
+Gupta, V., Koren, T., and Singer, Y. Shampoo: Preconditioned stochastic tensor optimization. In International Conference on Machine Learning, pp. 1842–1850.
+PMLR, 2018.
+
+Impact Statement
+
+He, K., Chen, X., Xie, S., Li, Y., Dollár, P., and Girshick,
+R. Masked autoencoders are scalable vision learners. In
+Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, pp. 16000–16009, 2022.
+
+This paper presents work whose goal is to advance the field
+of Machine Learning. There are many potential societal
+consequences of our work, none which we feel must be
+specifically highlighted here.
+
+Huang, S., Noukhovitch, M., Hosseini, A., Rasul, K., Wang,
+W., and Tunstall, L. The n+ implementation details of rlhf
+with ppo: A case study on tl; dr summarization. arXiv
+preprint arXiv:2403.17031, 2024.
+
+References
+Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I.,
+Aleman, F. L., Almeida, D., Altenschmidt, J., Altman, S.,
+Anadkat, S., et al. Gpt-4 technical report. arXiv preprint
+arXiv:2303.08774, 2023.
+
+Jin, C., Netrapalli, P., and Jordan, M. I. Accelerated gradient descent escapes saddle points faster than gradient
+descent. In Conference On Learning Theory, pp. 1042–
+1085. PMLR, 2018.
+
+Anonymous. Improving adaptive moment optimization via
+preconditioner diagonalization. In Submitted to The Thirteenth International Conference on Learning Representations, 2024. URL https://openreview.net/
+forum?id=NdNuKMEv9y. under review.
+
+Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B.,
+Chess, B., Child, R., Gray, S., Radford, A., Wu, J., and
+Amodei, D. Scaling laws for neural language models.
+arXiv preprint arXiv:2001.08361, 2020.
+
+Chen, L., Liu, B., Liang, K., and Liu, Q. Lion secretly
+solves constrained optimization: As lyapunov predicts.
+arXiv preprint arXiv:2310.05898, 2023a.
+
+Kingma, D. P. Adam: A method for stochastic optimization.
+arXiv preprint arXiv:1412.6980, 2014.
+
+Chen, X., Liang, C., Huang, D., Real, E., Wang, K., Liu,
+Y., Pham, H., Dong, X., Luong, T., Hsieh, C.-J., et al.
+Symbolic discovery of optimization algorithms. arXiv
+preprint arXiv:2302.06675, 2023b.
+
+Krichene, W., Bayen, A., and Bartlett, P. L. Accelerated
+mirror descent in continuous and discrete time. Advances
+in neural information processing systems, 28, 2015.
+
+Chen, X., Liang, C., Huang, D., Real, E., Wang, K., Liu,
+Y., Pham, H., Dong, X., Luong, T., Hsieh, C.-J., et al.
+Symbolic discovery of optimization algorithms. arXiv
+preprint arXiv:2302.06675, 2023c.
+
+Liang, K., Liu, B., Chen, L., and Liu, Q. Memoryefficient llm training with online subspace descent.
+ArXiv, abs/2408.12857, 2024a.
+URL https:
+//api.semanticscholar.org/CorpusID:
+271947366.
+
+Chen, X., Liang, C., Huang, D., Real, E., Wang, K., Pham,
+H., Dong, X., Luong, T., Hsieh, C.-J., Lu, Y., et al. Symbolic discovery of optimization algorithms. Advances in
+neural information processing systems, 36, 2024.
+
+Liang, K., Liu, B., Chen, L., and Liu, Q. Memory-efficient
+llm training with online subspace descent. arXiv preprint
+arXiv:2408.12857, 2024b.
+9
+
+Cautious Optimizers
+
+Liu, B., Wu, L., Chen, L., Liang, K., Zhu, J., Liang, C.,
+Krishnamoorthi, R., and Liu, Q. Communication efficient
+distributed training with distributed lion. arXiv preprint
+arXiv:2404.00438, 2024.
+
+Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh,
+S., Ma, S., Huang, Z., Karpathy, A., Khosla, A., Bernstein, M., et al. Imagenet large scale visual recognition
+challenge. International journal of computer vision, 115:
+211–252, 2015.
+
+Loshchilov, I. Decoupled weight decay regularization. arXiv
+preprint arXiv:1711.05101, 2017.
+
+Schulman, J., Wolski, F., Dhariwal, P., Radford, A., and
+Klimov, O. Proximal policy optimization algorithms.
+arXiv preprint arXiv:1707.06347, 2017.
+
+Loshchilov, I. and Hutter, F. Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101, 2017.
+
+Shazeer, N. and Stern, M. Adafactor: Adaptive learning
+rates with sublinear memory cost. In International Conference on Machine Learning, pp. 4596–4604. PMLR,
+2018.
+
+Loshchilov, I., Hutter, F., et al. Fixing weight decay regularization in adam. arXiv preprint arXiv:1711.05101, 5,
+2017.
+Lv, K., Yang, Y., Liu, T., jie Gao, Q., Guo, Q., and
+Qiu, X. Full parameter fine-tuning for large language models with limited resources. In Annual Meeting of the Association for Computational Linguistics,
+2023. URL https://api.semanticscholar.
+org/CorpusID:259187846.
+Maddison, C. J., Paulin, D., Teh, Y. W., O’Donoghue, B.,
+and Doucet, A. Hamiltonian descent methods. arXiv
+preprint arXiv:1809.05042, 2018.
+
+Sutskever, I., Martens, J., Dahl, G., and Hinton, G. On the
+importance of initialization and momentum in deep learning. In International conference on machine learning, pp.
+1139–1147. PMLR, 2013.
+Taniguchi, S., Harada, K., Minegishi, G., Oshima, Y., Jeong,
+S. C., Nagahara, G., Iiyama, T., Suzuki, M., Iwasawa,
+Y., and Matsuo, Y. Adopt: Modified adam can converge
+with any \beta 2 with the optimal rate. arXiv preprint
+arXiv:2411.02853, 2024.
+
+Martens, J. and Grosse, R. B. Optimizing neural networks with kronecker-factored approximate curvature.
+In International Conference on Machine Learning,
+2015. URL https://api.semanticscholar.
+org/CorpusID:11480464.
+
+Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux,
+M.-A., Lacroix, T., Rozière, B., Goyal, N., Hambro, E.,
+Azhar, F., et al. Llama: Open and efficient foundation language models. arXiv preprint arXiv:2302.13971, 2023.
+
+Nesterov, Y. E. A method for solving the convex programming problem with convergence rate o (1/κˆ 2). In Dokl.
+akad. nauk Sssr, volume 269, pp. 543–547, 1983.
+
+Tzen, B., Raj, A., Raginsky, M., and Bach, F. Variational
+principles for mirror descent and mirror langevin dynamics. IEEE Control Systems Letters, 2023.
+
+Nguyen, S., Chen, L., Liu, B., and Liu, Q. H-fac: Memoryefficient optimization with factorized hamiltonian descent.
+arXiv preprint arXiv:2406.09958, 2024.
+
+Vyas, N., Morwani, D., Zhao, R., Shapira, I., Brandfonbrener, D., Janson, L., and Kakade, S. Soap: Improving
+and stabilizing shampoo using adam. arXiv preprint
+arXiv:2409.11321, 2024.
+
+PowerInfer. Powerinfer/qwq-longcot-500k, 2024.
+Qwen. Qwq: Reflect deeply on the boundaries of the
+unknown, November 2024. URL https://qwenlm.
+github.io/blog/qwq-32b-preview/.
+
+Wang, A. Glue: A multi-task benchmark and analysis platform for natural language understanding. arXiv preprint
+arXiv:1804.07461, 2018.
+Wilson, A. C., Recht, B., and Jordan, M. I. A lyapunov
+analysis of momentum methods in optimization. arXiv
+preprint arXiv:1611.02635, 2016.
+
+Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S.,
+Matena, M., Zhou, Y., Li, W., and Liu, P. J. Exploring
+the limits of transfer learning with a unified text-to-text
+transformer. Journal of machine learning research, 21
+(140):1–67, 2020.
+
+Wolpert, D. H. and Macready, W. G. No free lunch theorems for optimization. IEEE transactions on evolutionary
+computation, 1(1):67–82, 1997.
+
+Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and
+Ommer, B. High-resolution image synthesis with latent
+diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp.
+10684–10695, 2022.
+
+Xie, X., Zhou, P., Li, H., Lin, Z., and Yan, S. Adan: Adaptive nesterov momentum algorithm for faster optimizing
+deep models. IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 2024.
+10
+
+Cautious Optimizers
+
+Yang, A., Yang, B., Zhang, B., Hui, B., Zheng, B., Yu,
+B., Li, C., Liu, D., Huang, F., Wei, H., et al. Qwen2. 5
+technical report. arXiv preprint arXiv:2412.15115, 2024.
+Zhang, G., Kenta, N., and Kleijn, W. B. Extending adamw
+by leveraging its second moment and magnitude. arXiv
+preprint arXiv:2112.06125, 2021.
+Zhao, J., Zhang, Z. A., Chen, B., Wang, Z., Anandkumar,
+A., and Tian, Y. Galore: Memory-efficient llm training by
+gradient low-rank projection. ArXiv, abs/2403.03507,
+2024. URL https://api.semanticscholar.
+org/CorpusID:268253596.
+Zhuang, J., Tang, T., Ding, Y., Tatikonda, S. C., Dvornek, N.,
+Papademetris, X., and Duncan, J. Adabelief optimizer:
+Adapting stepsizes by the belief in observed gradients.
+Advances in neural information processing systems, 33:
+18795–18806, 2020.
+
+11
+
+Cautious Optimizers
+
+A. Appendix
+The appendix is organized into the following key components:
+• Cautious Hamiltonian Descent: We provide conditions 2.1 on the choice of function ϕ ensure that the system
+decreases both H and L simultaneously and Corollary 2.2 asserts that with a positive definite norm and differentiable
+Hamiltonian, bounded solutions of the discussed systems converge to a stationary point of the Hamiltonian.
+• Applications to Optimizers: In section A.3, the cautious framework is applied to derive cautious variants of popular
+optimizers, including Adam, Signed Momentum, and Lion, highlighting their theoretical properties and practical
+advantages.
+• Discrete-Time Analysis: A rigorous analysis connects the continuous-time dynamics to discrete-time updates,
+providing convergence guarantees and bounds on loss reduction for cautious optimizers.
+• Pseudocode: We present the implementation details for cautious optimizers, focusing on the cautious Lion optimizer
+as a representative example.
+• Experimental Details: Comprehensive details on the experimental setup, hyperparameters, and hardware configurations
+are provided, demonstrating the effectiveness of cautious optimizers in accelerating convergence and improving
+performance on large-scale tasks such as language modeling and masked autoencoder pretraining.
+A.1. Hamiltonian of Common Optimizers
+We introduce the Hamiltonian functions of the common optimizers.
+Example A.1. Adam (Kingma, 2014) yields the following continuous-time form and Hamiltonian,
+d
+mt
+wt = − √
+,
+dt
+vt + e
+
+with
+
+d
+mt = a(∇L(wt ) − mt ),
+dt
+d
+vt = b(∇L(wt )⊙2 − vt ),
+dt
+
+H(w, m, v) = L(w) +
+
+m
+1
+⟨√
+, m⟩.
+2a v + e
+
+d
+H(wt , mt , vt ) ≤ 0 when a ≥ b/4.
+We can show that dt
+
+Example A.2. The Lion-K optimizer (Chen et al., 2023b;a) (without weight decay) can be written into
+d
+wt = ∇K((1 − b)mt − b∇L(wt )),
+dt
+d
+mt = −a(∇L(wt ) + mt )
+dt
+where a ≥ 0, b ∈ [0, 1] and K(x) is any convex function that attains the minimum at x = 0. One of its Hamiltonians that
+yields the Hamiltonian+descent structure (Eq (13) in Chen et al. (Chen et al., 2023a)) is
+H(w, m) = aL(w) +
+
+1
+K((1 − b)m).
+1−b
+
+See (Chen et al., 2023a) for other Hamiltonian functions. Lion-K includes a large family algorithms as special cases,
+including Polyka momentum, Nesterov momentum, signed momentum, mirror descent, Frank-Wolfe, etc.
+A.2. Cautious Dynamics
+We establish conditions in Theorem 2.1 for the function ϕ that ensure simultaneous decreases in both H and L. Corollary 2.2
+further asserts that, with a positive definite norm and differentiable Hamiltonian, bounded solutions of the systems converge
+to a stationary point of the Hamiltonian.
+12
+
+Cautious Optimizers
+
+Theorem 2.1.
+
+Following the dynamics in (5) in Rd , we have
+d
+H(wt , st ) = (x⊤
+t (1 − ϕ(xt )) − ∆Ht (w t , st ),
+dt
+
+and
+d
+2
+L(wt ) = −x⊤
+t ϕ(xt ) − ∥∇L(w t )∥Φt
+dt
+= (x⊤
+t (1 − ϕ(xt )) − ∆Lt (w t , st ),
+Here, ∆Ht (wt , st ) and ∆Lt (wt , st ), as defined in (3) and (4), respectively, represent the decreasing rates of H and L in
+accordance with the original system (2). Hence:
+• If x⊤ (1 − ϕ(x)) ≤ 0 for any x ∈ Rd , then both H and L decreases faster than the original system:
+d
+H(wt , st ) ≤ −∆Ht (wt , st ) ≤ 0,
+dt
+d
+L(wt ) ≤ −∆Lt (wt , st ).
+dt
+• If x⊤ ϕ(x) ≥ 0 for any x ∈ Rd , then L decreases monotonically,
+d
+L(wt ) ≤ 0.
+dt
+Proof. For simplicity, we write xt = ∇L(wt ) ◦ ∇K(st ).
+Recall the definition of ∆Ht (wt , st ) and ∆Lt (wt , st ):
+2
+
+2
+
+∆H (wt , st ) := ∥∇L(wt )∥Φt + ∥∇K(st )∥Ψt
+2
+
+∆L (wt , st ) := ∇L(wt )⊤ ∇K(st ) + ∥∇L(wt )∥Φt .
+Following the dynamics in (5), let us see the derivation of H w.r.t. t:
+d
+H(wt , st )
+dt
+= ∇L(wt )⊤ ẇt + ∇K(st )⊤ s˙t
+= ∇L(wt )⊤ (−∇K(st ) ◦ ϕ(xt ) − Φt (∇L(wt ))) + ∇K(st )⊤ (∇L(wt ) − Ψt (∇K(st )))
+= ∇L(wt )⊤ (∇K(st ) ◦ (1 − ϕ(xt ))) − ∇L(wt )⊤ Φt (∇L(wt )) − ∇K(st )⊤ Ψt (∇K(st ))
+2
+
+2
+
+= 1⊤ ((∇L(wt ) ◦ ∇K(st )) ◦ (1 − ϕ(∇L(wt ) ◦ ∇K(st )))) − ∥∇L(wt )∥Φ − ∥∇K(st )∥Ψt
+= x⊤
+t (1 − ϕ(xt )) − ∆H (w t , st ).
+
+(9)
+
+Given the fact that ϕ is an element-wise operator, it is noteworthy that if x · (1 − ϕ(x)) ≤ 0, then the first term in (9)
+1⊤ ((∇L(w) ◦ ∇K(s)) ◦ (1 − ϕ(∇L(w) ◦ ∇K(s)))) ≤ 0 since we see ∇L(w) ◦ ∇K(s) as x.
+Next, let us look into the derivative of L(wt ) w.r.t. t:
+d
+L(wt ) = ∇L(wt )⊤ (−∇K(st ) ◦ ϕ(∇L(wt ) ◦ ∇K(st )) − Φt (∇L(wt )))
+dt
+= −∇L(wt )⊤ (∇K(st ) ◦ ϕ(∇L(wt ) ◦ ∇K(st ))) − ∇L(wt )⊤ Φt (∇L(wt ))
+2
+
+= −x⊤
+t ϕ(xt ) − ∥∇L(w t )∥Φt
+
+(10)
+
+= (x⊤
+t (1 − ϕ(xt )) − ∆Lt (w t , st ).
+
+(11)
+
+13
+
+Cautious Optimizers
+⊤
+It is evident that if x⊤ ϕ(x) ≥ 0 for any x ∈ Rd , then the first term in (10), x⊤
+t ϕ(xt ), satisfies xt ϕ(xt ) ≥ 0. Consequently,
+d
+⊤
+d
+dt L(w t ) ≤ 0. This condition holds when x ϕ(x) ≥ 0 for all x ∈ R .
+
+It is noteworthy that if x⊤ (1 − ϕ(x)) ≤ 0 for any x ∈ Rd , then the first term in (11), x⊤
+t (1 − ϕ(xt )) ≤ 0, holds.
+d
+L(wt ) ≤ −∆Lt (wt , st ).
+Consequently, we have dt
+
+Corollary 2.2. Assume that the norm ∥ · ∥2Ψ is positive definite, Ψ(0) = 0, and that H(w, s) = L(w) + K(s) is
+differentiable. Then, the bounded solutions of the original system (2) converge to a stationary point of H(w, s). Similarly,
+the bounded solutions of (5) also converge to a stationary point of H(w, s).
+Proof. First, Let us look at system (2), we use LaSalle’s invariance principle to find the conditions that the accumulation
+points (positive limit points)(w∗ , s∗ ) satisfy:
+∥∇L(w∗ )∥2Φt = ∥∇K(s∗ )∥2Ψt = 0.
+By the assumption that ∥ · ∥2Ψt is positive definite and Ψt (0) = 0, we have ∇K(s∗ ) = 0.
+For positive limit points of systems (2), if ∇L(w∗ ) ̸= 0, then the point (w∗ , s∗ ) is not a positive limit point since
+s˙∗ = ∇L(w∗ ) − Ψt (∇K(s∗ )) = ∇L(w∗ ) ̸= 0.
+Thus, ∇L(w∗ ) = 0. Together with ∇K(s∗ ) = 0, we conclude that (w∗ , s∗ ) is a stationary point of H(w, s).
+For system (5), the proof follows the same reasoning.
+
+A.3. Examples of Cautious Dynamics
+In this section, we instantiate results on Adam, Signed Momentum, and Lion, along with their cautious variants. While the
+standard methods are widely used, our focus is on introducing and analyzing the cautious versions of these algorithms to
+better understand their dynamics and stability.
+A.3.1. C AUTIOUS A DAM
+Adam:
+
+We begin by recalling the continuous-time dynamics of the Adam optimizer:
+d
+mt
+wt = − √
+,
+dt
+vt + ϵ
+d
+mt = β1 · (∇L(wt ) − mt ),
+dt
+d
+vt = β2 · (∇L(wt )⊙2 − vt ),
+dt
+
+where the associated Hamiltonian is given by:
+1
+H(wt , mt , vt ) = L(wt ) +
+2β1
+
+
+
+
+mt
+, mt .
+√
+vt + ϵ
+
+The time evolution of the Hamiltonian can be derived as:
+*
++ 
+
+
+dH(wt , mt , vt )
+β2
+m⊙2
+β2
+mt
+t
+⊙2
+=−
+, ∇L(wt )
+− 1−
+, mt .
+√
+dt
+4β1 vt3/2 + ϵ
+4β1
+vt + ϵ
+β2
+For stability, we require dH
+dt ≤ 0, which leads to β1 ≥ 4 .
+
+14
+
+(12)
+
+Cautious Optimizers
+
+Cautious Adam: We now introduce a cautious variant of Adam. In this case, the update for wt is modified by introducing
+an indicator function that enforces alignment between the gradient and the momentum:
+d
+I(∇L(wt ) ◦ mt > 0) ◦ mt
+wt = −
+.
+√
+dt
+vt + ϵ
+The dynamics for mt and vt remain the same. It is straightforward to verify that the loss function L(wt ) serves as a
+Lyapunov function:
+I(∇L(wt ) ◦ mt > 0) ◦ mt
+d
+L(wt ) = −∇L(wt )⊤
+≤ 0.
+√
+dt
+vt + ϵ
+D
+E
+t
+Meanwhile, by Theorem 2.1, H(wt , mt , vt ) = L(wt ) + 2β1 1 √m
+vt +ϵ , mt is also monotonically decreasing. Therefore,
+H remains a valid Hamiltonian for Cautious Adam.
+A.3.2. C AUTIOUS S IGNED (P OLYAK ) M OMENTUM
+Signed Momentum:
+
+The update rule for Signed Momentum is:
+ẇt = −sign(mt ),
+ṁt = ∇L(wt ) − mt .
+
+The Hamiltonian for this system is:
+H(wt , mt ) = L(wt ) + ∥mt ∥1 ,
+with time evolution:
+dH
+= −∥mt ∥1 .
+dt
+Cautious Signed Momentum: The cautious variant modifies the update rule for wt by introducing an indicator:
+ẇt = −sign(mt ) ⊙ I(∇L(wt ) ◦ mt > 0).
+The Lyapunov function remains the loss L(wt ), with:
+dL(wt )
+= −∥∇L(wt ) ⊙ I(∇L(wt ) ◦ mt > 0)∥1 .
+dt
+By Theorem 2.1, H(wt , mt ) = L(wt )+∥mt ∥1 is also monotonically decreasing. Therefore, H remains a valid Hamiltonian
+for Cautious Signed Momentum.
+A.3.3. C AUTIOUS L ION
+Lion: The dynamics of Lion (Chen et al., 2023a) are given by:
+ṁt = α∇L(wt ) − γmt ,
+ẇt = −sign(m̃t ),
+where m̃t = mt − ε(α∇L(wt ) + γmt ). The associated Hamiltonian is:
+H(wt , mt ) = αL(wt ) + (1 − εγ)∥mt ∥1 .
+The time derivative is:
+Ḣ(wt , mt ) = −(1 − εγ)∥m̃t ∥1 − γ∥mt ∥1 .
+15
+
+Cautious Optimizers
+
+Cautious Lion: In the cautious version, the update for wt is modified:
+ẇt = −sign(m̃t ) ⊙ I(∇L(wt ) ◦ m̃t > 0).
+By Theorem 2.1, H(wt , mt ) = αL(wt ) + (1 − εγ)∥mt ∥1 is also monotonically decreasing. Therefore, H remains a valid
+Hamiltonian for Cautious Lion.
+Meanwhile, the Lyapunov function remains L(wt ), with:
+dL(wt )
+= −∥∇L(wt ) ⊙ I(∇L(wt ) ◦ m̃t > 0)∥1 .
+dt
+A.4. Discrete time Analysis
+We analyze the discrete time case, demonstrating that cautious optimizers are at least as good as the original optimizers
+under mild conditions.
+Theorem 2.3.
+
+Consider (7) and (8) with the loss function L(·) µ-smooth. Assume the element-wise operator ϕ satisfies
+∆(x) := −x⊤ (1 − ϕ(x)) ≥ 0.
+
+starting from (wt , st ) = (wt , st ), we have
+L(wt+1 ) ≤ L(wt+1 ),
+2∆(ut ◦gt )
+which holds for step size ϵt ≤ µ∥rt ∥(2·∥u
+, where r t = ut ◦ (1 − ϕt ) and g t = ∇L(wt ).
+t ∥+∥r t ∥)
+
+Proof. First, we calculate the difference between wt+1 and wt+1 , then we use µ-smooth condition to bound the difference
+between L(wt+1 ) and L(wt+1 ).
+wt+1 − wt+1 = −ϵt (ut ◦ ϕt − ut ) = −ϵt (ut ◦ ϕt − ut ) = ϵt r t .
+Let us use µ-smooth condition to bound the L difference
+L(wt+1 )−L(wt+1 )
+≤ ϵt ∇L(wt+1 )⊤ r t +
+
+µ 2
+2
+ϵ ∥r t ∥
+2 t
+
+µ 2
+2
+ϵ ∥r t ∥
+2 t
+µ
+⊤
+2
+= ϵt ∇L(wt )⊤ r t + ϵt (∇L(wt+1 ) − ∇L(wt )) r t + ϵ2t ∥r t ∥
+2
+µ
+2
+≤ ϵt ∇L(wt )⊤ r t + ϵt ∥∇L(wt+1 ) − ∇L(wt )∥ ∥r t ∥ + ϵ2t ∥r t ∥
+2
+µ 2
+2
+2
+= ϵt g ⊤
+ϵ ∥r t ∥
+//g ⊤
+t r t + ϵt µ ∥ut ∥ ∥r t ∥ +
+t r t ≤ 0.
+2 t
+µ
+2
+= −ϵt ∆(ut ◦ g t ) + ϵ2t µ ∥ut ∥ ∥r t ∥ + ϵ2t ∥r t ∥
+2
+≤ 0.
+//By the choice of ϵt .
+⊤
+
+= ϵt (∇L(wt ) + ∇L(wt+1 ) − ∇L(wt )) r t +
+
+//Cauchy Schwarz inequality
+
+Theorem A.3. Assume L(w) is µ-smooth and differentiable, and the element-wise operator ϕ satisfies x · ϕ(x) ≥ 0 as
+shown in Theorem 2.1. With (wt , st ) following the update in (8) with constant step size ϵ:
+ut = ut (wt , st )
+wt+1 = wt − ϵut ◦ ϕt
+st+1 = st + vt (wt , st ).
+16
+
+Cautious Optimizers
+
+Assume ϵ > 0, we have:
+T
+
+1X
+L(w1 ) − L(w∗ )
+µϵ
+∥L(wt ) ◦ ut ∥ϕ ≤
++
+BT ,
+T t=1
+Tϵ
+2T
+where BT =
+
+2
+∗
+⊤
+t=1 ∥ut ∥ , w = argminw L(w), and for notions, we write ∥x∥ϕ = x ϕ(x), ∀x .
+
+PT
+
+Proof. Using the µ-smoothness of L(w), we expand L(wt+1 ) − L(wt ):
+L(wt+1 ) − L(wt ) ≤ ∇L(wt )⊤ (wt+1 − wt ) +
+
+µ
+2
+∥wt+1 − wt ∥ .
+2
+
+Substitute wt+1 − wt = −ϵut ◦ ϕt to get:
+ µϵ2
+2
+L(wt+1 ) − L(wt ) ≤ −ϵ · ∇L(wt )⊤ ut ◦ ϕt +
+ut ◦ ϕt .
+2
+Simplify using the definition of ∥·∥ϕ and ∥·∥Φt :
+
+∇L(wt )⊤ ut ◦ ϕt = ∥L(wt ) ◦ ut ∥ϕ ,
+which gives:
+ µϵ2
+
+2
+∥ut ∥ .
+L(wt+1 ) − L(wt ) ≤ −ϵ ∥L(wt ) ◦ ut ∥ϕ +
+2
+Summing over t = 1, . . . , T , we obtain a telescoping sum:
+L(wT +1 ) − L(w1 ) ≤ −ϵ
+
+T 
+X
+t=1
+
+T
+ µϵ2 X
+2
+∥ut ∥ .
+∥L(wt ) ◦ ut ∥ϕ +
+2 t=1
+
+Rearranging, dividing by T ϵ, and noting L(WT +1 ) ≥ L(W ∗ ), we get:
+T
+
+1X
+µϵ
+L(w1 ) − L(w∗ )
+∥L(wt ) ◦ ut ∥ϕ ≤
++
+BT ,
+T t=1
+Tϵ
+2T
+where BT =
+
+2
+t=1 ∥ut ∥ . This concludes the proof.
+
+PT
+
+Theorem A.4. Consider updates (7) and (8). Assuming L(·) is µ-smooth and the scaled step size ϵk αk ≤ σ, and consider
+the following mask function:
+µσ
+ϕk = αk I(∇L(wk ) ◦ uk ≥
+uk ◦ uk ),
+2
+we have
+L(wk+1 ) ≤ L(wk ).
+which holds for any step size ϵk ≥ 0.
+Proof. By smoothness, we have
+L(wk+1 )−L(wk )
+µ
+2
+∥wk+1 − wk ∥2
+2
+µϵ2
+2
+= −ϵk ∇L(wk )⊤ (ϕk ◦ uk ) + k ϕk ◦ uk 2
+2
+
+
+2
+µσ
+µϵk αk
+µσ
+uk ◦ uk ) ◦ uk ) +
+uk ◦ uk ) ◦ uk
+= ϵk αk −∇L(wk )⊤ (I(∇L(wk ) ◦ uk ≥
+I(∇L(wk ) ◦ uk ≥
+2
+2
+2
+2
+
+
+2
+µσ
+µσ
+µσ
+≤ ϵk αk −∇L(wk )⊤ (I(∇L(wk ) ◦ uk ≥
+uk ◦ uk ) ◦ uk ) +
+I(∇L(wk ) ◦ uk ≥
+uk ◦ uk ) ◦ uk
+2
+2
+2
+2
+
+≤ ∇L(wk )⊤ (wk+1 − wk ) +
+
+≤ 0.
+
+17
+
+Cautious Optimizers
+
+A.5. Inner Product Masks
+Out of theoretical interest, let us consider a case of using an inner product mask:
+ϕk = I(u⊤
+k g k > 0),
+
+gk = ∇L(wk ),
+
+which yields a scalar that applies to the entire update vector. In comparison, the element-wise mask in the paper treats each
+element separately.
+This case is interesting because, on convex functions, the cautious optimizers is always no worse than the base optimizers,
+regardless of the step size choices.
+Theorem A.5. Assume L(·) is convex, and ϕk = I(u⊤
+k ∇L(w k ) ≥ 0). Then, starting from the same point (wk , sk ) =
+(wk , sk ), we have
+L(wk+1 ) ≤ L(wk+1 ).
+which holds for any step size ϵk ≥ 0.
+Proof. If u⊤
+k ∇L(w k ) > 0, we have ϕk = 1, and wk+1 = w k+1 , and L(w k+1 ) = L(wk+1 ).
+If u⊤
+k ∇L(w k ) ≤ 0, we have ϕk = 0 and w k+1 = wk . By the convexity of L, we have
+L(wk+1 ) − L(wk+1 ) = L(wk − ϵuk ) − L(wk )
+≥ −ϵu⊤
+k ∇L(wk ) > 0.
+This proves the result.
+Corollary A.6. Consider the elementary test function:
+L(w) =
+
+1
+2
+∥a ◦ w∥2 .
+2
+
+where a ∈ Rd is a non-zero vector. This is commonly used as the testbed for optimization algorithms in theoretical analysis.
+Assume uk and vk are element-wise mappings. We have L(wk+1 ) ≤ L(wk+1 ) given (wk , sk ) = (wk , sk ), with either the
+inner product mask ϕk = I(u⊤
+k ∇L(w k ) ≥ 0), or the element-wise mask ϕk = I(uk ◦ ∇L(w k ) ≥ 0).
+Proof. The inner product case is implied by Theorem A.5. For element-wise mask, since the loss is an element-wise sum,
+and the update functions are element-wise mappings, which can apply Theorem A.5 on each element.
+P
+This argument, of course, can be extended to general convex and separable loss functions of form L(w) = i Li (wi ).
+Theorem A.7. Consider update (8). Assuming L(·) is µ-smooth, and consider the following mask function:
+ϕk = αk I(∇L(wk )⊤ uk ≥
+
+αk µϵk
+2
+∥uk ∥ ),
+2
+
+where αk is a scaling factor.
+We have
+L(wk+1 ) ≤ L(wk ).
+which holds for any step size ϵk ≥ 0.
+
+18
+
+Cautious Optimizers
+1.0
+3.0
+
+GDM
+
+Min Conv Rate: 3.32e-01
+
+1.0
+
+C-GDM
+
+Min Conv Rate: 2.94e-01
+
+1.0
+
+c = 0.01
+
+Min Conv Rate: 2.91e-01
+
+1.0
+
+c = 0.1
+
+Min Conv Rate: 2.86e-01
+
+1.0
+
+0.8
+
+0.8
+
+0.8
+
+0.8
+
+0.8
+
+0.6
+
+0.6
+
+0.6
+
+0.6
+
+0.6
+
+1.5
+
+0.4
+
+0.4
+
+0.4
+
+0.4
+
+0.4
+
+1.0
+
+0.2
+
+0.2
+
+0.2
+
+0.2
+
+0.2
+
+2.5
+2.0
+
+0.5
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+inner
+
+Min Conv Rate: 3.22e-01
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+Figure 8: Convergence rate heatmaps for the objective function with condition number κ = 4 (same setup as in 2). The heatmaps illustrate
+convergence rates, where values greater than 1 indicate divergence for the corresponding (ϵ, β) configuration. Smaller convergence rates
+correspond to faster convergence. From left to right, we show heatmaps for ϕc with c = 0.01, 0.1 and ϕinner as shown in (13). Note that
+ϕ0 represents a constant function, reducing to gradient descent with momentum (GDM), whose optimal convergence rate is given in
+closed form (Goh, 2017). From the heatmaps, it is clear that all cautious momentum variantsϕc with c = 0.01, 0.1 and ϕinner demonstrate
+superior convergence rates compared to GDM.
+
+Ablation on ϕ: To analyze the impact of cautious masking, we conduct ablation studies on different choices of ϕ. Our
+results show that the performance is not sensitive to the specific choice of ϕ, as all cautious variants incorporating these
+functions consistently outperform GDM. This underscores the robustness and effectiveness of cautious masking, as shown
+in Figure 9.
+The tested ϕ functions are defined as follows:
+ϕc = I(x > 0) − cI(x ≤ 0),
+ϕinner = I(x⊤ y ≥ 0).
+
+(13)
+
+These results highlight that cautious masking enhances optimization stability and performance across diverse settings.
+
+Figure 9: This plot presents an ablation study evaluating the performance of various ϕ configurations. We compare the loss curves for
+different ϕ choices. Across all tested configurations, the cautious GDM variants, ϕc with c = 0.01, 0.1, and ϕinner as defined in (13),
+consistently outperform standard GDM with optimal hyper-parameter configration Goh (2017).
+
+19
+
+Cautious Optimizers
+
+A.6. Pesudo Code
+See Algorithm 3 for the Cautious variant of the Lion optimizer.
+Algorithm 3 C-Lion Optimizer
+Require: learning rate ϵ, momentum coefficient β1 , β2 ∈ [0, 1), weight decay factor γ
+1: Initialize parameter vector wt
+2: Initialize t = 0, m0 = 0
+3: while wt not converged do
+4:
+t←t+1
+5:
+gt ← ∇w Lt (wt−1 )
+6:
+ut ← sign(β1 mt−1 + (1 − β1 ) · gt )
+7:
+mt ← β2 mt−1 + (1 − β2 ) · gt
+8:
+ϕt ← I(ut ◦ gt ≥ 0)
+ϵt = ϵt ∥ϕt ∥d +1
+9:
+0
+10:
+wt ← wt−1 − ϵt ϕt ◦ut
+// Masked update
+11:
+wt ← wt − ϵγwt
+12: end while
+
+{Get gradients at timestep t}
+{get the signed update}
+{update momentum}
+// Compute alignment mask
+// Scale lr, d is dimension of ϕt
+
+{Weight decay}
+
+B. Experiment Details
+Experiments (1, 7, 5) are run on a 4×80 GB A100 DGX box. Experiments (6) are done on 16× GH200’s.
+# Params
+60 M
+100 M
+350 M
+1B
+
+β1
+0.9
+0.9
+0.9
+0.9
+
+β2
+0.99
+0.99
+0.99
+0.95
+
+Learning rate (AdamW)
+0.001
+0.001
+0.001
+0.001
+
+Learning rate (Lion)
+0.0001
+0.0001
+0.0001
+0.0001
+
+weight decay
+0.0
+0.0
+0.0
+0.1
+
+Batch Size
+512
+512
+1024
+2048
+
+Table 3: Hyperparameters for LLM experiments. For 60M, 100M and 350M, we use β1 = 0.9, β2 = 0.99 and weight decay 0.0 on
+AdamW; For 1B model, we find that β1 = 0.9, β2 = 0.95 and weight decay 0.1 yield the best results. Sequence lengths of all models are
+256.
+
+# Params
+110 M
+
+β1
+0.9
+
+β2
+0.999
+
+Learning rate
+1.5×10−4
+
+weight decay
+0.05
+
+Table 4: Hyperparameters for MAE experiment.
+
+20
+
+Batch Size
+4096
+
+

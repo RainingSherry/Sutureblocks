@@ -1,0 +1,2255 @@
+Rethinking Local Perception in Lightweight Vision Transformer
+Qihang Fan1,2 , Huaibo Huang2,3 , Jiyang Guan2,3 , Ran He2,3 *
+1
+
+Tsinghua University, China
+MAIS & CRIPAC, Institute of Automation, Chinese Academy of Sciences, China
+3
+School of Artificial Intelligence, University of Chinese Academy of Sciences, China
+fqh19@mails.tsinghua.edu.cn, huaibo.huang@cripac.ia.ac.cn,
+guanjiyang2020@ia.ac.cn, rhe@nlpr.ia.ac.cn
+
+82
+
+Abstract
+Vision Transformers (ViTs) have been shown to be effective in various vision tasks. However, resizing them to a
+mobile-friendly size leads to significant performance degradation. Therefore, developing lightweight vision transformers has become a crucial area of research. This paper introduces CloFormer, a lightweight vision transformer that
+leverages context-aware local enhancement. CloFormer
+explores the relationship between globally shared weights
+often used in vanilla convolutional operators and tokenspecific context-aware weights appearing in attention, then
+proposes an effective and straightforward module to capture high-frequency local information. In CloFormer, we
+introduce AttnConv, a convolution operator in attention’s
+style. The proposed AttnConv uses shared weights to aggregate local information and deploys carefully designed
+context-aware weights to enhance local features. The combination of the AttnConv and vanilla attention which uses
+pooling to reduce FLOPs in CloFormer enables the model
+to perceive high-frequency and low-frequency information.
+Extensive experiments were conducted in image classification, object detection, and semantic segmentation, demonstrating the superiority of CloFormer. The code is available
+at https://github.com/qhfan/CloFormer
+
+1. Introduction
+Recently, Vision Transformers (ViTs) have demonstrated
+superior performance in various vision tasks, such as visual recognition, object detection, and semantic segmentation. After the original ViT was introduced by Dosovitskiy [10], several variants [33, 57, 58, 55, 27, 54] have
+been proposed to reduce computational complexity. For
+* Corresponding author.
+
+CloFormer
+EdgeViT
+ResT
+XCiT
+PVTv2
+MobileViT
+LVT
+PerViT
+
+80
+78
+Acc(%)
+
+arXiv:2303.17803v5 [cs.CV] 1 Jun 2023
+
+2
+
+76
+74
+72
+70
+0.0
+
+0.5
+
+1.0
+
+1.5
+2.0
+FLOPs(G)
+
+2.5
+
+3.0
+
+3.5
+
+Figure 1: Comparision among high-performance models.
+instance, Swin-Transformer [33] conducts attention in local non-overlapping windows, while PVT [55] uses average
+pooling to merge tokens. However, these ViTs are unsuitable for mobile devices due to their big model size and high
+FLOPs. And their performance degrades dramatically when
+directly scaled down to a mobile-friendly size. Therefore,
+recent works [37, 40, 62, 3, 69] have focused on exploring
+lightweight vision transformers to make ViTs applicable to
+mobile devices. For example, MobileViT [37] investigates
+how to combine CNNs with transformers, while MobileFormer [3] fuses lightweight MobileNet [20] with transformers. Additionally, the recent EdgeViT [40] proposes
+a local-global-local module to aggregate information. All
+of the above works aim to design mobile-friendly models
+with high performance, fewer parameters, and low FLOPs.
+However, in the existing lightweight models, most methods only focus on designing sparse attention to effectively
+process low-frequency global information while processing
+high-frequency local information using relatively simple
+
+methods. Specifically, most models, such as EdgeViT [40]
+and MobileViT [37], only use primitive convolution to
+extract local representations, and these methods only use
+globally shared weights that convolution has to deal with
+high-frequency local information. Other methods, such
+as LVT [62], first unfold tokens into windows and then
+uses attention [33] within the windows to obtain highfrequency information. These methods only use contextaware weights that are specific to each token for local
+perception. Although the above lightweight models have
+achieved good results on multiple datasets, no method attempts to design a more effective way that leverages the
+advantages of shared and context-aware weights to process
+high-frequency local information. Shared weights-based
+methods, such as traditional convolutional neural networks,
+have the characteristics of translation equivariance. Different from them, context-aware weights-based methods such
+as LVT [62] and NAT [16] have weights that can vary with
+input content. Both types of weights have their own advantages in local perception.
+To simultaneously leverage the advantages of shared
+and context-aware weights, we introduce CloFormer, a
+lightweight vision transformer with context-aware local
+enhancement. CloFormer employs a two-branch structure. In the local branch, we introduce our carefully designed AttnConv, a simple and effective convolution operator in attention’s style. The proposed AttnConv effectively
+fuses shared and context-aware weights to aggregate highfrequency local information. First, AttnConv utilizes depthwise convolution (DWconv), which has shared weights to
+extract local representations. Next, it deploys contextaware weights to enhance local features. Unlike previous
+methods that generate context-aware weights through local self-attention [33, 16, 62], AttnConv generates contextaware weights using a gating mechanism, which introduces
+stronger nonlinearity than commonly used attention mechanisms. AttnConv applies convolution operators to Q and
+K to aggregate local information, then computes the Hardmard product of Q and K, and performs a series of linear or
+nonlinear transformations on the results to generate contextaware weights within the range of [−1, 1]. It is noteworthy
+that AttnConv inherits the translation equivariance of convolution, as all its operators are based on convolution.
+As for the global branch, we use the vanilla attention but
+downsample the K and V to reduce FLOPs, which helps the
+model capture the low-frequency global information. In addition, a straightforward method is used to fuse the outputs
+of the local and global branches. This two-branch structure
+allows CloFormer to capture both high- and low-frequency
+information.
+Extensive experiments on popular vision tasks, such
+as ImageNet classification [7], COCO object detection/instance segmentation [32], and ADE20K semantic segmen-
+
+tation [73], demonstrate the superiority of our CloFormer.
+As depicted in Fig. 1, CloFormer achieves the best performance among models with similar FLOPs. Furthermore, in
+our ablation experiment, spectral analysis demonstrates that
+our approach, which combines a global and local branch,
+enables the perception of both high and low-frequency information.
+Our contributions are summarized as follows:
+• In CloFormer, we introduce a convolution operator
+called AttnConv, which adopts the style of attention
+and fully leverages the benefits of shared and contextaware weights for local perception. Furthermore, it
+uses a new approach that incorporates stronger nonlinearity than vanilla local self-attention for generating
+context-aware weights.
+• In CloFormer, we utilize a two-branch architecture
+where one branch captures high-frequency information using AttnConv, while the other branch captures
+low-frequency information using vanilla attention with
+downsampling. The two-branch structure enables CloFormer to capture high-frequency and low-frequency
+information simultaneously.
+• Our extensive experiments on image classification, object detection and semantic segmentation demonstrate
+the superiority of CloFormer. Notably, CloFormer
+achieves an accuracy of 77.0% on ImageNet1k with a
+mere 4.2M parameters and 0.6G FLOPs, outperforming other advanced models with comparable model
+sizes and FLOPs by a significant margin.
+
+2. Related Work
+Vision Transformers. Since its introduction in recent
+years, ViT [10] has quickly become a popular visual architecture due to its excellent global modeling capability. A
+series of works follow the original ViT and attain considerable improvement over it in terms of data efficiency [52, 53]
+and architecture design [57, 29, 8, 9, 1, 43, 5]. Among
+them, DeiT [52] reduces ViTs’ dependence on data through
+knowledge distillation, while others try to reduce its computational complexity [55, 63, 42, 41]. Most works reduce
+computational complexity by limiting the tokens that perform attention to a certain area [33, 9, 16, 62, 4]. The bestknown one is Swin-Transformer [33], which uses window
+self-attention to reduce FLOPs. Besides, some alternative
+approaches select tokens dynamically when performing attention [39, 45, 60]. Specifically, in the forward pass, tokens
+containing little information are pruned or pooled, so the
+computational complexity is reduced. All the above works
+try to improve ViT’s performance and make ViT flexible.
+Lightweight Vision Transformers. Most existing
+lightweight vision transformers (10M parameters and 2G
+
+Classifier
+
+Average pooling
+
+ConvFFN
+
+Clo block
+
+ConvFFN
+
+Clo block
+
+ConvFFN
+
+Clo block
+
+ConvFFN
+
+Clo block
+
+conv stem
+
+LN
+FC
+pool
+
+FC
+pool
+
+LN
+
+DWconv
+
+DWconv
+
+FC
+
+mul
+
+matmul
+
+FC
+
+GELU
+DWconv
+
+Swish
+
+softmax
+
+FC
+matmul
+
+Global
+
+Tanh
+cat
+FC
+
+LN
+DWconv
+(s=2)
+
+mul
+
+DWconv
+(s=1)
+FC
+
+Local
+
+Add
+
+FC
+GELU
+
+BN
+
+FC
+
+DWconv
+(s=2)
+FC
+
+Add
+
+Add
+
+in-stage
+
+downsample
+
+Figure 2: The illustration of CloFormer. CloFormer is constructed by connecting Clo block and ConvFFN in series. All
+depth-wise convolutions in the local branch have the stride of 1.
+FLOPs) are obtained by directly scaling down the large
+models [55, 38, 56, 11, 23, 64, 54]. However, when
+scaling down these models to a mobile-friendly size,
+their performance degrades dramatically. Therefore, in
+recent years, many works have focused on the design of
+lightweight transformers [40, 3, 37, 13]. MobileViT [37]
+is a well-known lightweight transformer that connects
+convolution with attention and achieves high performance
+with few parameters. While MobileFormer [3] combines
+transformer and MobileNet [20] in parallel. The recently
+proposed EdgeViT [40] uses a local-global-local module to
+aggregate information and get competitive results.
+Local Perception. Among existing methods, two approaches are commonly used to aggregate local information. One is to employ convolution with shared weights,
+which is a fundamental component of convolutional neural networks and utilized in all traditional CNNs [48, 18,
+21, 49, 35]. The other approach involves using contextaware weights closely related to local self-attention [62, 33,
+66, 26]. In LVT [62], tokens are unfolded into windows,
+and attention is performed within each window. In SwinTransformer [33], tokens are directly divided into windows,
+and the similarities among tokens within a window are computed. These methods all use similarity scores as contextaware weights. However, unlike existing works, in CloFormer, we attempt to effectively leverage the advantages
+of shared and context-aware weights in local perception.
+
+Moreover, we utilize a method with stronger nonlinearity
+than attention to generate context-aware weights.
+
+3. Method
+3.1. Overall architecture
+As depicted in Fig. 2, CloFormer has four stages and includes the Clo block, ConvFFN, and convolution stem. We
+first pass the input image through the convolution stem to
+obtain tokens. The stem is comprised of four convolutions,
+each with strides of 2, 2, 1, and 1, respectively. Subsequently, the tokens undergo four stages of Clo block and
+ConvFFN to extract hierarchical features. Finally, we leverage global average pooling and a fully-connected layer to
+generate predictions.
+ConvFFN. To incorporate local information into the FFN
+process, we replace the vanilla FFN with ConvFFN. The
+primary distinction between the ConvFFN and the commonly used FFN is that the ConvFFN employs a depthwise convolution (DWconv) following the GELU activation, which enables ConvFFN to aggregate local information. Thanks to the DWconv, downsampling can be performed directly within ConvFFN without introducing the
+PatchMerge module. CloFormer employs two types of ConvFFN. The first is in-stage ConvFFN, which utilizes the skip
+connection directly. The other is the ConvFFN which connects two stages. In the skip connection of this type of ConvFFN, the DWconv and fully-connected layer are utilized
+
+to downsample and up-dimension the input, respectively.
+Add
+
+Clo block. Clo blocks play a crucial role in CloFormer.
+Each block consists of a local branch and a global branch.
+In the global branch, as depicted in Fig. 2, we first downsample K and V , and then perform the standard attention
+process on Q, K, and V to extract low-frequency global
+information:
+
+Add
+
+Add
+FC
+
+FC
+
+context-aware
+
+FC
+
+context-aware
+
+(1)
+
+In addition to it, we utilize the proposed AttnConv as the
+local branch.
+
+shared
+
+Tanh
+
+Matmul
+
+FC
+
+shared
+
+Swish
+
+Softmax
+
+(DW)conv
+
+DWconv
+
+FC
+Mul
+
+Matmul
+DWconv
+
+Xglobal = Attntion(Qg , Pool(Kg ), Pool(Vg ))
+
+Mul
+
+DWconv
+
+FC
+
+FC
+
+FC
+
+(a) Convolution
+
+(b) Local Self-Attention
+
+(c) AttnConv
+
+Figure 3: Comparision among different methods.
+
+3.2. AttnConv
+
+overall process can be summarized as follows:
+
+The pattern of the global branch effectively reduces the
+number of FLOPs required for attention and also results in
+a global receptive field. However, while it effectively captures low-frequency global information, it has insufficient
+capacity to process high-frequency local information [47].
+To address this limitation, we use AttnConv as a solution.
+AttnConv is a crucial module that enables our model to
+achieve high performance. It incorporates some of the standard attention operations. Specifically, in AttnConv, we first
+apply a linear transformation to obtain the Q, K, and V ,
+which is the same as the standard attention:
+Q, K, V = FC(Xin )
+
+(2)
+
+In Eq. 2, Xin is the input of the AttnConv. FC denotes the
+fully-connected layer. After performing the linear transformation, we first conduct the local feature aggregation process with shared weights on V . Then, based on processed
+V and Q, K, we perform the context-aware local enhancement.
+Local Feature Aggregation. As shown in Fig. 2, for V ,
+we use a simple depth-wise convolution (DWconv) to aggregate local information. The weights of DWconv are
+globally shared:
+Vs = DWconv(V )
+
+(3)
+
+Context-aware Local Enhancement. After integrating
+local information for V with shared weights, we combine Q
+and K to generate context-aware weights. It is worth noting
+that we use a different approach from local self-attention,
+which is more elaborate. Specifically, we first use two DWconvs to aggregate local information for Q and K, respectively. Then, we calculate the Hadamard product of Q and
+K and perform a series of transformations on the result to
+obtain context-aware weights between −1 and 1. Finally,
+we use the generated weights to enhance local features. The
+
+Ql = DWconv(Q)
+Kl = DWconv(K)
+Attnt = FC(Swish(FC(Ql ⊙ Kl )))
+Attnt
+Attn = Tanh( √ )
+d
+Xlocal = Attn ⊙ Vs
+
+(4)
+
+In Eq. 4, d is the number of token’s channels, and ⊙ denotes
+the Hardmard product. Compared to vanilla attention, our
+method introduces stronger nonlinearity. Specifically, the
+only nonlinear operator in the context-aware weights generation process of local self-attention is Softmax. Nevertheless, in AttnConv, in addition to the Tanh, the Swish
+is conducted. The stronger nonlinearity leads to higherquality context-aware weights.
+Fusion with Global Branch. We use a straightforward
+method to fuse the output of the local branch with that of
+the global branch. Specifically, we concatenate the two outputs in the dimension of the channel. After that, a fullyconnected layer is applied to the channel dimension:
+Xt = Concat(Xlocal , Xglobal )
+Xout = FC(Xt )
+
+(5)
+
+3.3. Different Ways of Local Perception
+As shown in Fig. 3, we compare our AttnConv with traditional convolution and local self-attention. They all use
+residual structures. However, the operators used on their
+trunks are different.
+Convolution. The traditional residual block solely relies
+on convolution operators to gather high-frequency local information. As depicted in Fig. 3(a), for each token, the convolution operator performs a weighted sum on its neighboring tokens using the weights in the convolutional kernel.
+The weights in the kernel are globally shared and remain
+the same for different tokens.
+
+Model
+CloFormer-XXS
+CloFormer-XS
+CloFormer-S
+
+Blocks
+[2, 2, 6, 2]
+[2, 2, 6, 2]
+[2, 2, 6, 2]
+
+Channels
+[32, 64, 128, 256]
+[48, 96, 160, 352]
+[64, 128, 224, 448]
+
+Heads
+[4, 4, 8, 16]
+[3, 6, 10, 22]
+[4, 8, 14, 28]
+
+Kernel Size
+[3, 5, 7, 9]
+[3, 5, 7, 9]
+[3, 5, 7, 9]
+
+Params(M)
+4.2
+7.2
+12.3
+
+FLOPs(G)
+0.6
+1.1
+2.0
+
+Table 1: Architecture variants of CloFormer. The FLOPs are measured at resolution 224 × 224.
+Local Self-Attention. In contrast to convolution, local
+self-attention, as illustrated in Fig. 3(b), enables each token to gather information from its neighboring tokens by
+token-specific weights. This approach utilizes contextaware weights to extract high-frequency local representations, where tokens at different locations compute similarity
+scores with the neighboring tokens and gather information
+based on the similarity scores.
+AttnConv. We describe AttnConv in Fig. 3(c). After Q,
+K, and V are obtained through linear transformation, we
+first use shared weights (DWconv) to conduct information
+aggregation on V . After that, we use the method that employs stronger nonlinearity than traditional attention to generate context-aware weights. Then we use these weights to
+enhance local features. In our AttnConv, we leverage both
+shared and context-aware weights.
+Advantages of AttnConv. Compared to traditional convolution, the utilization of context-aware weights in AttnConv allows the model to better adapt to the input content
+during local perception. Compared to local self-attention,
+the introduction of shared weights enables our model to
+handle high-frequency information better, leading to improved performance. Besides, our approach for generating
+context-aware weights introduces stronger nonlinearity than
+local self-attention, which leads to better performance. It
+should be noted that all operations used in AttnConv are
+based on convolution, preserving the translation equivariance property of convolution.
+
+3.4. Implementation Details
+In Tab. 1, we present three variants of CloFormer based
+on the Clo block and ConvFFN. The ConvFFN expansion
+ratios are set to 4, and the kernel sizes are set to 5 for
+all ConvFFN layers. To capture high-frequency features in
+the early stages and low-frequency features in later stages,
+we gradually increase the kernel sizes used in AttnConv.
+Specifically, we set the kernel size of AttnConv to 3 in the
+first stage and 9 in the last stage.
+
+4. Experiment
+We conduct experiments on a variety of vision tasks,
+including image classification on ImageNet1K [7], object
+detection and instance segmentation on COCO 2017 [32],
+and semantic segmentation on ADE20K [73]. We pre-train
+CloFormer on ImageNet1K for visual recognition task and
+
+evaluate the generalization ability of CloFormer on COCO
+2017 and ADE20K for dense prediction. We also do ablation studies to validate the importance of critical components in CloFormer. Details about experimental settings and
+additional ablation studies can be found in Appendix.
+
+4.1. ImageNet1K Classification
+Experimental Settings. We benchmark CloFormer on
+ImageNet1K classification [7] and follow the same training
+strategy in DeiT [52]. We use the same data augmentation
+and regularization as DeiT, except for repeated augmentation and EMA. All our models are trained from scratch for
+300 epochs, and we set the input size to 224 × 224. As
+for the optimizer, we use AdamW [34] with a cosine decay learning rate scheduler. Following the DeiT, we set the
+initial learning rate, weight decay, and total batch size to
+0.001, 0.05, and 1024, respectively. The maximum rates of
+stochastic depth are set to 0/0.06/0.06 from XXS to S. For
+a fair comparison, we do not use other supervision methods
+such as distillation [52].
+Results. We report the ImageNet1K classification results
+in Tab. 2. The results demonstrate that our models perform better than previous models when they have similar model sizes and FLOPs. Specifically, the CloFormerXXS achieves 77.0% Top-1 accuracy with only 4.2M parameters and 0.6G FLOPs, which surpasses ShuffleNetV2
+2×, MobileViT-XS, and EdgeViT-XXS by 1.6%, 2.2% and
+2.6%, respectively. Moreover, CloFormer-XXS takes about
+half as many FLOPs as MobileViT-XS. Our CloFormerXS performs very similarly to QuadTree-B-b1 but requires
+only 53% of QuadTree-B-b1’s parameters and 48% of its
+FLOPs. As for models with about 12M parameters and
+2.0GFLOPs, our CloFormer-S surpasses VAN-B1 by 0.5%
+but uses fewer parameters and lower FLOPs. All above results verify CloFormer’s superiority.
+
+4.2. COCO Object Detection
+Experimental Settings. We conduct object detection and
+instance segmentation on COCO 2017 dataset [32]. Our experimental settings are following PVTv2 [56]. We use the
+RetinaNet [31] for object detection, and Mask R-CNN [17]
+with the FPN [30] for instance segmentation. During training, images are resized to have a shorter side of 800 pixels.
+For the two tasks, we use the backbones pretrained on ImageNet1K, and we finetune them on the COCO training set
+with the batch size of 16 and the AdamW optimizer whose
+
+Params FLOPs Top1 CPU
+GPU Mem
+(M)
+(G)
+(%) (ms) (imgs/s) (GB)
+PVTv2-B0 [56]
+3.4
+0.6
+70.5 44.5
+1682
+3.4
+MobileNetV1 [20]
+4.2
+0.6
+70.6 29.8
+3301
+3.8
+T2T-ViT-7 [65]
+4.3
+1.1
+71.7 42.8
+1762
+3.2
+3.5
+0.7
+72.0
+—
+885
+4.4
+QuadTree-B-b0 [51]
+PiT-Ti [19]
+4.9
+0.7
+73.0 31.6
+2262
+3.1
+EdgeViT-XXS [40]
+4.1
+0.6
+74.4 42.1
+1926
+2.6
+MobileNetV2 [46]×1.4
+6.1
+0.6
+74.7 34.5
+2442
+5.8
+MobileViT-XS [37]
+2.3
+1.1
+74.8 141.5 1367
+10.0
+5.5
+0.9
+74.8 63.1
+1265
+3.7
+LVT [62]
+VAN-B0 [14]
+4.1
+0.9
+75.4 90.1
+1662
+5.3
+5.5
+0.6
+75.4 36.2
+3855
+2.2
+ShuffleNetV22× [36]
+tiny-MOAT-0 [61]
+3.4
+0.8
+75.5 61.1
+2034
+6.5
+RegNetY-800MF [44]
+6.3
+0.8
+76.3 65.8
+2720
+2.5
+MobileFormer-214M [3]
+9.4
+0.2
+76.7 43.2
+1744
+3.7
+CloFormer-XXS
+4.2
+0.6
+77.0 44.1
+2425
+3.4
+DeiT-Ti [52]
+5.7
+1.3
+72.2 40.0
+2256
+2.7
+TNT-Tiny [15]
+6.1
+1.4
+73.9 78.2
+545
+5.4
+13.2
+1.6
+75.1 77.6
+1214
+4.8
+PVT-T [55]
+ViL-Tiny [70]
+6.7
+1.4
+76.3 71.2
+857
+4.7
+T2T-ViT-12 [65]
+6.9
+1.9
+76.5 59.8
+1307
+4.3
+6.7
+1.2
+77.1 62.5
+1672
+4.0
+XCiT-T12 [11]
+Rest-lite [71]
+10.5
+1.4
+77.2 71.3
+1123
+4.1
+CoaT-Lite-T [59]
+5.7
+1.6
+77.5 84.5
+1045
+5.6
+EdgeViT-XS [40]
+6.7
+1.1
+77.5 62.6
+1528
+3.4
+
+Params FLOPs Top1 CPU
+GPU Mem
+(M)
+(G)
+(%) (ms) (imgs/s) (GB)
+RegNetY-1.6GF [44]
+11.2
+1.6
+78.0 111.3 1241
+4.7
+PiT-XS [19]
+10.6
+1.4
+78.1 51.4
+1682
+3.7
+MPViT-T [25]
+5.8
+1.6
+78.2 111.3
+737
+8.1
+5.1
+1.2
+78.3 80.7
+1529
+8.0
+tiny-MOAT-1 [61]
+MobileViT-S [37]
+5.6
+2.0
+78.4 185.4
+898
+12.1
+ParC-Net-S [69]
+5.0
+1.7
+78.6 145.3 1321
+9.1
+PerViT-T [38]
+7.6
+1.6
+78.8 153.4 1402
+4.1
+EfficientNet-B1 [50]
+7.8
+0.7
+79.4 60.3
+1395
+8.6
+0.5
+79.3 64.2
+1654
+6.4
+MobileFormer-508m [3] 14.0
+CloFormer-XS
+7.2
+1.1
+79.8 62.4
+1676
+4.7
+PVTv2-B1 [55]
+13.1
+2.1
+78.7 103.6 1007
+6.3
+XCiT-T24 [11]
+12.1
+2.3
+79.4 119.1 1194
+7.0
+13.6
+2.3
+80.0
+—
+543
+7.9
+QuadTree-B-b1 [51]
+MPViT-XS [25]
+10.5
+2.9
+80.9 153.6
+597
+10.5
+23.5
+2.9
+80.9 93.6
+1042
+5.7
+PiT-S [19]
+EdgeViT-S [40]
+11.1
+1.9
+81.0 96.8
+1049
+5.1
+tiny-MOAT-2 [61]
+9.8
+2.3
+81.0 122.1 1047
+11.0
+21.0
+4.0
+81.5 122.5
+776
+6.8
+RegNetY-4GF [44]
+EfficientNet-B3 [50]
+12.0
+1.8
+81.6 124.2
+634
+18.7
+VAN-B1 [14]
+13.9
+2.5
+81.1 155.2
+995
+7.6
+24.5
+3.8
+79.8 136.3
+677
+8.1
+PVT-S [55]
+DeiT-S [52]
+22.1
+4.6
+79.9 113.6
+899
+5.5
+Swin-T [33]
+28.3
+4.5
+81.3 184.3
+664
+7.7
+CloFormer-S
+12.3
+2.0
+81.6 93.1
+1186
+6.3
+
+Model
+
+Model
+
+Table 2: Comparison on ImageNet-1K classification. We measure the latency of models on Intel Core i9 with batch size of
+1, and their throughput/memory peak on V100 32G with batch size of 64. The lower the latency on the CPU and the higher
+the throughput on the GPU, the faster inference speed of the model.
+Backbone
+PVTv2-B0 [56]
+QuadTree-B-b0 [51]
+EdgeViT-XXS [40]
+CloFormer-XXS
+MobileFormer-294 [3]
+DFvT-S [12]
+EdgeViT-XS [40]
+ViL-Tiny [70]
+MPViT-T [25]
+CloFormer-XS
+ResNet18 [18]
+PoolFormer-S12 [64]
+PVTv1-Tiny [55]
+EfficientFormer-L1 [28]
+ResT-Small [71]
+PVTv2-B1 [56]
+VAN-B1 [14]
+QuadTree-B-b1 [51]
+MPViT-XS [25]
+EdgeViT-S[40]
+CloFormer-S
+
+Par(M)
+13.0
+13.1
+13.1
+13.4
+16.1
+16.3
+16.6
+17
+16.6
+21.3
+21.7
+23.0
+23.4
+23.8
+23.6
+23.8
+20
+22.6
+22.0
+
+AP
+37.2
+38.4
+38.7
+39.6
+36.6
+40.6
+40.8
+41.8
+42.2
+31.8
+36.2
+36.7
+40.3
+41.2
+42.3
+42.6
+43.8
+43.4
+43.9
+
+RetinaNet 1×
+AP50 AP75 APS
+57.2
+39.5
+23.1
+58.7
+41.1
+22.5
+59.0
+41.0
+22.4
+60.3
+42.1
+24.2
+56.6
+38.6
+21.9
+61.3
+43.3
+25.2
+61.3
+43.6
+26.7
+62.7
+44.6
+27.2
+63.2
+44.9
+26.6
+49.6
+33.6
+16.3
+56.2
+38.2
+20.8
+56.9
+38.9
+22.6
+61.3
+42.7
+25.7
+61.9
+43.9
+25.4
+63.1
+45.1
+26.1
+63.6
+45.3
+26.8
+65.0
+47.1
+28.1
+64.9
+46.5
+26.9
+65.1
+47.2
+27.2
+
+APM
+40.4
+41.7
+42.0
+43.1
+39.5
+43.9
+44.9
+45.1
+45.7
+34.3
+39.1
+38.8
+43.7
+44.5
+46.2
+46.1
+47.6
+47.5
+47.6
+
+APL
+49.7
+51.6
+51.6
+53.2
+47.9
+54.6
+53.6
+54.2
+56.4
+43.2
+48.0
+50.0
+51.2
+54.3
+54.1
+57.2
+56.5
+58.1
+58.2
+
+Par(M)
+23.5
+23.7
+23.8
+23.9
+32
+26.5
+26.9
+28
+26.9
+31.2
+31.6
+32.9
+31.9
+33.3
+33.7
+33.5
+33.6
+30
+32.8
+32.0
+
+AP b
+38.2
+38.8
+39.9
+40.3
+39.2
+41.4
+41.4
+42.2
+42.9
+34.0
+37.3
+36.7
+37.9
+39.6
+41.8
+42.6
+43.5
+44.2
+44.8
+45.1
+
+Mask R-CNN 1×
+b
+b
+AP50
+AP75
+AP m
+60.5
+40.7
+36.2
+60.7
+42.1
+36.5
+62.0
+43.1
+36.9
+62.6
+43.4
+37.3
+62.2
+42.4
+36.3
+63.7
+45.0
+38.3
+63.5
+45.0
+38.1
+64.2
+45.8
+39.0
+65.1
+47.1
+39.2
+54.0
+36.7
+31.2
+59.0
+40.1
+34.6
+59.2
+39.3
+35.1
+60.3
+41.0
+35.4
+62.9
+42.3
+37.2
+64.3
+45.9
+38.8
+64.2
+46.7
+38.9
+65.6
+47.6
+40.1
+66.7
+48.4
+40.4
+67.4
+48.9
+41.0
+67.8
+49.1
+41.4
+
+m
+AP50
+57.8
+58.0
+59.0
+59.6
+58.9
+60.9
+60.3
+61.4
+61.6
+51.0
+55.8
+56.7
+57.3
+59.8
+61.2
+61.2
+62.6
+63.4
+64.2
+64.7
+
+m
+AP75
+38.6
+39.1
+39.4
+39.5
+38.6
+41.3
+40.8
+41.8
+42.4
+32.7
+36.9
+37.3
+37.3
+39.7
+41.6
+41.7
+43.3
+43.4
+43.8
+44.2
+
+Table 3: Comparison to other backbones using RetinaNet and Mask-RCNN on COCO val2017 object detection and instance
+segmentation. ”Par” is the number of parameters.
+initial learning rate is set to 1 × 10−4 . Our implementation
+of coco object detection is based on MMDetection [2].
+Results. Tab. 3 shows the results with RetinaNet and
+Mask R-CNN in 1× schedule. The CloFormer achieves the
+best performance almost in all comparisons. As for Reti-
+
+naNet, our CloFormer-XXS surpasses the recent EdgeViT
+by +0.9 box AP, and CloFormer-XS outperforms MPViT-T
+by +0.4 box AP. When we use Mask R-CNN, CloFormerXXS surpasses EdgeViT-XXS by +0.4 box AP and +0.4
+mask AP.
+
+shared
+
+context-aware+shared
+
+attention
+
+shared
+
+(a) 2nd stage
+
+context-aware+shared
+
+attention
+
+(b) 3rd stage
+
+Figure 4: Spectral analysis of CloFormer.
+
+4.3. ADE20K Semantic Segmentation
+Experimental Settings. We conducted semantic segmentation on the ADE20K dataset [73] with the Semantic
+FPN [24]. The pretrained CloFormer is incorporated into
+the Semantic FPN. Following EdgeViT [40], during training, we create 512 × 512 random crops of the images, and
+during inference, we resize the images to have a shorter side
+of 512 pixels. We finetune the model for 80K iterations on
+ADE20K training set with AdamW, which uses an initial
+learning rate of 1 × 10−4 . The batch size is set to 16, and
+we report the mean Intersection over Union (mIoU) score
+on the validation set.
+Results. In Tab. 4, we compare our CloFormer to previous ViTs and CNNs in the framework of Semantic
+FPN [24]. CloFormer achieves the best performance among
+these models. Specifically, our CloFormer-XXS outperforms EdgeViT-XXS by +0.7, and CloFormer-XS surpasses
+EdgeViT-XS by +1.0 in mIoU.
+Semantic FPN
+Params(M) FLOPs(G) mIoU(%)
+PVTv2-B0 [56]
+7.6
+25.0
+37.2
+VAN-B0 [14]
+8
+26
+38.5
+EdgeViT-XXS [40]
+7.9
+24.4
+39.7
+CloFormer-XXS
+8.1
+25.2
+40.4
+EdgeViT-XS [40]
+10.6
+27.7
+41.4
+11.1
+28.2
+42.4
+CloFormer-XS
+ResNet18 [18]
+15.5
+32.2
+32.9
+PVTv1-Tiny [55]
+17.0
+33.2
+35.7
+PoolFormer [64]
+16.2
+31.0
+37.2
+17.8
+34.2
+42.5
+PVTv2-B1 [56]
+VAN-B1 [14]
+18
+35
+42.9
+CloFormer-S
+16.2
+34.6
+44.2
+Backbone
+
+Table 4: Semantic segmentation results on the validation set
+of ADE20K.
+
+4.4. Ablation study
+In this section, we decouple the Clo block into multiple
+modules, and conduct detailed ablation studies. We verify
+the role of each part of AttnConv on ImageNet classifica-
+
+tion, COCO object detection, and ADE20K semantic segmentation.
+Spectral Analysis. For spectrum analysis, we select two
+feature maps from the second and third stages of CloFormer. In Fig. 4, we compare three feature maps: one that
+uses only shared weights (part of AttnConv), another that
+employs context-aware+shared weights (the full AttnConv),
+and a third that only utilizes the global branch. Our analysis
+indicates that the full AttnConv captures a greater number
+of high-frequency features as compared to shared weights
+only, while the attention branch is particularly effective at
+aggregating low-frequency features.
+ConvFFN. We first conduct experiments using a CloFormer model containing only the global branch. Moreover, we increase the kernel size of the DWconv in ConvFFN from 3 to 5. As shown in Tab. 5, the model performs
+better with a larger kernel size. With the addition of ConvFFN, whose kernel size is 5, the model’s performance is
+comparable to that of LVT [62]. The result demonstrates
+that ConvFFN’s DWconv has already captured some highfrequency local information.
+Shared Weights. Tab. 5 demonstrates that despite ConvFFN already capturing high-frequency local features, the
+inclusion of the local branch in addition to the global branch
+further improves model performance, even when only
+shared weights are utilized to aggregate high-frequency information. Specifically, the model’s performance improves
+by 0.5%, while the number of parameters decreases by
+0.1M. These results suggest that the integration of high- and
+low-frequency information can provide additional benefits
+to the model.
+Directly use Q and K. We introduce context-aware
+weights after adding shared weights. Initially, we directly
+use the Hardmard product of Q and K as the context-aware
+weights. However, we observe a significant slowdown in
+the model’s convergence rate when nothing is done to the
+Hardmard product of Q and K. In fact, under these circumstances, the model’s accuracy decreases by 2.9% when
+compared to using only shared weights.
+
+Model
+only global branch (3 × 3)
+3×3→
+− 5×5
++shared weights
++Q ⊙ K
++Tanh
++DWconv
++FC
++Swish (full AttnConv)
+only global branch
+only local branch
+global branch+shared weights
+global branch+context-aware weights
+CloFormer
+
+Params(M)
+3.6
+4.0
+3.9
+4.0
+4.0
+4.1
+4.2
+4.2
+4.0
+4.7
+3.9
+4.1
+4.2
+
+ImageNet1K
+FLOPs(G)
+0.52
+0.58
+0.55
+0.59
+0.59
+0.60
+0.62
+0.62
+0.58
+0.69
+0.55
+0.62
+0.62
+
+COCO
+AP b AP m
+36.0
+34.2
+37.0
+34.8
+38.4
+35.3
+—
+—
+39.6
+36.3
+40.1
+36.7
+40.1
+36.9
+40.3
+37.3
+37.0
+34.8
+39.9
+36.8
+38.4
+35.3
+39.7
+36.7
+40.3
+37.3
+
+Top-1(%)
+74.1
+74.7
+75.2
+72.3
+76.0
+76.4
+76.5
+77.0
+74.7
+76.7
+75.2
+76.4
+77.0
+
+ADE20K
+mIoU
+36.7
+37.2
+38.6
+—
+39.2
+39.9
+39.9
+40.4
+37.2
+40.0
+38.6
+39.6
+40.4
+
+Table 5: Ablation of CloFormer.
+Model
+shared weights
+context-aware (attention)+shared weights
+AttnConv
+
+Params(M)
+3.9
+4.0
+4.2
+
+ImageNet1K
+FLOPs(G)
+0.55
+0.61
+0.62
+
+COCO
+AP b AP m
+38.4
+35.3
+39.2
+36.1
+40.3
+37.3
+
+Top-1(%)
+75.2
+75.8
+77.0
+
+ADE20K
+mIoU
+38.6
+39.5
+40.4
+
+Table 6: Comparison among shared weighs, context-aware (attention)+shared weights, and AttnConv.
+Add Tanh. Continuing from the previous step, we introduce context-aware weights that are activated using the
+Tanh. We then use the resulting weights to enhance local features. The impact of this approach is evident from
+Tab. 5, where the addition of Tanh leads to a significant
+improvement in the convergence rate of the model, with a
+significantly higher Top1-acc compared to the original case
+after 300 epochs of training. This improved performance
+can be attributed to the weight normalization provided by
+Tanh, which constrains the weights between -1 and 1.
+Add DWconv. Before calculating the Hadamard product
+of Q and K, we incorporate two DWconvs to aggregate the
+local information for both Q and K. The impact of this step
+is apparent from Tab. 5, where we observe improved model
+performance. This underscores the importance of incorporating local information in the context-aware weights generation process. By adding high-frequency local information,
+the model can generate high-quality context-aware weights,
+ultimately resulting in better performance. In fact, this step
+has brought about an increase of 0.4% in the classification
+accuracy of our model.
+Effect of Nonlinearity. We extend the process of generating context-aware weights by including two fully-connected
+layers in addition to Tanh and DWconv. However, the
+addition of the linear transformation alone, as demonstrated
+in Tab. 5, does not provide significant improvement to the
+model’s performance. Then, we introduce the Swish func-
+
+tion between the two fully-connected layers to enhance the
+nonlinearity of the weight generation process. Our experiments, as shown in Tab. 5, demonstrate that the inclusion of
+Swish has led to a significant improvement (0.5%) in the
+model’s performance. More experiments can be found in
+Appendix.
+Add
+
+Add
+
+Add
+FC
+
+FC
+FC
+
+context-aware
+
+shared
+
+FC
+Swish
+
+Softmax
+
+DWconv
+
+DWconv
+
+(a) shared weights
+
+DWconv
+
+FC
+Mul
+
+Matmul
+FC
+
+shared
+
+Tanh
+
+Matmul
+
+shared
+DWconv
+
+Mul
+
+context-aware
+
+FC
+
+(b) context-aware(attention)+shared weights
+
+DWconv
+FC
+
+(c) AttnConv
+
+Figure 5: Transformation from convolution to AttnConv.
+Local&&Global Branch. As shown in Tab. 5, we compare the model’s performance of using only the local
+branch, only the global branch, and the complete CloFormer. The complete CloFormer outperforms using only
+the local branch by 0.3% and using only the global branch
+by 2.3%.
+Context-aware&&Shared weights. As shown in Tab. 5,
+we investigated the model’s performance when combining
+
+the global branch with either shared weights or contextaware weights. When using only shared weights to extract high-frequency local information, the Top1 accuracy
+of classification is 1.8% lower compared to using the complete AttnConv. Similarly, when using only context-aware
+weights, the result is 0.6% lower. These results fully
+demonstrate the rationality of AttnConv.
+Context-aware Weights Generation. We compared our
+method for context-aware weights generation with local
+self-attention (window self-attention), conducting experiments on three approaches of local feature extraction, as
+shown in Fig. 5. These approaches include: (a) Standard convolution that only uses shared weights; (b) a
+combination of context-aware weights and shared weights,
+where context-aware weights are calculated by window
+self-attention; and (c) our AttnConv. As shown in Tab. 6,
+AttnConv achieves performance improvement at the cost of
+a slight increase in the number of parameters. The gradual
+transformation from convolution to AttnConv verifies the
+validity of AttnConv. Specifically, compared to (b) in Fig. 5,
+our AttnConv achieves an advantage of 1.2% on top1 accuracy, +1.1 on box AP, +1.2 on mask AP, and +0.9 on mIoU.
+More experiments can be found in Appendix.
+
+5. Conclusion
+In this paper, we propose CloFormer, a lightweight vision transformer with context-aware local enhancement,
+and develop a novel method for local perception. Our CloFormer achieves competitive performance among models
+with similar FLOPs and model sizes. Moreover, the carefully designed AttnConv extracts high-frequency local representations effectively by making full use of the shared
+weights and context-aware weights. In addition, we use a
+two-branch structure to mix the high- and low-frequency
+information. The AttnConv and the structure enable our
+model to excel in various visual tasks. Extensive experiments demonstrate that CloFormer is a solid, lightweight
+vision backbone that outperforms many existing backbones.
+
+References
+[1] Moab Arar, Ariel Shamir, Amit H. Bermano, et al. Learned
+queries for efficient local attention. In CVPR, 2022.
+[2] Kai Chen, Jiaqi Wang, Jiangmiao Pang, et al. MMDetection: Open mmlab detection toolbox and benchmark. arXiv
+preprint arXiv:1906.07155, 2019.
+[3] Yinpeng Chen, Xiyang Dai, Dongdong Chen, et al. Mobileformer: Bridging mobilenet and transformer. In CVPR,
+2022.
+[4] Xiangxiang Chu, Zhi Tian, Yuqing Wang, Bo Zhang, Haibing Ren, Xiaolin Wei, Huaxia Xia, and Chunhua Shen.
+Twins: Revisiting the design of spatial attention in vision
+transformers. In NeurIPS, 2021.
+
+[5] Xiangxiang Chu, Zhi Tian, Bo Zhang, Xinlong Wang, and
+Chunhua Shen. Conditional positional encodings for vision
+transformers. In ICLR, 2023.
+[6] Ekin D Cubuk, Barret Zoph, Jonathon Shlens, et al. Randaugment: Practical automated data augmentation with a reduced search space. In CVPRW, 2020.
+[7] Jia Deng, Wei Dong, Richard Socher, et al. Imagenet: A
+large-scale hierarchical image database. In CVPR, 2009.
+[8] Mingyu Ding, Bin Xiao, Noel Codella, et al. Davit: Dual
+attention vision transformers. In ECCV, 2022.
+[9] Xiaoyi Dong, Jianmin Bao, Dongdong Chen, et al. Cswin
+transformer: A general vision transformer backbone with
+cross-shaped windows. In CVPR, 2022.
+[10] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+et al. An image is worth 16x16 words: Transformers for
+image recognition at scale. In ICLR, 2021.
+[11] Alaaeldin El-Nouby, Hugo Touvron, Mathilde Caron, et al.
+Xcit: Cross-covariance image transformers. In NeurIPS,
+2021.
+[12] Li Gao, Dong Nie, Bo Li, and Xiaofeng Ren. Doubly-fused
+vit: Fuse information from vision transformer doubly with
+local representation. In ECCV, 2022.
+[13] Benjamin Graham, Alaaeldin El-Nouby, Hugo Touvron, and
+Pierre Stock. Levit: a vision transformer in convnet’s clothing for faster inference. In ICCV, 2021.
+[14] Meng-Hao Guo, Cheng-Ze Lu, Zheng-Ning Liu, Ming-Ming
+Cheng, and Shi-Min Hu. Visual attention network. arXiv
+preprint arXiv:2202.09741, 2022.
+[15] Kai Han, An Xiao, Enhua Wu, et al. Transformer in transformer. In NeurIPS, 2021.
+[16] Ali Hassani, Steven Walton, Jiachen Li, et al. Neighborhood
+attention transformer. In CVPR, 2022.
+[17] Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross B.
+Girshick. Mask r-cnn. In ICCV, 2017.
+[18] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Sun Jian.
+Deep residual learning for image recognition. In CVPR,
+2016.
+[19] Byeongho Heo, Sangdoo Yun, Dongyoon Han, et al. Rethinking spatial dimensions of vision transformers. In ICCV,
+2021.
+[20] Andrew Howard, Mark Sandler, Grace Chu, et al. Searching
+for mobilenetv3. In ICCV, 2019.
+[21] Gao Huang, Zhuang Liu, Laurens van der Maaten, and Kilian Q Weinberger. Densely connected convolutional networks. In CVPR, 2017.
+[22] Gao Huang, Yu Sun, and Zhuang Liu. Deep networks with
+stochastic depth. In ECCV, 2016.
+[23] Huaibo Huang, Xiaoqiang Zhou, and Ran He. Orthogonal
+transformer: An efficient vision transformer backbone with
+token orthogonalization. In NeurIPS, 2022.
+[24] Alexander Kirillov, Ross Girshick, Kaiming He, and Piotr
+Dollár. Panoptic feature pyramid networks. In CVPR, 2019.
+[25] Youngwan Lee, Jonghee Kim, Jeffrey Willette, and Sung Ju
+Hwang. Mpvit: Multi-path vision transformer for dense prediction. In CVPR, 2022.
+
+[26] Duo Li, Jie Hu, Changhu Wang, Xiangtai Li, Qi She, Lei
+Zhu, Tong Zhang, and Qifeng Chen. Involution: Inverting the inherence of convolution for visual recognition. In
+CVPR, 2021.
+[27] Kunchang Li, Yali Wang, Peng Gao, et al. Uniformer: Unified transformer for efficient spatial-temporal representation
+learning. In ICLR, 2022.
+[28] Yanyu Li, Geng Yuan, Yang Wen, et al. Efficientformer:
+Vision transformers at mobilenet speed. In NeurIPS, 2022.
+[29] Yawei Li, Kai Zhang, Jiezhang Cao, Radu Timofte, and Luc
+Van Gool. Localvit: Bringing locality to vision transformers.
+arXiv preprint arXiv:2104.05707, 2021.
+[30] Tsung-Yi Lin, Piotr Dollár, and Ross Girshick. Feature pyramid networks for object detection. In CVPR, 2017.
+[31] Tsung-Yi Lin, Priya Goyal, Ross B. Girshick, and Kaiming He andPiotr Dollár. Focal loss for dense object detection.
+In ICCV, 2017.
+[32] Tsung-Yi Lin, Michael Maire, Serge Belongie, et al. Microsoft coco: Common objects in context. In ECCV, 2014.
+[33] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+ICCV, 2021.
+[34] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. In ICLR, 2019.
+[35] Lin M, Chen Q, and Yan S. Network in network. In ICLR,
+2014.
+[36] Ningning Ma, Xiangyu Zhang, Hai-Tao Zheng, et al. Shufflenet v2: Practical guidelines for efficient cnn architecture
+design. In ECCV, 2018.
+[37] Sachin Mehta and Mohammad Rastegari. Mobilevit: Lightweight, general-purpose, and mobile-friendly vision transformer. In ICLR, 2022.
+[38] Juhong Min, Yucheng Zhao, Chong Luo, et al. Peripheral
+vision transformer. In NeurIPS, 2022.
+[39] Bowen Pan, Rameswar Panda, Yifan Jiang, et al. Ia-red2 :
+Interpretability-aware redundancy reduction for vision transformers. In NeurIPS, 2021.
+[40] Junting Pan, Adrian Bulat, Fuwen Tan, et al. Edgevits: Competing light-weight cnns on mobile devices with vision transformers. In ECCV, 2022.
+[41] Zizheng Pan, Jianfei Cai, and Bohan Zhuang. Fast vision
+transformers with hilo attention. In NeurIPS, 2022.
+[42] Zizheng Pan, Bohan Zhuang, Haoyu He, Jing Liu, and Jianfei Cai. Less is more: Pay less attention in vision transformers. In AAAI, 2022.
+[43] Zhiliang Peng, Wei Huang, Shanzhi Gu, et al. Conformer:
+Local features coupling global representations for visual
+recognition. In ICCV, 2021.
+[44] Ilija Radosavovic, Raj Prateek Kosaraju, Ross Girshick,
+Kaiming He, and Piotr Dollár. Designing network design
+spaces. In CVPR, 2020.
+[45] Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie
+Zhou, and Cho-Jui Hsieh. Dynamicvit: Efficient vision
+transformers with dynamic token sparsification. In NeurIPS,
+2021.
+
+[46] M. Sandler, A. Howard, M. Zhu, et al. Mobilenetv2: Inverted
+residuals and linear bottlenecks. In CVPR, 2018.
+[47] Chenyang Si, Weihao Yu, Pan Zhou, Yichen Zhou, Xinchao Wang, and Shuicheng YAN. Inception transformer. In
+NeurIPS, 2022.
+[48] Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale image recognition. In ICLR,
+2015.
+[49] Christian Szegedy, Wei Liu, Yangqing Jia, et al. Going
+deeper with convolutions. In CVPR, 2015.
+[50] Mingxing Tan and Quoc Le. Efficientnet: Rethinking model
+scaling for convolutional neural networks. In ICML, 2019.
+[51] Shitao Tang, Jiahui Zhang, Siyu Zhu, et al. Quadtree attention for vision transformers. In ICLR, 2022.
+[52] Hugo Touvron, Matthieu Cord, Matthijs Douze, et al. Training data-efficient image transformers & distillation through
+attention. In ICML, 2021.
+[53] Hugo Touvron, Matthieu Cord, Alexandre Sablayrolles,
+Gabriel Synnaeve, and Hervé Jégou. Going deeper with image transformers. CoRR, abs/2103.17239, 2021.
+[54] Zhengzhong Tu, Hossein Talebi, Han Zhang, et al. Maxvit:
+Multi-axis vision transformer. In ECCV, 2022.
+[55] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao
+Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao.
+Pyramid vision transformer: A versatile backbone for
+dense prediction without convolutions. arXiv preprint
+arXiv:2103.15808, 2021.
+[56] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao
+Song, Ding Liang, Tong Lu, Ping Luo, and Ling Shao.
+Pvtv2: Improved baselines with pyramid vision transformer.
+Computational Visual Media, 8(3):1–10, 2022.
+[57] Haiping Wu, Bin Xiao, Noel Codella, Mengchen Liu,
+Xiyang Dai, Lu Yuan, and Lei Zhang. Cvt: Introducing convolutions to vision transformers. arXiv preprint
+arXiv:2103.15808, 2021.
+[58] Zhuofan Xia, Xuran Pan, Shiji Song, Li Erran Li, and Gao
+Huang. Vision transformer with deformable attention. In
+CVPR, 2022.
+[59] Weijian Xu, Yifan Xu, Tyler Chang, and Zhuowen Tu. Coscale conv-attentional image transformers. In ICCV, 2021.
+[60] Yifan Xu, Zhijie Zhang, Mengdan Zhang, Kekai Sheng, Ke
+Li, Weiming Dong, Liqing Zhang, Changsheng Xu, and
+Xing Sun. Evo-vit: Slow-fast token evolution for dynamic
+vision transformer. In AAAI, 2022.
+[61] Chenglin Yang, Siyuan Qiao, Qihang Yu, Xiaoding Yuan,
+Yukun Zhu, Alan Yuille, Hartwig Adam, and Liang-Chieh
+Chen. Moat: Alternating mobile convolution and attention
+brings strong vision models. In ICLR, 2023.
+[62] Chenglin Yang, Yilin Wang, Jianming Zhang, et al. Lite
+vision transformer with enhanced self-attention. In CVPR,
+2022.
+[63] Jianwei Yang, Chunyuan Li, Pengchuan Zhang, Xiyang Dai,
+Bin Xiao, Lu Yuan, and Jianfeng Gao. Focal self-attention
+for local-global interactions in vision transformers, 2021.
+[64] Weihao Yu, Mi Luo, Pan Zhou, Chenyang Si, Yichen Zhou,
+Xinchao Wang, Jiashi Feng, and Shuicheng Yan. Metaformer
+is actually what you need for vision. In CVPR, 2022.
+
+[65] Li Yuan, Yunpeng Chen, Tao Wang, et al. Tokens-to-token
+vit: Training vision transformers from scratch on imagenet.
+In ICCV, 2021.
+[66] Li Yuan, Qibin Hou, Zihang Jiang, Jiashi Feng, and
+Shuicheng Yan. Volo: Vision outlooker for visual recognition. TPAMI, 2022.
+[67] Sangdoo Yun, Dongyoon Han, Seong Joon Oh, et al. Cutmix: Regularization strategy to train strong classifiers with
+localizable features. In ICCV, 2019.
+[68] Hongyi Zhang, Moustapha Cisse, Yann N Dauphin, et al.
+mixup: Beyond empirical risk minimization. In ICLR, 2018.
+[69] Haokui Zhang, Wenze Hu, and Xiaoyu Wang. Parc-net: Position aware circular convolution with merits from convnets
+and transformer. In ECCV, 2022.
+[70] Pengchuan Zhang, Xiyang Dai, Jianwei Yang, Bin Xiao, Lu
+Yuan, Lei Zhang, and Jianfeng Gao. Multi-scale vision longformer: A new vision transformer for high-resolution image
+encoding. In ICCV, 2021.
+[71] Qinglong Zhang and Yu bin Yang. Rest: An efficient transformer for visual recognition. In NeurIPS, 2021.
+[72] Zhun Zhong, Liang Zheng, Guoliang Kang, et al. Random
+erasing data augmentation. In AAAI, 2020.
+[73] Bolei Zhou, Hang Zhao, Xavier Puig, et al. Scene parsing
+through ade20k dataset. In CVPR, 2017.
+
+A. Implementation Details
+A.1. Architecture Details
+The detailed architectures are shown in Tab. 12, where
+all variants use the input size of 2242 . In the three variants
+of CloFormer, we only modify the channel dimensions of
+the stages, while the depth of the four stages in different
+variants are fixed at [2, 2, 6, 2]. We measure the FLOPs
+for image classification at resolution and 224 × 224, where
+we use a global average pooling layer and a fully-connected
+layer to get the output.
+
+A.2. Image Classification
+
+We found from the experimental results that using Q ⊙ K
+achieved a performance advantage of +0.6 compared to using Q alone while incurring only a negligible increase in the
+number of parameters and FLOPs.
+Model
+only Q
+Q⊙K
+
+Params(M)
+4.0
+4.2
+
+FLOPs(G)
+0.60
+0.62
+
+Top-1 acc(%)
+76.4
+77.0
+
+Table 7: Ablation of K.
+
+B.2. Nonlinearity in Context-aware Generation
+
+We follow the same training strategy with DeiT [52].
+All models are trained for 300 epochs from scratch. The
+AdamW optimizer with a cosine decay learning rate scheduler is used to train the model. Moreover, the initial
+learning rate, weight decay, and batch size are 0.001,
+0.05, and 1024, respectively. Our augmentation settings
+are RandAugment [6] (randm9-mstd0.5-inc1), Mixup [68]
+(prob=0.8), CutMix [67] (prob=1.0), Random Erasing [72]
+(prob=0.25), increasing stochastic depth [22] (prob=0, 0.06,
+0.06 for CloFormer-XXS, CloFormer-XS, and CloFormerS, respectively).
+
+Add
+FC
+Mul
+Tanh
+FC
+Swish
+
+DWconv
+
+FC
+Mul
+DWconv
+
+DWconv
+FC
+
+A.3. COCO Object Detection
+Based on MMDetection [2], we use Mask-RCNN [17]
+and RetinaNet [31] to conduct object detection and instance
+segmentation. All models are trained with ”1×” schedules
+(12 epochs), and images are resized to the shorter side of
+800 pixels while the longer side is within 1333 pixels. The
+AdamW optimizer is used with a learning rate of 0.0001,
+weight decay of 0.0001, and the total batch size is set to 16.
+Similar to other works [23, 42, 41], the learning rate in our
+models declines with the decay rate of 0.1 at epoch 8 and
+epoch 11.
+
+A.4. ADE20K Semantic Segmentation
+The well-known semantic segmentation framework: Semantic FPN [24] is adopted to evaluate our backbones. We
+follow the same setting with PVT [55] and EdgeViT [40],
+and use the ”1×” schedule (trained for 80k iterations).
+All the models are trained with the input resolution of
+512 × 512. When testing the model, we resize the shorter
+side of the image to 512 pixels.
+
+B. More Ablation and Analysis Results
+B.1. Ablation of K in AttnConv
+In AttnConv, we computed the Hadamard product of
+Q and K during the process of generating context-aware
+weights. Here, we eliminate K and only use Q to generate context-aware weights. The results are shown in Tab. 7.
+
+Figure 6: Illustration of our nonlinearity component.
+In AttnConv, we have introduced stronger non-linearity
+compared to commonly used attention mechanisms during
+the process of generating context-aware weights. In this
+section, we attempt to introduce even stronger non-linearity
+than that in the main text and have found that the model’s
+performance still improves. As shown in Fig. 6, our nonlinear component consists of Swish and Tanh, connected by
+a fully-connected layer. In this part, we analyzed the performance of the model under different scenarios, including using only Tanh, adding one Swish, adding two Swish, and
+adding three Swish. The experimental results are shown in
+Tab. 8. We found that after incorporating additional Swish,
+there was still a performance improvement in the classification results.
+Model
+only Tanh
++FC
++Swish
++FC
++Swish
++FC
++Swish
+
+Params(M)
+4.1
+4.2
+4.2
+4.2
+4.2
+4.2
+4.2
+
+FLOPs(G)
+0.60
+0.62
+0.62
+0.63
+0.63
+0.64
+0.64
+
+Top-1 acc(%)
+76.4
+76.5
+77.0
+77.0
+77.2
+77.2
+77.3
+
+Table 8: Ablation of nonlinearity components.
+
+Add
+
+Add
+
+Add
+
+FC
+
+context-aware
+
+FC
+
+context-aware
+
+shared
+
+FC
+
+FC
+
+DWconv
+
+Mul
+DWconv
+
+DWconv
+
+FC
+
+(c) context-aware weights(AttnConv)
+
+DWconv
+
+FC
+
+Matmul
+DWconv
+FC
+
+(b) context-aware weights(attention)
+
+FC
+Swish
+
+Softmax
+
+Mul
+DWconv
+
+shared
+
+Tanh
+
+Matmul
+
+FC
+Matmul
+
+Mul
+
+context-aware
+context-aware
+
+Swish
+
+Softmax
+
+FC
+
+Mul
+
+FC
+
+DWconv
+
+Add
+
+FC
+
+Tanh
+
+Matmul
+
+shared
+
+(a) shared weights
+
+Add
+
+FC
+
+FC
+
+(d) context-aware(attention)+shared weights
+
+(e) AttnConv
+
+Figure 7: Different methods for local perception.
+
+B.3. Different Methods for Local Perception
+To demonstrate the superiority of our proposed local
+perception module——AttnConv; in this section, we extensively investigate the impact of various local perception
+methods on the model’s performance. As shown in Fig. 7,
+we compare five methods for local perception: (a) only use
+shared weights. (b) only use context-aware weights generated by local self-attention (window self-attention). (c) only
+use context-aware weights generated by our method. (d)
+Use shared and context-aware weights, where the contextaware weights are generated by local self-attention (window
+self-attention). (d) our AttnConv. All five configurations
+utilized a global branch and the same channel split setting.
+The results are shown in Tab. 9.
+Model
+(a)
+(b)
+(c)
+(d)
+(e)
+
+Params(M)
+3.9
+4.0
+4.1
+4.0
+4.2
+
+FLOPs(G)
+0.55
+0.60
+0.62
+0.61
+0.62
+
+Model
+Params(M) FLOPs(G) Top-1 acc(%)
+GELU + Tanh
+4.2
+0.62
+76.8
+SiLU + Tanh
+4.2
+0.62
+76.9
+4.2
+0.62
+76.7
+ReLU + Tanh
+Swish + GELU
+4.2
+0.62
+76.7
+Swish + Sigmoid
+4.2
+0.62
+76.8
+Swish + Tanh
+4.2
+0.62
+77.0
+Table 10: Ablation of activation function in AttnConv.
+
+Top-1 acc(%)
+75.2
+75.3
+76.4
+75.8
+77.0
+
+Table 9: Comparison among five different methods.
+
+B.4. Ablation of Activation Function
+In this section, we explored the impact of different activation functions in Attnconv on model performance, as
+shown in Tab. 10. It can be seen that the combination of
+Swish and Tanh gives our model the highest performance.
+
+B.5. Ablation of Early Conv
+We compare the performance of using conv stem versus
+direct patch embedding, as illustrated in Tab. 11. Utilizing
+conv stem yields a performance gain of +0.5 for the model.
+
+Model
+Patch embed
+Conv stem
+
+Params(M)
+4.1
+4.2
+
+FLOPs(G)
+0.55
+0.62
+
+Top-1 acc(%)
+76.5
+77.0
+
+Table 11: Ablation of early conv.
+
+Stage
+
+Output Size
+
+Layer Settings
+
+CloFormer
+XS
+
+XXS
+
+S
+
+Conv3 × 3, stride 2, C/2
+Conv3 × 3, stride 2, C
+Conv3 × 3, stride 1, C
+Conv3 × 3, stride 1, C
+Conv1 × 1, stride 1, C
+
+H
+W
+4 × 4
+
+Conv stem
+
+W
+H
+4 × 4
+
+Embed dim
+Channel split ([local, global])
+AttnConv kernel size
+Pooling stride
+ConvFFN kernel size
+ConvFFN ratio
+
+32
+[24, 8]
+3
+8
+5
+4
+
+48
+[32, 16]
+3
+8
+5
+4
+
+64
+[48, 16]
+3
+8
+5
+4
+
+H
+W
+8 × 8
+
+Embed dim
+Channel split ([local, global])
+AttnConv kernel size
+Pooling stride
+ConvFFN kernel size
+ConvFFN ratio
+
+64
+[32, 32]
+5
+4
+5
+4
+
+96
+[48, 48]
+5
+4
+5
+4
+
+128
+[64, 64]
+5
+4
+5
+4
+
+H
+W
+16 × 16
+
+Embed dim
+Channel split ([local, global])
+AttnConv kernel size
+Pooling stride
+ConvFFN kernel size
+ConvFFN ratio
+
+128
+[64, 64]
+7
+2
+5
+4
+
+160
+[80, 80]
+7
+2
+5
+4
+
+224
+[112, 112]
+7
+2
+5
+4
+
+Stage4
+
+H
+W
+32 × 32
+
+Embed dim
+Channel split ([local, global])
+AttnConv kernel size
+Pooling stride
+ConvFFN kernel size
+ConvFFN ratio
+
+256
+[64, 192]
+9
+1
+5
+4
+
+352
+[112, 240]
+9
+1
+5
+4
+
+448
+[112, 336]
+9
+1
+5
+4
+
+Classifier
+
+1000
+
+Patch embed
+
+Stage1
+
+Stage2
+
+Stage3
+
+Global Average Pooling && Linear
+Params(M)
+
+4.2
+
+7.2
+
+12.3
+
+FLOPs(G)
+
+0.6
+
+1.1
+
+2.0
+
+Table 12: Details about CloFormer’s architecture.
+
+

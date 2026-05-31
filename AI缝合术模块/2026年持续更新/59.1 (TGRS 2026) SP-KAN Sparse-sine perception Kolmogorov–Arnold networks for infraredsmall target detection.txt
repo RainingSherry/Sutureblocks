@@ -1,0 +1,3249 @@
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+Contents lists available at ScienceDirect
+
+ISPRS Journal of Photogrammetry and Remote Sensing
+journal homepage: www.elsevier.com/locate/isprsjprs
+
+SP-KAN: Sparse-sine perception Kolmogorov–Arnold networks for infrared
+small target detection
+Shuai Yuan a , Yu Liu a ,∗, Xiaopei Zhang b , Xiang Yan c ,∗, Hanlin Qin c , Naveed Akhtar d
+a
+
+School of Instrument Science and Opto-electronics Engineering, Hefei University of Technology, Hefei 230009, China
+Henry Samueli School of Engineering and Applied Science, University of California, Los Angeles, CA 90095, USA
+c
+School of Optoelectronic Engineering, Xidian University, Xi’an 710071, China
+d
+School of Computing and Information Systems, The University of Melbourne, Parkville VIC 3052, Australia
+b
+
+ARTICLE
+
+INFO
+
+Keywords:
+Infrared small target detection
+Deep learning
+Nonlinear modeling
+Kolmogorov–Arnold networks
+Transformer
+
+ABSTRACT
+Infrared small target detection (IRSTD) plays a critical role in diverse complex remote sensing scenarios.
+However, existing IRSTD methods struggle to discriminate dim targets that are heavily entangled with complex
+interference due to their fixed activation representations. To tackle this issue, we reformulate IRSTD as a
+global context modulation problem driven by sparse nonlinear modules and propose a Sparse-sine Perception
+Kolmogorov–Arnold Network (SP-KAN). It marks a novel attempt to leverage the superior nonlinear capability
+of the Kolmogorov–Arnold theory for robust IRSTD. Specifically, a compressed vision transformer encoder is
+first employed to capture long-range spatial dependencies, while the proposed pattern complementarity module
+(PCM) constructs their essential nonlinear interactions. The PCM unifies channel-wise mappings of tokenized
+representations with local spatial saliency of structured features, enhancing target–background discrimination
+via multi-dimensional and multi-intensity nonlinear embedding. Within the PCM, a sparse-sine perception
+Kolmogorov–Arnold layer (SPKAL) is introduced to perceive the original nonlinear space and a sparse gridbased high-dimensional sinusoidal latent space at the pixel level, enabling fine-grained interactions among
+neurons and aligning with the inherent sparsity of small targets. Extensive experiments across four datasets
+demonstrate that SP-KAN consistently surpasses state-of-the-art IRSTD methods in accuracy, robustness, and
+generalization, verifying its superior capability in sparse nonlinear modeling. Code will be available at the
+author’s homepage https://github.com/xdFai.
+
+1. Introduction
+Single-frame infrared small target detection (IRSTD) has been widely
+applied in high-dynamic scenarios such as low-altitude surveillance
+(Zhang et al., 2025a), early warning systems (Li et al., 2023a), and
+high-precision navigation (Sun et al., 2023). However, owing to the
+thermal radiation imaging mechanism of infrared systems and the
+requirement for remote sensing, infrared small targets typically exhibit
+low contrast, sparse pixels, and blurred contours (Zhu et al., 2024;
+Yang et al., 2025a; Ding et al., 2025). In addition, various interferences,
+e.g., sea glare, cloud edges, and urban structures, often generate targetlike artifacts, further complicating target separation. Therefore, reliably
+extracting faint targets from strongly cluttered backgrounds remains a
+long-standing and fundamental challenge (Kou et al., 2023; Lu et al.,
+2025; Yuan et al., 2025a).
+Conventional IRSTD methods primarily include image filtering (Bai
+and Zhou, 2010; Zhu et al., 2020a), human visual system-inspired
+
+contrast mechanism (Chen et al., 2014; Han et al., 2019), and lowrank representation (Cao et al., 2021; Liu et al., 2025; Wu et al.,
+2026a), which are built upon prior scene analyses to construct handcrafted processing pipelines. Nonetheless, relying on empirical tuning and specific priors limits their robustness in real-world environments (Xiong et al., 2025; Zhu et al., 2025a). Deep learning technologies have opened new avenues for addressing these limitations,
+especially convolutional neural networks (CNNs)-based segmentation
+paradigms have garnered significant attention for their ability to capture contours (Wang et al., 2019; Lin et al., 2024; Dai et al., 2021b;
+Yang et al., 2025b). These U-shaped structures have been continuously
+refined through asymmetric attention-guided feature fusion (Dai et al.,
+2021a), enhancement of encoders and decoders (Wu et al., 2023a),
+dense nested skip-based progressive interaction (Li et al., 2023b), and
+shape-prior edge modeling (Zhang et al., 2022). Despite achieving
+
+∗ Corresponding authors.
+
+E-mail addresses: shuaiyuan@hfut.edu.cn (S. Yuan), yuliu@hfut.edu.cn (Y. Liu), zxpmirror1994@g.ucla.edu (X. Zhang), xyan@xidian.edu.cn (X. Yan),
+hlqin@mail.xidian.edu.cn (H. Qin), naveed.akhtar1@unimelb.edu.au (N. Akhtar).
+https://doi.org/10.1016/j.isprsjprs.2026.02.019
+Received 2 December 2025; Received in revised form 1 February 2026; Accepted 10 February 2026
+Available online 13 February 2026
+0924-2716/© 2026 International Society for Photogrammetry and Remote Sensing, Inc. (ISPRS). Published by Elsevier B.V. All rights are reserved, including those
+for text and data mining, AI training, and similar technologies.
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 1. Comparison of MLP layers, KAN layers, and the proposed SPKAL, with red highlights showing the fixed activations of MLP layers and the positional
+locking of KAN layers.
+
+automated feature extraction, CNNs with local connectivity and shared
+weights struggle to capture global context, causing a high number of
+false alarms (Meng et al., 2023). Therefore, transformer-based architectures have been introduced to build long-range dependency, e.g., multilevel transformers for hierarchical information aggregation (Wu et al.,
+2023b), the spatial-channel cross transformer for background context
+prediction (Yuan et al., 2024a), and small-object-oriented transformers
+for one-step perception (Qin et al., 2025). Although explicit patchwise processing enhances high-level understanding and detection accuracy, these methods incur substantial computational overhead. Consequently, the latest studies introduce the selective state-space model (Gu
+and Dao, 2024), including the self-nested Mamba-in-Mamba (Chen
+et al., 2024), Mamba with pixel-difference variants and layer restoration (Zhang et al., 2025b), and Mamba with multi-granularity representation learning (Li et al., 2025b) to improve long-sequence modeling
+efficiency.
+While CNN-, transformer-, and Mamba-based IRSTD methods have
+achieved steady progress, as shown in Fig. 1(a), most of them still
+rely on the learnable-linear and fixed-activation multilayer perceptron (MLP) paradigm for the computation within neural units (Ning
+et al., 2025). In IRSTD, the image-to-mask transformation involves
+highly nonlinear and nonstationary interactions among intensity, spatial structure, and contextual cues, which are difficult to adequately
+capture using conventional MLPs with limited functional expressiveness. To address this limitation, Kolmogorov–Arnold Networks (KANs)
+have recently emerged as a promising alternative for representation
+learning (Liu et al., 2024b). Rooted in the Kolmogorov–Arnold representation theorem (KART), KAN models multivariate functions as
+superpositions of learnable univariate nonlinear functions (Azam and
+Akhtar, 2024). By parameterizing these functions with spline-based
+basis representations, KAN explicitly models nonlinear mapping curves,
+as illustrated in Fig. 1(b). This flexible function modeling mechanism is
+well suited to the localized and nonlinear saliency patterns of infrared
+small targets, motivating us to incorporate KAN to enhance nonlinear
+representation capacity in IRSTD.
+The distinctive properties of infrared targets and backgrounds pose
+three challenges for introducing KANs: (1) Form-unknown nonlinear embedding: Existing image processing studies have integrated
+KANs into a convolution layer (Bodner et al., 2024), transformer key–
+matrix mappings (Wu et al., 2024a), and mixed convolution KANs (Li
+et al., 2025a) for nonlinear representation. However, these strategies
+lack specific modulation of target saliency and background continuity,
+making it hard to achieve a compromise between missed detections
+and false alarms. (2) Imbalanced pattern perception: Unlike general
+visual targets with abundant structural information, infrared small
+targets possess extremely limited features but exhibit strong local contrast (Han et al., 2019; Gao et al., 2013). KAN primarily emphasizes
+
+channel-wise nonlinear learning in unstructured dimensions, compromising spatial perception and target shape prediction. (3) Positionslocked function summation: In deep models, pooling reduces spatial
+resolution, making clues of sparse small targets less perceptible in
+high-level features (Li et al., 2023b). As highlighted by red in Fig.
+1(b), KANs perform node summations along spline curves with fixed
+positions, causing limited sensitivity to fine-grained inter- and intranode nonlinear mappings. This drawback leads to inaccurate target
+localization.
+To address these issues, this study proposes a sparse-sine perception Kolmogorov–Arnold Network (SP-KAN) for infrared small target
+detection. To fully exploit the nonlinear potential, our method adopts
+a U-shaped transformer–KAN hybrid architecture, leveraging KAN for
+fine-grained modulation of the global context built by the transformer
+to suppress both false alarms and missed detections. Following this
+premise, a compressed vision transformer (CViT) encoder is first employed to capture long-range spatial dependencies and establish clear
+target saliency and background continuity. Subsequently, the pattern
+complementarity module (PCM) facilitates essential nonlinear interactions in the bottleneck, ensuring that the learnable spline functions can
+respond rapidly to the global context. To balance pattern perception,
+the PCM unifies element-wise mappings with local spatial saliency
+captured by depth-wise convolutions on structured features. This multidimensional and multi-intensity nonlinear stimulation promotes more
+coherent structural representations and clearer contour delineation for
+IR small targets. In PCM, a sparse-sine perception Kolmogorov–Arnold
+layer (SPKAL) is further designed to unlock the positional summation
+constraint inherent in vanilla KAN. As illustrated in Fig. 1(c), SPKAL
+replaces the fixed position-wise summation of independent univariate
+mappings with a sparse grid-based sinusoidal latent space, enabling
+adaptive and position-aware nonlinear interactions at the pixel level.
+By relaxing the rigid positional correspondence of the original KAN,
+this design facilitates fine-grained neuron interactions and naturally
+aligns with the Gaussian-like distribution and sparsity characteristics of
+infrared small targets (Zhu et al., 2020b), thereby improving detection
+accuracy.
+Fig. 2 illustrates the superiority of SPKAL compared with MLP
+layers and KAN layers. It also shows that the modulation of attention
+in the neck aligns with the final detection results, demonstrating the
+sound design of SP-KAN in terms of nonlinear embedding. Our main
+contributions are as follows:
+• In this paper, IRSTD is reconceptualized as a global context
+modulation problem driven by sparse nonlinear modules. Based
+on this perspective, SP-KAN is introduced to systematically exploit Kolmogorov–Arnold theory and overcome the limitations of
+conventional linear modeling in IRSTD.
+2
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 2. Visualization of heatmap distributions in deep models based on the proposed SP-KAN architecture, with the neck block embedding MLP layers, KAN
+layers, and SPKAL, respectively.
+
+• The PCM is designed to capture unstructured dependencies and
+local saliency interactions, thereby enhancing target–background
+separability through multi-dimensional and multi-intensity nonlinear contrast modeling.
+• The SPKAL is devised to unlock the nonlinear representational
+potential of the KAN layer. By incorporating element-wise finegrained modulation within a sine-driven sparse-gridding latent
+space, SPKAL enables precise target localization.
+• Extensive experiments on SIRST V1, NUDT-SIRST, IRSTD-1K and
+SIRST3 datasets validate that SP-KAN achieves state-of-the-art
+detection accuracy, robustness, and generalization, while maintaining superior efficiency.
+
+2.2. Hybrid-architecture IRSTD methods
+To overcome the locality bias of CNNs, vision transformers and
+Mamba have been introduced to IRSTD. Liu et al. (2023) first integrate
+a multi-head self-attention mechanism and a feature enhancement
+module into a compound encoder to efficiently highlight discriminative target features. Meng et al. (2023) utilize central difference
+convolution to capture local gradient features and apply criss-cross
+multi-attention to aggregate broader contextual information. MTUNet employs multi-level encoded transformers to aggregate contextual
+information across-scale spatial patches (Wu et al., 2023b). Considering
+the continuity of background semantics, Yuan et al. (2024a) present
+the channel-wise cross transformer on the long-range skip connections
+to establish channel-wise semantic patterns across all levels with an
+acceptable computational overhead. To enhance long sequence modeling and avoid quadratic computational complexity, Mamba has also
+been applied to IRSTD tasks. For example, MiM-ISTD (Chen et al.,
+2024) proposes a nested Mamba model that effectively establishes
+both global and local information through visual vocabulary features.
+IRMamba (Zhang et al., 2025b) integrates the intensity and directional
+information of pixel differences to enhance target detail representation and suppress background interference. To structure heterogeneous
+backgrounds via perspective transformation, Li et al. (2025c) adopt
+the spatial–spectral mamba interactive learning to enrich the semantic representations of IR small targets. Based on the deep unfolding
+framework, LSNet (Li et al., 2026) reformulates the decomposition
+process as an implicit prior regularization model, in which generalized sparse transformation and singular value thresholding are jointly
+learned through a State Space Model.
+Unlike previous approaches that focus on either local or global
+dependence for spatial or channel with fixed activations, this study centers on nonlinear modeling, introducing Kolmogorov–Arnold Networks
+into IRSTD to advance nonlinear feature representation.
+
+2. Related work
+2.1. CNN-based IRSTD methods
+Unlike conventional handcrafted feature extraction schemes, CNNs
+exploit locally learnable kernels to flexibly adjust channel responses,
+thereby enriching the semantic expression for target detection. A widely
+adopted strategy is cross-layer fusion, which effectively preserves the
+weak target cues during the aggregation of encoder and decoder (Dai
+et al., 2021a; Zhang et al., 2023). Furthermore, densely nested fusion
+has been designed to progressively interact and refine multi-level
+features, alleviating target detail loss caused by pooling operations (Li
+et al., 2023b; He et al., 2022). To further cope with the scale diversity
+inherent in small targets, multiscale aggregation strategies have also
+been explored to strengthen the descriptive capacity of low-resolution
+feature maps (Dai et al., 2021b). Beyond customized feature integration
+structures, embedding target-specific prior knowledge into CNNs has
+also proven effective (Zhang et al., 2025d). Zhang et al. (2022) apply
+the Taylor finite difference scheme to capture intricate edge characteristics, aiming to amplify the grayscale contrast. Lin et al. (2024) utilize
+central difference convolutions to form a contrast-shape encoder and
+introduce an edge-inspired, shape-reconstructable decoder to handle
+dim textures and diverse target shapes. More recently, Xiong et al.
+(2025) propose a deep unfolding framework that integrates robust
+principal component analysis (RPCA) (Wu et al., 2024b) priors with
+a dynamic parameter generation mechanism, significantly enhancing
+model interpretability.
+Despite the strong performance of CNN-based approaches, their
+inherent inductive biases constrain the explicit modeling of longrange contextual dependencies. In contrast, our architecture integrates
+transformer-based long-range dependencies and performs nonlinear
+modulation tailored for IRSTD.
+
+2.3. Kolmogorov–Arnold networks in image processing
+To implement nonlinear representation learning, Liu et al. (2024b)
+introduce Kolmogorov–Arnold Networks (KANs), a novel architecture
+composed of stacked Kolmogorov–Arnold layers equipped with learnable one-dimensional activation functions, offering remarkable adaptability and interpretability (Zhang et al., 2025c). Since their introduction, KANs have rapidly gained traction in diverse vision tasks,
+including image segmentation (Wu et al., 2024a), reconstruction (Ge
+et al., 2025), and enhancement (Ning et al., 2025). For instance, Azam
+3
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+4. Proposed method
+
+and Akhtar (2024) establish systematic KAN analogs for convolutional
+and linear operations, and verify their effectiveness in fundamental
+recognition and segmentation. Li et al. (2025a) propose the tokenized
+KAN block to reformulate the U-Net (U-KAN), achieving notable improvements in medical image segmentation and generation. Bodner
+et al. (2024) further developed Convolutional KANs, whose kernels
+can learn richer information than conventional convolutional layers.
+Subsequently, Ning et al. (2025) design a KAN-block-based architecture
+and apply it to low-light image enhancement, while Zhu et al. (2025b)
+propose a KAN-based spatial-frequency dual-domain implicit guided
+sampling network for hyperspectral and multispectral image fusion.
+Most recently, Wu et al. (2026c) propose a KAN-Conv-based IRSTD
+network with stage-wise perception and fusion.
+Different from the aforementioned methods, we explore an effective
+pathway for integrating KANs into IRSTD by leveraging their nonlinear
+advantages to modulate the global context established by ViT. Furthermore, two key structural innovations, PCM and SPKAL, are proposed
+to achieve multi-dimensional and multi-intensity nonlinear embedding,
+as well as element-wise representation in both the original space and
+high-dimensional sparse-sine latent space.
+
+4.1. Overall pipeline
+As shown in Fig. 3(a), SP-KAN adopts a U-shaped architecture
+consisting of three parts: compressed ViT-based encoders, a KAN-based
+neck, and CNN-based decoders. The compressed ViT-based encoder
+consists of four encoding stages with progressively decreasing spatial
+resolutions and increasing channel-wise dimensions, naturally enabling
+hierarchical multi-scale feature extraction. Each encoding stage is composed of two consecutive convolution-batch normalization-ReLU (CBR)
+units, followed by one compressed vision transformer (CViT) layer and
+a max-pooling layer. By employing CViT layers, the encoder achieves a
+lightweight design that minimizes memory overhead while retaining
+sufficient global contextual information for bottleneck modulation.
+The pattern complementarity module (PCM) is deployed at the bottleneck of the network and serves as the core component for sparse
+nonlinear modulation. To maintain computational efficiency, PCM is
+applied only at the two deepest stages. To alleviate pattern forgetting, the encoder features processed by the CViT layers are directly
+concatenated with the corresponding decoder features along the channel dimension via skip connections, without introducing any complex
+cross-layer feature fusion strategies. Symmetric to the encoder scales,
+the CNN-based decoder consists of four decoding stages with progressively increasing spatial resolutions and decreasing channel-wise
+dimensions. Each decoder stage comprises two standard CBR units
+and one nearest-neighbor interpolation layer for upsampling. The first
+CBR is used to compress the concatenated encoder–decoder features
+along the channel dimension, thereby reducing semantic redundancy.
+Following SCTransNet (Yuan et al., 2024a), SP-KAN employs deep
+supervision and the binary cross entropy (BCE) loss (𝐵𝐶𝐸 ) for optimization. For the supervised multi-level features 𝐎𝑖 and the fusion
+feature 𝐎∑ , obtained after upsampling and sigmoid activation, the
+overall loss  is formulated as:
+
+3. Kolmogorov–Arnold networks
+According to the Kolmogorov–Arnold representation theorem, a
+smooth function 𝑓 (𝐱) can be written as:
+( 𝑛
+)
+∑
+∑
+(
+) 2𝑛+1
+( )
+𝑓 (𝐱) = 𝑓 𝑥1 , … , 𝑥𝑛 =
+𝛷𝑞
+𝜙𝑞,𝑝 𝑥𝑝
+.
+(1)
+𝑞=1
+
+𝑝=1
+
+This formulation shows that 𝑓 (𝐱) can be decomposed into outer functions 𝛷𝑞 applied to aggregated inner transformations 𝜙𝑞,𝑝 of the input variables 𝑥𝑝 . Based on this principle, Liu et al. introduced the
+Kolmogorov–Arnold Network (Liu et al., 2024b). In an 𝐿-layer KAN,
+the input 𝐱 is successively transformed by a sequence of functional
+matrices 𝛷0 , 𝛷1 , ⋯, 𝛷𝐿−1 , ultimately producing the final output KAN
+(𝐱), formulated as:
+(
+)
+KAN(𝐱) = 𝛷𝐿−1 ◦𝛷𝐿−2 ◦ ⋯ ◦𝛷1 ◦𝛷0 𝐱,
+(2)
+
+=
+
+5
+∑
+(𝜆𝑖 𝐵𝐶𝐸 (𝐎𝑖 , 𝐆)) + 𝜆∑ 𝐵𝐶𝐸 (𝐎∑ , 𝐆),
+
+(7)
+
+𝑖=1
+
+where ◦ denotes the operation of function composition. For comparison, an MLP can be written as an interleaving of affine transformations
+𝐖 and nonlinear activations 𝜎:
+(
+)
+MLP(𝐱) = 𝐖𝐿−1 ◦𝜎◦𝐖𝐿−2 ◦𝜎◦ ⋯ ◦𝐖1 ◦𝜎◦𝐖0 𝐱.
+(3)
+
+in which, 𝜆𝑖 (𝑖 = 1, 2, 3, 4, 5) denote the weights of individual supervision terms, and both 𝜆𝑖 and 𝜆∑ are empirically set to 1. Here, 𝐆
+represents the ground truth mask. The following sections will provide
+detailed descriptions of CViT and PCM.
+
+Evidently, MLPs handle linear mappings 𝐖 and nonlinearities 𝜎 as two
+distinct components. Whereas KANs integrate both within the unified
+function module 𝛷. For the 𝑙th KAN layer with 𝑛𝑙 neurons, the value of
+the 𝑗th neuron in layer 𝑙 + 1, denoted as 𝑥𝑙+1,𝑗 , is computed as the sum
+of all incoming post-activations.
+
+4.2. Compressed vision transformer
+
+where the learnable activation function 𝜙(𝑥) is defined as a basis
+function 𝑏(𝑥) and a spline function spline(𝑥):
+
+Given the successful applications of efficient transformers in image
+segmentation and restoration (Gao et al., 2021; Zamir et al., 2022),
+CViT introduces a compressed attention mechanism tailored for IRSTD,
+with the goal of reducing spatial redundancy while preserving localization fidelity. As illustrated in Fig. 3(b), given an input feature 𝐗0 ∈
+R𝐶𝑖 ×ℎ×𝑤 , the layer-normalized feature 𝐗𝑙 is first used to construct the
+query (𝐐), key (𝐊), and value (𝐕) as follows:
+
+𝜙(𝑥) = 𝑤𝑏 ⊙ 𝑏(𝑥) + 𝑤𝑠 ⊙ spline(𝑥),
+
+(5)
+
+𝐐 = 𝑊𝑝𝑄 𝑊𝑑𝑄 𝐗𝑙 ,
+
+(6)
+
+where 𝑊𝑑(⋅)
+
+𝑥𝑙+1,𝑗 =
+
+𝑛𝑙
+∑
+
+( )
+𝜙𝑙,𝑗,𝑖 𝑥𝑙,𝑖 ,
+
+𝑖 = 1, … , 𝑛𝑙 ,
+
+𝑗 = 1, … , 𝑛𝑙+1 ,
+
+(4)
+
+𝑖=1
+
+= 𝑤𝑏 ⊙ 𝑠𝑖𝑙𝑢(𝑥) + 𝑤𝑠 ⊙
+
+𝑛
+∑
+
+𝑐𝑖 𝐵𝑖 (𝑥),
+
+𝐊 = 𝑊𝑝𝐾 𝑊𝑑𝐾 𝐗𝑙 ,
+
+𝐕 = 𝑊𝑝𝑉 𝑊𝑑𝑉 𝐗𝑙 ,
+
+(8)
+
+R𝐶𝑖 ×3×3
+
+∈
+denotes a 3 × 3 depth-wise convolution for
+capturing local spatial salience, and 𝑊𝑝(⋅) ∈ R𝐶𝑖 ×1×1 represents a
+1 × 1 point-wise convolution for consolidating cross-channel context.
+Motivated by the fact that infrared images exhibit strong background
+self-similarity, whereas small targets are dim and sparse, 𝐐 serves
+as a dense spatial probe for target localization, and preserving its
+full-resolution structure is essential for maintaining spatial continuity.
+In contrast, 𝐊 and 𝐕 exhibit high redundancy and relatively low
+information density. Accordingly, CViT compresses only 𝐊 and 𝐕, effectively reducing background redundancy while preserving informative
+contextual cues as follows:
+
+𝑖
+
+where ⊙ denotes the Hadamard product. Typically, the basis function
+𝑏(𝑥) adopts the SiLU activation; the spline component is parameterized
+as a linear combination of B-spline bases 𝐵𝑖 (𝑥), constructed via the Coxde Boor recursion (Afzal Aghaei, 2025). In contrast to MLPs, where
+nonlinearity is introduced by fixed activation functions following linear
+projections, KANs inherently perform parametric nonlinear learning by
+optimizing the control-point coefficients 𝑐𝑖 that modulate the behavior
+of 𝐵𝑖 (𝑥). Such a formulation enables KANs to maintain high nonlinear
+expressivity that naturally fits the characteristics of weak targets mixed
+with strong clutter, inspiring their adoption in IRSTD with a compact
+and parameter-efficient design.
+
+𝐊𝑠 , 𝐕𝑠 = (𝐊, 𝐕),
+4
+
+(9)
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 3. (a) Overview of the proposed SP-KAN designed for IRSTD. Structurally speaking, it consists of three parts: (b) compressed vision transformer (CViT)-based
+encoders, (c) pattern complementarity modules (PCM)-based neck, and CNN-based decoders. CViT models crucial long-range dependencies with minimal memory
+overhead, establishing a robust global view. PCM explicitly models channel-wise nonlinear and local saliency relations, enabling sparse nonlinear modulation of
+contexts. The CNN-based decoder integrates basic convolutional, normalization, and activation units for mask reconstruction.
+
+as illustrated in Fig. 3(c). The PCM is explicitly deployed at two bottleneck scales of the U-shaped architecture, enabling robust perception
+𝐻 𝑊
+of infrared small targets under scale variations. Let 𝐄 ∈ R𝐵×𝐶× 16 × 16
+denote the feature map generated by the last encoder. It is first patch
+embedded through a convolution layer with a kernel size of 3 and
+stride of 2, yielding the embedded feature 𝐒𝑖 ∈ R𝐵×𝐶×ℎ×𝑤 for PCM.
+The PCM mainly consists of two components: a sparse-sine perception
+Kolmogorov–Arnold layer (SPKAL), which performs strong nonlinear
+unstructured element modulation for the tokenized features, and a
+local spatial modulation (LSM) unit, which models the structured local
+salience of small target representations. SPKAL is applied prior to LSM
+to first establish nonlinear semantic modulation, upon which structured
+spatial refinement can be more effectively performed. To strengthen
+feature expressiveness, these two components are cascaded and repeated three times, enabling the progressive capture of both nonlinear
+and spatial dependencies. This process can be expressed as:
+
+Fig. 4. Comparison of GPU memory usage between CViT w/o C. and the
+adopted CViT model. The bar chart also presents the IoU values of different
+structures. Due to limited available GPU memory on the device, the batch size
+and image size are set to 2 and 128 × 128 for illustrative purposes.
+
+where  denotes bilinear interpolation. Subsequently, 𝐐, 𝐊𝑠 , and 𝐕𝑠
+are subjected to self-attention, as follows:
+𝐗𝑓 = 𝑊𝑑 𝑊𝑝 Att(𝐐, 𝐊𝑠 , 𝐕𝑠 ),
+Att(𝐐, 𝐊𝑠 , 𝐕𝑠 ) = 𝐀𝑠 𝐕𝑠 = Softmax(
+
+(10)
+𝐐 𝐊⊤
+𝑠 +𝐑
+
+𝐒𝑖+1 = LSM◦SPKAL◦LN◦𝐒𝑖 ,
+
+)𝐕𝑠 .
+(11)
+𝜆
+where 𝐑 denotes the matrix of relative position encoding, with an
+optional temperature factor 𝜆 set at 0.25. The output of the attention
+operation is then processed by a standard feed-forward network (FFN)
+as follows:
+𝐗out = FFN(𝐗0 + 𝐗𝑓 ).
+
+𝑖 = 0, 1, 2,
+
+(13)
+
+where LN denotes layer normalization, and LSM represents a sequence
+of 3 × 3 depth-wise convolutions, batch normalization, and ReLU activations, jointly establishing local spatial correlations on a per-channel
+basis. To comprehensively capture the nonlinear characteristics, the
+SPKAL is defined as a parallel composition of element-wise nonlinear
+modulation (ENM) and sparse nonlinear modulation (SNM):
+
+(12)
+
+SPKAL(⋅) = ENM(⋅) + SNM(⋅).
+
+where 𝐗out denotes the final output of CViT. To demonstrate the
+efficiency of CViT, Fig. 4 compares the IoU and GPU memory usage
+between our structure and the one without the compression mechanism
+(CViT w/o C.). It can be observed that CViT achieves better shape
+prediction while reducing memory usage by 9.45×. Next, we will
+elaborate on the proposed PCM and SPKAL.
+
+(14)
+
+Finally, to avoid feature forgetting, a residual connection is applied
+between the input 𝐒0 and the output of the third iteration 𝐒3 , yielding
+the final representation 𝐒𝑜𝑢𝑡 . The detailed formulation of the SPKAL is
+described below.
+4.4. Sparse-sine perception Kolmogorov–Arnold layer
+
+4.3. Pattern complementarity module
+
+Unlike the original KAN lock position sum, our SPKAL aims to
+construct a sparse nonlinear latent space mapping for each unit. As illustrated in Fig. 5, given an input feature 𝐈𝑥 , the element-wise nonlinear
+modulation is formulated as:
+
+Motivated by the exceptional nonlinear representational capacity of
+KANs (Li et al., 2025a) and the proven effectiveness of complementary structures in diverse vision tasks (Yuan et al., 2025b; Touvron
+et al., 2023), we propose a pattern complementarity module (PCM),
+
+𝐈𝑒 = 𝑤𝑏 × 𝑠𝑖𝑙𝑢(𝐈𝑥 ),
+5
+
+(15)
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 5. Schematic illustration of the nonlinear modeling process within SPKAL. This layer incorporates element-wise and sparse nonlinear modulation, introducing
+a more sparsified transformation mechanism that explicitly captures the activation dynamics of individual nonlinear neurons and their latent space.
+
+where × denotes matrix multiplication, while the learnable parameter
+𝑤𝑏 performs adaptive modulation across elements. In parallel, the
+sparse nonlinear modulation unfolds 𝐈𝑥 locally in a high-dimensional
+discretized space through four steps.
+
+4.4.4. Nonlinear embedding
+Given that infrared small targets commonly present smooth,
+Gaussian-like energy distributions due to imaging and diffusion effects,
+sinusoidal functions provide an effective basis for modeling such continuous intensity variations. Accordingly, a sinusoidal transformation
+is applied to the normalized feature:
+(
+)
+𝐈𝑁𝑜𝑛−𝑥 = sin 𝜋 ⊙ 𝐈𝑛 .
+(21)
+
+4.4.1. Grid initialization
+A uniform grid 𝐆 partitions the input feature space into higherdimensional 𝑀 intervals, providing localized receptive fields essential
+for capturing subtle signal variations. Given 𝐈𝑥 ∈ R𝐵ℎ𝑤×𝐶𝑖𝑛 , the grid is
+defined as:
+[
+]
+𝐆 = 𝑔0 , 𝑔1 , … , 𝑔𝑀 ∈ R𝐶𝑖𝑛 ×𝑀 ,
+(16)
+
+Unlike the vanilla KAN, where nonlinear responses from different
+positions are aggregated through a fixed summation mechanism, the
+proposed SPKAL introduces a sparse and learnable modulation strategy.
+Specifically, the flattened sinusoidal feature  (𝐈𝑁𝑜𝑛−𝑥 ) is adaptively
+weighted by a learnable control matrix 𝑤𝑠 and integrated with the
+embedded feature 𝐈𝑒 :
+
+where 𝑔0 and 𝑔𝑀 denote the minimum and maximum bounds, respectively.
+
+𝐈𝑜𝑢𝑡 = 𝑤𝑠 ×  (𝐈𝑁𝑜𝑛−𝑥 ) + 𝐈𝑒 ,
+
+where  denotes matrix flattening. Through this design, SPKAL decouples nonlinear embedding from a rigid positional summation pattern
+by enabling sparse, position-adaptive modulation in a high-order sinusoidal latent space. This joint representation of each element in both
+the original feature space and the sparse-sine latent space effectively
+unlocks the positional summation constraint of the original KAN and
+enhances fine-grained localization capability. A detailed comparison of
+SPKAL with the KAN layers and MLP layers is provided in Section 5.4.4.
+
+4.4.2. Sparse matrix generation
+To exploit the sparsity of target responses and the low-rank nature
+of background, a sparse matrix 𝐈𝑠 is needed to initialize the nonlinear
+basis functions. Specifically, the input feature 𝐈𝑥 is first broadcast along
+the grid dimension:
+𝐈𝑏 = Broadcast(𝐈𝑥 ) ∈ R𝐵ℎ𝑤×𝐶𝑖𝑛 ×𝑀 ,
+
+(17)
+
+mask 𝐈𝑚 ∈ R𝐵ℎ𝑤×𝐶𝑖𝑛 ×𝑀 is then generated and applied via the Hadamard
+product to obtain 𝐈𝑠 ,
+𝐈𝑠 = 𝐈𝑚 ⊙ 𝐈𝑏 = (𝐺, 𝐈𝑏 ) ⊙ 𝐈𝑏 ,
+
+5. Experiments and analysis
+
+(18)
+
+where the sparse matrix generator  is defined as:
+{
+1
+if 𝑔𝑖 ≤ 𝐈𝑏,𝑖 < 𝑔𝑖+1 ,
+(𝐺, 𝐈𝑏 ) =
+0
+otherwise.
+
+5.1. Experiment settings
+5.1.1. Evaluation metrics
+Pixel-level and object-level metrics are both adopted for quantitative evaluation. Intersection over union (IoU) and the F1-measure
+(𝐹1 ) are used to assess pixel-level target-shape segmentation accuracy,
+while the probability of detection (𝑃𝑑 ) and the false alarm rate (𝐹𝑎 ) are
+adopted to evaluate object-level localization capabilities. Specifically,
+𝑃𝑑 is defined as the ratio of the number of correctly detected targets
+𝑁𝑝𝑟𝑒𝑑 to all targets 𝑁𝑎𝑙𝑙 .
+
+(19)
+
+This operator selects whether each feature 𝐈𝑏,𝑖 falls within a specific
+[
+)
+grid interval 𝑔𝑖 , 𝑔𝑖+1 . Thus, only a limited number of neighboring grid
+points contribute to each local representation, effectively suppressing
+clutter.
+4.4.3. Grid normalization
+Within each active interval, the sparse feature 𝐈𝑠 is normalized to
+[0,1], standardizing it relative to its local grid support:
+𝐈𝑛 =  (𝐺, 𝐈𝑠 ) =
+
+𝐈𝑠,𝑖 − 𝑔𝑖
+𝑔𝑖+1 − 𝑔𝑖 + 𝜖
+
+,
+
+(22)
+
+𝑃𝑑 =
+
+𝑁𝑝𝑟𝑒𝑑
+𝑁𝑎𝑙𝑙
+
+(23)
+
+.
+
+𝐹𝑎 is defined as the ratio of the number of pixels within false alarms
+𝑁𝑓 𝑎𝑙𝑠𝑒 to the total number of pixels in the entire image 𝑃𝑎𝑙𝑙 .
+
+(20)
+𝐹𝑎 =
+
+where 𝐈𝑛 is the grid-normalized feature, and 𝜖 is a small constant for
+stability. This normalization standardizes local variations, improving
+sensitivity to subtle fluctuations.
+
+𝑁𝑓 𝑎𝑙𝑠𝑒
+𝑃𝑎𝑙𝑙
+
+.
+
+(24)
+
+The determination process for predicted object-level instances follows
+the definitions in previous works (Li et al., 2023b; Wu et al., 2023b;
+6
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 6. The determination process for predicted object-level instances.
+
+Fig. 7. Comparison of (a) probability of detection (𝑃𝑑 ) and false alarm rate (𝐹𝑎 ), (b) intersection over union (IoU) and efficiency (FLOPs) of mainstream IRSTD
+methods on the SIRST3 dataset. The radius of each circle indicates the parameter count (Params) of each method.
+
+Yuan et al., 2024a; Yu et al., 2025). As shown in Fig. 6, the saliency
+map is binarized with a fixed threshold, and each connected component
+in the detection result is treated as an individual target candidate. Then,
+a candidate is regarded as a correctly detected target if the Euclidean
+distance between its centroid and that of the corresponding groundtruth target is less than 3 pixels. After all ground-truth targets have
+been matched, the remaining predicted target instances are counted as
+false alarms.
+
+5.1.3. Comparison methods
+SP-KAN is evaluated against 22 SOTA IRSTD methods on SIRST V1,
+NUDT-SIRST, IRSTD-1K and SIRST3, including nine representative traditional methods (Top-Hat Bai and Zhou (2010), IPI (Gao et al., 2013),
+RIPT (Dai and Wu, 2017), NRAM (Zhang et al., 2018), PSTTN (Zhang
+and Peng, 2019), TLLCM (Han et al., 2020), MSLSTIPT (Sun et al.,
+2021), WSLCM (Han et al., 2021), SRWS (Zhang et al., 2021)), and
+thirteen learning-based methods (ACM (Dai et al., 2021a), ALCNet (Dai
+et al., 2021b), RDIAN (Sun et al., 2023), ISTDU (Hou et al., 2022),
+MTU-Net (Wu et al., 2023b), IAANet (Wang et al., 2022), DNA-Net (Li
+et al., 2023b), AGPCNet (Zhang et al., 2023), UIU-Net (Wu et al.,
+2023a), SCTransNet (Yuan et al., 2024a), MSHNet (Liu et al., 2024a),
+L2 SKNet (Wu et al., 2025), DFINet (Wu et al., 2026b)).
+
+Moreover, receiver operating characteristic (ROC) curves are plotted to illustrate the trade-off between 𝑃𝑑 and false alarm across different detection thresholds. To ensure the rationality and monotonicity of
+the ROC curves, following KPF-Net (Wu et al., 2026c), we introduce
+the pixel-level false-alarm rate (𝐹𝑎𝑝 ) as the horizontal axis of the ROC
+curve, which is defined as the ratio between the number of mispredicted pixels 𝑃𝑓 𝑎𝑙𝑠𝑒 and the total number of pixels 𝑃𝑎𝑙𝑙 in the image:
+𝐹𝑎𝑝 =
+
+𝑃𝑓 𝑎𝑙𝑠𝑒
+𝑃𝑎𝑙𝑙
+
+.
+
+5.1.4. Implementation details
+The base channel width of SP-KAN is set to 16, the number of SPKAL
+in PCM to 3, the grid size of SPKAL to 12, and both the height and
+width of the compressed keys and values to 16. To avoid losing target
+information due to downsampling during the preprocessing stage, all
+training images are uniformly resized to 512 × 512. The specific image
+normalization, cropping, and enhancement follow the preprocessing
+strategy in Zhang et al. (2024). Model parameters are initialized using
+the Kaiming scheme. The network is optimized with Adam, starting
+from an initial learning rate of 0.001, which is gradually reduced to
+1 × 10−5 via a cosine annealing schedule. The batch size and number of
+epochs are set to 8 and 1000, respectively. Following (Wu et al., 2023a;
+Li et al., 2023b), the segmentation threshold for the salient map is fixed
+at 0.5. All experiments are implemented in PyTorch and conducted on
+a workstation equipped with an NVIDIA GeForce RTX 4090 GPU, an
+Intel Core i7-12700KF CPU, and 32 GB of memory.
+
+(25)
+
+5.1.2. Datasets
+We conducted experiments on four widely used benchmarks for
+infrared small target detection, including SIRST V1 (Dai et al., 2021a),
+IRSTD-1K (Zhang et al., 2022), NUDT-SIRST (Li et al., 2023b) and
+SIRST3 (Ying et al., 2023), which contain 427, 1327, 1001, and 2755
+samples, respectively. SIRST3 is a combination of SIRST V1, NUDTSIRST, and IRSTD-1K, constructed to enable a more comprehensive
+evaluation across diverse scenarios, spectral bands, and scale variations. Following the standard partitioning strategies adopted in Dai
+et al. (2021a), Li et al. (2023b), Zhang et al. (2022), Ying et al. (2023),
+SIRST V1 and NUDT-SIRST are split into training and testing sets at a
+5:5 ratio, IRSTD-1K is partitioned with an 8:2 ratio, while SIRST3 is
+divided into 1676 training samples and 1079 testing samples.
+
+5.2. Quantitative results
+Quantitative comparisons are summarized in Table 1, and an intuitive comparison is shown in Fig. 7. Overall, deep learning-based
+7
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Table 1
+Comparisons with different methods on SIRST V1, NUDT-SIRST, IRSTD-1K and SIRST3 in terms of IoU (%), F1 (%), P𝑑 (%), F𝑎 (10−6 ), the number of parameters
+(Params, P# , M), and floating point of operations (FLOPs, F# , G). The best results are highlighted in bold red font, and ↑/↓ indicate preference for higher/lower
+metric values, respectively.
+Methods
+
+P#
+
+F#
+
+SIRST V1
+IoU↑
+
+F1 ↑
+
+P𝑑 ↑
+
+NUDT-SIRST
+F𝑎 ↓
+
+IoU↑
+
+F1 ↑
+
+IRSTD-1K
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+IoU↑
+
+F1 ↑
+
+P𝑑 ↑
+
+SIRST3
+F𝑎 ↓
+
+IoU↑
+
+F1 ↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+Traditional Method
+Top-Hat (Bai and Zhou, 2010)
+
+-
+
+-
+
+7.143
+
+14.63
+
+79.84
+
+1012
+
+20.72
+
+33.52
+
+78.41
+
+166.7
+
+10.06
+
+16.02
+
+75.11
+
+1432
+
+12.64
+
+21.39
+
+77.79
+
+870.6
+
+IPI (Gao et al., 2013)
+
+-
+
+-
+
+25.67
+
+43.65
+
+84.63
+
+16.67
+
+17.76
+
+26.94
+
+74.49
+
+41.23
+
+27.92
+
+35.68
+
+81.37
+
+16.18
+
+23.78
+
+35.42
+
+80.16
+
+24.69
+
+RIPT (Dai and Wu, 2017)
+
+-
+
+-
+
+16.79
+
+20.69
+
+69.76
+
+59.33
+
+29.44
+
+38.12
+
+91.85
+
+344.3
+
+14.11
+
+26.69
+
+77.55
+
+28.31
+
+19.90
+
+25.16
+
+75.95
+
+218.6
+
+NRAM (Zhang et al., 2018)
+
+-
+
+-
+
+15.25
+
+20.34
+
+70.68
+
+16.93
+
+6.93
+
+12.51
+
+56.40
+
+19.27
+
+15.25
+
+17.84
+
+69.85
+
+46.28
+
+13.01
+
+17.47
+
+67.05
+
+39.80
+
+PSTNN (Zhang and Peng, 2019)
+
+-
+
+-
+
+30.30
+
+39.16
+
+72.80
+
+48.99
+
+14.85
+
+35.63
+
+66.13
+
+44.17
+
+24.57
+
+37.18
+
+71.99
+
+35.26
+
+23.24
+
+37.32
+
+70.31
+
+42.81
+
+TTLCM (Han et al., 2020)
+
+-
+
+-
+
+1.029
+
+4.995
+
+79.09
+
+5899
+
+2.176
+
+7.225
+
+62.01
+
+1608
+
+3.311
+
+2.186
+
+77.39
+
+6738
+
+2.17
+
+4.80
+
+72.83
+
+4748
+
+MSLSTIPT (Sun et al., 2021)
+
+-
+
+-
+
+10.30
+
+18.83
+
+82.13
+
+1131
+
+8.342
+
+18.26
+
+47.40
+
+888.1
+
+11.43
+
+12.23
+
+79.03
+
+1524
+
+10.02
+
+16.44
+
+69.52
+
+1181
+
+WSLCM (Han et al., 2021)
+
+-
+
+-
+
+1.158
+
+4.812
+
+77.95
+
+5446
+
+2.283
+
+5.987
+
+56.82
+
+1309
+
+3.452
+
+2.125
+
+72.44
+
+6619
+
+2.30
+
+4.31
+
+69.07
+
+4458
+
+SRWS (Zhang et al., 2021)
+
+-
+
+-
+
+36.58
+
+40.02
+
+80.22
+
+55.32
+
+40.31
+
+46.10
+
+92.36
+
+38.96
+
+31.74
+
+38.38
+
+78.85
+
+29.01
+
+35.44
+
+42.22
+
+82.87
+
+37.80
+
+ACM (Dai et al., 2021a)
+
+0.398
+
+0.402
+
+68.93
+
+80.87
+
+91.63
+
+15.23
+
+61.12
+
+75.87
+
+93.12
+
+55.22
+
+59.23
+
+74.38
+
+93.27
+
+65.28
+
+61.43
+
+77.04
+
+94.80
+
+64.50
+
+ALCNet (Dai et al., 2021b)
+
+0.378
+
+3.740
+
+70.83
+
+82.92
+
+94.30
+
+36.15
+
+64.74
+
+78.59
+
+94.18
+
+34.61
+
+60.60
+
+75.47
+
+92.98
+
+58.80
+
+63.26
+
+78.99
+
+94.98
+
+58.74
+
+ISTDU (Hou et al., 2022)
+
+2.752
+
+7.944
+
+75.52
+
+86.06
+
+96.58
+
+14.54
+
+89.55
+
+94.49
+
+97.67
+
+13.44
+
+66.36
+
+79.58
+
+93.60
+
+53.10
+
+80.12
+
+86.71
+
+96.74
+
+32.18
+
+IAANet (Wang et al., 2022)
+
+2.778
+
+1.742
+
+74.22
+
+85.02
+
+93.53
+
+22.70
+
+90.22
+
+94.88
+
+97.26
+
+8.32
+
+66.25
+
+78.34
+
+93.15
+
+14.20
+
+76.90
+
+86.41
+
+94.65
+
+15.07
+
+DNA-Net (Li et al., 2023b)
+
+4.697
+
+14.26
+
+75.80
+
+86.24
+
+95.82
+
+8.78
+
+88.19
+
+93.73
+
+98.83
+
+9.00
+
+65.90
+
+79.44
+
+90.91
+
+12.24
+
+80.23
+
+88.60
+
+96.90
+
+15.28
+
+MTU-Net (Wu et al., 2023b)
+
+8.220
+
+6.193
+
+74.78
+
+85.37
+
+93.54
+
+22.36
+
+74.85
+
+84.47
+
+93.97
+
+46.95
+
+66.11
+
+79.26
+
+93.27
+
+36.80
+
+71.62
+
+83.03
+
+94.15
+
+12.16
+
+RDIAN (Sun et al., 2023)
+
+0.217
+
+3.718
+
+68.72
+
+81.46
+
+93.54
+
+43.29
+
+76.28
+
+86.54
+
+95.77
+
+34.56
+
+56.45
+
+72.14
+
+88.55
+
+26.63
+
+67.15
+
+80.05
+
+92.62
+
+34.83
+
+UIU-Net (Wu et al., 2023a)
+
+50.54
+
+54.42
+
+76.91
+
+86.95
+
+95.82
+
+14.13
+
+93.89
+
+96.63
+
+98.31
+
+7.79
+
+66.15
+
+79.63
+
+93.98
+
+22.07
+
+82.40
+
+90.35
+
+97.27
+
+15.39
+
+AGPCNet (Zhang et al., 2023)
+
+12.42
+
+42.84
+
+75.69
+
+85.26
+
+96.48
+
+14.99
+
+88.87
+
+93.88
+
+97.20
+
+10.02
+
+66.29
+
+79.58
+
+92.83
+
+13.12
+
+76.95
+
+86.24
+
+95.50
+
+12.71
+
+SCTransNet (Yuan et al., 2024a)
+
+11.19
+
+10.12
+
+77.50
+
+87.32
+
+96.95
+
+13.92
+
+94.09
+
+96.95
+
+98.62
+
+4.29
+
+68.15
+
+80.96
+
+93.27
+
+10.74
+
+83.43
+
+90.96
+
+97.28
+
+8.62
+
+MSHNet (Liu et al., 2024a)
+
+4.066
+
+6.112
+
+73.55
+
+85.98
+
+97.25
+
+31.05
+
+80.55
+
+96.30
+
+97.99
+
+11.77
+
+67.16
+
+80.12
+
+93.88
+
+15.03
+
+81.95
+
+89.90
+
+97.19
+
+19.28
+
+L2 SKNet (Wu et al., 2025)
+
+0.899
+
+6.895
+
+75.43
+
+86.88
+
+97.07
+
+12.20
+
+93.58
+
+96.67
+
+97.57
+
+5.33
+
+67.81
+
+80.81
+
+90.24
+
+17.46
+
+82.80
+
+90.55
+
+97.04
+
+10.46
+
+DFINet (Wu et al., 2026b)
+
+9.335
+
+121.4
+
+76.78
+
+87.24
+
+97.24
+
+14.88
+
+93.90
+
+96.08
+
+98.85
+
+5.62
+
+67.95
+
+80.02
+
+92.75
+
+20.44
+
+82.46
+
+90.73
+
+97.20
+
+12.40
+
+Ours
+
+4.400
+
+4.706
+
+79.15
+
+88.36
+
+97.72
+
+14.82
+
+95.24
+
+97.56
+
+99.36
+
+3.17
+
+68.02
+
+80.96
+
+93.27
+
+10.12
+
+84.20
+
+91.42
+
+98.14
+
+8.01
+
+Deep Learning Method
+
+Fig. 8. ROC curves of representative IRSTD methods on the SIRST V1, NUDT-SIRST, and IRSTD-1K datasets.
+Table 2
+Area Under the ROC Curve (AUC) of state-of-the-art IRSTD methods evaluated on the SIRST V1, NUDT-SIRST, and IRSTD-1K datasets under thresholds of
+𝐹𝑎𝑝 = 0.5 and 𝐹𝑎𝑝 = 1.0 ( ×10−6 ).
+Datasets
+
+SIRST v1
+
+NUDT-SIRST
+
+IRSTD-1K
+
+Methods
+
+AUC
+ACM
+
+ALCNet
+
+RDIAN
+
+ISTDU
+
+MTU-Net
+
+IAANet
+
+AGPCNet
+
+DNA-Net
+
+UIU-Net
+
+SCTransNet
+
+MSHNet
+
+L2 SKNet
+
+DFINet
+
+Ours
+
+𝐹𝑎𝑝 = 0.5
+
+0.7223
+
+0.8618
+
+0.5461
+
+0.7515
+
+0.7457
+
+0.8081
+
+0.6953
+
+0.6582
+
+0.4854
+
+0.9539
+
+0.8906
+
+0.9437
+
+0.9200
+
+0.9690
+
+𝐹𝑎𝑝 = 1.0
+
+0.8180
+
+0.9025
+
+0.7321
+
+0.8579
+
+0.8437
+
+0.8614
+
+0.8262
+
+0.8098
+
+0.7197
+
+0.9589
+
+0.9088
+
+0.9397
+
+0.9138
+
+0.9714
+
+𝐹𝑎𝑝 = 0.5
+
+0.4392
+
+0.6321
+
+0.4630
+
+0.8635
+
+0.4640
+
+0.7569
+
+0.5038
+
+0.6300
+
+0.8275
+
+0.9853
+
+0.9416
+
+0.9664
+
+0.9734
+
+0.9928
+
+𝐹𝑎𝑝 = 1.0
+
+0.5865
+
+0.7716
+
+0.6695
+
+0.9211
+
+0.6064
+
+0.8463
+
+0.7306
+
+0.8072
+
+0.9013
+
+0.9863
+
+0.9321
+
+0.9640
+
+0.9644
+
+0.9938
+
+𝐹𝑎𝑝 = 0.5
+
+0.5374
+
+0.6606
+
+0.4545
+
+0.6014
+
+0.5018
+
+0.7862
+
+0.6211
+
+0.6162
+
+0.4749
+
+0.9107
+
+0.8118
+
+0.7006
+
+0.7457
+
+0.9138
+
+𝐹𝑎𝑝 = 1.0
+
+0.7366
+
+0.8006
+
+0.6480
+
+0.7687
+
+0.7198
+
+0.8456
+
+0.7752
+
+0.7684
+
+0.7099
+
+0.9200
+
+0.8426
+
+0.8298
+
+0.8412
+
+0.9280
+
+approaches outperform traditional ones in both contour prediction
+and detection accuracy. Our method achieves strong and balanced
+performance across all datasets, particularly excelling on NUDT-SIRST
+and SIRST3, where SP-KAN attains the highest scores in every metric.
+This indicates its superior ability to delineate and localize small targets
+under diverse and complex conditions. Although SP-KAN does not
+consistently attain the top values of 𝑃𝑑 and 𝐹𝑎 individually, e.g., in the
+IRSTD-1K, UIU-Net’s 𝑃𝑑 is higher than ours by 0.71, but our false alarm
+
+rate is more than twice as low as UIU-Net’s. This demonstrates that our
+algorithm achieves a superior trade-off between detection accuracy and
+false alarms, as reflected by its remarkably consistent composite metric,
+F1 . As shown in Table 1, SP-KAN also exhibits notable computational
+efficiency. Its number of parameters (Params, P# ), and floating point
+of operations (FLOPs, F# ) are both less than half those of SCTransNet
+- a recent strong method, underscoring the effectiveness of sparse
+nonlinear modeling in achieving lightweight accurate detection.
+8
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 9. Visual detection effects and 3D display of different IRSTD methods on the SIRST V1 dataset. Correctly detected targets, missed detections, and false alarms
+are indicated by blue, yellow, and red circles, respectively. The incomplete shape of the inferred mask is highlighted with yellow arrows. (For interpretation of
+the references to color in this figure legend, the reader is referred to the web version of this article.)
+
+Fig. 8 depicts the ROC curves of various competitive learning-based
+algorithms. It is evident that the ROC curve of SP-KAN surpasses those
+of all other methods. Moreover, the smoother trajectory of our curve
+suggests enhanced threshold adaptability, enabling flexible tuning for
+diverse application requirements and improving practical utility. Correspondingly, Table 2 reports the area under curve (AUC) scores under
+two false-alarm thresholds, 𝐹𝑎𝑝 = 0.5 × 10−6 and 𝐹𝑎𝑝 = 1 × 10−6 . Across
+both settings, SP-KAN achieves the highest AUC values. These findings
+further confirm that SP-KAN maintains reliable detection performance
+even under extremely stringent false-alarm constraints.
+
+our approach produces a mask with the most complete and coherent
+shape. This result highlights the effectiveness of the proposed nonlinear
+modeling capability compared with those of MLP-based methods.
+
+5.3. Visual results
+
+5.4.1. Core components of SP-KAN
+Based on a U-shaped architecture (Table 3, Strategy (a)), we first
+assess the individual and combined contributions of the primary components within SP-KAN. Embedding the CViT module into the CNN
+backbone (Strategy (b)) significantly improves performance, highlighting the benefit of capturing compressed spatial patches with long-range
+dependencies for small-target perception. The pattern complementarity
+module (PCM) enhances nonlinear feature modeling, boosting detection
+accuracy and reducing false alarms with only a marginal increase in
+parameters and computational cost. When CViT and PCM are combined
+(Strategy (d)), the model achieves additional gains, demonstrating the
+rationality and effectiveness of the global context for nonlinear modulation. Finally, integrating the SPKAL further refines contour delineation
+with negligible parameter overhead, improving the IoU by 0.8.
+
+5.4. Ablation study
+In this section, we first evaluate the effectiveness of each core module in SP-KAN. We then further analyze the embedding exploration of
+KAN, the pattern complementarity module, the sparse-sine perception
+Kolmogorov–Arnold layer, and the selection of basis functions.
+
+The qualitative comparisons of fifteen representative algorithms on
+the SIRST V1, IRSTD-1K, and NUDT-SIRST datasets are presented in
+Figs. 9, 10, and 11, encompassing challenging scenes with clustered
+targets, bright clutter, vegetation, mountains, clouds and buildings.
+Traditional algorithms such as TTLCM and SRWS tend to produce
+excessive false alarms and missed detections, and even when targets are
+detected, their boundaries are often blurred or incomplete, hindering
+accurate characterization. By contrast, deep learning-based methods
+exhibit stronger clutter suppression and improved contour integrity.
+Notably, our method achieves both robust and accurate target detection along with effective contour delineation. For example, in the
+XDU258 scenario shown in Fig. 10, many competing methods mistakenly identify cloud clutter as false alarms. In contrast, our method
+not only accurately detects the target but also successfully predicts
+all pixels of the unmanned aerial vehicle, whereas the other methods
+miss the upper-left portion of the target to varying degrees. In the
+001289 scenario shown in Fig. 11, a large number of methods fail to
+detect the target. Among the methods that successfully detect it, only
+
+5.4.2. Embedding exploration of KAN
+Although KAN enhances the nonlinear representational capacity
+of models, how to efficiently embed it into IRSTD tasks remained
+unanswered in the existing literature. In this section, we construct
+three KAN-based variants upon the current U-shaped model to compare
+9
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 10. Visual detection results and 3D display of different IRSTD methods on the IRSTD-1K dataset. Correctly detected targets, missed detections, and false
+alarms are indicated by blue, yellow, and red circles, respectively. The incomplete shape of the inferred mask is highlighted with yellow arrows. (For interpretation
+of the references to color in this figure legend, the reader is referred to the web version of this article.)
+Table 3
+Quantitative ablation study evaluating CViT, PCM, and SPKAL on the SIRST3 dataset with respect to
+IoU (%), P𝑑 (%), F𝑎 (10−6 ). The best-performing results are indicated in bold red.
+Strategy
+
+Params
+
+(a)
+
+3.935
+
+Module
+
+FLOPs
+
+SIRST3
+
+CViT
+
+PCM
+
+SPKAL
+
+IoU↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+4.246
+
+7
+
+7
+
+7
+
+79.14
+
+95.67
+
+18.34
+
+(b)
+
+4.380
+
+4.702
+
+3
+
+7
+
+7
+
+82.72
+
+97.47
+
+9.58
+
+(c)
+
+3.955
+
+4.250
+
+7
+
+3
+
+7
+
+80.74
+
+96.14
+
+10.63
+
+(d)
+
+4.400
+
+4.706
+
+3
+
+3
+
+7
+
+83.40
+
+98.00
+
+9.05
+
+Prop.
+
+4.400
+
+4.706
+
+3
+
+3
+
+3
+
+84.20
+
+98.14
+
+8.01
+
+Table 4
+Based on our U-shaped structure, quantitative comparison of TransUKAN, U-KAN, KKAN, and SP-KAN on the SIRST V1 and
+NUDT-SIRST datasets with respect to IoU (%), P𝑑 (%), F𝑎 (10−6 ). The best-performing results are indicated in bold red.
+Module
+
+Params
+
+SIRST V1
+
+FLOPs
+
+NUDT-SIRST
+
+IoU↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+IoU↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+TransUKAN (Wu et al., 2024a)
+
+3.944
+
+4.283
+
+78.53
+
+95.58
+
+12.46
+
+93.05
+
+98.35
+
+6.27
+
+U-KAN (Li et al., 2025a)
+
+3.955
+
+4.250
+
+77.26
+
+95.06
+
+17.84
+
+92.32
+
+98.31
+
+15.76
+
+KKAN (Bodner et al., 2024)
+
+4.835
+
+4.288
+
+76.65
+
+94.40
+
+25.79
+
+90.65
+
+97.46
+
+11.26
+
+SP-KAN
+
+4.400
+
+4.706
+
+79.15
+
+97.72
+
+14.82
+
+95.24
+
+99.36
+
+3.17
+
+10
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 11. Visual detection effects and 3D display of different IRSTD methods on the NUDT-SIRST dataset. Correctly detected targets, missed detections, and false
+alarms are indicated by blue, yellow, and red circles, respectively. The incomplete shape of the inferred mask is highlighted with yellow arrows. (For interpretation
+of the references to color in this figure legend, the reader is referred to the web version of this article.)
+
+Fig. 12. Structure of representative different KAN-based methods. (a) TransUKAN, (b) U-KAN, (c) KKAN, and (d) our SP-KAN.
+
+the proposed SP-KAN architecture, as illustrated in Fig. 12, including TransUKAN (Wu et al., 2024a) (KANsformer for medical image
+segmentation), U-KAN (Li et al., 2025a) (a hybrid convolutional-KAN
+model for image segmentation and restoration), and KKAN (Bodner
+et al., 2024) (a KAN-based convolutional layer for image classification),
+respectively. As presented in Table 4, experimental results show that
+both SPKAN and TransUKAN achieve favorable performance, demonstrating the importance of modeling long-range dependencies using
+transformer architectures. Although SP-KAN incurs a slightly higher
+
+computational cost than TransUKAN (0.423 GFLOPs), the resulting
+performance gains indicate that KAN-driven refinement of transformerderived context provides a more effective modulation mechanism than
+nonlinear mapping of its query, key, and value.
+5.4.3. Analysis of pattern complementarity module
+A primary objective of PCM is to enhance multi-dimensional and
+multi-intensity nonlinear representations between targets and backgrounds. Accordingly, we conduct an ablation study on three feature
+11
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 13. Attention visualizations and detection results of SP-KAN with different internal component combinations of PCM. The incomplete shape of the inferred
+mask is highlighted with yellow arrows, while black dashed lines highlight the distinct attention regions produced by different variants, revealing their
+complementary perception behaviors. (For interpretation of the references to color in this figure legend, the reader is referred to the web version of this article.)
+
+Fig. 14. More visualization of heatmap distributions in deep models based on our SP-KAN architecture, with the neck block embedding MLP layers, KAN layers,
+and SPKAL. Correctly detected targets, missed detections, and false alarms are indicated by blue, yellow, and red circles, respectively. (For interpretation of the
+references to color in this figure legend, the reader is referred to the web version of this article.)
+
+12
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 15. Comparison of different basis functions on the SIRST V1, NUDT-SIRST, and IRSTD-1k datasets in (a) 𝐼𝑜𝑈 (%), (b) 𝑃𝑑 (%), and (c) 𝐹𝑎 (10−6 ).
+Table 5
+Quantitative ablation study evaluating ENM, SNM, and LSM of pattern
+complementarity module (PCM) on the SIRST3 dataset with respect to IoU
+(%), P𝑑 (%), F𝑎 (10−6 ). The best-performing results are indicated in bold
+red.
+Module
+
+Strategy
+
+5.4.4. Analysis of sparse-sine perception Kolmogorov–Arnold layer
+In this section, experiments are performed on the SIRST V1 and
+NUDT-SIRST datasets. Both quantitative comparisons and visualizations are used to evaluate the proposed SPKAL against the MLP layer,
+the vanilla KAN layer, and a perception-based variant (KAN w P.),
+thereby demonstrating its effectiveness. Quantitative results are shown
+in Table 6. When comparing MLP𝐿=1 with KAN, the results indicate that
+with a similar number of parameters, the KAN-based structure achieves
+superior performance, indicating that properly embedding learnable
+nonlinear units effectively enhances small-target detection capability.
+A comparison between KAN and reveals that globally perceiving all
+nonlinear neurons yields higher performance than the original KAN
+layer. This gain arises from the limited representational capacity of
+the vanilla KAN, which lacks internal interactions among individually mapped nonlinear nodes. Building upon KAN w P., the proposed
+SPKAL introduces sparse sine-based expressions that adapt to the lowquality attributes of the background, thereby further enhancing detection accuracy. Notably, it outperforms MLP𝐿=2 while using only half the
+parameters.
+Fig. 14 presents visualization results of the MLP layer-, KAN layer, and SPKAL-based methods across different processing stages under
+three representative scenarios. By examining the evolution of attention
+distributions after the neck module, we can analyze how different
+architectures perceive their targets. In the first scenario, all models exhibit comparable long-range modeling capabilities after feature
+encoding, showing no notable differences. However, following PCM
+processing, the attention regions become more refined. Specifically,
+the MLP layer-based model tends to focus on cluttered areas within
+buildings, while the KAN layer-based model effectively avoids such
+distractors, thereby reducing false alarms in the final results. Similar
+trends are observed in the other two scenarios. In the second scenario, for instance, three models capture global contextual information
+across the lake, buildings, and sky during encoding. However, after
+the PCM module, only SPKAL effectively suppresses interference from
+water reflections, whereas both the MLP and vanilla KAN models still
+produce false detections. These results clearly demonstrate the superior
+target perception capability and robustness of the proposed SPKAL for
+infrared small target detection.
+
+SIRST3
+
+ENM
+
+SNM
+
+LSM
+
+IoU↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+(a)
+
+3
+
+7
+
+7
+
+83.54
+
+97.93
+
+8.39
+
+(b)
+
+7
+
+3
+
+7
+
+83.68
+
+98.13
+
+8.77
+
+(c)
+
+7
+
+7
+
+3
+
+83.40
+
+98.00
+
+9.05
+
+(d)
+
+3
+
+3
+
+7
+
+84.06
+
+98.13
+
+8.19
+
+(e)
+
+7
+
+3
+
+3
+
+84.21
+
+98.07
+
+8.99
+
+(f)
+
+3
+
+7
+
+3
+
+83.80
+
+97.47
+
+12.80
+
+PCM
+
+3
+
+3
+
+3
+
+84.20
+
+98.14
+
+8.01
+
+representation modes within the PCM, namely element-wise nonlinear modulation (ENM), sparse nonlinear modulation (SNM), and local spatial modulation (LSM). As summarized in Table 5, Strategies
+(a)–(c) evaluate individual modes, while Strategies (d)–(f) examine
+their combinations. The combined strategies consistently outperform
+the individual ones, with Strategy (e) yielding the best performance,
+demonstrating the benefit of jointly modeling nonlinear semantics and
+local spatial structures. Based on this configuration, the full PCM
+further incorporates ENM and achieves the overall best performance.
+To intuitively illustrate the complementary characteristics among
+different PCM components, Fig. 13 presents attention visualizations and
+detection results of SP-KAN with different internal component combinations. As highlighted by the black dashed lines, variants equipped
+with ENM or SNM exhibit grid-like attention patterns induced by
+tokenized learnable nonlinear modeling; in particular, the SNM-based
+variant, enabled by a sparse sinusoidal latent space, tends to achieve
+wide-range and fine-grained perception. In contrast, the LSM-based
+variant, implemented via depth-wise convolutions, places greater emphasis on structured local spatial saliency in the attention maps. This
+indicates that different components focus on distinct levels of perceptual modeling, yet neither achieves precise decoupling of targets from
+backgrounds. By integrating these structures, the proposed PCM jointly
+realizes local spatial enhancement and nonlinear global representation
+within attention maps, resulting in target masks with sharper edges and
+higher discriminability than those produced by individual components.
+This indicates that PCM effectively improves the structural integrity
+and contour clarity of small infrared targets.
+
+5.4.5. Selection of basis functions
+The essence of the KAN model lies in learning a set of controllable coefficients to form linear combinations of predefined basis functions, thereby enabling explicit global nonlinear representations. Consequently, selecting basis functions that align well with the task characteristics is of great importance. In this section, four representative
+13
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 16. Visual detection results and 3D representations of different IRSTD methods under Gaussian noise. The values of PSNR and SSIM illustrate the degradation
+of the infrared images; the zoomed-in region is annotated with the local SNR of the target.
+
+Fig. 17. Visual detection results and 3D representations of different IRSTD methods under Stripe noise. The values of PSNR and SSIM illustrate the degradation
+of the infrared images; the zoomed-in region is annotated with the local SNR of the target.
+
+Fig. 18. Visual detection results and 3D representations of different IRSTD methods under Mixed noise. The values of PSNR and SSIM illustrate the degradation
+of the infrared images; the zoomed-in region is annotated with the local SNR of the target.
+
+14
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Table 6
+Quantitative comparison of MLP, KAN, and the proposed SP-KAN on the SIRST V1 and NUDT-SIRST
+datasets with respect to F1 ↑, P𝑑 (%), F𝑎 (10−6 ). The best-performing results are indicated in bold red.
+Module
+
+Params
+
+SIRST V1
+
+FLOPs
+
+NUDT-SIRST
+
+F1 ↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+F1 ↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+MLP𝐿=1
+
+4.794
+
+4.769
+
+86.26
+
+97.71
+
+10.61
+
+96.65
+
+98.84
+
+8.43
+
+MLP𝐿=2
+
+8.742
+
+5.397
+
+88.12
+
+97.63
+
+11.32
+
+97.26
+
+99.15
+
+4.97
+
+KAN
+
+4.400
+
+4.706
+
+87.74
+
+96.81
+
+15.80
+
+97.34
+
+98.95
+
+5.28
+
+KAN w P.
+
+4.400
+
+4.706
+
+88.01
+
+97.35
+
+14.40
+
+97.81
+
+99.28
+
+3.36
+
+SP-KAN
+
+4.400
+
+4.706
+
+88.36
+
+97.72
+
+14.82
+
+97.56
+
+99.36
+
+3.17
+
+Table 7
+Quantitative comparison of different methods under Gaussian noise, Stripe noise, and Mixed noise on SIRST3 in terms of IoU (%), F1 (%), P𝑑
+(%), F𝑎 (10−6 ).
+Gaussian Noise
+
+Method
+
+Stripe Noise
+
+IoU↑
+
+F1 ↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+IoU↑
+
+F1 ↑
+
+P𝑑 ↑
+
+ACM
+
+20.30
+
+33.75
+
+24.76
+
+11.56
+
+53.25
+
+69.49
+
+ALCNet
+
+30.32
+
+46.53
+
+37.78
+
+14.68
+
+57.58
+
+73.07
+
+MTU-Net
+
+40.11
+
+57.26
+
+45.71
+
+22.79
+
+47.69
+
+RDIAN
+
+30.10
+
+46.27
+
+41.90
+
+164.0
+
+DNANet
+
+23.53
+
+38.10
+
+55.02
+
+UIUNet
+
+41.01
+
+58.16
+
+Ours
+
+45.68
+
+62.72
+
+IoU↑
+
+F1 ↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+77.99
+
+52.83
+
+17.08
+
+29.18
+
+19.58
+
+9.927
+
+83.49
+
+41.36
+
+24.73
+
+39.66
+
+30.37
+
+13.86
+
+64.58
+
+60.32
+
+71.69
+
+28.02
+
+43.78
+
+33.23
+
+24.98
+
+36.90
+
+58.02
+
+51.32
+
+32.49
+
+19.85
+
+33.12
+
+24.44
+
+107.5
+
+728.9
+
+43.91
+
+61.02
+
+71.95
+
+139.2
+
+19.45
+
+32.57
+
+38.84
+
+503.7
+
+47.08
+
+49.96
+
+49.41
+
+66.14
+
+56.30
+
+29.83
+
+26.68
+
+42.12
+
+32.70
+
+33.69
+
+71.95
+
+70.62
+
+61.73
+
+76.34
+
+85.08
+
+70.14
+
+35.91
+
+52.85
+
+55.98
+
+67.33
+
+Table 8
+Detection performance of different methods for the unseen dataset
+with respect to IoU (%), P𝑑 (%), F𝑎 (10−6 ).
+
+noise level 𝜎 ∈ [0, 0.04]; (b) Stripe Noise: Gaussian-distributed stripe
+noise with noise level 𝜎 ∈ [0, 0.08]; (c) Mixed Noise: a combination
+of Gaussian and Stripe Noise. The quantitative results are shown in
+Table 7. Although F𝑎 does not reach the optimal value, the proposed
+method demonstrates clear superiority in IoU, F1 , and P𝑑 , indicating
+strong robustness against various types of typical noise. The slightly
+elevated F𝑎 is primarily due to a mismatch between the segmentation
+threshold (0.5) in the noisy and clean domains, which is consistent with
+observations in previous studies (Yuan et al., 2024b). Figs. 16, 17, and
+18 further illustrate the visual performance of the method under the
+three noise conditions. For example, in the 000353 scenario shown in
+Fig. 18, the image contains numerous locally highlighted regions that
+resemble the target, while the true target consists of only five pixels.
+Meanwhile, high-intensity mixed noise causes the target to exhibit a
+low local signal-to-noise ratio (SNR) (neighborhood = 10). The peak
+signal-to-noise ratio (PSNR) and structural similarity index measurement (SSIM) of the entire image decrease to 26.35 dB and 0.4454,
+respectively. Under this extreme condition, only SP-KAN and MTU-Net
+successfully detect the two targets, with the proposed method providing
+contour predictions closer to the ground truth. This observation not
+only demonstrates the effectiveness of the transformer in modeling the
+global context but also highlights the advantage of incorporating the
+KAN module for fine-grained target contour perception.
+
+NUDT-SIRST (Train)
+Module
+
+Mixed Noise
+F𝑎 ↓
+
+SIRST V1 (Test)
+IoU↑
+
+P𝑑 ↑
+
+F𝑎 ↓
+
+DNANet (Li et al., 2023b)
+
+35.80
+
+76.14
+
+141.3
+
+UIUNet (Wu et al., 2023a)
+
+53.32
+
+80.73
+
+35.15
+
+RDIAN (Sun et al., 2023)
+
+39.35
+
+77.98
+
+43.68
+
+DMFNet (Guo et al., 2024)
+
+43.70
+
+79.81
+
+60.07
+
+SCTransNet (Yuan et al., 2024a)
+
+50.97
+
+83.48
+
+37.71
+
+Ours
+
+53.80
+
+86.72
+
+28.15
+
+basis functions are examined, including cubic B-splines, cubic Hermite,
+Tanh, and Sine. Experimental results on three datasets are presented in
+Fig. 15. The results indicate that, although B-spline bases are commonly
+adopted in general KAN formulations, the sinusoidal basis consistently
+achieves more favorable performance in the IRSTD task. This behavior
+can be attributed to the fact that infrared small targets typically exhibit
+smooth, low-contrast, and spatially sparse energy distributions, for
+which sinusoidal bases provide a more suitable functional representation. In addition, compared with the iterative and time-consuming grid
+matrix construction required by B-splines, the sine function provides a
+more efficient instantiation process. Based on these observations, sinusoidal functions are adopted as the basis functions in our KAN-based
+formulation for IRSTD.
+
+5.6. Generalization of SP-KAN
+Despite the proposed method demonstrating strong robustness
+across various noise types, real-world applications inevitably expose the
+model to diverse and unpredictable conditions. To assess its generalization capability, we further evaluate the detection performance of the
+proposed method under previously unseen scenarios. Specifically, six
+representative high-performance IRSTD methods including DNANet (Li
+et al., 2023b), UIUNet (Wu et al., 2023a), RDIAN (Sun et al., 2023),
+DMFNet (Guo et al., 2024), SCTransNet (Yuan et al., 2024a) and our
+method are trained on the NUDT-SIRST dataset and subsequently tested
+on the unseen SIRST V1 dataset. The quantitative results are presented
+in Table 8, which show that SP-KAN achieves the best performance
+in both contour prediction and target localization metrics in unseen
+scenarios, demonstrating its strong scene generalization and practical
+applicability.
+
+5.5. Robustness of SP-KAN
+In a real IR detection system, when the detector operates for an extended period, various types of thermal noise often degrade the quality
+of infrared images (Yuan et al., 2025b), posing a challenge to the robustness of different IRSTD methods against noise. To demonstrate the
+robustness of SP-KAN, three typical types of noise are synthetic in this
+section: (a) Gaussian Noise: Gaussian-distributed random noise with
+15
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 19. Visual detection results of multi-scale infrared small targets obtained by SP-KAN. The numbers on the curve represent the pixel counts for targets of
+different scales.
+
+Fig. 20. Hyperparameter study of (a) the number of SPKALs in PCM, (b) the number of grids in SPKAL, and (c) the basic width of the model in terms of IoU
+(%), P𝑑 (%) on the SIRST3 dataset. The number of parameters is labeled in red, and the shaded regions highlight the parameter values selected for our model.
+(For interpretation of the references to color in this figure legend, the reader is referred to the web version of this article.)
+
+observe that an excessively large basic width (e.g., 32 or 64) leads to
+slight performance degradation due to overfitting, accompanied by a
+substantial increase in model parameters. Therefore, in our SP-KAN,
+the number of SPKALs, the number of grids in SPKAL, and the basic
+width of the model are set to 3, 12, and 16, respectively.
+
+5.7. Multi-scale of SP-KAN
+Considering the importance of multi-scale target perception in
+IRSTD, we further investigate the effectiveness of SP-KAN under target
+scale variations. Specifically, we qualitatively evaluate the detection
+performance of SP-KAN on 18 representative targets with significantly
+different sizes, ranging from extremely small targets of approximately
+2 pixels to relatively larger targets of 137 pixels. As illustrated in Fig.
+19, SP-KAN consistently produces accurate localization and coherent
+contour predictions across different scales. These results indicate that
+the proposed architecture, benefiting from its U-shaped multi-scale feature extraction and the scale-aware nonlinear modulation of the PCM
+at bottleneck stages, is capable of robustly handling scale variations in
+IRSTD.
+
+5.9. Limitations
+Although the proposed method effectively handles challenging scenarios where targets exhibit characteristics similar to background clutter via nonlinear embedding, it still has certain limitations. Case One
+in Fig. 21 illustrates a performance degradation in terms of IoU when
+the target size becomes excessively large. For example, the target in
+Fig. 21(a) contains 1065 pixels, which no longer conforms to the definition of an infrared small target. In such cases, the proposed method
+tends to respond preferentially to locally bright sub-regions within the
+oversized target (see the blue pixel regions in Fig. 21(b) and (c)),
+resulting in incomplete contour prediction. Future work may alleviate
+this issue by enhancing contour modeling through the incorporation
+of more explicit edge representations. Case Two in Fig. 21 presents
+representative false-alarm scenarios. As shown in Fig. 21(d) and (e),
+blind-pixel clusters are mistakenly detected as small targets, whereas
+in Fig. 21(f), the false alarm arises from incomplete segmentation of
+the true target. To mitigate such errors, future research will investigate
+noise-injection strategies to further improve robustness under these
+challenging conditions.
+
+5.8. Core hyperparameter analysis
+We utilize the number of SPKALs in PCM, the number of grids of
+SPKAL, and the basic width of the model to validate the core hyperparameters of SP-KAN. As illustrated in Fig. 20(a), increasing the number
+of SPKALs yields a steady improvement in detection performance, while
+the model size remains almost unchanged. The performance saturates
+when the number of layers reaches three, reaffirming the effectiveness
+of SPKAL. In Fig. 20(b), when the number of grids is set within the
+range of 12 to 16, the model achieves consistently strong performance,
+indicating that maintaining an appropriate number of control points
+is essential for preserving the capability of KAN. Additionally, we
+16
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+
+Fig. 21. Two typical detection failure cases of SP-KAN. In Case One, the blue pixels indicate regions where the SP-KAN predictions match the ground truth, and
+the number of target pixels is reported. In Case Two, the red outlines highlight the false alarms produced by our method. (For interpretation of the references to
+color in this figure legend, the reader is referred to the web version of this article.)
+
+6. Conclusion
+
+Acknowledgments
+
+In this study, we reformulated infrared small target detection as a
+global context modulation problem driven by sparse nonlinear modules and presented a novel Sparse-sine Perception Kolmogorov–Arnold
+Network (SP-KAN), tailoring the nonlinear modeling capability of KAN
+to the characteristics of IRSTD. By integrating the Kolmogorov–Arnold
+theory with a U-shaped transformer-based architecture, SP-KAN effectively enhanced nonlinear feature interactions and improved the
+separation between weak targets and complex backgrounds. The proposed PCM established element-wise unstructured dependencies and
+local saliency relations through multi-dimensional and multi-intensity
+nonlinear embedding, while SPKAL unlocked position-summation constraints to enable fine-grained pixel-level modulation. Extensive experiments on four public datasets demonstrated that SP-KAN achieved
+state-of-the-art performance, highlighting its strong sparse nonlinear
+modeling potential for infrared small target detection. Further studies can explore the interpretability of KAN-based models to better
+understand how nonlinear mappings contribute to target–background
+discrimination. Additionally, designing noise-aware structures and integrating them with the nonlinear modeling capability of KAN is expected
+to further enhance IRSTD performance under strong noise interference.
+
+This work was supported in part by the National Natural Science
+Foundation of China under Grant 62576132 and Grant U23A20294, in
+part by the Fundamental Research Funds for the Central Universities,
+China under Grant ZYTS25287, in part by the Fundamental and Interdisciplinary Disciplines Breakthrough Plan of the Ministry of Education
+of China under Grant JYB2025XDXM109, in part by the Changchun Up
+Optotech Co., Ltd. under Grant WJ2025JSKF0022.
+References
+Afzal Aghaei, A., 2025. fKAN: Fractional Kolmogorov–arnold networks with trainable
+Jacobi basis functions. Neurocomputing 623, 129414. http://dx.doi.org/10.1016/j.
+neucom.2025.129414.
+Azam, B., Akhtar, N., 2024. Suitability of kans for computer vision: A preliminary
+investigation. arXiv preprint arXiv:2406.09087.
+Bai, X., Zhou, F., 2010. Analysis of new top-hat transformation and the application
+for infrared dim small target detection. Pattern Recognit. 43 (6), 2145–2156.
+http://dx.doi.org/10.1016/j.patcog.2009.12.023.
+Bodner, A.D., Tepsich, A.S., Spolski, J.N., Pourteau, S., 2024. Convolutional
+kolmogorov-arnold networks. arXiv preprint arXiv:2406.13155.
+Cao, Z., Kong, X., Zhu, Q., Cao, S., Peng, Z., 2021. Infrared dim target detection via
+mode-k1k2 extension tensor tubal rank under complex ocean environment. ISPRS
+J. Photogramm. Remote Sens. 181, 167–190.
+Chen, C.L.P., Li, H., Wei, Y., Xia, T., Tang, Y.Y., 2014. A local contrast method for
+small infrared target detection. IEEE Trans. Geosci. Remote Sens. 52 (1), 574–581.
+http://dx.doi.org/10.1109/TGRS.2013.2242477.
+Chen, T., Ye, Z., Tan, Z., Gong, T., Wu, Y., Chu, Q., Liu, B., Yu, N., Ye, J., 2024. MiMISTD: Mamba-in-mamba for efficient infrared small-target detection. IEEE Trans.
+Geosci. Remote Sens. 62, 1–13. http://dx.doi.org/10.1109/TGRS.2024.3485721.
+Dai, Y., Wu, Y., 2017. Reweighted infrared patch-tensor model with both nonlocal and
+local priors for single-frame small target detection. IEEE J. Sel. Top. Appl. Earth
+Obs. Remote. Sens. 10 (8), 3752–3767. http://dx.doi.org/10.1109/JSTARS.2017.
+2700023.
+Dai, Y., Wu, Y., Zhou, F., Barnard, K., 2021a. Asymmetric contextual modulation for
+infrared small target detection. In: Proceedings of the IEEE/CVF Winter Conference
+on Applications of Computer Vision. pp. 950–959.
+Dai, Y., Wu, Y., Zhou, F., Barnard, K., 2021b. Attentional local contrast networks
+for infrared small target detection. IEEE Trans. Geosci. Remote Sens. 59 (11),
+9813–9824. http://dx.doi.org/10.1109/TGRS.2020.3044958.
+Ding, H., Huang, N., Wu, Y., Cui, X., 2025. Improving infrared small target detection
+with GAN-driven data augmentation. IEEE Trans. Multimed. 27, 9516–9531. http:
+//dx.doi.org/10.1109/TMM.2025.3613079.
+Gao, C., Meng, D., Yang, Y., Wang, Y., Zhou, X., Hauptmann, A.G., 2013. Infrared
+patch-image model for small target detection in a single image. IEEE Trans. Image
+Process. 22 (12), 4996–5009. http://dx.doi.org/10.1109/TIP.2013.2281420.
+Gao, Y., Zhou, M., Metaxas, D.N., 2021. UTNet: a hybrid transformer architecture
+for medical image segmentation. In: International Conference on Medical Image
+Computing and Computer-Assisted Intervention. Springer, pp. 61–71.
+
+CRediT authorship contribution statement
+Shuai Yuan: Writing – review & editing, Writing – original draft,
+Visualization, Validation, Project administration, Methodology, Investigation, Formal analysis, Data curation, Conceptualization. Yu Liu:
+Writing – review & editing, Validation, Supervision, Methodology,
+Funding acquisition, Conceptualization. Xiaopei Zhang: Writing – review & editing, Supervision, Methodology, Formal analysis, Conceptualization. Xiang Yan: Writing – review & editing, Supervision, Resources, Funding acquisition, Data curation. Hanlin Qin: Writing –
+review & editing, Validation, Supervision, Investigation, Conceptualization. Naveed Akhtar: Writing – review & editing, Supervision,
+Methodology, Data curation, Conceptualization.
+Declaration of competing interest
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to
+influence the work reported in this paper.
+17
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+Ge, R., Yu, X., Chen, Y., Jia, F., Zhu, S., Zeng, D., Wang, C., Liu, Q., Niu, S., 2025.
+TC-KANRecon: High-quality and accelerated MRI reconstruction via adaptive KAN
+mechanisms and intelligent feature scaling. IEEE J. Biomed. Health. Inf. 1–14.
+http://dx.doi.org/10.1109/JBHI.2025.3626343.
+Gu, A., Dao, T., 2024. Mamba: Linear-time sequence modeling with selective state
+spaces. In: First Conference on Language Modeling. URL https://openreview.net/
+forum?id=tEYskw1VY2.
+Guo, T., Zhou, B., Luo, F., Zhang, L., Gao, X., 2024. DMFNet: Dual-encoder multistage
+feature fusion network for infrared small target detection. IEEE Trans. Geosci.
+Remote Sens. 62, 1–14. http://dx.doi.org/10.1109/TGRS.2024.3376382.
+Han, J., Liu, S., Qin, G., Zhao, Q., Zhang, H., Li, N., 2019. A local contrast method
+combined with adaptive background estimation for infrared small target detection.
+IEEE Geosci. Remote. Sens. Lett. 16 (9), 1442–1446. http://dx.doi.org/10.1109/
+LGRS.2019.2898893.
+Han, J., Moradi, S., Faramarzi, I., Liu, C., Zhang, H., Zhao, Q., 2020. A local contrast
+method for infrared small-target detection utilizing a tri-layer window. IEEE Geosci.
+Remote. Sens. Lett. 17 (10), 1822–1826. http://dx.doi.org/10.1109/LGRS.2019.
+2954578.
+Han, J., Moradi, S., Faramarzi, I., Zhang, H., Zhao, Q., Zhang, X., Li, N., 2021. Infrared
+small target detection based on the weighted strengthened local contrast measure.
+IEEE Geosci. Remote. Sens. Lett. 18 (9), 1670–1674. http://dx.doi.org/10.1109/
+LGRS.2020.3004978.
+He, X., Ling, Q., Zhang, Y., Lin, Z., Zhou, S., 2022. Detecting dim small target in infrared
+images via subpixel sampling cuneate network. IEEE Geosci. Remote. Sens. Lett.
+19, 1–5. http://dx.doi.org/10.1109/LGRS.2022.3189225.
+Hou, Q., Zhang, L., Tan, F., Xi, Y., Zheng, H., Li, N., 2022. ISTDU-net: Infrared smalltarget detection U-net. IEEE Geosci. Remote. Sens. Lett. 19, 1–5. http://dx.doi.org/
+10.1109/LGRS.2022.3141584.
+Kou, R., Wang, C., Peng, Z., Zhao, Z., Chen, Y., Han, J., Huang, F., Yu, Y., Fu, Q.,
+2023. Infrared small target segmentation networks: A survey. Pattern Recognit.
+143, 109788. http://dx.doi.org/10.1016/j.patcog.2023.109788.
+Li, X., Diao, W., Mao, Y., Gao, P., Mao, X., Li, X., Sun, X., 2023a. OGMN:
+Occlusion-guided multi-task network for object detection in UAV images. ISPRS
+J. Photogramm. Remote Sens. 199, 242–257. http://dx.doi.org/10.1016/j.isprsjprs.
+2023.04.009.
+Li, C., Liu, X., Li, W., Wang, C., Liu, H., Liu, Y., Chen, Z., Yuan, Y., 2025a. U-kan makes
+strong backbone for medical image segmentation and generation. In: Proceedings
+of the AAAI Conference on Artificial Intelligence. 39, (5), pp. 4652–4660.
+Li, Y., Wang, L., Chen, S., 2025b. Multi-granularity representation learning with vision
+mamba for infrared small target detection. Int. J. Appl. Earth Obs. Geoinf. 142,
+104645. http://dx.doi.org/10.1016/j.jag.2025.104645.
+Li, Y., Wang, L., Chen, S., 2025c. SMILE: Spatial–spectral mamba interactive learning
+for infrared small target detection. IEEE Trans. Geosci. Remote Sens. 63, 1–14.
+http://dx.doi.org/10.1109/TGRS.2025.3569550.
+Li, Y., Wang, L., Chen, S., 2026. From optimization to network: A low-rank and sparseaware deep unfolding framework for infrared small target detection. Adv. Eng. Inf.
+69, 103991. http://dx.doi.org/10.1016/j.aei.2025.103991.
+Li, B., Xiao, C., Wang, L., Wang, Y., Lin, Z., Li, M., An, W., Guo, Y., 2023b. Dense
+nested attention network for infrared small target detection. IEEE Trans. Image
+Process. 32, 1745–1758. http://dx.doi.org/10.1109/TIP.2022.3199107.
+Lin, F., Bao, K., Li, Y., Zeng, D., Ge, S., 2024. Learning contrast-enhanced shape-biased
+representations for infrared small target detection. IEEE Trans. Image Process. 33,
+3047–3058. http://dx.doi.org/10.1109/TIP.2024.3391011.
+Liu, F., Gao, C., Chen, F., Meng, D., Zuo, W., Gao, X., 2023. Infrared small and dim
+target detection with transformer under complex backgrounds. IEEE Trans. Image
+Process. 32, 5921–5932. http://dx.doi.org/10.1109/TIP.2023.3326396.
+Liu, T., Liu, Y., Yang, J., Li, B., Wang, Y., An, W., 2025. Graph Laplacian regularization
+for fast infrared small target detection. Pattern Recognit. 158, 111077. http:
+//dx.doi.org/10.1016/j.patcog.2024.111077.
+Liu, Q., Liu, R., Zheng, B., Wang, H., Fu, Y., 2024a. Infrared small target detection
+with scale and location sensitivity. In: Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit.. CVPR, pp. 17490–17499.
+Liu, Z., Wang, Y., Vaidya, S., Ruehle, F., Halverson, J., Soljačić, M., Hou, T.Y.,
+Tegmark, M., 2024b. Kan: Kolmogorov-arnold networks. arXiv preprint arXiv:
+2404.19756.
+Lu, Y., Li, Y., Guo, X., Yuan, S., Shi, Y., Lin, L., 2025. Rethinking generalizable infrared
+small target detection: A real-scene benchmark and cross-view representation
+learning. IEEE Trans. Geosci. Remote Sens. 63, 1–10. http://dx.doi.org/10.1109/
+TGRS.2025.3588885.
+Meng, S., Zhang, C., Shi, Q., Chen, Z., Hu, W., Lu, F., 2023. A robust infrared
+small target detection method jointing multiple information and noise prediction:
+Algorithm and benchmark. IEEE Trans. Geosci. Remote Sens. 61, 1–17. http:
+//dx.doi.org/10.1109/TGRS.2023.3295932.
+Ning, A., Xue, M., He, J., Song, C., 2025. KAN see in the dark. IEEE Signal Process.
+Lett. 32, 891–895. http://dx.doi.org/10.1109/LSP.2025.3540700.
+Qin, H., Xu, T., Tang, Y., Xu, F., Li, J., 2025. OSFormer: One-step transformer for
+infrared video small object detection. IEEE Trans. Image Process. 34, 5725–5736.
+http://dx.doi.org/10.1109/TIP.2025.3598426.
+
+Sun, H., Bai, J., Yang, F., Bai, X., 2023. Receptive-field and direction induced attention
+network for infrared dim small target detection with a large-scale dataset IRDST.
+IEEE Trans. Geosci. Remote Sens. 61, 1–13. http://dx.doi.org/10.1109/TGRS.2023.
+3235150.
+Sun, Y., Yang, J., An, W., 2021. Infrared dim and small target detection via multiple
+subspace learning and spatial-temporal patch-tensor model. IEEE Trans. Geosci.
+Remote Sens. 59 (5), 3737–3752. http://dx.doi.org/10.1109/TGRS.2020.3022069.
+Touvron, H., Bojanowski, P., Caron, M., Cord, M., El-Nouby, A., Grave, E., Izacard, G.,
+Joulin, A., Synnaeve, G., Verbeek, J., Jégou, H., 2023. ResMLP: Feedforward
+networks for image classification with data-efficient training. IEEE Trans. Pattern
+Anal. Mach. Intell. 45 (4), 5314–5321. http://dx.doi.org/10.1109/TPAMI.2022.
+3206148.
+Wang, K., Du, S., Liu, C., Cao, Z., 2022. Interior attention-aware network for infrared
+small target detection. IEEE Trans. Geosci. Remote Sens. 60, 1–13. http://dx.doi.
+org/10.1109/TGRS.2022.3163410.
+Wang, H., Zhou, L., Wang, L., 2019. Miss detection vs. false alarm: Adversarial learning
+for small object segmentation in infrared images. In: Proc. IEEE Int. Conf. Comput.
+Vis.. ICCV, pp. 8509–8518.
+Wu, F., Chen, S., Liu, S., Tao, B., Luo, J., Peng, Z., 2026a. A comprehensive benchmark
+for spatio-temporal tensor-based infrared small target detection. IEEE Trans. Geosci.
+Remote Sens. 1. http://dx.doi.org/10.1109/TGRS.2026.3651631.
+Wu, X., Hong, D., Chanussot, J., 2023a. UIU-net: U-net in U-net for infrared small object
+detection. IEEE Trans. Image Process. 32, 364–376. http://dx.doi.org/10.1109/TIP.
+2022.3228497.
+Wu, T., Li, B., Luo, Y., Wang, Y., Xiao, C., Liu, T., Yang, J., An, W., Guo, Y.,
+2023b. MTU-net: Multilevel TransUNet for space-based infrared tiny ship detection.
+IEEE Trans. Geosci. Remote Sens. 61, 1–15. http://dx.doi.org/10.1109/TGRS.2023.
+3235002.
+Wu, Y., Li, T., Wang, Z., Kang, H., He, A., 2024a. TransUKan: computing-efficient
+hybrid KAN-transformer for enhanced medical image segmentation. arXiv preprint
+arXiv:2409.14676.
+Wu, F., Liu, A., Zhang, T., Zhang, L., Luo, J., Peng, Z., 2025. Saliency at the helm:
+Steering infrared small target detection with learnable kernels. IEEE Trans. Geosci.
+Remote Sens. 63, 1–14. http://dx.doi.org/10.1109/TGRS.2024.3521947.
+Wu, J., Luo, C., Qiu, Z., Chen, L., Ni, R., Li, Y., Huang, F., Wu, J., 2026b. Dfinet:
+Dynamic feedback iterative network for infrared small target detection. Pattern
+Recognit. 169, 111958. http://dx.doi.org/10.1016/j.patcog.2025.111958.
+Wu, F., Zhang, T., Li, L., Huang, Y., Peng, Z., 2024b. RPCANet: Deep unfolding RPCA
+based infrared small target detection. In: Proceedings of the IEEE/CVF Winter
+Conference on Applications of Computer Vision. pp. 4809–4818.
+Wu, J., Zhang, H., Liu, C., Qiu, J., 2026c. KPF-net: KAN perception and fusion
+network for infrared small target detection. Infrared Phys. Techn. 153, 106294.
+http://dx.doi.org/10.1016/j.infrared.2025.106294.
+Xiong, Z., Zhou, F., Wu, F., Yuan, S., Fu, M., Peng, Z., Yang, J., Dai, Y., 2025. DRPCAnet: Make robust PCA great again for infrared small target detection. IEEE Trans.
+Geosci. Remote Sens. 63, 1–16. http://dx.doi.org/10.1109/TGRS.2025.3588392.
+Yang, B., Li, F., Zhao, S., Wang, W., Luo, J., Pu, H., Zhou, M., Pi, Y., 2025a.
+MTMLNet: Multi-task mutual learning network for infrared small target detection
+and segmentation. IEEE Trans. Image Process. 34, 4414–4425. http://dx.doi.org/
+10.1109/TIP.2025.3587576.
+Yang, Z., Yu, H., Zhang, J., Tang, Q., Mian, A., 2025b. Deep learning based infrared
+small object segmentation: Challenges and future directions. Inf. Fusion 118,
+103007. http://dx.doi.org/10.1016/j.inffus.2025.103007.
+Ying, X., Liu, L., Wang, Y., Li, R., Chen, N., Lin, Z., Sheng, W., Zhou, S., 2023. Mapping
+degeneration meets label evolution: Learning infrared small target detection with
+single point supervision. In: Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit..
+CVPR, pp. 15528–15538.
+Yu, C., Zhao, J., Liu, Y., Zhao, S., Dai, Y., Yue, X., 2025. From easy to hard: Progressive
+active learning framework for infrared small target detection with single point
+supervision. In: Proceedings of the IEEE/CVF International Conference on Computer
+Vision. pp. 2588–2598.
+Yuan, S., Qin, H., Kou, R., Yan, X., Li, Z., Peng, C., Wu, D., Zhou, H., 2025a. Beyond
+full labels: Energy-double-guided single-point prompt for infrared small target label
+generation. IEEE J. Sel. Top. Appl. Earth Obs. Remote. Sens. 18, 8125–8137.
+http://dx.doi.org/10.1109/JSTARS.2025.3545014.
+Yuan, S., Qin, H., Yan, X., Akhtar, N., Mian, A., 2024a. SCTransnet: Spatial-channel
+cross transformer network for infrared small target detection. IEEE Trans. Geosci.
+Remote Sens. 62, 1–15. http://dx.doi.org/10.1109/TGRS.2024.3383649.
+Yuan, S., Qin, H., Yan, X., Akhtar, N., Yang, S., Yang, S., 2024b. IRSTDID-800: A
+benchmark analysis of infrared small target detection-oriented image destriping.
+IEEE Trans. Geosci. Remote Sens. 62, 1–18. http://dx.doi.org/10.1109/TGRS.2024.
+3468441.
+Yuan, S., Qin, H., Yan, X., Yang, S., Yang, S., Akhtar, N., Zhou, H., 2025b. ASCNet:
+Asymmetric sampling correction network for infrared image destriping. IEEE Trans.
+Geosci. Remote Sens. 63, 1–15. http://dx.doi.org/10.1109/TGRS.2025.3534838.
+Zamir, S.W., Arora, A., Khan, S., Hayat, M., Khan, F.S., Yang, M.-H., 2022. Restormer:
+Efficient transformer for high-resolution image restoration. In: Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit.. CVPR, pp. 5728–5739.
+18
+
+ISPRS Journal of Photogrammetry and Remote Sensing 234 (2026) 1–19
+
+S. Yuan et al.
+Zhang, N., Chai, B., Song, J., Tian, T., Zhu, P., Ma, J., Tian, J., 2025a. Omniscene infrared vehicle detection: An efficient selective aggregation approach and
+a unified benchmark. ISPRS J. Photogramm. Remote Sens. 223, 244–260. http:
+//dx.doi.org/10.1016/j.isprsjprs.2025.03.002.
+Zhang, T., Li, L., Cao, S., Pu, T., Peng, Z., 2023. Attention-guided pyramid context
+networks for detecting infrared small target under complex background. IEEE Trans.
+Aerosp. Electron. Syst. 59 (4), 4250–4261. http://dx.doi.org/10.1109/TAES.2023.
+3238703.
+Zhang, M., Li, X., Gao, F., Guo, J., 2025b. Irmamba: Pixel difference mamba with
+layer restoration for infrared small target detection. In: Proceedings of the AAAI
+Conference on Artificial Intelligence. 39, (9), pp. 10003–10011.
+Zhang, P., Lu, B., Shang, J., Tan, C., Xu, Q., Shi, L., Jin, S., Wang, X., Jiang, Y.,
+Yang, Y., Zang, H., Ge, J., Zeng, Z., 2025c. TKSF-KAN: Transformer-enhanced oat
+yield modeling and transferability across major oat-producing regions in China
+using UAV multisource data. ISPRS J. Photogramm. Remote Sens. 224, 166–186.
+http://dx.doi.org/10.1016/j.isprsjprs.2025.04.004.
+Zhang, L., Peng, Z., 2019. Infrared small target detection based on partial sum of the
+tensor nuclear norm. Remote. Sens. 11 (4), http://dx.doi.org/10.3390/rs11040382.
+Zhang, T., Peng, Z., Wu, H., He, Y., Li, C., Yang, C., 2021. Infrared small target detection
+via self-regularized weighted sparse model. Neurocomputing 420, 124–148. http:
+//dx.doi.org/10.1016/j.neucom.2020.08.065.
+Zhang, L., Peng, L., Zhang, T., Cao, S., Peng, Z., 2018. Infrared small target detection
+via non-convex rank approximation minimization joint l2,1 norm. Remote. Sens.
+10 (11), http://dx.doi.org/10.3390/rs10111821.
+
+Zhang, M., Wang, Y., Guo, J., Li, Y., Gao, X., Zhang, J., 2024. IRSAM: Advancing
+segment anything model for infrared small target detection. In: Proc. Eur. Conf.
+Comput. Vis.. ECCV, Springer, pp. 233–249.
+Zhang, M., Yue, K., Guo, J., Zhang, Q., Zhang, J., Gao, X., 2025d. Computational
+fluid dynamic network for infrared small target detection. IEEE Trans. Neural
+Networks Learn. Syst. 36 (8), 14777–14789. http://dx.doi.org/10.1109/TNNLS.
+2025.3548984.
+Zhang, M., Zhang, R., Yang, Y., Bai, H., Zhang, J., Guo, J., 2022. Isnet: Shape matters
+for infrared small target detection. In: Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit.. CVPR, pp. 877–886.
+Zhu, H., Liu, S., Deng, L., Li, Y., Xiao, F., 2020a. Infrared small target detection via
+low-rank tensor completion with top-hat regularization. IEEE Trans. Geosci. Remote
+Sens. 58 (2), 1004–1016. http://dx.doi.org/10.1109/TGRS.2019.2942384.
+Zhu, Y., Ma, Y., Fan, F., Huang, J., Wu, K., Wang, G., 2024. Toward accurate infrared
+small target detection via edge-aware gated transformer. IEEE J. Sel. Top. Appl.
+Earth Obs. Remote. Sens. 17, 8779–8793. http://dx.doi.org/10.1109/JSTARS.2024.
+3386899.
+Zhu, Y., Ma, Y., Fan, F., Huang, J., Yao, Y., Zhou, X., Huang, R., 2025a. Toward robust
+infrared small target detection via frequency and spatial feature fusion. IEEE Trans.
+Geosci. Remote Sens. 63, 1–15. http://dx.doi.org/10.1109/TGRS.2025.3535096.
+Zhu, H., Ni, H., Liu, S., Xu, G., Deng, L., 2020b. TNLRS: Target-aware non-local
+low-rank modeling with saliency filtering regularization for infrared small target
+detection. IEEE Trans. Image Process. 29, 9546–9558. http://dx.doi.org/10.1109/
+TIP.2020.3028457.
+Zhu, C., Song, X., Li, Y., Deng, S., Zhang, T., 2025b. A spatial-frequency dual-domain
+implicit guidance method for hyperspectral and multispectral remote sensing image
+fusion based on Kolmogorov–Arnold network. Inf. Fusion 123, 103261. http://dx.
+doi.org/10.1016/j.inffus.2025.103261.
+
+19
+
+

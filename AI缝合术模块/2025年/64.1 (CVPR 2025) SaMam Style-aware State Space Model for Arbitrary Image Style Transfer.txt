@@ -1,0 +1,1244 @@
+SaMam: Style-aware State Space Model for Arbitrary Image Style Transfer
+Hongda Liu1 , Longguang Wang2 , Ye Zhang1 , Ziru Yu1 , Yulan Guo1 *
+1
+The Shenzhen Campus of Sun Yat-Sen University, Sun Yat-Sen University
+2
+Aviation University of Air Force
+
+arXiv:2503.15934v1 [cs.CV] 20 Mar 2025
+
+{liuhd36@mail2.sysu, guoyulan@sysu}.edu.cn
+
+Abstract
+Global effective receptive field plays a crucial role
+for image style transfer (ST) to obtain high-quality stylized results. However, existing ST backbones (e.g., CNNs
+and Transformers) suffer huge computational complexity
+to achieve global receptive fields. Recently, State Space
+Model (SSM), especially the improved variant Mamba, has
+shown great potential for long-range dependency modeling with linear complexity, which offers an approach to
+resolve the above dilemma. In this paper, we develop a
+Mamba-based style transfer framework, termed SaMam.
+Specifically, a mamba encoder is designed to efficiently extract content and style information. In addition, a styleaware mamba decoder is developed to flexibly adapt to various styles. Moreover, to address the problems of local
+pixel forgetting, channel redundancy and spatial discontinuity of existing SSMs, we introduce local enhancement
+and zigzag scan mechanisms. Qualitative and quantitative
+results demonstrate that our SaMam outperforms state-ofthe-art methods in terms of both accuracy and efficiency.
+
+1. Introduction
+Style transfer (ST) aims at capturing image style to generate artistic images, which has attracted increasing interests
+since the seminal works [14, 15]. With the developments of
+modern deep learning techniques such as CNNs [3, 22, 24],
+transformers [8, 55, 62], and diffusion models [6, 9, 29],
+style transformation performance has continued to be improved in the past few years. We attribute this improvement
+partly to the increase of receptive fields. First, a relatively
+large receptive field allows the model to extract sufficient
+image patterns from a wider region, enabling it to better
+capture style patterns [8]. Second, with a larger receptive
+field, the model is able to leverage more pixels in the content image to facilitate the style transformation of the anchor
+* Corresponding author: Yulan Guo
+
+Figure 1. Trade-off between inference time t (ms) and ArtFID [54]
+achieved by different methods. The size of a circle represents
+MACs (G).
+
+pixel [19].
+Despite superior performance, previous methods achieve
+larger receptive fields at the cost of higher computational
+cost. CNN-based methods stack more convolutional layers
+to enlarge receptive fields [24, 43], at the cost of high computational overhead. In addition, Transformer-based methods obtains global receptive field at cost of quadratic computational complexity [8, 19]. For diffusion-based models,
+as numerous iterations are required, these methods also suffer high computational cost [6, 9].
+Recently, a novel State Space Model (SSM) called
+Mamba [17] is proposed in the NLP field for long sequence
+modeling with linear complexity [13, 17, 18, 36, 44].
+Mamba introduces an effective solution to balance global
+receptive field and computational efficiency [19, 32, 35, 63].
+Specifically, the discretized space equations in Mamba are
+formalized into a recursive form and can model long-range
+dependency when equipped with specially designed structured reparameterization [17, 19].
+In this paper, we propose Style-aware Mamba (SaMam)
+
+ST network, a model to adapt Mamba to balance generation quality and efficiency for ST tasks. First, we design Mamba encoder to efficiently model long-range dependency for image content and style pattern. Second, we propose a Style-aware Mamba decoder. Particularly, we propose a novel Style-aware Selective Scan Structured State
+Space Sequence Block (S7 block), which efficiently introduces style information to state space updating by predicting weighting parameters in SSM from style embeddings.
+Furthermore, we design several additional style-aware modules, which incorporates style information to perform feature adaption. Finally, we introduce a zigzag selective scanning method to process image token sequences in a spatially continuous way, which improve semantic continuity.
+Experiments show our SaMam strikes a better balance between accuracy and efficiency, as illustrated in Fig. 1.
+In summary, our contributions are three-fold:
+• We propose SaMam, which balances global effective receptive field with linear computational complexity, making it a good alternative for ST backbones.
+• We develop a Mamba encoder to extract accurate content
+features and style patterns. In addition, we design a pluggable style-aware Mamba decoder with flexible adaption
+to different styles based on learned style embeddings.
+Moreover, a zigzag scanning method is introduced to obtain superior stylized results.
+• Extensive experiments shows that our SaMam outperforms other methods in terms of transformation quality
+and efficiency.
+
+2. Related Work
+2.1. Neural Style Transfer
+In earlier stage, Gatys et al. [14, 15] proposed optimizationbased methods to obtain stylized images. To achieve faster
+generation speed, feed-forward methods [27, 46] are proposed. Specifically, researchers adapt multi-image styles to
+corresponding network structures [4, 12, 31, 59] to enhance
+the generalization of ST.
+More generally, arbitrary ST (AST) attracts increasing
+interests. Some researchers find that pre-trained CNN models [43, 45] can accurately capture image content and style
+information. These CNN models are applied to ST as
+an image feature encoder, which is capable of any image
+style [3, 22, 24, 60, 64]. Despite the success, CNN-based
+ST methods typically face challenges in effectively modeling global dependencies. With the development of attention
+mechanism [47], self-attention is applied in CNN-based ST
+methods to obtain better stylized results [7, 22, 64]. Furthermore, as transformer have been proven to be a competitive
+backbone compared to CNN in multiple computer vision
+tasks [2, 11, 33], researchers apply it in ST [8, 48, 55, 58,
+62] to obtain more harmonious stylized results. However,
+
+global effective receptive fields comes at the expense of
+model efficiency. Recently, with developments of diffusion
+model [21, 38] in generation tasks, researchers utilize it in
+ST [5, 29]. As diffusion-based methods require amount of
+time to train and synthesize a single image, [6, 9] proposes
+to leverage the generative capability of a pre-trained largescale diffusion model to improve model efficiency. However, numerous iterations are also required by diffusionbased methods. The dilemma of the trade-off between efficient computation and modeling global dependencies is not
+essentially resolved.
+
+2.2. State Space Model
+State Space Model (SSM), as a key component in control
+theory, is recently introduced to deep learning as a competitive backbone for state space transforming [18, 44].
+Compared to the quadratic complexity of the self-attention
+mechanism, SSM achieves competitive performance in long
+sequence modeling with only linear complexity. Structured
+State Space Sequence model (S4) [18] proposes to normalize the parameter matrices into a diagonal structure, which
+is a seminal work for the deep state space model in modeling the long-range dependency. Furthermore, S5 layer [44]
+is proposed based on S4 and introduces MIMO SSM and
+efficient parallel scan. [13] designs H3 layer which nearly
+fills the performance gap between SSM and Transformer attention in natural language modeling. [36] builds the Gated
+State Space layer on S4 by introducing more gating units
+to boost the expressivity and accelerate model training.
+To tackle the limitation of S4 in capturing the contextual information, Gu et al. [17] propose Mamba, which is
+a novel parameterization method for SSM that integrates
+an input-dependent selection scan mechanism (i.e., selective scan S4, referred to as S6) and efficient hardware design. Mamba outperforms Transformer on natural language
+and enjoys linear scaling with input length. Moreover,
+there are also pioneering works that adopt SSM to vision
+tasks such as image classification [32, 63], image restoration [19, 42], biomedical image segmentation [35, 50] and
+others [25, 37, 49, 56].
+
+3. Methodology
+3.1. Preliminaries
+Structured state space sequence models (S4) and Mamba
+are inspired by the continuous system, which maps a 1D function or sequence x(t) ∈ R→y(t) ∈ R through an
+implicit latent state h(t) ∈ RN . Concretely, continuoustime SSMs can be formulated as linear ordinary differential
+equations (ODEs) as follows,
+ \label {pure_ssm} \begin {split} h'(t) &= \mathbf {A} h(t) + \mathbf {B} x(t), \\ y(t) &= \mathbf {C} h(t) + \mathbf {D} x(t). \end {split} 
+
+(1)
+
+Style Mamba Encoder
+
+SiLU
+
+Linear
+
+DWConv
+
+4 5 12 13 … 8
+
+1
+
+9 10 11 12
+16 15 14 13
+13 14 15 16
+
+16
+
+9
+
+8
+
+Output Patches
+1 2 3 4
+8 7 6 5
+
+… 3 4
+
+9 10 11 12
+
+1 … 12 13
+
+𝑻×
+
+16 15 14 13
+
+LoE
+
+4 … 15 16
+
+Linear
+
+Patch Embed
+
+1 2 3 4
+8 7 6 5
+
+S6
+S6
+Block
+Block
+
+3
+
+1 2
+
+Input Patches
+
+S6
+S6 Block
+Block
+
+Zigzag Scan
+
+𝐼s
+
+𝐸𝑠
+Sweep Scan
+(Vision Mamba)
+
+𝑻×
+
+Local
+Enhancement
+
+Vision State
+Space Module
+
+Style-aware
+Vision State
+Space Module
+
+Style-aware
+Vision State
+Space Group
+
+Decoder
+
+LoE
+
+SAVSSM
+
+…
+
+Style-aware Mamba Decoder
+
+Content Mamba Encoder
+Depth-wise
+Convolution
+
+…
+
+SAVSSM
+
+𝐸𝑐
+
+SAVSSG
+
+LoE
+
+VSSM
+
+Patch Embed
+
+𝐼𝑐
+
+𝐼𝑐𝑠
+
+Cross Scan (VMamba)
+
+Summation
+
+(a)
+(b)
+Figure 2. An overview of our SaMam framework (a) and an illustration of the selective scan methods in Vision mamba [63] and
+VMamba [32] (b).
+
+where A ∈ RN ×N , B ∈ RN ×1 , C ∈ R1×N and D ∈ R
+are the weighting parameters.
+After that, the discretization process is typically adopted
+to integrate Eq. 1 into practical deep learning algorithms.
+The process introduces a timescale parameter ∆ to transform the continuous parameters A, B to discrete parameters A, B. The commonly used method for transformation
+is zero-order hold (ZOH), which is defined as follows:
+  \begin {aligned} \label {eq:zoh} \mathbf {\overline {A}} &= \exp {(\mathbf {\Delta }\mathbf {A})}, \\ \mathbf {\overline {B}} &= (\mathbf {\Delta } \mathbf {A})^{-1}(\exp {(\mathbf {\Delta } \mathbf {A})} - \mathbf {I}) \cdot \mathbf {\Delta } \mathbf {B}. \end {aligned} 
+
+(2)
+
+After the discretization, the discretized version of Eq. 1 with
+step size ∆ can be rewritten in the following RNN form:
+  \begin {aligned} \label {eq:discrete_lti} h_t &= \mathbf {\overline {A}}h_{t-1} + \mathbf {\overline {B}}x_{t}, \\ y_t &= \mathbf {C}h_t + \mathbf {D}x_{t}. \end {aligned} 
+
+(3)
+
+Finally, the model computes output through a global convolution.
+  \begin {aligned} \label {eq:conv} \mathbf {\overline {K}} &= (\mathbf {C}\mathbf {\overline {B}}, \mathbf {C}\mathbf {\overline {A}}\mathbf {\overline {B}}, \dots , \mathbf {C}\mathbf {\overline {A}}^{\mathtt {L}-1}\mathbf {\overline {B}}), \\ \mathbf {y} &= \mathbf {\overline {K}} \circledast \mathbf {x} + \mathbf {D} * \mathbf {x}, \end {aligned} 
+
+(4)
+
+where L is the length of the input sequence x, K ∈ RL is a
+structured convolutional kernel and ⊛ denotes convolution
+operation. As recent advanced SSM, Mamba [17] proposes
+S6 to improve B, C and ∆ to be input-dependent, thus allowing for a dynamic feature representation.
+
+3.2. Overall Architecture
+Our SaMam consists of a Style Mamba Encoder, a Content Mamba Encoder and a Style-aware Mamba Decoder,
+as shown in Fig. 2(a). First, the content image Ic ∈
+
+R3×4H×4W and style image Is ∈ R3×4Hs ×4Ws are first
+fed to encoders to obtain content feature Ec ∈ RC×H×W
+and style embedding Es ∈ RC×Hs ×Ws , respectively. Next,
+Es is leveraged as style condition information, which is employed to adapt the decoder parameters. Finally, Ec is fed
+to the decoder to obtain stylized image Ics ∈ R3×4H×4W .
+
+3.3. Style/Content Mamba Encoder
+The images are first embedded to downscaled image features. Then the image features are fed to Vision State Space
+Modules (VSSMs) to extract deep features. Moreover, an
+additional local enhancement (LoE) is introduced at the end
+of encoders to enhance features extracted from VSSM.
+Due to the computational efficiency and long-range modeling ability of SS2D block in VMamba [32], we also follow
+the Linear → DWConv → SS2D → Linear flow.
+Zigzag Scan: Prior researchs [32, 63] have demonstrated
+the efficacy of using multiple scanning orders to improve
+performance (e.g., row-wise and column-wise scans in multiple directions, as shown in Fig. 2(b)). Previous scanning
+order can only cover one type of 2D direction (e.g., left to
+right), which causes spatial discontinuity when moving to
+a new row or column [57, 65]. Moreover, as the parameter
+A in Eq. 4 serves as a decaying term, the spatial discontinuity causes abrupt changes in degrees of decaying of adjacent tokens, compounding the semantic discontinuity and
+resulting in unnatural stylized textures. Inspired by [23, 57],
+which proposes Continuous 2D Scanning for semantic continuity, we implement a Zigzag Scan (as shown in Fig. 2(a)).
+The proposed method starts with 4 vertices, with the first
+clockwise column (or row) as the starting scan-line, aiming
+at preserving spatial and semantic continuity and generate
+harmonious stylized results.
+Local Enhancement: As mentioned in [19], since SSMs
+
+𝐸𝑠
+Embedder
+
+Style-aware S6 Block
+(S7 Block)
+
+𝐸𝑐
+
+Zigzag Scan
+
+SiLU
+
+SConv
+
+Linear
+
+SAIN
+
+Embedder
+
+𝐴, 𝐷
+Linear
+
+∆
+
+Linear
+
+𝐵, 𝐶
+
+𝑥
+Embedder
+
+Style-aware Convolution
+
+𝐴ҧ = 𝑒 ∆𝐴 , 𝐵ത = ∆𝐵
+ҧ 𝑡−1 + 𝐵𝑥
+ത 𝑡
+ℎ𝑡 = 𝐴ℎ
+𝑦𝑡 = 𝐶ℎ𝑡 + 𝐷𝑥𝑡
+𝑦 = [𝑦1 , 𝑦2 , … , 𝑦𝐿 ]
+𝑦
+
+𝑣
+Style-aware IN
+
+γ/β
+
+Linear
+
+𝐾
+
+SAIN
+
+Embedder
+
+γ/β
+
+𝐸𝑐s
+
+SCM
+
+Embedder
+
+Style-aware Channel Modulation
+
+Sigmoid Activation
+
+Figure 3. The detailed architecture of Style-aware Vision State Space Module (SAVSSM).
+
+process flattened feature maps as 1D token sequences, the
+number of adjacent pixels in the sequence is greatly influenced by the flattening strategy. The over-distance in a 1D
+token sequence between spatially close pixels can lead to
+local pixel forgetting (e.g., the patch at row i and column
+j is no longer adjacent to the patch at row (i + 1) and column j in the row-major scan). Moreover, SSMs lead to
+notable channel redundancy due a larger number of hidden
+states to memorize very long-range dependencies. To avoid
+these problems, we add a Local Enhancement (LoE) at the
+end of VSSM. Specifically, the LoE consists of a convolution layer to compensate for local features and a channel
+attention layer to facilitate the expressive power of different
+channels.
+
+3.4. Style-aware Mamba Decoder
+In decoder, the content feature Ec and style embedding
+Es are first fed to Style-aware Vision State Space Groups
+(SAVSSGs) to obtain stylized features Ecs ∈ RC×H×W ,
+and each SAVSSG contains several Style-aware Vision
+State Space Modules (SAVSSMs). Besides, a LoE is implemented at the end of each SAVSSG to refine features
+extracted from SAVSSMs. Finally, a lightweight decoder
+which is similar to [4, 52], is introduced to generate stylized image Ics .
+3.4.1
+
+Style-aware Vision State Space Module
+
+The original Mamba Module is designed for the 1-D
+sequence, which is not suitable for ST tasks requiring
+spatial-aware understanding. To this end, we introduce
+the SAVSSM, which incorporates the multi-directional sequence modeling for the vision tasks. Moreover, to achieve
+flexible style-aware adaption, we propose a style-pluggable
+mechanism (as shown in Fig. 3). Specifically, operations
+of SAVSSM are presented in Algorithm 1. The style embedding Es serves as condition information, which expands
+
+to parameters of style-aware structures. Then content feature Ec is first normalized by Style-aware Instance Norm
+(SAIN), and linearly projected it to E′c . E′c is next processed by Style-aware Convolution (SConv). Furthermore,
+we process E′c from 4 directions. For each Style-aware S6
+Block (S7 Block), We linearly project token sequence x to
+the B, C, ∆, respectively. Then ∆ is used to discrete B
+and A to obtain A and B. Then we compute y through
+SSM. After that, the outputs are added together and normalized to get the output token sequence E′cs . We linearly
+project E′cs and sum it with residual to get stylized feature
+Ecs . Moreover, a Style-aware Channel Modulation (SCM)
+is implemented in the residual branch.
+Style-aware S6 Block (S7 Block): Different from A and
+D from a certain concrete embedding space in standard
+S6 block, we introduce a dynamical weights generation
+scheme. Specifically, we predict A and D from styleembedding Es :
+  \mathbf {A}, \mathbf {D} = \mathbf {Embedder}(\mathbf {E_s}), 
+
+(5)
+
+where A ∈ RE×N , D ∈ RE×1 . E and N represent expanded dimension size and SSM dimension, respectively.
+We design the S7 block based on 2 aspects. (1) Style Selectivity: Standard S6 block updates hidden state based on
+content only. However, the hidden state should be affected
+by both content and style. Furthermore, concrete embedding A in S6 block could also acquire selectivity [17] by
+Eq. 2. To introduce style information in hidden state updating, we utilize the selectivity of A by predicting it from
+style embedding space, instead of concrete embedding. (2)
+Efficiency: As shown in Eq. 4, weighting parameters A and
+D expand to convolution kernel and channel-wise scale factor, respectively, which is similar to [3, 20, 51]. The dynamical global convolution kernel maintains efficient computation by parallel operations while adapting to various styles.
+Additional Style-aware Modules: To achieve better visual
+quality, we also implement several additional style-aware
+
+structures to fuse content and style information.
+(1) SConv: Inspired by AdaConv [3] that proposes a
+style-aware depthwise convolution to better preserve local
+geometric structures of style images, we replace DWConv
+by SConv. Specifically, style embedding Es is passed to an
+embedder to generate the convolution kernels K in SConv.
+Note that, K ∈ RC×1×kw ×kh . Then the predicted convolution kernels K perform depthwise convolution operation on
+content image feature E′c .
+(2) SCM: Inspired by CResMD [20] that uses controlling variables to rescale different channels to handle multiple image degradations, our SCM learns to generate modulation coefficients based on the style embedding Es to
+perform channel-wise feature adaption. Specifically, Es is
+passed to the embedder and sigmoid activation layer to generate channel-wise modulation coefficients v ∈ RC . Then,
+v is used to rescale different channel components in Ec .
+(3) SAIN: In addition to local geometric structures, the
+global properties are also critical to the final results. Following the widespread usage of adaptive normalization in
+ST [24, 26, 31], visual reasoning [40] and image generation [10, 39], we explore replacing standard norm with
+adaptive norm to transfer global properties from style images. Compared with channel-wise modulation of layer
+
+IN
+SAIN
+SAIN-Zero
+LN
+SALN
+SALN-Zero
+
+100
+80
+
+0.8
+
+IN
+SAIN
+SAIN-Zero
+LN
+SALN
+SALN-Zero
+
+0.7
+0.6
+CSFD
+
+Require: content feature Ec : (C, H, W),
+style embedding Es : (C, Hs , Ws )
+Ensure: stylized feature Ecs : (C, H, W)
+1: /* pre-proces content feature Ec */
+2: E′c : (C, H, W) ← SAIN(Ec , Es )
+3: E′c : (E, H, W) ← Linear(E′c )
+4: E′c : (E, H, W) ← SiLU(SConv(E′c , Es ))
+5: /* process with four S7 Blocks, sequence length L = H ∗ W */
+6: for p in {path1, path2, path3, path4} do
+7:
+xp : (L, E) ← p(E′c )
+8:
+Bp : (L, N) ← LinearB
+p (xp )
+9:
+Cp : (L, N) ← LinearC
+p (xp )
+10:
+/* softplus ensures positive ∆p */
+11:
+∆p :
+(L, E) ← log(1 + exp(Linear∆
+p (xp ) +
+Parameter∆
+p ))
+12:
+/* style-aware parameters */
+13:
+Ap : (N, E) ← EmbedderA
+p (Es )
+14:
+Dp : (E, ) ← EmbedderD
+p (Es )
+15:
+/* discretization process */N
+16:
+Ap : (L, N, E) ← exp(∆
+Ap )
+Np
+17:
+Bp : (L, N, E) ← ∆p
+Bp
+18:
+yp : (L, E) ← SSM(Ap , Bp , Cp , Dp )(xp )
+19:
+yp : (E, H, W) ← Merge(yp )
+20: end for
+21: E′cs : (E, H, W) ← SAIN(ypath1 + ypath2 + ypath3 +
+ypath4 , Es )
+22: Ecs : (C, H, W) ← Linear(E′cs ) + SCM(Ec , Es )
+Return: Ecs
+
+120
+
+ArtFID
+
+Algorithm 1 SAVSSM Process
+
+0.5
+
+60
+
+0.4
+40
+0.3
+50K 100K 150K 200K 250K 300K 350K 400K
+Training steps
+
+50K 100K 150K 200K 250K 300K 350K 400K
+Training steps
+
+Figure 4. Comparison of different norm strategies.
+
+norm in VSS Block [32], the feature-wise modulation of
+instance norm is more promising in ST field [12, 24]. So
+a style-aware instance norm (SAIN) is proposed. Specifically, style embedding Es is fed to an embedder to predict
+the mean γ and variance β of the style. Moreover, prior
+work on ResNets has found that initializing each residual
+block as the identity function is beneficial. For example,
+[16] finds that zero-initializing the final batch norm scale
+factor in each block accelerates large-scale training in the
+supervised learning setting. DiT [39] uses a similar initialization strategy, zero-initializing the layer norm in each
+block. Inspired by previous explorations, we initialize embedders of SAIN and SCM to output zero-vector. This initializes the SAVSSM as the identity function.
+
+3.5. Loss Function
+The overall loss function consists of a content term, a style
+term, and identity terms, which is defined as follows:
+  \vspace {-10pt} \label {loss_fun} \mathcal {L}=\mathcal {L}_{c} + \lambda _{s}\mathcal {L}_{s}+\lambda _{id1}\mathcal {L}_{id1}+\lambda _{id2}\mathcal {L}_{id2}, \vspace {-10pt}
+
+(6)
+
+where λs , λid1 and λid2 are set to 10, 1 and 50, respectively.
+Content loss and style loss: Similar to previous works [7,
+8], we define content and style loss as follows:
+  \mathcal {L}_{c}=\sum _{l \in \{l_c\}}||\phi ^l(\mathbf {I_{cs}})-\phi ^l(\mathbf {I_c})||_2,
+
+(7)
+
+  \mathcal {L}_{s}=\sum _{l \in \{l_s\}}(||\mu (\phi ^l(\mathbf {I_{cs}}))-\mu (\phi ^l(\mathbf {I_s}))||_2 + \notag \\ ||\sigma (\phi ^l(\mathbf {I_{cs}}))-\sigma (\phi ^l(\mathbf {I_s}))||_2),
+(8)
+where ϕl refers to features extracted from the l-th layer in
+a pre-trained VGG-19 [43]. µ(·) and σ(·) denote the mean
+and variance of extracted features, respectively.
+Identity loss: In order to learn more accurate content and
+style information, we adopt identity loss [8, 22]:
+  \vspace {-10pt} \mathcal {L}_{id1}=&||\mathbf {I_{cc}}-\mathbf {I_c}||_2 + ||\mathbf {I_{ss}}-\mathbf {I_s}||_2, \notag \\ \mathcal {L}_{id2}=&\sum _{l \in \{l_{id}\}}(\phi ^l(\mathbf {I_{cc}})-\phi ^l(\mathbf {I_{c}})||_2 + ||\phi ^l(\mathbf {I_{ss}})-\phi ^l(\mathbf {I_{s}})||_2), \vspace {-10pt}
+
+(9)
+where Icc (or Iss ) refers to the output image synthesized
+from two with the same content (or style) images.
+
+Style
+
+Content
+
+SaMam (Ours)
+
+StyleID
+
+Zstar
+
+CAPVST
+
+S2WAT
+
+AesPA
+
+Figure 5. Qualitative comparison with previous state-of-the-art methods.
+Table 1. Quantitative comparison of the ST methods. The best and second best results are highlighted, respectively. Run time and MACs
+are evaluated on 512 × 512 output resolution with a single NVIDIA RTX 3090 GPU.
+Metrics
+LPIPS ↓
+FID ↓
+ArtFID ↓
+CFSD ↓
+MACs (G) ↓
+Time (s) ↓
+Params (M) ↓
+
+AesPA
+0.4050
+20.236
+29.837
+0.3291
+334.3
+0.348
+24.20
+
+CNN based
+EFDM
+ATK
+0.5252 0.4320
+34.834 24.788
+54.655 36.928
+0.3391 0.3683
+63.3
+291.4
+0.027
+0.049
+7.01
+11.18
+
+UCAST
+0.5786
+30.527
+49.768
+0.3566
+142.4
+0.055
+10.52
+
+StyTr2
+0.4992
+25.204
+39.285
+0.4226
+1283.5
+0.385
+35.39
+
+Transformer based
+S2WAT StyleFormer
+0.4256
+0.4898
+23.430
+28.798
+34.827
+44.392
+0.3736
+0.3976
+582.6
+172.1
+0.278
+0.207
+64.96
+19.90
+
+4. Experiments
+4.1. Experimental Setup
+Implementation Details: We use MS-COCO [30] as content dataset and select style images from WikiArt [41]. In
+Algorithm 1, image feature channel number C, expanded
+dimension size E and SSM dimension N are set to 256, 512
+and 16, respectively. C, E and N in VSSM are set the same
+as those in Algorithm 1. During training, content and style
+images are rescaled to 256 × 256 pixels. 8 content-style image patch pairs are randomly selected as a mini-batch. We
+
+STTR
+0.5755
+30.302
+49.316
+0.3517
+110.4
+0.181
+45.64
+
+Reversible-NN based
+ArtFlow CAPVST
+0.5671
+0.4955
+29.199
+26.330
+47.325
+40.871
+0.3125
+0.2912
+517.0
+179.9
+0.152
+0.048
+6.46
+4.09
+
+DiffuseIT
+0.6954
+37.172
+64.702
+0.7294
+705.214
+559.00
+
+Diffusion based
+ZStar
+StyleID
+0.5674
+0.4803
+31.240
+24.488
+50.534
+37.730
+0.4277
+0.3132
+6639.0
+6094.6
+42.439
+47.746
+1066.24 1066.24
+
+VCT
+0.5429
+37.485
+59.379
+0.4671
+680.972
+1066.24
+
+Mamba-based
+SaMam (Ours)
+0.3884
+17.946
+26.305
+0.2703
+77.1
+0.034
+18.50
+
+adopt the Adam optimizer [28] to train the whole model for
+1M iterations. The initial learning rate is set to 1 × 10−4
+and decreased to half every 0.25M iterations.
+Evaluation Metrics: Following the protocol of StyleID [6],
+we use ArtFID [54] and content feature structural distance (CFSD) as metrics. Specifically, ArtFID is equal to
+(1 + LPIPS) × (1 + FID). As the two metrics strongly
+coinciding with human judgment, LPIPS measures content
+fidelity while FID assesses the style similarity. Moreover,
+CFSD is an additional content fidelity metric to measure
+the spatial correlation between image patches.
+
+4.2. Comparison with Prior Arts
+We compare our SaMam to recent state-of-the-art ST methods, including CNN based (AesPA [22], EFDM [60],
+ATK [64], UCAST [61]), Transformer based (StyTr2 [8],
+S2WAT [58], StyleFormer [55], STTR [48]), ReversibleNN based (ArtFlow [1],CAPVST [53]) and Diffusion based
+(DiffuseIT [29], ZStar [9], StyleID [6], VCT [5]) methods.
+We obtain the results of the methods by following their official code with default configurations.
+4.2.1
+
+A
+B
+C
+D
+E
+F
+G
+
+Configuration
+Ours
+Zigzag Scan rp.b. Cross Scan
+r.m. LoE
+S7 Block rp.b. S6 Block
+SConv rp.b. DWConv
+r.m. SCM
+SAIN-zero rp.b. IN
+
+ArtFID
+26.305
+26.808
+28.607
+30.476
+31.446
+29.341
+30.112
+
+FID
+17.946
+18.293
+19.257
+20.905
+21.044
+20.066
+20.435
+
+Style
+
+LPIPS
+0.3884
+0.3895
+0.4122
+0.3913
+0.4265
+0.3928
+0.4048
+
+CSFD
+0.2703
+0.2955
+0.2970
+0.2756
+0.2973
+0.3235
+0.3110
+
+Content
+
+Qualitative Comparison
+
+We show the visual comparisons in Fig. 5. It can be observed that our SaMam captures global properties (e.g., textures and colors) from style images (e.g., the 1st −4th rows),
+while it also pays attention on local geometry of style patterns (e.g., speckles in the 5th row and 6th row). In addition
+to sufficient style information, our method keeps content
+structures accurately (e.g., the buildings in the 6th row) and
+produces more clear details and achieves higher perceptual
+quality (e.g., the texts in the 7th row and license plate in the
+8th row). In contrast, StyleID and Zstar destroy content details severely (e.g., the manga portrait in the 1st row and the
+girl’s face in the 5th row). Although CAPVST is good at
+capturing colors of style images, it breaks local geometric
+structures and content details in stylized results (e.g., the 7th
+row). S2WAT and AesPA are also hard to achieve satisfied
+results.
+4.2.2
+
+Table 2. Ablation study on proposed components. rp.b. stands for
+“replace by” and r.m. stands for “remove”.
+
+Quantitative Comparison
+
+We resort to some quantitative metrics to better evaluate the
+proposed method. Note that, the MACs of DiffuseIT and
+VCT are not reported since they conduct training during the
+inference time and require considerable computational cost.
+(1) Stylization Quality: We collect 20 content images and
+40 style images to synthesize 800 stylized images for each
+method and show their average metric scores in Table 1.
+It can be observed that Diffusion based methods face great
+challenges to balance the content and style. To better fuse
+content and style features, previous CNN (e.g., AesPA [22]
+and ATK [64]) and Transformer based methods utilize attention mechanism to build long-range dependency to extract structural information [8]. However, the mechanism
+poses great challenges to these methods to extract complete
+image properties (e.g., local geometry and details) and generate satisfied results. In contrast, in addition to long-range
+dependency by Mamba, we design more style-aware architectures (e.g., SConv), which adapt to various styles more
+flexibly. Then our SaMam achieves best results on the 4
+quality metrics, indicating that it can transfer sufficient style
+patterns while better preserving the content details.
+(2) Efficiency: As shown in Fig. 1 and Table 1, our SaMam
+achieves the notable performance gains with competitive
+computation quantity and inference time. Diffusion based
+
+Before training
+
+After training
+
+Before training
+
+After training
+
+Figure 6. The effective receptive field (ERF) visualization for our
+SaMam.
+
+methods require amount of time for DDIM inversions and
+sampling costs, or even more time to train on a single style.
+Transformer and Reversible-NN based methods are also
+time-consuming. In contrast, in terms of MACs and inference time, our method is second only to those of a CNN
+based method (i.e., EFDM). This is because our Mamba
+based method performs a global convolution, which processes each image token in a parallel way. The advanced
+scheme inherits the high inference efficiency of CNN based
+methods while maintaining long-range dependency. This
+further demonstrates the superiority of our method.
+
+4.3. Model Analysis
+Effective Receptive Field (ERF): We show ERF [34] in
+Fig. 6. A larger ERF is indicated by a more extensively
+distributed dark area. It can be observed that our SaMam
+showcase global ERF to capture long-range dependency in
+terms of style and content after training.
+Zigzag Scan: To maintain spatial continuity during the scan
+process, we implement a four-direction zigzag scan method.
+To demonstrate its effectiveness, we replace zigzag scan
+by another four-direction scan method (i.e., cross scan) to
+obtain config. B. As shown in Table 2, cross scan method
+jointly reduces ArtFID and CSFD. We further provide visual results in Fig. 7. It can be observed that zigzag scan
+method produces clearer background and less artifacts that
+closed to the content image. This is because that the spatial
+continuity does not bring abrupt changes to content information, which makes it more difficult to adapt SSM parameters.
+Local Enhancement: We introduce a local enhancement
+(LoE) module to ease local pixel forgetting. In Fig. 8, it can
+be observed that Config. C suffers from unnatural noise artifacts which breaks image content smoothness. Quantitative
+results in Table 2 also demonstrate the effectiveness of the
+LoE.
+
+Content
+
+Sconv (Config. A)
+
+DWConv (Config. E)
+
+Style
+
+Zoomed
+patches
+
+Content & Style
+
+Ours (Config. A)
+
+Config. G
+
+Config. F
+
+Config. B
+
+Figure 7. Ablation study on different model configurations.
+Content
+
+Config. A
+
+Config. C
+
+Zoomed
+patches
+
+Style
+
+Figure 10. Ablation study on SConv.
+
+Figure 8. Ablation study on local enhancement. Please zoom in
+for best view.
+Content
+
+S7 Block (Config. A)
+
+S6 Block (Config. D)
+
+Style
+
+(3) SCM: As SCM is added to residual branch, our
+method achieves better visual quality. Moreover, config. F
+achieves significant lower content scores, which indicates
+that stylized images suffer from more image distortion (e.g.,
+first scene in Fig. 7).
+(4) SAIN: We measure ArtFID and CSFD of various
+norm strategies during training. Figure. 4 shows the results, which indicates that SAIN with zero initializing outperforms other strategies. Then SAIN-zero is employed
+in our method to capture global properties from style images. To demonstrate its effectiveness, we replace SAIN
+with common IN in our SaMam to obtain config. G, which
+suffers from significant artifacts on highly chromatic edges
+(e.g., the second scene in Fig. 7).
+
+5. Conclusion
+Figure 9. Ablation study on S7 Block.
+
+SAVSSM: We design a style-aware VSSM to flexibly adapt
+to different styles. And we further demonstrate the effectiveness of the proposed components.
+(1) S7 Block: A novel S7 block is proposed to better
+capture style properties. We replace S7 block with S6 block
+to obtain config. D. It can be observed that our S7 block
+helps achieve significant higher scores than config. D. From
+Fig. 9, config. A reproduces the image color and contrast
+more closed to the style image. Moreover, it preserves content details and produces sharper edges of higher perceptual
+quality (e.g., the 1st scene in Fig. 9). The S7 block inherits
+global effective receptive field to adapt to various styles.
+(2) SConv: SConv is proposed to reproduce local geometric structures from style to content. To validate its effectiveness, we replace SConv by common depth-wise convolution (DWConv) layer to obtain config. E. SConv helps
+achieve significantly better metrics. For instance, in the first
+scene of Fig. 10, our SConv produces circuit patterns that
+more closed to the style image.
+
+In this paper, we explore the power of the recent advanced
+State Space Model (i.e., Mamba), for arbitrary image style
+transfer. To this end, we propose a Style-aware Mamba
+(SaMam) model to strike a trade-off between computational
+efficiency and global effective receptive field. Specifically,
+we introduce a Mamba encoder and style-aware Mamba
+decoder. In addition, we design a style-aware VSSM
+(SAVSSM) with flexible adaption to various styles based on
+the style embeddings. Experimental results show that our
+model achieves state-of-the-art performance for ST task.
+
+6. Acknowledgement
+This work was partially supported by the National Natural Science Foundation of China (No. U20A20185,
+62372491, 62301601), the Guangdong Basic and Applied Basic Research Foundation (No. 2022B1515020103,
+2023B1515120087), the Shenzhen Science and Technology
+Program (No. RCYX20200714114641140), the Science
+and Technology Research Projects of the Education Office
+of Jilin Province (No. JJKH20251951KJ), and the SYSUSendhui Joint Lab on Embodied AI.
+
+References
+[1] Jie An, Siyu Huang, Yibing Song, Dejing Dou, Wei Liu, and
+Jiebo Luo. Artflow: Unbiased image style transfer via reversible neural flows. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages
+862–871, 2021. 7
+[2] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas
+Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-toend object detection with transformers. In European conference on computer vision, pages 213–229. Springer, 2020. 2
+[3] Prashanth Chandran, Gaspard Zoss, Paulo Gotardo, Markus
+Gross, and Derek Bradley. Adaptive convolutions for
+structure-aware style transfer.
+In Proceedings of the
+IEEE/CVF conference on computer vision and pattern
+recognition, pages 7972–7981, 2021. 1, 2, 4, 5
+[4] Dongdong Chen, Lu Yuan, Jing Liao, Nenghai Yu, and Gang
+Hua. Stylebank: An explicit representation for neural image style transfer. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 1897–1906,
+2017. 2, 4
+[5] Bin Cheng, Zuhao Liu, Yunbo Peng, and Yue Lin. General
+image-to-image translation with one-shot image guidance. In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, pages 22736–22746, 2023. 2, 7
+[6] Jiwoo Chung, Sangeek Hyun, and Jae-Pil Heo. Style injection in diffusion: A training-free approach for adapting largescale diffusion models for style transfer. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 8795–8805, 2024. 1, 2, 6, 7
+[7] Yingying Deng, Fan Tang, Weiming Dong, Haibin Huang,
+Chongyang Ma, and Changsheng Xu. Arbitrary video style
+transfer via multi-channel correlation. In Proceedings of
+the AAAI Conference on Artificial Intelligence, pages 1210–
+1217, 2021. 2, 5
+[8] Yingying Deng, Fan Tang, Weiming Dong, Chongyang Ma,
+Xingjia Pan, Lei Wang, and Changsheng Xu. Stytr2: Image style transfer with transformers. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 11326–11336, 2022. 1, 2, 5, 7
+[9] Yingying Deng, Xiangyu He, Fan Tang, and Weiming Dong.
+Z*: Zero-shot style transfer via attention reweighting. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 6934–6944, 2024. 1, 2,
+7
+[10] Prafulla Dhariwal and Alexander Nichol. Diffusion models
+beat gans on image synthesis. Advances in neural information processing systems, 34:8780–8794, 2021. 5
+[11] Alexey DOSOVITSKIY. An image is worth 16x16 words:
+Transformers for image recognition at scale. arXiv preprint
+arXiv:2010.11929, 2020. 2
+[12] Vincent Dumoulin, Jonathon Shlens, and Manjunath Kudlur. A learned representation for artistic style. arXiv preprint
+arXiv:1610.07629, 2016. 2, 5
+[13] Daniel Y Fu, Tri Dao, Khaled K Saab, Armin W Thomas,
+Atri Rudra, and Christopher Ré. Hungry hungry hippos: Towards language modeling with state space models. arXiv
+preprint arXiv:2212.14052, 2022. 1, 2
+
+[14] Leon A Gatys, Alexander S Ecker, and Matthias Bethge.
+A neural algorithm of artistic style.
+arXiv preprint
+arXiv:1508.06576, 2015. 1, 2
+[15] Leon A Gatys, Alexander S Ecker, and Matthias Bethge. Image style transfer using convolutional neural networks. In
+Proceedings of the IEEE conference on computer vision and
+pattern recognition, pages 2414–2423, 2016. 1, 2
+[16] P Goyal. Accurate, large minibatch sg d: training imagenet
+in 1 hour. arXiv preprint arXiv:1706.02677, 2017. 5
+[17] Albert Gu and Tri Dao. Mamba: Linear-time sequence
+modeling with selective state spaces.
+arXiv preprint
+arXiv:2312.00752, 2023. 1, 2, 3, 4
+[18] Albert Gu, Karan Goel, and Christopher Ré. Efficiently
+modeling long sequences with structured state spaces. arXiv
+preprint arXiv:2111.00396, 2021. 1, 2
+[19] Hang Guo, Jinmin Li, Tao Dai, Zhihao Ouyang, Xudong
+Ren, and Shu-Tao Xia. Mambair: A simple baseline for image restoration with state-space model. In ECCV, 2024. 1,
+2, 3
+[20] Jingwen He, Chao Dong, and Yu Qiao. Interactive multidimension modulation with dynamic controllable residual
+learning for image restoration. In Computer Vision–ECCV
+2020: 16th European Conference, Glasgow, UK, August 23–
+28, 2020, Proceedings, Part XX 16, pages 53–68. Springer,
+2020. 4, 5
+[21] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information
+processing systems, 33:6840–6851, 2020. 2
+[22] Kibeom Hong, Seogkyu Jeon, Junsoo Lee, Namhyuk Ahn,
+Kunhee Kim, Pilhyeon Lee, Daesik Kim, Youngjung Uh,
+and Hyeran Byun. Aespa-net: Aesthetic pattern-aware style
+transfer networks. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 22758–22767,
+2023. 1, 2, 5, 7
+[23] Vincent Tao Hu, Stefan Andreas Baumann, Ming Gui, Olga
+Grebenkova, Pingchuan Ma, Johannes S Fischer, and Björn
+Ommer. Zigma: A dit-style zigzag mamba diffusion model.
+arXiv preprint arXiv:2403.13802, 2024. 3
+[24] Xun Huang and Serge Belongie. Arbitrary style transfer in
+real-time with adaptive instance normalization. In Proceedings of the IEEE international conference on computer vision, pages 1501–1510, 2017. 1, 2, 5
+[25] Md Mohaiminul Islam, Mahmudul Hasan, Kishan Shamsundar Athrey, Tony Braskich, and Gedas Bertasius. Efficient
+movie scene detection using state-space transformers. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 18749–18758, 2023. 2
+[26] Yongcheng Jing, Xiao Liu, Yukang Ding, Xinchao Wang,
+Errui Ding, Mingli Song, and Shilei Wen. Dynamic instance
+normalization for arbitrary style transfer. In Proceedings of
+the AAAI conference on artificial intelligence, pages 4369–
+4376, 2020. 5
+[27] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Perceptual losses for real-time style transfer and super-resolution.
+In Computer Vision–ECCV 2016: 14th European Conference, Amsterdam, The Netherlands, October 11-14, 2016,
+Proceedings, Part II 14, pages 694–711. Springer, 2016. 2
+
+[28] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. arXiv preprint arXiv:1412.6980,
+2014. 6
+[29] Gihyun Kwon and Jong Chul Ye. Diffusion-based image
+translation using disentangled style and content representation. In The Eleventh International Conference on Learning
+Representations, 2023. 1, 2, 7
+[30] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays,
+Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence
+Zitnick. Microsoft coco: Common objects in context. In
+Computer Vision–ECCV 2014: 13th European Conference,
+Zurich, Switzerland, September 6-12, 2014, Proceedings,
+Part V 13, pages 740–755. Springer, 2014. 6
+[31] Hongda Liu, Longguang Wang, Weijun Guan, Ye Zhang, and
+Yulan Guo. Pluggable style representation learning for multistyle transfer. In Proceedings of the Asian Conference on
+Computer Vision, pages 2087–2104, 2024. 2, 5
+[32] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi
+Xie, Yaowei Wang, Qixiang Ye, and Yunfan Liu. Vmamba:
+Visual state space model, 2024. 1, 2, 3, 5
+[33] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+Hierarchical vision transformer using shifted windows. In
+Proceedings of the IEEE/CVF international conference on
+computer vision, pages 10012–10022, 2021. 2
+[34] Wenjie Luo, Yujia Li, Raquel Urtasun, and Richard Zemel.
+Understanding the effective receptive field in deep convolutional neural networks. Advances in neural information processing systems, 29, 2016. 7
+[35] Jun Ma, Feifei Li, and Bo Wang. U-mamba: Enhancing
+long-range dependency for biomedical image segmentation.
+arXiv preprint arXiv:2401.04722, 2024. 1, 2
+[36] Harsh Mehta, Ankit Gupta, Ashok Cutkosky, and Behnam
+Neyshabur. Long range language modeling via gated state
+spaces. arXiv preprint arXiv:2206.13947, 2022. 1, 2
+[37] Eric Nguyen, Karan Goel, Albert Gu, Gordon Downs, Preey
+Shah, Tri Dao, Stephen Baccus, and Christopher Ré. S4nd:
+Modeling images and videos as multidimensional signals
+with state spaces. Advances in neural information processing
+systems, 35:2846–2861, 2022. 2
+[38] Alexander Quinn Nichol and Prafulla Dhariwal. Improved
+denoising diffusion probabilistic models. In International
+conference on machine learning, pages 8162–8171. PMLR,
+2021. 2
+[39] William Peebles and Saining Xie. Scalable diffusion models
+with transformers. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 4195–4205,
+2023. 5
+[40] Ethan Perez, Florian Strub, Harm De Vries, Vincent Dumoulin, and Aaron Courville. Film: Visual reasoning with a
+general conditioning layer. In Proceedings of the AAAI conference on artificial intelligence, 2018. 5
+[41] Fred Phillips and Brandy Mackintosh. Wiki art gallery, inc.:
+A case for critical thinking. Issues in Accounting Education,
+26(3):593–608, 2011. 6
+[42] Yuan Shi, Bin Xia, Xiaoyu Jin, Xing Wang, Tianyu Zhao,
+Xin Xia, Xuefeng Xiao, and Wenming Yang. Vmambair: Vi-
+
+sual state space model for image restoration. arXiv preprint
+arXiv:2403.11423, 2024. 2
+[43] Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale image recognition. arXiv
+preprint arXiv:1409.1556, 2014. 1, 2, 5
+[44] Jimmy TH Smith, Andrew Warrington, and Scott W Linderman. Simplified state space layers for sequence modeling.
+arXiv preprint arXiv:2208.04933, 2022. 1, 2
+[45] Christian Szegedy, Wei Liu, Yangqing Jia, Pierre Sermanet,
+Scott Reed, Dragomir Anguelov, Dumitru Erhan, Vincent
+Vanhoucke, and Andrew Rabinovich. Going deeper with
+convolutions. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 1–9, 2015.
+2
+[46] D Ulyanov. Texture networks: feed-forward synthesis of textures and stylized images. In ICML, page 1, 2016. 2
+[47] Ashish Vaswani. Attention is all you need. arXiv preprint
+arXiv:1706.03762, 2017. 2
+[48] Jianbo Wang, Huan Yang, Jianlong Fu, Toshihiko Yamasaki,
+and Baining Guo. Fine-grained image style transfer with visual transformers. In Proceedings of the Asian Conference
+on Computer Vision, pages 841–857, 2022. 2, 7
+[49] Jue Wang, Wentao Zhu, Pichao Wang, Xiang Yu, Linda Liu,
+Mohamed Omar, and Raffay Hamid. Selective structured
+state-spaces for long-form video understanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pages 6387–6397, 2023. 2
+[50] Jinhong Wang, Jintai Chen, Danny Chen, and Jian Wu. Large
+window-based mamba unet for medical image segmentation: Beyond convolution and self-attention. arXiv preprint
+arXiv:2403.07332, 2024. 2
+[51] Longguang Wang, Yingqian Wang, Xiaoyu Dong, Qingyu
+Xu, Jungang Yang, Wei An, and Yulan Guo. Unsupervised degradation representation learning for blind superresolution. In Proceedings of the IEEE/CVF conference
+on computer vision and pattern recognition, pages 10581–
+10590, 2021. 4
+[52] Zhizhong Wang, Lei Zhao, Zhiwen Zuo, Ailin Li, Haibo
+Chen, Wei Xing, and Dongming Lu. Microast: towards
+super-fast ultra-resolution arbitrary style transfer. In Proceedings of the AAAI Conference on Artificial Intelligence,
+pages 2742–2750, 2023. 4
+[53] Linfeng Wen, Chengying Gao, and Changqing Zou. Capvstnet: content affinity preserved versatile style transfer. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 18300–18309, 2023. 7
+[54] Matthias Wright and Björn Ommer. Artfid: Quantitative
+evaluation of neural style transfer. In DAGM German Conference on Pattern Recognition, pages 560–576. Springer,
+2022. 1, 6
+[55] Xiaolei Wu, Zhihao Hu, Lu Sheng, and Dong Xu. Styleformer: Real-time arbitrary style transfer via parametric
+style composition. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 14618–14627,
+2021. 1, 2, 7
+[56] Xinyu Xie, Yawen Cui, Tao Tan, Xubin Zheng, and Zitong
+Yu. Fusionmamba: Dynamic feature enhancement for mul-
+
+timodal image fusion with mamba. Visual Intelligence, 2(1):
+37, 2024. 2
+[57] Chenhongyi Yang, Zehui Chen, Miguel Espinosa, Linus Ericsson, Zhenyu Wang, Jiaming Liu, and Elliot J Crowley.
+Plainmamba: Improving non-hierarchical mamba in visual
+recognition. arXiv preprint arXiv:2403.17695, 2024. 3
+[58] Chiyu Zhang, Xiaogang Xu, Lei Wang, Zaiyan Dai, and Jun
+Yang. S2wat: Image style transfer via hierarchical vision
+transformer using strips window attention. In Proceedings of
+the AAAI Conference on Artificial Intelligence, pages 7024–
+7032, 2024. 2, 7
+[59] Hang Zhang and Kristin Dana. Multi-style generative network for real-time transfer. In Proceedings of the European
+Conference on Computer Vision (ECCV) Workshops, pages
+0–0, 2018. 2
+[60] Yabin Zhang, Minghan Li, Ruihuang Li, Kui Jia, and Lei
+Zhang. Exact feature distribution matching for arbitrary
+style transfer and domain generalization. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 8035–8045, 2022. 2, 7
+[61] Yuxin Zhang, Fan Tang, Weiming Dong, Haibin Huang,
+Chongyang Ma, Tong-Yee Lee, and Changsheng Xu. A
+unified arbitrary style transfer framework via adaptive contrastive learning. ACM Transactions on Graphics, 42(5):1–
+16, 2023. 7
+[62] Sizhe Zheng, Pan Gao, Peng Zhou, and Jie Qin. Puff-net:
+Efficient style transfer with pure content and style feature
+fusion network. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 8059–
+8068, 2024. 1, 2
+[63] Lianghui Zhu, Bencheng Liao, Qian Zhang, Xinlong Wang,
+Wenyu Liu, and Xinggang Wang. Vision mamba: Efficient
+visual representation learning with bidirectional state space
+model. arXiv preprint arXiv:2401.09417, 2024. 1, 2, 3
+[64] Mingrui Zhu, Xiao He, Nannan Wang, Xiaoyu Wang, and
+Xinbo Gao. All-to-key attention for arbitrary style transfer.
+In Proceedings of the IEEE/CVF International Conference
+on Computer Vision, pages 23109–23119, 2023. 2, 7
+[65] Qinfeng Zhu, Yuan Fang, Yuanzhi Cai, Cheng Chen, and Lei
+Fan. Rethinking scanning strategies with vision mamba in
+semantic segmentation of remote sensing imagery: An experimental study. arXiv preprint arXiv:2405.08493, 2024.
+3
+
+

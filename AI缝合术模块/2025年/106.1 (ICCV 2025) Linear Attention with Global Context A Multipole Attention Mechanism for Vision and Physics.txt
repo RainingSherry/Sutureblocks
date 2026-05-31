@@ -1,0 +1,815 @@
+Linear Attention with Global Context: A Multipole Attention Mechanism for
+Vision and Physics
+Alex Colagrande1 , Paul Caillon1 , Eva Feillet1 , Alexandre Allauzen1,2
+1
+
+Miles Team, LAMSADE, Université Paris Dauphine-PSL, Paris, France
+2
+
+ESPCI PSL, Paris, France
+
+arXiv:2507.02748v1 [cs.CV] 3 Jul 2025
+
+{name}.{surname}@dauphine.psl.eu
+
+Abstract
+
+ural Language Processing (NLP) for sequence-to-sequence
+learning. This neural architecture is characterized by the
+use of the self-attention mechanism [2] that allows modeling global contextual information across the tokens of a
+text or the patches of an image. Despite lacking the strong
+locality priors of CNNs, attention-based architectures have
+demonstrated competitive performance in image classification, particularly when trained on large-scale datasets [44].
+Beyond computer vision and NLP, Transformer-based
+models have found application in scientific machine learning, particularly in the resolution of Partial Differential
+Equations (PDEs). PDEs constitute the fundamental mathematical framework for modeling a vast array of phenomena across the physical and life sciences - from molecular
+dynamics to fluid flows and climate evolution. Substantial efforts have been devoted to approximating the solution operators of such equations at scale. Classical numerical solvers — including finite difference [14], finite element [13], and spectral methods [6]— discretize the underlying continuous operators, thereby recasting the problem as a finite-dimensional approximation. More recently,
+the increasing availability of observational data on structured grids has fostered a paradigm shift towards datadriven approaches such as Physics-Informed Neural Networks (PINNs) [24, 39, 46]. PINNs harness these observations to learn PDE solutions directly, enforcing physical
+consistency through soft constraints without relying on explicit mesh-based formulations. However, like classical numerical solvers, PINNs are typically designed to approximate the solution of a specific PDE instance — for example, computing the solution corresponding to a fixed coefficient, boundary or initial condition. This means even minor
+variations in input parameters require re-solving the system
+or, in the case of neural models, costly re-training. In contrast, operator learning [25] targets a fundamentally more
+ambitious goal: to approximate a mapping between infinitedimensional function spaces.
+Although considerably more challenging, operator learning offers the advantage to generalize across input condi-
+
+Transformers have become the de facto standard for a wide
+range of tasks, from image classification to physics simulations. Despite their impressive performance, the quadratic
+complexity of standard Transformers in both memory and
+time with respect to the input length makes them impractical for processing high-resolution inputs. Therefore, several variants have been proposed, the most successful relying on patchification, downsampling, or coarsening techniques — often at the cost of losing the finest-scale details. In this work, we take a different approach. Inspired
+by state-of-the-art techniques in n-body numerical simulations, we cast attention as an interaction problem between
+grid points. We introduce the Multipole Attention Neural
+Operator (MANO) that computes attention in a distancebased multiscale fashion. MANO maintains, in each attention head, a global receptive field and has a linear
+time and memory complexity with respect to the number
+of grid points. Empirical results on image classification
+and Darcy flows demonstrate that MANO rivals state-ofthe-art models, such as ViT and Swin transformer, while reducing runtime and peak memory usage by orders of magnitude. We open-source our code for reproducibility at:
+https://github.com/AlexColagrande/MANO.
+
+1. Introduction
+Convolutional Neural Networks (CNNs) have formed the
+cornerstone of modern computer vision [22, 29, 31]. Their
+architectural design leverages the spatial locality and translational invariance properties of images by applying shared
+convolutional filters over local receptive fields, enabling an
+efficient parameter usage and a strong inductive bias for
+grid-structured data.
+In recent years, Vision Transformers (ViTs) [16] have
+emerged as an alternative to CNNs. They are based on the
+Transformer architecture [54] introduced in the field of Nat1
+
+tions without further optimization, offering a scalable and
+computationally efficient alternative to traditional pointwise solvers. Note that operator learning is not restricted
+to PDEs, as images can naturally be viewed as real-valued
+functions on 2-dimensional domains.
+As in computer vision, recent neural operator models
+benefit from the development of attention-based architectures [1, 3]. However, attention suffers from quadratic time
+and memory complexity with respect to the input size, making it impractical for high-resolution data. To tackle this,
+some variants of the attention mechanism process data in
+local patches or down-sample the input, drastically cutting
+computational cost but often sacrificing the fine-grained
+details crucial for dense-prediction tasks. Other methods
+replace full attention with low-rank approximations [55],
+sparsity-inducing schemes [59], or kernel-inspired formulations [12]. Alternatively, Synthesizer proposes to learn attention weights without relying on explicit query–key products [49]. However, these approaches often trade off runtime for expressiveness or ease of implementation.
+In this work, we propose an efficient variant of the attention mechanism specifically suited for image classification
+as well as dense-prediction tasks such as physical simulations. Our method achieves computational gains by relaxing
+the classical attention formulation while preserving performance by preserving global context.
+We propose the Multipole Attention Neural Operator
+(MANO), a novel transformer neural operator in which each
+head computes attention between a point and a multiscale
+expansion of the input centered at that point. The attention
+is performed against a hierarchical decomposition of the input, dynamically downsampled based on the query location.
+Importantly, we compute the query, key and value matrices
+Q, K and V at every scale using the same point-wise operator to allow the model to accept inputs at any resolution.
+Our contributions are as follows:
+• We propose the Multipole Attention Neural Operator
+(MANO) that formulates attention as an interaction problem and solves it using the Fast Multipole Method.
+• By combining MANO with the Swinv2 architecture, we
+improve transfer learning results on several image classification tasks.
+• MANO achieves state-of-the art results on Darcy flow
+simulation benchmarks matching, and sometimes surpassing, state of the art baselines.
+
+pretrained on large datasets such as ImageNet-21k [15] or
+LVD-142M[44], ViTs rival or exceed CNNs on image classification tasks. However, despite their efficiency, they
+suffer from limited local information interaction, singlefeature representation and therefore low-resolution outputs
+making it sub-optimal for dense prediction tasks.
+These limitations have motivated a number of efficient
+vision transformer variants.
+
+2.1. Efficient Vision Transformer Variants
+Swin Transformers The Swin Transformer [35] restricts
+self-attention to non-overlapping windows that are shifted
+between layers, yielding hierarchical, multi-scale representations without global attention. Swin Transformer V2 [36]
+augments this design with learnable-temperature scaled cosine attention, log-spaced relative position bias, and continuous pre-norm, improving high-resolution stability and enabling deeper networks—all while preserving the original’s
+efficient window-based computation.
+Distilled and Compact ViTs : TinyViT [58] uses
+pretraining-stage distillation from a large teacher (e.g.,
+Swin-B/L trained on ImageNet-21k). By caching teacher
+logits and applying neural architecture search under
+FLOPs/parameter constraints, TinyViT produces smaller
+models at only a small performance loss.
+Data-Efficient Image Transformers (DeiT) [51] add a
+learnable distillation token that learns from a CNN teacher’s
+soft logits. Later work [52] adds self-supervised distillation
+and token pruning for further efficiency.
+Collectively, these efforts have greatly extended ViT applicability across resource-constrained tasks. However, the
+inherent multi-scale structure of images remains only partially integrated into existing alternatives to the attention
+mechanisms, potentially hindering the overall performance.
+
+2.2. Operator Learning via Multipole Attention
+In this work, we illustrate the interest of our proposed multipole attention mechanism for learning solution operators
+of PDEs directly from input–output pairs, as encountered
+in tasks like fluid flow estimation and other dense prediction problems [25]. Operator learning was first explored
+by Lu et al. [37], who established a universal approximation theorem for nonlinear operators using DeepONets, laying theoretical foundations for neural operator approximation. Building on this foundation, the Fourier Neural Operator (FNO) [33] parameterizes an integral kernel in the
+Fourier domain—using efficient FFT-based convolutions to
+capture global interactions across the entire domain. These
+pioneering methods have since inspired a wealth of extensions—but their reliance on global or Fourier-based interactions limits their scalability to very high-resolution grids.
+These works paved the way for numerous extensions.
+
+2. Related work
+The Vision Transformer (ViT) [16] was the first to successfully adapt the Transformer architecture to image classification, achieving remarkable performance. It divides the
+input image into fixed-size patches, flattens them into token embeddings, adds positional encodings, and processes
+the resulting sequence with a Transformer encoder. When
+2
+
+Figure 1. (Left) The multi-scale grid structure. (Center) The V-cycle structure for computing multipole attention with the fast multipole
+method. (Right) Attention matrices. Illustration with three levels. The attention matrix A is computed in a multiscale manner with respect
+to each level. The higher the level, the shorter the range of the interaction. At a given layer, down-sampling (resp. up-sampling) is
+performed using a convolution kernel (resp. deconvolution) shared across all different levels.
+
+Transformer neural operators In [10] the classical
+transformer was adapted for the first time to operator learning problems related to PDEs. The paper explores two variants, respectively based on the Fourier transform and on the
+Galerkin method. The latter one uses a simplified attention based operator, without softmax normalization. This
+solutions shares the linear complexity with our work but
+not the same expressivity. In this line of work, LOCA [34]
+uses kernel theory to map the input functions to a finite set
+of features and attends to them by output query location.
+Recently, [9] proposed to handle attention in a continuous
+setting and, as well as [56], proposed an operator-learning
+version of the more classical ViT. Notably, the Universal
+Physics Transformer (UPT) [1] scales efficiently based on a
+coarsening of the input mesh.
+
+method were proposed in the one-dimensional setting of
+Natural Language Processing (NLP) [23, 41, 60, 62], and
+in graph learning methods [32, 40, 61]
+Relation to Fast Multipole Attention Among existing
+approaches, the closest to ours is Fast Multipole Attention
+(FMA) [23], which reduces the O(N 2 ) cost of 1D selfattention via hierarchical grouping: nearby queries attend at
+full resolution, while distant keys are merged into low-rank
+summaries, achieving O(N log N ) or O(N ).
+Our method differs in two key aspects:
+• Input domain. FMA targets one-dimensional token sequences; we operate on two-dimensional image grids
+with multiscale spatial windows.
+• Downsampling.
+FMA hierarchically downsamples
+queries, keys, and values. In contrast, we downsample
+the input feature map prior to attention, yielding a selfcontained block that integrates seamlessly with standard
+transformer backbones (e.g., SwinV2) and preserves pretrained attention weights.
+
+Multiscale numerical solvers. Our method is inspired by
+multi-scale numerical solvers [7, 8, 21], in particular the
+Fast Multipole Method (FMM). A new version of the Fast
+Multipole Method is introduced by [19] for the evaluation
+of potential fields in three dimensions and its specialization
+with the V-cycle algorithm, introduced by [43].
+
+3. Introducing MANO
+3.1. Attention as an interaction problem
+
+Theoretical studies on transformers. The particleinteraction interpretations of attention was first introduced
+in Sinkformer [48]. [17] views Transformers as interacting particle systems, they described the geometry of learned
+representations when the weights are not time dependent,
+and [18] developed a mathematical framework for analyzing Transformers based on their interpretation as interacting
+particle systems inspiring us to compute the attention using
+the most efficient techniques available for solving particleinteraction problems.
+
+In this section, we cast the computation of self-attention as a
+dense n-body interaction problem. An n-body system consists of n entities (often referred to as bodies) whose state
+is described by a configuration (x1 , . . . , xn ). The evolution
+of such a system is governed by a set of interaction laws,
+which in our setting are determined by pairwise interactions
+specified through a kernel function:
+κ : Rd × Rd → R
+(xi , xj ) 7→ κ(xi , xj )
+An n-body simulation refers to a numerical method for
+computing these interactions, typically requiring O(n2 ) op-
+
+Multiscale neural architectures. Several transformer architectures related to the multiscale principle used in our
+3
+
+Figure 2. Darcy flow reconstruction: from left to right—input coefficient field, ground truth solution, MANO prediction, and ViT predictions using patch sizes 2, 4, and 8. MANO applies multipole attention using overlapping windows of size 2, and performs downsampling
+and upsampling across 5 levels using convolutions with kernel size 2 × 2, stride 2, and zero padding.
+
+Method Overview : Let X0 = X ∈ RH×W ×d be the
+original high-resolution image (height H, width W , embedding dimension d). We define L levels of downsampling by a convolutional kernel D with weights shared accross levels, producing Xℓ = D Xℓ−1
+(ℓ = 1, . . . , L)
+H/2ℓ ×W/2ℓ ×d
+where Xℓ ∈ R
+. At each level ℓ, we partition the feature map into potentially overlapping sliding
+windows and, within each window,
+√  compute the attention
+map Aℓ = Softmax Qℓ Kℓ⊤ / d where Qℓ , Kℓ , Vℓ ∈
+ℓ
+ℓ
+R(H/2 ×W/2 )×d are the query, key, and value embeddings
+extracted from Xℓ . This restricts self-attention to localized
+neighborhoods while still enabling cross-window interactions via the sliding overlap and the hierarchical mixing.
+We then produce the attended features X̃ℓ = Aℓ Vℓ , and
+upsample back to the next-finer resolution via a transposed
+convolution U :
+
+ℓ−1
+ℓ−1
+X̂ℓ = U X̃ℓ ∈ RH/2 ×W/2 ×d .
+(4)
+
+erations due to the dense pairwise structure. This computational cost motivates the development of faster approximations, such as the Fast Multipole Method, which reduces the
+complexity to O(n).
+In the following, we consider a regular grid, corresponding
+either to the pixels of an image in the classification setting
+or to the discretized samples of an input function in the operator learning framework. We denote by X a sequence
+of N observations (x1 , . . . , xN )⊤ ∈ RN ×d with elements
+embedded in dimension d. The self-attention mechanism
+firstly applies three learnable linear projections to obtain
+queries, keys and values [54]:
+Q = XWq ,
+
+K = XWk ,
+
+V = XWv
+
+(1)
+
+with Wq , Wk , Wv ∈ Rd×d and bq , bk , bv ∈ Rd . Next, it
+computes an N × N attention matrix A whose i-th row
+forms a probability distribution over all keys:
+√ 
+exp Q⊤
+i Kj / d
+Aij = N
+.
+(2)
+X
+√
+
+exp Q⊤
+i Kl / d
+
+Finally, we combine all levels
+atthe origPLby summation
+ℓ
+inal resolution: Xout =
+U
+Attn
+X
+ℓ , where
+ℓ=0
+Attn(Xℓ ) denotes X̃ℓ at level ℓ, and U 0 is the identity.
+Sharing the same convolutional kernel for both downsampling and up-sampling—and reusing the same attention
+weights—keeps the total parameter count constant, regardless of the number of layers L. The convolutions have the
+role to provide a representation of the input at the next scale,
+independently of the scale. This ensures that an attention
+map learned at the finest scale produce effective representations at different scale, even in the case of a pretrained attention from a windowed-attention based model, such as the
+SwinV2, with finetuning on the convolutional paramters but
+not on the attention weights. The shared convolutions act as
+scale-agnostic projectors, producing the next-scale feature
+representation in the same way at every level. As a result,
+an attention map learned at the finest resolution remains effective across all scales. In practice, this means one can take
+a windowed-attention backbone, such as SwinV2, freeze its
+attention weights, and fine-tune only the convolutional parameters to adapt it to new resolutions without increasing
+model size.
+
+l=1
+
+Finally, each token is updated
+Pn as a convex combination of
+the value vectors: xi ←
+i=j Ai,j Vj , In this form, one
+N
+can view the set {xi }i=1 as a cloud of N particles in Rd
+interacting in a pairwise manner via a kernel κ defined as:
+√ 
+(3)
+κ(Qi , Kj ) = exp Q⊤
+i Kj / d .
+Therefore, we interpret a self-attention layer as a single
+time step of a discretized N -body dynamical system. Under
+this analogy, computing attention is equivalent to predicting the next state of an interacting particle system — and
+it becomes natural to accelerate this computation using the
+FMM [19], reducing the usual O(N 2 ) cost of the pairwise
+sums to O(N ).
+
+3.2. MANO
+In this section we detail the Multipole Attention layer as
+well as the complexity of the model.
+4
+
+Computational Complexity. We analyze the cost under
+non-overlapping windows on a square image of side H (so
+N = H 2 tokens), embedding dimension d, window size
+w, and down-sampling factor k. The maximum number of
+levels is L = logk (H). We denote by Nℓ = kN2ℓ the number
+of grid points at level ℓ.
+Each windowed self-attention on M = w2 tokens costs
+O(M 2 d) and is applied across O(Nℓ /M ) windows, for a
+total complexity of
+O(Nℓ M d)
+(5)
+
+pretrained weights from the original Swin Transformer, requiring only a small number of additional trainable parameters: one convolution and one transposed convolution per
+attention head, along with the classification head. Convolutions have a kernel size of 2 and a stride of 2. This design
+ensures that our variant introduces a minimal increase in
+parameter count relative to the base model. Specifically,
+for the Tiny version, the total number of parameters increases from 27, 73M to 28, 47M, corresponding to an
+additional 740, 356 parameters, or 2.67% more than the
+original model.
+
+Windowed attention computes a standard self-attention for a
+complexity of O(M 2 d) whithin each of the N/M windows.
+The total complexity is thus O(N M d). Our Multipole attention iterates the same windowed attention and aggregates
+the contribution at each level ℓ therefore the total complexity reads
+L
+X
+ℓ=0
+
+Nℓ M d =
+
+L
+X
+
+
+O
+
+l=0
+
+N
+Md
+k 2ℓ
+
+Training. We freeze the pretrained encoder weights and
+train a single fully connected layer for 50 epochs on top of
+the frozen encoder using AdamW as optimizer with a cosine annealing learning rate schedule. Training the models
+with the original shifted attention of Swinv2 and the models with our proposed multipole attention only differs by a
+warm-up phase to learn the upsampling and downsampling
+convolutional filters introduced by MANO. We report the
+resulting top-1 accuracy of these experiments in Table 1.
+
+
+= O(N M d)
+
+(6)
+
+So interestingly, even though we apply windowed attention
+across multiple scales, the total cost remains dominated by
+the finest-scale pass, with coarser levels adding a negligible
+additional overhead. As a result, our approach preserves the
+linear complexity of single-scale windowed attention while
+delivering significantly greater expressive power.
+
+4.2. Darcy flow simulation
+Task We evaluate our method on the task of steady-state
+2D Darcy Flow simulation, a widely used task in the neural operator literature [25]. The problem is based on the
+following second-order, linear elliptic PDE:
+
+4. Experimental settings
+
+−∇ · (a(x)∇u(x)) = f (x),
+
+This section outlines the experimental setup for both image
+classification and physics simulations.
+For image classification, we evaluate on several finegrained datasets a Swin Transformer V2 modified with our
+proposed attention mechanism. Models are initialized with
+weights pretrained on ImageNet-1k. The encoder is frozen
+(except for the additional convolutions of MANO) and a
+linear classifier is learnt on the target classification tasks.
+For physics simulations, we train all models on instances
+of the Darcy flow problem, from scratch and across different
+resolutions.
+
+x ∈ (0, 1)2 ,
+
+(7)
+
+to solve with homogeneous Dirichlet boundary conditions:
+u(x) = 0, x ∈ ∂(0, 1)2 . In this PDE, the function a(x)
+represents the spatially varying permeability of a porous
+medium. The forcing term f (x) is fixed to f (x) ≡ 1 across
+all inputs. The output u(x) is the scalar field representing
+the pressure within the domain. Although the PDE is linear in u, the map from the input a(x) to the solution u(x)
+is nonlinear due to the interaction of a(x) with the gradient
+operator inside the divergence.
+The task is to learn this solution operator: given a new
+input field a(x), the model must predict the corresponding output u(x). In our experiments, a(x) is sampled as
+a binary field (i.e., values are either 0 or 1), representing a
+medium composed of two different materials.
+
+4.1. Image classification
+Datasets. The ImageNet-1k [15] dataset is used to pretrain all models and we perform linear probing on several
+downstream classification benchmarks, namely CIFAR100[28], Oxford Flowers-102 [42], Stanford Cars [26],
+Food101 [4], Tiny-ImageNet-202 [30] and Oxford-IIIT Pet
+Dataset [45].
+
+Architecture. We use a classical transformer architecture
+of depth 8 with 4 attention heads per layer. In place of the
+conventional self-attention, we employ our multipole attention module. Additionally, we apply Layer Normalization
+at every level to improve training stability and mitigate issues of vanishing or exploding gradients, which can arise
+due to shared attention across hierarchical levels.
+
+Architecture. As the backbone for our Multipole Attention model, we adopt the “Tiny” version of the Swin Transformer V2 [36]. Since the attention block is shared across
+all levels of the multipole hierarchy, MANO can inherit the
+5
+
+Model
+
+Params.
+
+Complexity
+
+Tiny-IN-202
+
+Cifar-100
+
+Flowers-102
+
+Food-101
+
+StanfordCars-196
+
+OxfordIIITPet
+
+TinyViT [58]
+ViT-base [16]
+DeiT-small [52]
+SwinV2-T [36]
+
+21M
+86M
+22M
+28M
+
+O(N 2 )
+O(N 2 )
+O(N 2 )
+O(N )
+
+73, 07%
+81.34%
+80.53%
+
+75.2%
+80.63%
+75.15%
+75.47%
+
+82.4%
+92.75%
+66.60%
+56.46%
+
+80.31%
+71.39%
+76.96%
+
+61.7%
+41.95%
+36.38%
+38.36%
+
+86.5%
+87.68%
+87.56%
+87.14%
+
+MANO-tiny
+
+28M
+
+O(N )
+
+87.52%
+
+85.08%
+
+89.00%
+
+82.48%
+
+65.68%
+
+88.31%
+
+Table 1. Linear probing accuracies for several image classification datasets. MANO matches or even outperforms the performances of
+state-of-the-art models. The results for TinyViT are taken from [58], while all other baselines are fine-tuned via linear probing using
+pretrained backbones1 . For each model, we report the number of parameters and the asymptotic complexity of its attention block with
+respect to the number of patches N . As a plug-and-play replacement for the attention mechanism, our attention can be applied after
+patching, similar to Swin, allowing our vision-specific MANO variant to scale linearly with the number of patches.
+
+Training. We train all the considered models for 50
+epochs with AdamW optimizer and cosine learning rate
+scheduler. The initial learning rate is in the order of 10−4 .
+We use the dataset open-sourced in [25], comprised of
+input–output pairs (a, u) at resolutions n × n for n ∈
+{16, 32, 64}. The model is trained to minimize the mean
+squared error (MSE) on the training set and evaluated on a
+held-out test set using the relative MSE error, where û is the
+2
+model prediction and u the ground truth solution: |û−u|
+|u|2 .
+
+Second, the advantage of MANO becomes especially
+pronounced on fine-grained classification tasks. On Flowers–102 and Stanford Cars, SwinV2-T achieves only 56.5%
+and 38.4% accuracy, respectively, while TinyViT recovers
+to 82.4% and 61.7%. In both cases, MANO further improves performance to 89.0% on Flowers–102 and 65.7%
+on Cars, indicating that combining local details (e.g., petal
+shapes or headlight contours) with global context (overall
+flower appearance or car silhouette) is critical for distinguishing highly similar classes.
+Third, on medium-difficulty datasets such as
+Tiny–ImageNet–202 and CIFAR–100, MANO again
+holds a clear lead. It outperforms SwinV2-T by approximately 7 points on Tiny–ImageNet–202 and by around 10
+points on CIFAR–100. These results suggest that attending
+to multiple resolutions—capturing both fine textures and
+broader scene structures—yields better representations than
+the single-scale windowed attention used in SwinV2-T.
+Finally, although MANO and SwinV2-T share the same
+parameter count (28M), MANO delivers a consistent 5–10
+point advantage on mid-level benchmarks and maintains a
+smaller lead on easier tasks like Oxford–IIIT Pet. TinyViT’s
+21M parameters are insufficient to match either 28M model,
+underscoring that hierarchical multiscale attention makes
+more effective use of model capacity than either pure
+global self-attention (ViT) or fixed-window local attention
+(SwinV2-T).
+
+5. Results
+5.1. Image Classification Results
+Table 1 presents the top-1 accuracy of three models of
+similar parameter counts (ViT (21M parameters), SwinV2T (28M), ViT-base (86M), DeiT-small (22M) and MANO
+(28M)) across six downstream image classification datasets.
+The reported results for TinyViT are taken from [11, 58]
+while the results for SwinV2-T are taken from [36].
+First, MANO consistently outperforms TinyViT on all
+benchmarks where results are available. It also surpasses
+DeiT-small and SwinV2-T when these models are finetuned via linear probing using ImageNet-1k pretrained
+weights, across an expanded set of datasets. Compared with
+the bigger ViT-base, our model performs better in all the
+benchmark except than Flowers-102 that is the dataset with
+less training data among the one considered. the dataset
+with the smallest training set among those considered. This
+suggests that in low-data regimes, models with a higher parameter count may have an advantage due to their increased
+capacity to memorize or adapt to limited supervision.
+The improvement ranges from about 1–2 % on easier tasks like Oxford–IIIT Pet to nearly 5/7 points on
+more challenging datasets such as CIFAR–100 and TinyImageNet. Even compared to ViT-base, which has more
+than twice the number of parameters, MANO achieves
+gains of roughly 3–10 points accross all the benchmarks
+expect for Flowers-102, demonstrating that multiscale hierarchical attention produces significantly more transferable
+features without increasing too much model size.
+
+5.2. Darcy Flow Simulation Results
+Model
+
+16 × 16
+
+32 × 32
+
+64 × 64
+
+FNO
+ViT patch size=8
+ViT patch size=4
+ViT patch size=2
+Local Attention
+MANO
+
+0.0195
+0.0160
+0.0179
+0.0169
+0.0133
+0.0080
+
+0.0050
+0.0038
+0.0039
+0.0049
+0.0188
+0.0020
+
+0.0035
+0.0021
+0.0019
+0.0026
+0.0431
+0.0013
+
+Table 2. Benchmark on Darcy flow simulations. Relative MSE. A
+given model is evaluated and tested on the same resolution, either
+16 × 16, 32 × 32 or 64 × 64.
+
+6
+
+Test Loss
+
+Table 2 presents the relative MSE of various models
+trained from scratch on Darcy flow at different resolutions.
+The Fourier Neural Operator (FNO) [33] is a neural operator designed to learn mappings between function spaces,
+such as the coefficient-to-solution map for PDEs. By operating in the Fourier domain, the FNO captures longrange dependencies across the entire domain with nearlinear complexity O(N 2 log N ) (for an N × N grid), making it effective for a wide range of PDE-based tasks, leading
+to state-of-the-art results on tasks such as Darcy Flow Simulation. It achieves MSEs of 0.0195, 0.0050, and 0.0035
+as the grid is refined, showcasing its strength in capturing
+global spectral components but its limited ability to resolve
+fine-scale details at coarser resolutions.
+For ViT, we evaluate patch sizes of 8, 4, and 2: the patch4 variant attains the best errors (0.0179, 0.0039, 0.0019),
+whereas smaller patches (size 2) slightly worsen performance at low resolution and fail to match patch-4 at 642 .
+This sensitivity indicates that vanilla ViT’s pure global attention is capable of approximating the solution operator
+but depends heavily on patch granularity. In contrast, a pure
+local-attention model (fixed window) degrades sharply at
+322 and 642 , since local windows cannot propagate longrange dependencies across the domain.
+By combining fine-grid attention (to capture local conductivity channels) with progressively coarser resolutions
+(to model global pressure fields), MANO consistently
+achieves the lowest errors, roughly halving the MSE of both
+FNO and standard ViT at every scale and overcoming the
+locality limitations inherent in fixed-window attention.
+Lastly, we examine in Figure 2 the quality of the reconstructed images, demonstrating that MANO’s multiscale modeling recovers both sharp transitions and smooth
+boundaries with high fidelity, even on a coarse grid. By contrast, images reconstructed by ViT exhibit noticeable patching artifacts.
+In summary, MANO’s multiscale hierarchical attention
+achieves state-of-the-art performance on both Darcy flow
+simulations and image classification tasks. Its design makes
+it well suited to the corresponding data, as it captures finescale detail and broad-scale context simultaneously.
+
+Test Acc
+0.8
+
+4
+
+Test Acc
+
+Test Loss
+
+0.6
+3
+2
+
+0.4
+0.2
+
+1
+0.0
+0
+
+5
+
+10
+
+15
+
+Index
+
+20
+
+25
+
+30
+
+0
+
+5
+
+10
+
+15
+
+Index
+
+20
+
+25
+
+30
+
+Figure 3. Ablation study comparing average pooling (green) and
+learnable convolutions (blue) for the sampling step in MANO. We
+report the Cross-Entropy validation loss (left) and accuracy (right)
+on CIFAR-100. Mean and standard deviation over fifteen runs are
+reported, varying the learning rate between 10−3 and 10−4 .
+
+the best performance using the maximum of 3 levels. Due
+to Swin’s built-in downsampling between stages, this corresponds to 3 levels across the first two layers, 2 levels
+for the next two layers, and a single level for the remaining eight layers. To coarsen the input grid, we compared
+average pooling versus learned convolutions—convolutions
+consistently outperformed pooling. For upsampling, transpose convolutions outperformed nearest-neighbor interpolation. When used, kernel size and stride refer to
+these convolutional operations.
+As shown in Figure 3, using learned convolutions for
+both down- and up-sampling significantly improves expressivity: even with pretrained attention weights, convolutionbased sampling enables a windowed attention trained at one
+resolution to transfer effectively to another. Note that a single convolutional kernel is reused for all downsampling operations, and a separate kernel is reused for all upsampling
+operations.
+
+6. Discussion
+Hierarchy depth in vision vs. Physics. In our image
+classification experiments, we follow SwinV2-T’s architecture and compute attention at three hierarchical levels in
+early stages, two in the middle, one at the end of the encoder). For Darcy flow grids, we set downsampling steps
+so that the coarsest scale is 2 × 2, the smallest possible
+when using a 2 × 2 window for the attenion. We found
+that increasing the number of levels consistently improves
+performance, however we note that in physics simulation,
+the number of levels can be treated as a hyperparameter and
+tuned based on input resolution and the desired balance between local and global interactions.
+
+Hyperparameters. A detailed table of hyperparameters
+is provided in the Appendix; below, we outline our main
+design choices.
+The “number of levels” specifies how many hierarchical scales are included in the multipole attention; with a
+window size of 8 for the windowed attention, we achieve
+
+Limitations. MANO’s current design uses a fixed, static
+hierarchy and attention parametrization. While effective,
+it could benefit from learnable scale selection and explicit
+cross-level interactions to better capture multi-scale couplings. Additionally, we assume a uniform grid to discretize
+
+1 Checkpoints
+
+are available at https : / / huggingface . co /
+google / vit - base - patch16 - 224 (ViT-base), https : / /
+huggingface . co / facebook / deit - small - patch16 - 224
+(DeiT-Small), and https://huggingface.co/timm/swinv2_
+tiny_window8_256.ms_in1k (SwinV2-T).
+
+7
+
+the input. This simplifies implementation but fails to capture regions with steep gradients or intricate boundaries in
+physics simulations. Introducing adaptive meshing would
+thus improve accuracy and efficiency for localized phenomena that otherwise demand a higher resolution simulation,
+but would require redefining attention over nonuniform spatial supports. Finally, our current implementation could be
+accelerated by a hardware—optimized GPU kernel to further reduce runtime.
+
+neural operators. Advances in Neural Information Processing Systems, 37:25152–25194, 2024. 2, 3, 12
+[2] Dzmitry Bahdanau, Kyung Hyun Cho, and Yoshua Bengio.
+Neural machine translation by jointly learning to align and
+translate. In 3rd International Conference on Learning Representations, ICLR 2015, 2015. 1
+[3] Cristian Bodnar, Wessel P. Bruinsma, Ana Lucic, Megan
+Stanley, Anna Allen, Johannes Brandstetter, Patrick Garvan,
+Maik Riechert, Jonathan A. Weyn, Haiyu Dong, Jayesh K.
+Gupta, Kit Thambiratnam, Alexander T. Archibald, ChunChieh Wu, Elizabeth Heider, Max Welling, Richard E.
+Turner, and Paris Perdikaris. A foundation model for the
+earth system. Nature, 641(8065):1180–1187, 2025. 2
+[4] Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool.
+Food-101–mining discriminative components with random
+forests. In Computer vision–ECCV 2014: 13th European
+conference, zurich, Switzerland, September 6-12, 2014, proceedings, part VI 13, pages 446–461. Springer, 2014. 5
+[5] Lise Le Boudec, Emmanuel de Bezenac, Louis Serrano, Ramon Daniel Regueiro-Espino, Yuan Yin, and Patrick Gallinari. Learning a neural solver for parametric PDEs to enhance physics-informed methods. In The Thirteenth International Conference on Learning Representations, 2025. 12
+[6] R.N. Bracewell. The Fourier Transform and Its Applications.
+McGraw Hill, 2000. 1
+[7] Achi Brandt. Multi-level adaptive solutions to boundaryvalue problems. Mathematics of computation, 31(138):333–
+390, 1977. 3
+[8] William L Briggs, Van Emden Henson, and Steve F McCormick. A multigrid tutorial. SIAM, 2000. 3
+[9] Edoardo Calvello, Nikola B Kovachki, Matthew E Levine,
+and Andrew M Stuart. Continuum attention for neural operators. arXiv preprint arXiv:2406.06486, 2024. 3, 12
+[10] Shuhao Cao. Choose a transformer: Fourier or galerkin. Advances in neural information processing systems, 34:24924–
+24940, 2021. 3, 12
+[11] Xiangning Chen, Cho-Jui Hsieh, and Boqing Gong.
+When vision transformers outperform resnets without pretraining or strong data augmentations. arXiv preprint
+arXiv:2106.01548, 2021. 6
+[12] Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Andreea Gane, Tamas Sarlos, Peter
+Hawkins, Jared Davis, Afroz Mohiuddin, Lukasz Kaiser,
+et al. Rethinking attention with performers. arXiv preprint
+arXiv:2009.14794, 2020. 2, 11
+[13] P.G. Ciarlet. The Finite Element Method for Elliptic Problems. Society for Industrial and Applied Mathematics, 2002.
+1
+[14] R. Courant, K. Friedrichs, and H. Lewy. On the partial difference equations of mathematical physics. IBM J. Res. Dev.,
+11(2):215–234, 1967. 1
+[15] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,
+and Li Fei-Fei. Imagenet: A large-scale hierarchical image
+database. In 2009 IEEE conference on computer vision and
+pattern recognition, pages 248–255. Ieee, 2009. 2, 5, 11, 14
+[16] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+
+Future Directions. Beyond steady-state Darcy flow,
+MANO can naturally extend to time-dependent PDEs by
+integrating with recurrent timestepping or operator-splitting
+schemes, preserving its ability to capture both spatial multiscale structure and temporal evolution. We also plan to
+extend our method to unstructured meshes and irregular
+domains common in real-world physics simulations. On
+the computer-vision side, applying MANO to dense prediction tasks—such as semantic segmentation or image inpainting—is promising, since its multiscale attention could
+dynamically balance local details and global context more
+effectively than standard U-Net architectures.
+
+7. Conclusion
+We propose MANO, an efficient attention-based architecture inspired by n-body methods, which interprets attention as interactions among mesh points. By introducing
+a distance-based, multiscale attention mechanism, MANO
+achieves linear time and memory complexity per head while
+preserving a global receptive field. Across several image classification benchmarks and Darcy flow simulations,
+MANO matches the accuracy of full-attention models yet
+substantially reduces runtime and peak memory. Unlike
+patch-based approximations, it avoids discontinuities and
+retains long-range dependencies inherent to physical systems. Our results demonstrate that MANO is a scalable alternative for both vision tasks and mesh-based simulations.
+Future work includes applying MANO to dense vision tasks
+such as semantic segmentation, and to extend it to irregular
+meshes and a broader class of physical simulations.
+
+Acknowledgments
+This work was supported by the SHARP ANR project
+ANR-23-PEIA-0008 in the context of the France 2030
+program and by the HPC resources from GENCIIDRIS (grants AD011015154 and A0151014627).
+
+References
+[1] Benedikt Alkin, Andreas Fürst, Simon Schmid, Lukas Gruber, Markus Holzleitner, and Johannes Brandstetter. Universal physics transformers: A framework for efficiently scaling
+
+8
+
+

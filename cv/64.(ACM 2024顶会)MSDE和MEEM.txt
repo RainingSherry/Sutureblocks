@@ -1,0 +1,3114 @@
+arXiv:2408.04326v1 [cs.CV] 8 Aug 2024
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for
+Salient Object Detection
+Shixuan Gao
+
+Pingping Zhang∗
+
+Dalian University of Technology
+Dalian, China
+gaosx@mail.dlut.edu.cn
+
+Dalian University of Technology
+Dalian, China
+zhpp@dlut.edu.cn
+
+Tianyu Yan
+
+Huchuan Lu
+
+Dalian University of Technology
+Dalian, China
+2981431354@mail.dlut.edu.cn
+
+Dalian University of Technology
+Dalian, China
+lhchuan@dlut.edu.cn
+
+Abstract
+
+Keywords
+
+Salient Object Detection (SOD) aims to identify and segment the
+most prominent objects in images. Advanced SOD methods often
+utilize various Convolutional Neural Networks (CNN) or Transformers for deep feature extraction. However, these methods still
+deliver low performance and poor generalization in complex cases.
+Recently, Segment Anything Model (SAM) has been proposed as a
+visual fundamental model, which gives strong segmentation and
+generalization capabilities. Nonetheless, SAM requires accurate
+prompts of target objects, which are unavailable in SOD. Additionally, SAM lacks the utilization of multi-scale and multi-level
+information, as well as the incorporation of fine-grained details. To
+address these shortcomings, we propose a Multi-scale and Detailenhanced SAM (MDSAM) for SOD. Specifically, we first introduce
+a Lightweight Multi-Scale Adapter (LMSA), which allows SAM to
+learn multi-scale information with very few trainable parameters.
+Then, we propose a Multi-Level Fusion Module (MLFM) to comprehensively utilize the multi-level information from the SAM’s
+encoder. Finally, we propose a Detail Enhancement Module (DEM)
+to incorporate SAM with fine-grained details. Experimental results demonstrate the superior performance of our model on multiple SOD datasets and its strong generalization on other segmentation tasks. The source code is released at https://github.com/
+BellyBeauty/MDSAM.
+
+Salient Object Detection, Segment Anything Model, Multi-scale
+Feature Extraction, Object Detail Enhancement
+
+CCS Concepts
+• Computing methodologies → Interest point and salient
+region detections.
+
+∗ Corresponding author.
+
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+© 2024 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 979-8-4007-0686-8/24/10
+https://doi.org/10.1145/3664647.3680650
+
+ACM Reference Format:
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu. 2024. MultiScale and Detail-Enhanced Segment Anything Model for Salient Object
+Detection. In Proceedings of the 32nd ACM International Conference on Multimedia (MM ’24), October 28–November 1, 2024, Melbourne, VIC, Australia.
+ACM, New York, NY, USA, 21 pages. https://doi.org/10.1145/3664647.3680650
+
+1
+
+Introduction
+
+Salient Object Detection (SOD) aims to identify and segment the
+most prominent objects in images. As a fundamental task, SOD
+plays an important role in many downstream tasks, such as object
+tracking [68, 75], scene segmentation [51, 69], person re-identification
+[13, 41], etc. In the last decade, Convolutional Neural Networks
+(CNNs) have witnessed great progresses in SOD. However, SOD
+requires global context information, which is challenging for CNNs
+due to their limited receptive fields. Fortunately, with the global
+perception of self-attention, Vision Transformers (ViT) [8] greatly
+prompt SOD to an expressive level. However, due to the insufficient
+training examples and large domain gaps, these SOD methods still
+deliver low performance and poor generalization in complex cases.
+Recently, a visual fundamental model named Segment Anything
+Model (SAM) [23] has been proposed for universal image segmentation. SAM benefits from more than 1 billion training samples, which
+deliver a powerful generalization capability in many segmentation
+tasks [4, 35, 42, 60, 72]. However, to achieve robust segmentation,
+SAM requires handcrafted prompts such as points, boxes, or rough
+masks corresponding to the objects of interest. As illustrated in
+Fig. 1(a), SAM with grid prompts can automatically generate object
+masks. However, these masks are class-agnostic, which are unable
+to identify salient objects. As shown in Fig. 1(b), the point prompt requires an accurate number and placement of key points. As a result,
+even a slight difference can lead to incorrect results. Meanwhile, the
+box prompt may be ineffective in several challenging scenes, such
+as object occlusion. Thus, adapting SAM to SOD requires carefully
+selected prompts for salient objects. This is improper for SOD since
+the ground truth is unavailable during inference. In fact, full finetuning is a direct method of adapting SAM to SOD. However, it may
+lead to huge training parameters, even resulting in a performance
+decline. Previous works have already used Adapter [18] to transfer
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+• We propose a Lightweight Multi-Scale Adapter (LMSA) to
+adapt SAM to SOD while keeping training-efficient and
+strong generalization.
+• We propose Multi-Level Fusion Module (MLFM) and Detail
+Enhancement Module (DEM) to improve the multi-scale and
+fine-grained perceptions of SAM, respectively.
+• We perform extensive experiments to verify the superior
+effectiveness and strong generalization of our method on
+multiple SOD datasets and other segmentation tasks.
+
+2 Related Work
+2.1 Salient Object Detection
+
+Figure 1: Illustration of our motivations. The mask generation process of (a) SAM with grid prompts, (b) SAM with
+selected prompts (points or boxes) and (c) our MDSAM without prompts. (d) and (f) are saliency maps predicted by SAM
+with Adapter. (e) and (g) are saliency maps predicted by our
+MDSAM. Our MDSAM locate salient objects more accurately
+and segment them with fine-grained details.
+such fundamental models to downstream tasks. Nonetheless, as
+shown in Fig. 1(d), SAM trained with Adapters performs poorly
+in multi-scale scenarios. Furthermore, SAM only utilizes features
+at the end of the image encoder, resulting in the loss of low-level
+information. As illustrated in Fig. 1(d) and (f), SAM encounters
+incomplete object masks and inaccurate object edges due to the
+lack of multi-scale information and fine-grained details.
+To address the aforementioned issues, we propose a novel framework named Multi-scale and Detail-Enhanced SAM (MDSAM) for
+high-performance SOD. Functionally, it adapts SAM to the SOD
+task with multi-scale and detail-enhanced information. Specifically,
+we first propose a Lightweight Multi-Scale Adapter (LMSA) to adapt
+SAM with very few parameters while extracting multi-scale information. Then, we propose a Multi-Level Fusion Module (MLFM)
+to extract and fuse the features from different levels of the SAM’s
+encoder. Finally, we propose a Detail Enhancement Module (DEM)
+to incorporate image details and edges for SOD prediction, which
+helps to generate precise and detailed results. Extensive experiments demonstrate that our model not only performs well on SOD
+but also exhibits superior performance on other segmentation tasks.
+Our main contributions are summarized as follows:
+• We propose a novel framework named Multi-Scale and Detailenhanced SAM (MDSAM) for high-performance SOD.
+
+Currently, SOD methods are coarsely divided into two categories:
+CNN-based methods and Transformer-based methods. The CNNbased methods usually adopt deep CNNs such as VGGNet [43],
+ResNet [15], as their backbones to extract and fuse multi-scale
+features. For example, Zhang et al. [70] propose to aggregate multilevel convolutional features for SOD. Zhang et al. [71] propose to
+learn uncertain convolutional features for accurate SOD. Wang
+et al. [49] propose a stage-wise refinement CNN model to detect
+salient objects in images. Furthermore, Zhang et al. [67] utilize a
+Siamese CNN to learn lossless feature reflection for structure-ware
+SOD. Wu et al. [56] propose a cascaded partial decoder for fast and
+accurate SOD. Zeng et al. [64] propose a global-local CNN to fuse
+deep features for high-resolution SOD. Wei et al. [54] propose a
+fusion-feedback-focus strategy to improve the multi-level feature
+representation ability. Mohammadi et al. [37] introduce a contentaware guidance for SOD. Liu et al. [29] propose a dynamic feature
+integration for simultaneous detection of salient objects, edges, and
+skeletons. Zhao et al. [74] propose a simple gated CNN to suppress
+unrelated features and balance the information for SOD. Pang et
+al. [39] introduce a multi-scale interactive network to improve the
+feature efficiency and prediction consistency. Wei et al. [55] propose to decouple the SOD labels to improve the body and detail
+perceptions. Wang et al. [52] propose a multi-level enhanced SOD
+method by integrating pixels, regions, and objects. Although these
+methods achieve great progresses in SOD, they still deliver unsatisfied results. The main reason is that CNNs essentially lack of the
+global perception, which is very important for SOD.
+Recently, with the global perception of self-attention, ViT [8]
+shows an outstanding effectiveness for the SOD task. To take the
+advantages of ViT, Liu et al. [31] use T2T-ViT [62] to capture longrange dependencies and integrate multi-level features for better
+SOD results. Yun et al. [63] propose a self-refined network with
+pyramid Transformers to enhance global semantic and local detail information of salient objects. Zhuge et al. [78] utilize Swin
+Transformer [32] to extract multi-scale features and enhance the
+integrity of detected salient regions. Wang et al. [53] combine multiple Transformers to learn local-global representations for scribblebased RGB-D SOD. Deng et al. [6] introduce a recurrent multi-scale
+Transformer for high-resolution SOD. Despite the impressive performance, these Transformer-based methods lack of fine-grained
+peceptions on object details. More importantly, they show poor generalization in complex cases. In this work, we borrow the superior
+feature extraction and generalization ability of visual fundamental
+models, and transfer them to the SOD task for better performances.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+3×
+
+Ground Truth
+
+ViT Block
+
+=
+
+LMSA
+
+ViT Block
+
+LMSA
+
+ViT Block
+
+LMSA
+
+ViT Block
+
+LMSA
+
+Patch
+Embedding
+
+…
+
+𝐼
+
+3×
+
+3×
+
+3×
+
+Input Image
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+S𝑚
+
+S𝑓
+
+Supervision
+
+C Channel-wise Concatenation
+
+Element-wise Summation
+
+F𝑙𝑜𝑐𝑎𝑙
+MEEM
+
+UpSample
+
+C
+
+Conv
+Conv
+Conv
+
+Conv
+
+Conv
+
+Multi-Level Fusion Module
+
+F𝑚
+
+UpSample
+
+F𝑓
+
+F𝑑
+Conv
+
+WD
+
+WD
+
+WD
+
+WD
+
+Conv
+
+Conv
+
+X12
+
+UpSample
+
+X9
+
+Conv
+
+X6
+
+UpSample
+
+X3
+
+C
+
+SAM Decoder
+
+SAM Encoder
+
+C
+
+Detail Enhancement Module
+
+Figure 2: Overall architecture of the proposed MDSAM. It reuses the pre-trained weights of SAM with three novel modules:
+Lightweight Multi-Scale Adapter (LMSA), Multi-Level Fusion Module (MLFM) and Detail Enhancement Module (DEM). In
+addition, Weight Distributors (WD) and Multi-scale Edge Enhancement Module (MEEM) are also introduced to improve the
+feature representation ability.
+
+2.2
+
+Segment Anything Model
+
+Recently, SAM [23] is proposed as a visual foundation model for universal image segmentation. With appropriate modifications, it performs remarkably well in many downstream tasks [4, 35, 42, 60, 72].
+However, SAM requires precise prompts of the target, such as
+points, boxes, or masks. These prompts are difficult to obtain for
+SOD. Several works have performed the full fine-tuning on SAM in
+order to transfer it to the SOD task. However, the full fine-tuning
+will lead to an excessive number of training parameters, even resulting in a performance decline. Meanwhile, there are some works
+that attempt to transfer SAM with a small number of trainable
+parameters. For example, Cui et al. [5] propose to use a Low Rank
+Adaptation (LoRA) of SAM to SOD. Xu et al. [58] introduce a multidimensional exploration of SAM for weakly-supervised SOD. Ke
+et al. [22] design a learnable high-quality output token, which is
+injected into SAM’s mask decoder and is responsible for predicting the high-quality mask. Although effective, these methods fail
+to enable SAM to learn multi-scale and multi-level information.
+Additionally, SAM’s simple decoder fails to incorporate detailed
+information, resulting in inaccurate segmentation. To address these
+issues, we propose LMSA to use very few training parameters to
+transfer SAM into SOD and enable SAM to acquire multi-scale information. Moreover, we introduce lightweight modules to utilize
+fine-grained details for better SOD performance.
+
+3
+
+Our Proposed Method
+
+In this work, we propose a novel Multi-scale and Detail-Enhanced
+SAM (MDSAM) for the SOD task. Fig. 2 shows the overall architecture, which equips SAM with three novel modules: Lightweight
+Multi-Scale Adapter (LMSA), Multi-Level Fusion Module (MLFM)
+
+and Detail Enhancement Module (DEM). We will describe them in
+the following sections.
+
+3.1
+
+Lightweight Multi-Scale Adapter
+
+Although SAM performs well in many segmentation tasks, the
+challenge of providing suitable prompts still limits its direct application in SOD. One possible solution is the full fine-tuning of SAM.
+However, the excessive number of trainable parameters from the
+SAM’s encoder and insufficient SOD data may lead to unsatisfied
+performances. Fortunately, Adapter [18] is an efficient method for
+adapting SAM to SOD with few training parameters. In addition,
+the multi-scale information is very helpful for SOD. To this end,
+we propose a Lightweight Multi-Scale Adapter (LMSA) to adapt
+SAM to SOD. To the best of our knowledge, we are the first to
+apply the multi-scale adapter for transferring SAM to downstream
+tasks. We make further improvements by enhancing the capability
+of extracting local information. In this way, our MDSAM reuses
+and preserves the pre-trained weights of SAM, while incorporating
+multi-scale information with very few training parameters.
+As shown in Fig. 3, each Transformer layer of the SAM’s encoder is composed of a Multi-Head Self-Attention (MHSA) [47], a
+Multi-Layer Perceptron (MLP) and two normalization layers. It is
+expressed as follows:
+X̂𝑖 = 𝑀𝐻𝑆𝐴(𝐿𝑁 (X𝑖 )) + X𝑖 ,
+
+(1)
+
+X𝑖+1 = 𝑀𝐿𝑃 (𝐿𝑁 ( X̂𝑖 )) + X̂𝑖 ,
+(2)
+where X𝑖 ∈ R𝑁 ×𝐷 is the output of 𝑖-th Transformer layer. 𝑁 is
+the number of tokens. 𝐷 is the embedding dimension. X̂𝑖 ∈ R𝑁 ×𝐷
+is the intermediate output. 𝐿𝑁 denotes the Layer Normalization
+(LN) [1]. To adapt SAM to SOD, we employ the proposed LMSA
+before the first normalization in each Transformer layer.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Xi
+
+Down
+
+ReLU
+
+Linear
+Projection
+
+Up
+
+Reshape
+
+Xi
+
+Conv
+
+Xis
+
+AP
+
+AP
+
+AP
+
+AP
+
+MHSA
+
+AP
+
+Average Pooling
+
+US
+
+Upsampling
+
+Conv
+
+Convolution
+
+DWConv
+
+Depth-wise
+Convolution
+
+Weight
+Distributor
+
+Xio
+
+DWConv
+
+Conv
+
+෡i
+X
+
+s
+Xi,1
+
+DWConv
+
+Norm
+
+US
+
+MLP
+
+s
+ഥ
+X i,1
+
+Conv
+
+s
+Xi,2
+
+Conv
+
+Conv
+
+s
+Xi,4
+
+US
+
+US
+s
+ഥ
+X i,2
+
+C
+
+US
+
+ഥ
+Xi
+up
+
+Xio
+
+Wi
+
+Summation
+
+Lightweight
+Multi-scale Adapter
+
+The detailed structure of the LMSA is shown in Fig. 3. Specifically,
+we first use a linear projection layer to reduce the feature dimension:
+X𝑖s = 𝜏 (𝑅𝑒𝐿𝑈 (W𝑖down (X𝑖 ))),
+
+(3)
+
+𝐷
+
+where W𝑖down ∈ R𝐷 × 𝑟 is the parameter of the linear projection
+layer. After a ReLU activation function, we reshape the feature into
+𝐷
+X𝑠𝑖 ∈ R 𝑟 ×𝑊 ×𝐻 for the further spatial information process. 𝜏 [·] is
+the reshape operation. 𝑟 is the reduction factor.
+Then, to improve the representation ability, we use four Average Pooling (AP) layers to obtain multi-scale features X𝑠𝑖,𝑗 ∈
+𝐷
+
+R 4×𝑟 ×𝑊 𝑗 ×𝐻 𝑗 , and utilize depth-wise convolutional layers to capture local-detail information:
+X𝑠𝑖,𝑗 = 𝜙 1×1 (𝐴𝑃 (X𝑠𝑖 )), 1 ≤ 𝑗 ≤ 4,
+
+(4)
+
+X̄𝑠𝑖,𝑗 = 𝑈 𝑆 (𝐷𝑊 𝐶𝑜𝑛𝑣 (X𝑠𝑖,𝑗 )),
+
+(5)
+
+where 𝜙 1×1 defines a convolutional layer with 1×1 kernels followed
+by a GELU function [16]. 𝐷𝑊 𝐶𝑜𝑛𝑣 is a depth-wise convolutional
+layer with 3 × 3 kernels and a GELU function. 𝑈 𝑆 is the bilinear
+interpolation for upsampling features to the specific resolution.
+𝐷
+Afterwards, we fuse the multi-scale features X̄𝑠𝑖,𝑗 ∈ R 𝑟 ×𝑊 ×𝐻
+with X𝑠𝑖 as follows:
+X̄𝑖 = 𝜙 1×1 ( [X̄𝑠𝑖,1, X̄𝑠𝑖,2, X̄𝑠𝑖,3, X̄𝑠𝑖,4, 𝐷𝑊 𝐶𝑜𝑛𝑣 (X𝑠𝑖 )]),
+
+(6)
+
+𝐷
+
+where X̄𝑖 ∈ R 𝑟 ×𝑊 ×𝐻 and [·] is channel-wise concatenation.
+Finally, we reshape X̄𝑖 back to the tokenized feature. With a
+linear projection layer and a residual connection [15], we obtain
+the final output of LMSA:
+up
+
+(7)
+
+𝐷
+up
+where W𝑖 ∈ R 𝑟 ×𝐷 is a linear projection layer to restore the
+
+feature dimension.
+
+Fത 3
+
+WD
+
+WD
+
+Fത 6
+
+Fത 9
+
+WD
+Fത 12
+
+F𝑓
+
+With LMSA, SAM can be adapted to the SOD task with very
+few training parameters. Furthermore, compared with other methods, our method can better utilize multi-scale information, thereby
+enabling the model to learn better features.
+
+3.2
+
+Figure 3: Details of the proposed LMSA.
+
+X̄𝑖o = W𝑖 (𝜏 ( X̄𝑖 )) + X𝑖 ,
+
+P3
+
+C Concatenation
+
+Reshape
+Up
+
+X12
+
+Figure 4: Architecture of the proposed MLFM.
+
+s
+ഥ
+X i,4
+
+s
+ഥ
+X i,3
+
+X9
+
+Element-wise Multiplication
+
+DWConv DWConv DWConv
+
+Conv
+
+Xi + 1
+
+s
+Xi,3
+
+X6
+
+X𝑐
+Conv
+GAP
+Sigmoid
+
+LMSA
+
+Norm
+
+X3
+
+C
+
+Widown
+
+Down
+
+Multi-Level Fusion Module
+
+In the SAM’s encoder, each layer contains different information.
+Shallow layers contain more low-level detail information, while
+deep layers contain richer high-level semantic information. In the
+SOD task, relying solely on the high-level information from deep
+layers may not locate objects accurately in complex cases. Therefore,
+leveraging multi-level information is necessary for SOD. However,
+SAM only utilizes the output from the encoder’s last layer as the
+mask decoder’s input. Moreover, the simple concatenation fusion
+strategy cannot fully integrate the multi-level information from
+different layers [70]. To address this issue, we propose a MultiLevel Fusion Module (MLFM) to comprehensively utilize the multilevel information from the SAM’s encoder. As shown in Fig. 4, the
+proposed MLFM generates weights and assigns them to different
+layers with Weight Distributors (WD).
+We denote the output features of different layers in the SAM’s
+encoder as X𝑔 ∈ R𝐷 ×𝐻 ×𝑊 (𝑔 = 3, 6, 9, 12). Firstly, we concatenate
+them and obtain the aggregated feature X𝑐 by a convolutional layer:
+X𝑐 = 𝜙 1×1 ([X3, X6, X9, X12 ]).
+Then, we obtain the weights P𝑔
+different layers as follows:
+
+(8)
+
+based on X𝑐 and assign them to
+
+P𝑔 = 𝛿 (𝐺𝐴𝑃 (𝜙 1×1 (X𝑐 ))),
+
+(9)
+
+F̄𝑔 = P𝑔 × X𝑔 + X𝑔 ,
+(10)
+where 𝛿 denotes the Sigmoid function. 𝐺𝐴𝑃 is the Global Average
+Pooling (GAP). Finally, we obtain the fused feature F 𝑓 ∈ R𝐷 ×𝐻 ×𝑊
+as follows:
+F 𝑓 = Σ𝑔 F̄𝑔 .
+(11)
+After MLFM, F 𝑓 will be used as the image embedding for the mask
+decoder. Different from the original SAM, the output features of
+our proposed MLFM fully fuse multi-level information from the
+SAM’s encoder.
+
+3.3
+
+Detail Enhancement Module
+
+With the assistance of LMSA and MLFM, our framework sufficiently
+leverages multi-scale and multi-level information. This greatly aids
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+Multi-scale Edge
+Enhancement Module
+𝑒
+
+I
+
+Conv
+
+Element-wise
+Subtraction
+
+Conv
+
+F𝑙𝑜𝑐𝑎𝑙
+
+F0
+
+F𝑙𝑒
+
+enhance the edge perception of salient objects. To reduce the computational complexity, we use the average pooling to expand the
+receptive field. The procedure of the MEEM is as follows:
+
+𝑒𝑑𝑔𝑒
+
+F𝑒0 = 𝜙 1×1 (F𝑙𝑜𝑐𝑎𝑙 ),
+
+(15)
+
+′
+F𝑒𝑡+1 = 𝐴𝑃 (𝜙 1×1
+(F𝑒𝑡 )), (0 ≤ 𝑡 ≤ 2),
+
+(16)
+
+Edge Enhancer
+
+C
+
+AP
+Conv
+
+F1𝑒
+
+AP
+Conv
+
+F2𝑒
+
+EE
+
+AP
+Conv
+
+F3𝑒
+
+EE
+
+EE
+
+AP
+
+F1𝑒𝑒
+F2𝑒𝑒
+F3𝑒𝑒
+
+F𝑙
+
+Conv
+
+Conv
+
+F 𝑚𝑒
+F𝑙𝑒𝑒
+
+𝑑𝑒
+
+Conv
+
+C F
+
+Conv
+
+F 𝑢𝑝
+
+Conv
+
+US
+Conv
+
+F 𝑟𝑒
+
+US
+Conv
+
+Conv
+
+F𝑑
+C
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+S𝑓
+
+F𝑚
+
+′
+where 𝐴𝑃 denotes the average pooling with 3 × 3 kernels. 𝜙 1×1
+denotes a 1 × 1 convolutional layer with a batch normalization
+and the sigmoid function. F𝑒𝑡 ∈ R𝐶 ×𝐻 ×𝑊 is the feature at scale 𝑡.
+Then, we introduce the edge enhancer 𝜓 to strengthen the detailed
+information at each scale:
+
+F𝑙𝑒𝑒 = 𝜓 (F𝑙𝑒 ), (1 ≤ 𝑙 ≤ 3),
+
+Figure 5: Illustration of the proposed DEM.
+
+SAM’s application in the SOD task. However, there are still some
+remaining issues. On the one hand, the SAM’s encoder employs
+an image patch embedding strategy, which inevitably loses detail
+information. On the other hand, the upsampling strategy in the
+SAM’s decoder can not restore key details. Thus, the salient objects
+with complex details and edges are not sufficiently captured. To
+address this issue, we propose a Detail Enhancement Module (DEM)
+to enhance fine-grained details for better SOD performances.
+As shown in Fig. 5, the proposed DEM includes a primary branch
+and an auxiliary branch. The primary branch progressively upsamples features from the mask decoder’s output to the input resolution.
+The auxiliary branch extracts fine-grained detail information from
+the input image and adds it to the features in the primary branch.
+However, directly extracting details at the input resolution would
+lead to excessive computation, slowing down the inference speed.
+Therefore, we propose a Multi-scale Edge Enhancement Module
+(MEEM). In MEEM, we use 3 × 3 average pooling and 1 × 1 convolutions to extract the detail information. Additionally, we utilize
+Edge Enhancers (EE) to highlight object edges in the feature maps.
+Technically, in the primary branch, we first concatenate the
+mask decoder feature F𝑚 and the upsampled feature F𝑑 from the
+last layer of SAM’s encoder. Then, we use a 1 × 1 convolutional
+layer to reduce the channel dimension. Finally, we progressively
+upsample the features to the input resolution by using multiple
+bilinear interpolations and 3 × 3 convolutions:
+F𝑟𝑒 = 𝜙 1×1 ([F𝑑 , F𝑚 ]),
+
+(12)
+
+F𝑢𝑝 = 𝜙 3×3 (𝑈 𝑆 ×2 (𝜙 3×3 (𝑈 𝑆 ×2 (F𝑟𝑒 ))))
+
+(13)
+
+where 𝑈 𝑆 ×2 is 2× upsampling with bilinear interpolations. 𝜙 3×3
+contains a convolutional layer with 3 × 3 kernels, a batch normalization, and a ReLU function.
+Although F𝑢𝑝 can be used for SOD prediction, it lacks of detail
+and edge information. Thus, we introduce the auxiliary branch and
+propose a MEEM to incorporate fine-grained details from input
+images. Specifically, given an input image I, we first apply a 3 × 3
+convolutional layer to extract the local features:
+F𝑙𝑜𝑐𝑎𝑙 = 𝜙 3×3 (I),
+
+(14)
+
+where F𝑙𝑜𝑐𝑎𝑙 ∈ R𝐶 ×𝐻 ×𝑊 . With the proposed MEEM, we extract
+edge information from the image at multiple scales, and further
+
+(17)
+
+where F𝑙𝑒𝑒 ∈ R𝐶 ×𝐻 ×𝑊 is the edge-enhanced features. The structure
+of the edge enhancer is shown in the top-right part of Fig. 5, which
+can be represented as follows:
+edge
+
+F𝑙
+
+= F𝑙𝑒 − 𝐴𝑃 (F𝑙𝑒 ),
+edge
+
+′
+F𝑙𝑒𝑒 = 𝜙 1×1
+(F𝑙
+
+) + F𝑙𝑒 ,
+
+(18)
+(19)
+
+edge
+
+where F𝑙
+∈ R𝐶 ×𝐻 ×𝑊 . Then, we fuse these features with channelwise concatenation and a 1 × 1 convolutional layer:
+𝑒𝑒 𝑒𝑒
+F𝑚𝑒 = 𝜙 1×1 ([F𝑒0 , F𝑒𝑒
+1 , F2 , F3 ]),
+
+(20)
+
+where F𝑚𝑒 ∈ R𝐶 ×𝐻 ×𝑊 is the feature output of the MEEM. In this
+way, F𝑚𝑒 includes both the fine-grained details and the multi-scale
+edge information. We use these features to complement the missing
+information in feature F𝑐 . After concatenation, we apply two 3 × 3
+convolutional layers and a 1 × 1 convolutional layer to obtain the
+final SOD result S 𝑓 :
+F𝑑𝑒 = [F𝑢𝑝 , F𝑚𝑒 + F𝑙𝑜𝑐𝑎𝑙 ],
+
+(21)
+
+S 𝑓 = 𝜙 1×1 (𝜙 3×3 (𝜙 3×3 (F𝑑𝑒 ))).
+
+(22)
+
+As can be observed, with the assistance of MEEM, our DEM can
+extract multi-scale edges from input images and combine them
+with the primary branch. By utilizing the two branches, the issue of
+lacking details in SAM has been resolved. As a result, our MDSAM
+can effectively locate salient objects with rich detail information.
+
+3.4
+
+Loss Functions
+
+To train our framework, we introduce the Binary Cross Entropy
+(BCE) loss, the Interaction over Union (IoU) loss, and the L1 loss.
+To improve the learning ability, we employ them to both S 𝑓 and
+S𝑚 = 𝜙 1×1 (F𝑚 ). The total loss of MDSAM is formulated as follows:
+L (S, S𝑔𝑡 ) = L𝐵𝐶𝐸 + L𝐼𝑜𝑈 + L𝐿1,
+
+(23)
+
+L𝑡𝑜𝑡𝑎𝑙 = L 𝑓 (S 𝑓 , S𝑔𝑡 ) + L𝑚 (S𝑚 , S𝑔𝑡 ),
+
+(24)
+
+where S𝑔𝑡 is the ground truth of salient objects.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Table 1: Quantitative comparison between our method and other methods. The best, second, and third results are highlighted
+in red, green, and blue, respectively.
+Method
+
+Input Size
+
+Params (M)
+
+CPD2019 [56]
+F3Net2020 [54]
+CAGNet-L2020 [37]
+DFI2020 [29]
+GateNet-X2020 [74]
+MINet-R2020 [39]
+LDF2020 [55]
+TE32022 [25]
+TE52022 [25]
+TE72022 [25]
+MENet2023 [52]
+
+352 × 352
+352 × 352
+480 × 480
+224 × 224
+384 × 384
+320 × 320
+352 × 352
+384 × 384
+512 × 512
+640 × 640
+354 × 354
+
+47.84
+25.54
+29.61
+128.63
+162.38
+25.15
+14.02
+31.30
+66.27
+-
+
+VST2021 [31]
+SelfReformer2022 [63]
+ICON-S2022 [78]
+BBRF2023 [36]
+DC-Net-S2023 [77]
+SAM2023 [23]
+MDSAM2024
+MDSAM2024
+
+224 × 224
+224 × 224
+384 × 384
+352 × 352
+384 × 384
+512 × 512
+384 × 384
+512 × 512
+
+44.48
+90.70
+92.15
+74.00
+509.61
+89.94
+100.21
+100.21
+
+FLOPs (G)
+
+FPS
+
+𝑀𝐴𝐸
+
+DUTS-TE
+𝑆𝑚
+𝐹 𝛽𝑚𝑎𝑥
+
+CNN-Based Methods
+17.82
+123 0.043 0.972
+16.48
+167 0.035 0.905
+0.029 0.898
+11.31
+102 0.039 0.896
+162.13
+130 0.035 0.908
+87.10
+62
+0.037 0.884
+15.57
+177 0.034 0.905
+3.23
+24
+0.028 0.909
+6.06
+15
+0.026 0.923
+10.17
+9
+0.023 0.932
+0.028 0.918
+Transformer-Based Methods
+23.18
+70
+0.037 0.895
+12.83
+62
+0.027 0.920
+52.80
+69
+0.025 0.924
+67.02
+62
+0.025 0.911
+211.27
+24
+0.023 0.932
+103.17
+46
+0.030 0.921
+66.23
+50
+0.025 0.934
+123.44
+35
+0.024 0.937
+
+𝐸𝑚
+
+𝑀𝐴𝐸
+
+DUT-OMRON
+𝑆𝑚
+𝐹 𝛽𝑚𝑎𝑥
+
+𝐸𝑚
+
+0.869
+0.888
+0.897
+0.887
+0.897
+0.884
+0.892
+0.899
+0.910
+0.920
+0.905
+
+0.898
+0.920
+0.939
+0.912
+0.916
+0.917
+0.925
+0.943
+0.948
+0.954
+0.938
+
+0.056
+0.053
+0.047
+0.055
+0.051
+0.056
+0.052
+0.046
+0.045
+0.045
+0.045
+
+0.818
+0.841
+0.818
+0.818
+0.847
+0.831
+0.835
+0.840
+0.850
+0.849
+0.845
+
+0.825
+0.838
+0.845
+0.839
+0.849
+0.833
+0.839
+0.848
+0.856
+0.856
+0.850
+
+0.847
+0.864
+0.882
+0.865
+0.865
+0.860
+0.865
+0.881
+0.887
+0.883
+0.871
+
+0.896
+0.911
+0.917
+0.909
+0.925
+0.909
+0.919
+0.920
+
+0.919
+0.943
+0.954
+0.949
+0.952
+0.937
+0.950
+0.949
+
+0.058
+0.043
+0.043
+0.044
+0.039
+0.044
+0.040
+0.039
+
+0.836
+0.853
+0.862
+0.839
+0.868
+0.865
+0.886
+0.887
+
+0.850
+0.861
+0.869
+0.861
+0.875
+0.869
+0.881
+0.878
+
+0.871
+0.884
+0.900
+0.896
+0.898
+0.896
+0.913
+0.910
+
+Table 2: Quantitative comparison between our method and other SOTA methods. The best, second, and third results are
+highlighted in red, green, and blue, respectively.
+
+Method
+
+𝑀𝐴𝐸
+
+HKU-IS
+𝐹 𝛽𝑚𝑎𝑥
+𝑆𝑚
+
+CPD2019 [56]
+F3Net2020 [54]
+CAGNet-L2020 [37]
+DFI2020 [29]
+GateNet-X2020 [74]
+MINet-R2020 [39]
+LDF2020 [55]
+TE32022 [25]
+TE52022 [25]
+TE72022 [25]
+MENet2023 [52]
+
+0.034
+0.028
+0.024
+0.031
+0.029
+0.029
+0.028
+0.025
+0.022
+0.021
+0.023
+
+0.828
+0.943
+0.940
+0.934
+0.946
+0.942
+0.943
+0.944
+0.950
+0.953
+0.951
+
+VST2021 [31]
+SelfReformer2022 [63]
+ICON-S2022 [78]
+BBRF2023 [36]
+DC-Net-S2023 [77]
+SAM2023 [23]
+MDSAM2024
+MDSAM2024
+
+0.029
+0.024
+0.022
+0.020
+0.021
+0.022
+0.020
+0.019
+
+0.946
+0.949
+0.954
+0.949
+0.957
+0.956
+0.962
+0.963
+
+𝐸𝑚
+
+𝑀𝐴𝐸
+
+ECSSD
+𝐹 𝛽𝑚𝑎𝑥
+𝑆𝑚
+
+CNN-Based Methods
+0.905 0.938 0.037 0.946 0.918
+0.917 0.952 0.033 0.957 0.924
+0.923 0.961 0.026 0.950 0.930
+0.920 0.951 0.035 0.949 0.927
+0.925 0.947 0.035 0.957 0.929
+0.919 0.952 0.033 0.954 0.925
+0.919 0.953 0.034 0.956 0.924
+0.924 0.961 0.029 0.954 0.929
+0.930 0.963 0.027 0.959 0.934
+0.934 0.967 0.026 0.962 0.936
+0.927 0.960 0.021 0.957 0.928
+Transformer-Based Methods
+0.928 0.952 0.033 0.954 0.932
+0.931 0.960 0.027 0.959 0.936
+0.935 0.968 0.023 0.962 0.914
+0.932 0.969 0.022 0.961 0.939
+0.941 0.966 0.023 0.968 0.947
+0.935 0.965 0.025 0.968 0.944
+0.941 0.970 0.023 0.972 0.946
+0.941 0.969 0.021 0.974 0.948
+
+𝐸𝑚
+
+𝑀𝐴𝐸
+
+PASCAL-S
+𝐹 𝛽𝑚𝑎𝑥
+𝑆𝑚
+
+𝐸𝑚
+
+0.942
+0.948
+0.959
+0.924
+0.944
+0.950
+0.948
+0.958
+0.958
+0.959
+0.951
+
+0.071
+0.061
+0.063
+0.065
+0.064
+0.064
+0.060
+0.052
+0.050
+0.047
+0.053
+
+0.876
+0.892
+0.878
+0.885
+0.892
+0.881
+0.887
+0.896
+0.900
+0.906
+0.897
+
+0.848
+0.861
+0.870
+0.857
+0.865
+0.856
+0.863
+0.871
+0.879
+0.883
+0.872
+
+0.882
+0.898
+0.917
+0.861
+0.895
+0.896
+0.903
+0.916
+0.921
+0.928
+0.910
+
+0.951
+0.957
+0.968
+0.969
+0.965
+0.964
+0.965
+0.967
+
+0.061
+0.051
+0.048
+0.049
+0.049
+0.061
+0.052
+0.052
+
+0.882
+0.902
+0.903
+0.887
+0.904
+0.897
+0.912
+0.907
+
+0.872
+0.881
+0.885
+0.878
+0.887
+0.866
+0.880
+0.882
+
+0.902
+0.919
+0.924
+0.923
+0.917
+0.902
+0.918
+0.917
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Figure 6: Visual comparison of saliency maps with our MDSAM and other methods. MDSAM is with a 512 × 512 input resolution.
+MDSAM* is with a 384 × 384 input resolution.
+
+4 Experiments
+4.1 Experiment Settings
+Datasets. For fair comparisons, we train our proposed MDSAM
+on DUTS-TR [48] (10533 images), and evaluate it on five SOD
+benchmark datasets, including DUTS-TE [48] (5019 images), DUTSOMRON [61] (5168 images), HKU-IS [26] (4447 images), ECSSD [59]
+(1000 images) and PASCAL-S [28] (850 images).
+Metrics. Following previous works, we adopt four widely-used
+metrics to evaluate the SOD performance, i.e., the Mean Absolute
+Error (𝑀𝐴𝐸) [40], the max F-measure (𝐹 𝛽𝑚𝑎𝑥 ) [61], the S-measure
+(𝑆𝑚 ) [9] and the mean Enhanced-alignment Measure (𝐸𝑚 ) [10].
+Implementation Details. The PyTorch toolbox is used to implement our method with an NVIDIA A100 GPU. For initialization, we
+load the weights of the image encoder and mask decoder from the
+SAM-B model. And the rest of our proposed MDSAM is initialized
+randomly. We resize the images into 512 × 512 and 384 × 384 as the
+input and set the batch sizes to 16 and 32, respectively. We train the
+model using the AdamW optimizer with a weight decay of 1𝑒 −4 .
+During training, we freeze SAM’s encoder and set the learning rate
+to 5𝑒 −5 for the rest of the pre-trained weights. For our proposed
+modules, we set the learning rate to 5𝑒 −4 . We employ a warm-up
+period of 5 epochs and train until the maximum of 80 epochs.
+
+4.2
+
+Comparison with the State-of-the-arts
+
+We compare our proposed MDSAM with 15 other models, including CPD [56], F3Net [54], CAGNet [37], DFI [29], GateNet [74],
+MINet [39], LDF [55], ICON [78], TE [25], MENet [52], VST [31],
+SelfReformer [63], DC-Net [77], BRRF [36], SAM [23]. Note that,
+the SAM keeps the original structure and is fully fine-tuned for
+SOD. For a fair comparison, the saliency maps are either provided
+by authors or generated by their released pre-trained model. All
+metrics are calculated by the same tool.
+Quantitative Evaluation. Tab. 1 and Tab. 2 show the quantitative results of the compared methods. Our proposed MDSAM
+with 512 × 512 input resolution achieves the best results on DUTSOMRON, HKU-IS and ECSSD. Furthermore, our MDSAM demonstrates a high competitiveness on the DUTS as well. Although our
+
+MDSAM delivers inferior performance on the PASCAL-S dataset,
+it achieves the best overall results. With the 384 × 384 input resolution, our MDSAM attains the best overall performance around
+similar resolutions. In Tab. 1 and Tab. 2, SAM is fully fine-tuned at
+a resolution of 512 × 512. It can be observed that compared with
+the original SAM, our MDSAM significantly improves the performance while slightly increasing the model parameters. At the same
+resolution, the inference speed of our MDSAM only experiences a
+slight decrease. Moreover, when our MDSAM infers at a resolution
+of 384 × 384, it outperforms SAM at a resolution of 512 × 512 in
+both inference speed and accuracy.
+Qualitative Evaluation. Fig. 6 illustrates the predicted saliency
+maps with our MDSAM and other methods. In complex scenarios,
+our MDSAM can accurately locate salient objects of various sizes
+and fully recognize the shape of these objects. Furthermore, the
+results of our proposed MDSAM display more fine-grained details
+and accurate edges than other methods. More visual examples can
+be found in Appendixes.
+
+4.3
+
+Ablation Studies
+
+To verify the effectiveness of our proposed modules, we conduct
+ablation studies in this section. If not specified, all the results are
+obtained with an image resolution of 512 × 512.
+Effectiveness of LMSA. To verify the effect of LMSA, we only
+change the image encoder of SAM. Except of full fine-tuning (FT),
+we introduce Adapter [18] and LoRA [19] to the image encoder
+for adapting SAM to SOD. In addition, we keep the parameters of
+the Adapter, LoRA similar to our LMSA for a fair comparison. As
+shown in Tab. 3, the introduction of parameter efficient fine-tuning
+can significantly reduce the trainable parameters and improve the
+performance. Furthermore, our LMSA has similar parameters to the
+Adapter and LoRA. However, it shows better results than them. The
+visual comparison in Fig. 8 further illustrates that the utilization
+of our LMSA enables the model to acquire multi-scale information.
+Consequently, it can accurately locate salient objects of varying
+sizes and quantities in complex scenarios.
+Effectiveness of MLFM. Tab. 4 shows the effect of MLFM. The results in the 1-3 rows indicate that when we use the concatenation as
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Image
+
+(a)
+
+GT
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+Figure 7: Visual comparison of our proposed modules. The corresponding models are listed in Tab. 4.
+Table 3: Ablation studies of the LMSA. * denotes the parameters of SAM’s mask decoder.
+
+Table 4: Ablation studies of our proposed modules. MLFB*
+indicates using F𝑐 as the output of MLFM. DEM* indicates
+deleting MEEM. The best scores are marked in bold.
+
+Trainable
+DUTS-TE
+DUT-OMRON
+Parameters (M) 𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥 𝑆𝑚 𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥 𝑆𝑚
+Full fine-tuning 83.43 + 3.51* 0.030 0.921 0.909 0.044 0.865 0.869
+7.09 + 3.51*
+0.028 0.923 0.915 0.045 0.866 0.871
+Adapter [18]
+LoRA [19]
+7.09 + 3.51*
+0.028 0.924 0.914 0.044 0.864 0.872
+Method
+
+LMSA
+
+7.15 + 3.51*
+
+Method
+
+DUTS-TE
+DUT-OMRON
+𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥 𝑆𝑚 𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥 𝑆𝑚
+
+(a) Full fine-tuning
+0.030 0.921 0.909 0.044 0.865 0.869
+(b) SAM+LMSA
+0.027 0.927 0.917 0.043 0.872 0.874
+(c) SAM+LMSA+MLFM*
+0.027 0.928 0.918 0.042 0.871 0.873
+(d) SAM+LMSA+MLFM
+0.025 0.931 0.920 0.041 0.876 0.876
+(e) SAM+LMSA+MLFM+DEM* 0.025 0.932 0.921 0.041 0.878 0.877
+
+0.027 0.927 0.917 0.043 0.872 0.874
+
+(f) SAM+LMSA+MLFM+DEM 0.024 0.937 0.920 0.039 0.887 0.878
+
+Image
+
+GT
+
+LMSA
+
+FT
+
+Adapter
+
+LoRA
+
+Figure 8: Visual comparison of different adapting strategies
+for SAM on SOD.
+
+the fusion method, the performance improvement is marginal. The
+main reason is that the insufficient fusion may introduce additional
+noisy information to the features, thereby limiting the performance
+improvement. However, when we employ MLFM, there is a significant improvement compared with the absence of a fusion strategy.
+As shown in Fig. 7, the simple concatenation fusion strategy may
+confuse the model, leading to incorrect predictions. In contrast,
+with our proposed MLFM, the model can better recognize the shape
+and contour of the entire objects. This clearly demonstrates that
+our proposed MLFM ensures the full utilization of multi-level information from the SAM’s encoder.
+Effectiveness of DEM. The 4-5 rows of Tab. 4 show the quantitative results with the DEM and its MEEM component. As can be
+
+observed, the use of DEM without MEEM leads to a slight performance improvement. However, the model still lacks of sufficient
+detail information. Furthermore, when incorporating MEEM, the
+model results in a significant performance improvement. These
+results demonstrate that the use of MEEM enables the model to
+capture more detail information. Fig. 7 confirms that with DEM
+containing MEEM, the model obtains more fine-grained details and
+edges, achieving better SOD predictions.
+
+5
+
+Conclusion
+
+In this paper, we propose a novel feature learning framework named
+MDSAM for the SOD task. The framework preserves the pre-trained
+weights of SAM, while incorporating multi-scale and fine-grained
+information. Specifically, by introducing LMSA into SAM’s encoder,
+we adapt SAM to SOD and enable the model to learn multi-scale
+information. Furthermore, we propose the MLFM to fuse the output
+features at different layers of SAM’s encoder effectively. To enhance
+the SOD performance, we propose the DEM to address the issue
+of lacking fine-grained details in SAM. Experimental results verify
+the effectiveness and strong generalization of our method.
+
+Acknowledgments
+This work was supported in part by the National Natural Science
+Foundation of China (No. 62101092) and the Fundamental Research
+Funds for the Central Universities (No. DUT23YG232).
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+References
+[1] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. 2016. Layer normalization. arXiv preprint arXiv:1607.06450 (2016).
+[2] Jorge Bernal, Javier Sánchez, and Fernando Vilarino. 2012. Towards automatic
+polyp detection with a polyp appearance model. Pattern Recognition 45, 9 (2012),
+3166–3182.
+[3] Shuhan Chen, Xiuli Tan, Ben Wang, Huchuan Lu, Xuelong Hu, and Yun Fu.
+2020. Reverse attention-based residual network for salient object detection. IEEE
+Transactions on Image Processing 29 (2020), 3763–3776.
+[4] Tianrun Chen, Lanyun Zhu, Chaotao Deng, Runlong Cao, Yan Wang, Shangzhan
+Zhang, Zejian Li, Lingyun Sun, Ying Zang, and Papa Mao. 2023. Sam-adapter:
+Adapting segment anything in underperformed scenes. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision. 3367–3375.
+[5] Ruikai Cui, Siyuan He, and Shi Qiu. 2023. Adaptive low rank adaptation of
+segment anything to salient object detection. arXiv preprint arXiv:2308.05426
+(2023).
+[6] Xinhao Deng, Pingping Zhang, Wei Liu, and Huchuan Lu. 2023. Recurrent multiscale transformer for high-resolution salient object detection. In Proceedings of
+the 31st ACM International Conference on Multimedia. 7413–7423.
+[7] Bo Dong, Wenhai Wang, Deng-Ping Fan, Jinpeng Li, Huazhu Fu, and Ling Shao.
+2021. Polyp-pvt: Polyp segmentation with pyramid vision transformers. arXiv
+preprint arXiv:2108.06932 (2021).
+[8] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg
+Heigold, Sylvain Gelly, et al. 2020. An image is worth 16x16 words: Transformers
+for image recognition at scale. arXiv preprint arXiv:2010.11929 (2020).
+[9] Deng-Ping Fan, Ming-Ming Cheng, Yun Liu, Tao Li, and Ali Borji. 2017. Structuremeasure: A new way to evaluate foreground maps. In Proceedings of the IEEE
+international conference on computer vision. 4548–4557.
+[10] Deng-Ping Fan, Cheng Gong, Yang Cao, Bo Ren, Ming-Ming Cheng, and Ali Borji.
+2018. Enhanced-alignment measure for binary foreground map evaluation. arXiv
+preprint arXiv:1805.10421 (2018).
+[11] Deng-Ping Fan, Ge-Peng Ji, Ming-Ming Cheng, and Ling Shao. 2021. Concealed
+object detection. IEEE Transactions on Pattern Analysis and Machine Intelligence
+44, 10 (2021), 6024–6042.
+[12] Deng-Ping Fan, Jing Zhang, Gang Xu, Ming-Ming Cheng, and Ling Shao. 2022.
+Salient objects in clutter. IEEE Transactions on Pattern Analysis and Machine
+Intelligence 45, 2 (2022), 2344–2366.
+[13] Shang Gao, Chenyang Yu, Pingping Zhang, and Huchuan Lu. 2024. Part Representation Learning with Teacher-Student Decoder for Occluded Person ReIdentification. In IEEE International Conference on Acoustics, Speech and Signal
+Processing. IEEE, 2660–2664.
+[14] Chunming He, Kai Li, Yachao Zhang, Longxiang Tang, Yulun Zhang, Zhenhua
+Guo, and Xiu Li. 2023. Camouflaged object detection with feature decomposition
+and edge reconstruction. In Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition. 22046–22055.
+[15] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep residual
+learning for image recognition. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition. 770–778.
+[16] Dan Hendrycks and Kevin Gimpel. 2016. Gaussian error linear units (gelus).
+arXiv preprint arXiv:1606.08415 (2016).
+[17] Qibin Hou, Ming-Ming Cheng, Xiaowei Hu, Ali Borji, Zhuowen Tu, and Philip HS
+Torr. 2017. Deeply supervised salient object detection with short connections.
+In Proceedings of the IEEE conference on computer vision and pattern recognition.
+3203–3212.
+[18] Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin
+De Laroussilhe, Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. 2019.
+Parameter-efficient transfer learning for NLP. In International conference on
+machine learning. PMLR, 2790–2799.
+[19] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean
+Wang, Lu Wang, and Weizhu Chen. 2021. Lora: Low-rank adaptation of large
+language models. arXiv preprint arXiv:2106.09685 (2021).
+[20] Zhou Huang, Hang Dai, Tian-Zhu Xiang, Shuo Wang, Huai-Xin Chen, Jie Qin, and
+Huan Xiong. 2023. Feature shrinkage pyramid for camouflaged object detection
+with transformers. In Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition. 5557–5566.
+[21] Debesh Jha, Pia H Smedsrud, Michael A Riegler, Pål Halvorsen, Thomas De Lange,
+Dag Johansen, and Håvard D Johansen. 2020. Kvasir-seg: A segmented polyp
+dataset. In International Conference on Multimedia Modeling. Springer, 451–462.
+[22] Lei Ke, Mingqiao Ye, Martin Danelljan, Yu-Wing Tai, Chi-Keung Tang, Fisher Yu,
+et al. 2024. Segment anything in high quality. Advances in Neural Information
+Processing Systems 36 (2024).
+[23] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura
+Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al.
+2023. Segment anything. In Proceedings of the IEEE/CVF International Conference
+on Computer Vision. 4015–4026.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+[24] Trung-Nghia Le, Tam V Nguyen, Zhongliang Nie, Minh-Triet Tran, and Akihiro Sugimoto. 2019. Anabranch network for camouflaged object segmentation.
+Computer Vision and Image Understanding 184 (2019), 45–56.
+[25] Min Seok Lee, WooSeok Shin, and Sung Won Han. 2022. Tracer: Extreme attention
+guided salient object tracing network (student abstract). In Proceedings of the
+AAAI Conference on Artificial Intelligence, Vol. 36. 12993–12994.
+[26] Guanbin Li and Yizhou Yu. 2015. Visual saliency based on multiscale deep features.
+In Proceedings of the IEEE conference on Computer Vision and Pattern Recognition.
+5455–5463.
+[27] Xin Li, Fan Yang, Hong Cheng, Wei Liu, and Dinggang Shen. 2018. Contour
+knowledge transfer for salient object detection. In Proceedings of the European
+Conference on Computer Vision. 355–370.
+[28] Yin Li, Xiaodi Hou, Christof Koch, James M Rehg, and Alan L Yuille. 2014. The
+secrets of salient object segmentation. In Proceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition. 280–287.
+[29] Jiang-Jiang Liu, Qibin Hou, and Ming-Ming Cheng. 2020. Dynamic feature
+integration for simultaneous detection of salient object, edge, and skeleton. IEEE
+Transactions on Image Processing 29 (2020), 8652–8667.
+[30] Jiang-Jiang Liu, Qibin Hou, Ming-Ming Cheng, Jiashi Feng, and Jianmin Jiang.
+2019. A simple pooling-based design for real-time salient object detection. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+3917–3926.
+[31] Nian Liu, Ni Zhang, Kaiyuan Wan, Ling Shao, and Junwei Han. 2021. Visual
+saliency transformer. In Proceedings of the IEEE/CVF international conference on
+computer vision. 4722–4732.
+[32] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin,
+and Baining Guo. 2021. Swin transformer: Hierarchical vision transformer using
+shifted windows. In Proceedings of the IEEE/CVF International Conference on
+Computer Vision. 10012–10022.
+[33] Zhiming Luo, Akshaya Mishra, Andrew Achkar, Justin Eichel, Shaozi Li, and
+Pierre-Marc Jodoin. 2017. Non-local deep features for salient object detection.
+In Proceedings of the IEEE Conference on computer vision and pattern recognition.
+6609–6617.
+[34] Yunqiu Lv, Jing Zhang, Yuchao Dai, Aixuan Li, Bowen Liu, Nick Barnes, and
+Deng-Ping Fan. 2021. Simultaneously localize, segment and rank the camouflaged
+objects. In Proceedings of the IEEE/CVF conference on computer vision and pattern
+recognition. 11591–11601.
+[35] Jun Ma, Yuting He, Feifei Li, Lin Han, Chenyu You, and Bo Wang. 2024. Segment
+anything in medical images. Nature Communications 15, 1 (2024), 654.
+[36] Mingcan Ma, Changqun Xia, Chenxi Xie, Xiaowu Chen, and Jia Li. 2023. Boosting
+broader receptive fields for salient object detection. IEEE Transactions on Image
+Processing 32 (2023), 1026–1038.
+[37] Sina Mohammadi, Mehrdad Noori, Ali Bahri, Sina Ghofrani Majelan, and Mohammad Havaei. 2020. CAGNet: Content-aware guidance for salient object detection.
+Pattern Recognition 103 (2020), 107303.
+[38] Youwei Pang, Xiaoqi Zhao, Tian-Zhu Xiang, Lihe Zhang, and Huchuan Lu. 2022.
+Zoom in and out: A mixed-scale triplet network for camouflaged object detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition. 2160–2170.
+[39] Youwei Pang, Xiaoqi Zhao, Lihe Zhang, and Huchuan Lu. 2020. Multi-scale
+interactive network for salient object detection. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition. 9413–9422.
+[40] Federico Perazzi, Philipp Krähenbühl, Yael Pritch, and Alexander Hornung. 2012.
+Saliency filters: Contrast based filtering for salient region detection. In Proceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition. IEEE, 733–740.
+[41] Rodolfo Quispe and Helio Pedrini. 2019. Improved person re-identification based
+on saliency and semantic parsing with deep neural network models. Image and
+Vision Computing 92 (2019), 103809.
+[42] Tianhe Ren, Shilong Liu, Ailing Zeng, Jing Lin, Kunchang Li, He Cao, Jiayu Chen,
+Xinyu Huang, Yukang Chen, Feng Yan, et al. 2024. Grounded sam: Assembling
+open-world models for diverse visual tasks. arXiv preprint arXiv:2401.14159
+(2024).
+[43] Karen Simonyan and Andrew Zisserman. 2014. Very deep convolutional networks
+for large-scale image recognition. arXiv preprint arXiv:1409.1556 (2014).
+[44] Jinming Su, Jia Li, Yu Zhang, Changqun Xia, and Yonghong Tian. 2019. Selectivity
+or invariance: Boundary-aware salient object detection. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision. 3799–3808.
+[45] Yujia Sun, Geng Chen, Tao Zhou, Yi Zhang, and Nian Liu. 2021. Context-aware
+cross-level fusion network for camouflaged object detection. arXiv preprint
+arXiv:2105.12555 (2021).
+[46] Yujia Sun, Shuo Wang, Chenglizhao Chen, and Tian-Zhu Xiang. 2022. Boundaryguided camouflaged object detection. arXiv preprint arXiv:2207.00794 (2022).
+[47] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. 2017. Attention is all
+you need. Advances in Neural Information Processing Systems 30 (2017).
+[48] Lijun Wang, Huchuan Lu, Yifan Wang, Mengyang Feng, Dong Wang, Baocai
+Yin, and Xiang Ruan. 2017. Learning to detect salient objects with image-level
+supervision. In Proceedings of the IEEE Conference on Computer Vision and Pattern
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Recognition. 136–145.
+[49] Tiantian Wang, Ali Borji, Lihe Zhang, Pingping Zhang, and Huchuan Lu. 2017. A
+stagewise refinement model for detecting salient objects in images. In Proceedings
+of the IEEE International Conference on Computer Vision. 4019–4028.
+[50] Tiantian Wang, Lihe Zhang, Shuo Wang, Huchuan Lu, Gang Yang, Xiang Ruan,
+and Ali Borji. 2018. Detect globally, refine locally: A novel approach to saliency
+detection. In Proceedings of the IEEE Conference on Computer Vision and Pattern
+Recognition. 3127–3135.
+[51] Wenguan Wang, Jianbing Shen, and Fatih Porikli. 2015. Saliency-aware geodesic
+video object segmentation. In Proceedings of the IEEE conference on computer
+vision and pattern recognition. 3395–3402.
+[52] Yi Wang, Ruili Wang, Xin Fan, Tianzhu Wang, and Xiangjian He. 2023. Pixels,
+regions, and objects: Multiple enhancement for salient object detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+10031–10040.
+[53] Yue Wang, Lu Zhang, Pingping Zhang, Yunzhi Zhuge, Junfeng Wu, Hong Yu,
+and Huchuan Lu. 2024. Learning Local-Global Representation for Scribble-based
+RGB-D Salient Object Detection via Transformer. IEEE Transactions on Circuits
+and Systems for Video Technology (2024).
+[54] Jun Wei, Shuhui Wang, and Qingming Huang. 2020. F3 Net: fusion, feedback
+and focus for salient object detection. In Proceedings of the AAAI Conference on
+Artificial Intelligence, Vol. 34. 12321–12328.
+[55] Jun Wei, Shuhui Wang, Zhe Wu, Chi Su, Qingming Huang, and Qi Tian. 2020.
+Label decoupling framework for salient object detection. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition. 13025–13034.
+[56] Zhe Wu, Li Su, and Qingming Huang. 2019. Cascaded partial decoder for fast
+and accurate salient object detection. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition. 3907–3916.
+[57] Zhe Wu, Li Su, and Qingming Huang. 2019. Stacked cross refinement network for
+edge-aware salient object detection. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision. 7264–7273.
+[58] Binwei Xu, Qiuping Jiang, Xing Zhao, Chenyang Lu, Haoran Liang, and Ronghua
+Liang. 2024. Multidimensional Exploration of Segment Anything Model for
+Weakly Supervised Video Salient Object Detection. IEEE Transactions on Circuits
+and Systems for Video Technology (2024).
+[59] Qiong Yan, Li Xu, Jianping Shi, and Jiaya Jia. 2013. Hierarchical saliency detection.
+In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition.
+1155–1162.
+[60] Tianyu Yan, Zifu Wan, Xinhao Deng, Pingping Zhang, Yang Liu, and Huchuan
+Lu. 2024. MAS-SAM: Segment Any Marine Animal with Aggregated Features.
+arXiv preprint arXiv:2404.15700 (2024).
+[61] Chuan Yang, Lihe Zhang, Huchuan Lu, Xiang Ruan, and Ming-Hsuan Yang. 2013.
+Saliency detection via graph-based manifold ranking. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition. 3166–3173.
+[62] Li Yuan, Yunpeng Chen, Tao Wang, Weihao Yu, Yujun Shi, Zi-Hang Jiang, Francis EH Tay, Jiashi Feng, and Shuicheng Yan. 2021. Tokens-to-token vit: Training
+vision transformers from scratch on imagenet. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision. 558–567.
+[63] Yi Ke Yun and Weisi Lin. 2022. Selfreformer: Self-refined network with transformer for salient object detection. arXiv preprint arXiv:2205.11283 (2022).
+[64] Yi Zeng, Pingping Zhang, Jianming Zhang, Zhe Lin, and Huchuan Lu. 2019.
+Towards high-resolution salient object detection. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision. 7234–7243.
+[65] Qiang Zhai, Xin Li, Fan Yang, Chenglizhao Chen, Hong Cheng, and Deng-Ping
+Fan. 2021. Mutual graph learning for camouflaged object detection. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. 12997–
+13007.
+[66] Lu Zhang, Ju Dai, Huchuan Lu, You He, and Gang Wang. 2018. A bi-directional
+message passing model for salient object detection. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition. 1741–1750.
+[67] Pingping Zhang, Wei Liu, Huchuan Lu, and Chunhua Shen. 2019. Salient object
+detection with lossless feature reflection and weighted structural loss. IEEE
+Transactions on Image Processing 28, 6 (2019), 3048–3060.
+[68] Pingping Zhang, Wei Liu, Dong Wang, Yinjie Lei, Hongyu Wang, and Huchuan
+Lu. 2020. Non-rigid object tracking via deep multi-scale spatial-temporal discriminative saliency maps. Pattern Recognition 100 (2020), 107130.
+[69] Pingping Zhang, Wei Liu, Hongyu Wang, Yinjie Lei, and Huchuan Lu. 2019. Deep
+gated attention networks for large-scale street-level scene segmentation. Pattern
+Recognition 88 (2019), 702–714.
+[70] Pingping Zhang, Dong Wang, Huchuan Lu, Hongyu Wang, and Xiang Ruan.
+2017. Amulet: Aggregating multi-level convolutional features for salient object
+detection. In Proceedings of the IEEE international conference on computer vision.
+202–211.
+[71] Pingping Zhang, Dong Wang, Huchuan Lu, Hongyu Wang, and Baocai Yin. 2017.
+Learning uncertain convolutional features for accurate saliency detection. In
+Proceedings of the IEEE International Conference on Computer Vision. 212–221.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+[72] Pingping Zhang, Tianyu Yan, Yang Liu, and Huchuan Lu. 2024. Fantastic Animals
+and Where to Find Them: Segment Any Marine Animal with Dual SAM. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition.
+2578–2587.
+[73] Jia-Xing Zhao, Jiang-Jiang Liu, Deng-Ping Fan, Yang Cao, Jufeng Yang, and MingMing Cheng. 2019. EGNet: Edge guidance network for salient object detection.
+In Proceedings of the IEEE/CVF International Conference on Computer Vision. 8779–
+8788.
+[74] Xiaoqi Zhao, Youwei Pang, Lihe Zhang, Huchuan Lu, and Lei Zhang. 2020. Suppress and balance: A simple gated network for salient object detection. In Proceedings of European Conference on Computer Vision. Springer, 35–51.
+[75] Zikun Zhou, Wenjie Pei, Xin Li, Hongpeng Wang, Feng Zheng, and Zhenyu
+He. 2021. Saliency-associated object tracking. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision. 9866–9875.
+[76] Hongwei Zhu, Peng Li, Haoran Xie, Xuefeng Yan, Dong Liang, Dapeng Chen,
+Mingqiang Wei, and Jing Qin. 2022. I can find you! boundary-guided separated
+attention network for camouflaged object detection. In Proceedings of the AAAI
+conference on artificial intelligence, Vol. 36. 3608–3616.
+[77] Jiayi Zhu, Xuebin Qin, and Abdulmotaleb Elsaddik. 2023. Dc-net: Divide-andconquer for salient object detection. arXiv preprint arXiv:2305.14955 (2023).
+[78] Mingchen Zhuge, Deng-Ping Fan, Nian Liu, Dingwen Zhang, Dong Xu, and Ling
+Shao. 2022. Salient object detection via integrity learning. IEEE Transactions on
+Pattern Analysis and Machine Intelligence 45, 3 (2022), 3738–3752.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Table 5: Performance comparison between our method and other SOD and COD methods on COD10K, CAMO and NC4K
+datasets. The best, second and third results are highlighted in red, green, and blue, respectively. MDSAM is with a 512 × 512
+input. MDSAM* is with a 384 × 384 input.
+
+Year
+
+Method
+
+𝑀𝐴𝐸
+
+COD10K
+𝑆𝑚
+𝐹 𝛽𝑚
+
+2020
+2020
+2021
+
+F3Net [54]
+MINet-R [39]
+VST [31]
+
+0.051
+0.042
+0.042
+
+0.593
+0.657
+0.653
+
+2021
+2021
+2021
+2022
+2022
+2022
+2023
+2023
+2024
+2024
+
+MGL-R [65]
+C2FNet [45]
+SINet-v2 [11]
+BSA-Net [76]
+BGNet [46]
+ZoomNet [38]
+FEDER [14]
+FSPNet [20]
+MDSAM*
+MDSAM
+
+0.035
+0.036
+0.037
+0.034
+0.033
+0.029
+0.031
+0.026
+0.028
+0.025
+
+0.711
+0.723
+0.718
+0.738
+0.753
+0.766
+0.751
+0.769
+0.778
+0.803
+
+𝐸𝑚
+
+𝑀𝐴𝐸
+
+NC4K
+𝑆𝑚
+𝐹 𝛽𝑚
+
+Salient Object Detection
+0.739 0.795 0.070 0.689 0.767
+0.770 0.859 0.056 0.764 0.812
+0.781 0.837 0.050 0.771 0.831
+Camouflaged Object Detection
+0.814 0.852 0.052 0.782 0.833
+0.813 0.890 0.049 0.795 0.838
+0.815 0.887 0.048 0.805 0.847
+0.818 0.891 0.048 0.808 0.841
+0.831 0.901 0.044 0.820 0.851
+0.838 0.888 0.043 0.818 0.853
+0.822 0.900 0.044 0.824 0.847
+0.851 0.895 0.035 0.843 0.879
+0.839 0.905 0.040 0.837 0.864
+0.862 0.921 0.037 0.850 0.875
+
+𝐸𝑚
+
+𝑀𝐴𝐸
+
+CAMO
+𝑆𝑚
+𝐹 𝛽𝑚
+
+𝐸𝑚
+
+0.793
+0.887
+0.877
+
+0.109
+0.090
+0.076
+
+0.616
+0.691
+0.738
+
+0.711
+0.748
+0.787
+
+0.741
+0.838
+0.838
+
+0.867
+0.897
+0.903
+0.897
+0.907
+0.896
+0.907
+0.915
+0.910
+0.921
+
+0.088
+0.080
+0.070
+0.079
+0.073
+0.066
+0.071
+0.050
+0.056
+0.053
+
+0.726
+0.762
+0.782
+0.763
+0.789
+0.794
+0.781
+0.830
+0.822
+0.834
+
+0.775
+0.796
+0.820
+0.794
+0.812
+0.820
+0.802
+0.856
+0.841
+0.852
+
+0.812
+0.854
+0.882
+0.851
+0.870
+0.878
+0.867
+0.899
+0.888
+0.903
+
+Figure 9: Visual comparison of our method and 6 other COD methods. MDSAM is with a 512 × 512 input resolution. MDSAM* is
+with a 384 × 384 input resolution.
+
+A Appendix
+A.1 Model Generalization
+The original SAM exhibits strong generalization capabilities. Our
+MDSAM not only introduces multi-scale and fine-grained details to
+SAM, but also retains the generalization capability. To verify this,
+we conduct experiments for camouflaged object detection and polyp
+segmentation, which have very different domain characteristics.
+Camouflaged Object Detection (COD): Unlike SOD, which
+aims to find salient objects, COD focuses on detecting camouflaged
+objects in complex scenes. Here, we adopt three COD datasets for
+model training and testing. COD10K [11] contains 5,066 camouflaged, 1,934 non-camouflaged, 3000 background images. CAMO [24]
+contains 1,250 camouflaged and 1,250 non-camouflaged images.
+NC4K [34] contains 4,121 camouflaged images. We employ a training strategy similar to [20]. We train our MDSAM with all images
+containing camouflaged objects in the COD10K training dataset
+
+and CAMO training datasets. Then, we test MDSAM on all the test
+datasets. Our MDSAM is compared with three SOD models (i.e.,
+F3Net [54], MINet [39] and VST [31]) and eight COD models (i.e.,
+MGL-R [65] C2FNet [45], SINetv2 [11], BSA-Net [76], BGNet [46],
+ZoomNet [38], FEDER [14] and FSPNet [20]). We adopt four metrics
+for evaluation. Unlike SOD, we replaced the max F-measure (𝐹 𝛽𝑚𝑎𝑥 )
+with the mean F-measure (𝐹 𝛽𝑚 ). As shown in Tab. 5, our MDSAM
+achieves comparable performances on the COD task. In qualitative
+evaluation, as shown in Fig. 9, our MDSAM demonstrates more
+precise localization and fine-grained details.
+Polyp Segmentation: We further conduct experiments on polyp
+segmentation, which is a typical medical image segmentation task.
+We employ the same training strategy as Poly-PVT [7], and test
+our method on Kvasir [21], CVC-300 [2]. As shown in the Tab. 6,
+our method achieves superior performance on polyp segmentation.
+Furthermore, compared with Adapter-enhanced SAM, our method
+is much better on both COD and polyp segmentation.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Table 6: Experiments on COD and polyp segmentation.
+
+Method
+Polyp-PVT[7]
+SAM (Adapter)
+MDSAM
+
+COD
+COD10k
+NC4K
+𝑀𝐴𝐸
+𝐸𝑚
+𝑀𝐴𝐸
+𝐸𝑚
+0.028 0.913 0.040 0.912
+0.025 0.921 0.037 0.921
+
+Polyp Segmentation
+Kvasir
+CVC-300
+𝑀𝐴𝐸
+𝐸𝑚
+𝑀𝐴𝐸
+𝐸𝑚
+0.023 0.956 0.011 0.961
+0.025 0.954 0.010 0.962
+0.021 0.961 0.008 0.964
+
+Table 7: Zero-shot performance comparisons on SOD.
+Method
+SAM (Zero-shot)
+SAM-HQ (Zero-shot)
+SAM (Box)
+SAM-HQ (Box)
+MDSAM
+
+DUTS-TE
+𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥
+
+DUT-OMRON
+𝑀𝐴𝐸
+𝐹 𝛽𝑚𝑎𝑥
+
+HKU-IS
+𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥
+
+0.162
+0.148
+0.015
+0.015
+0.024
+
+0.163
+0.147
+0.014
+0.014
+0.039
+
+0.197
+0.190
+0.014
+0.015
+0.019
+
+0.179
+0.200
+0.949
+0.949
+0.937
+
+0.182
+0.191
+0.952
+0.951
+0.887
+
+×
+×
+✓
+✓
+
+(e) MDSAM 3,6,9,12
+
+✓
+
+0.024 0.937 0.920 0.039 0.887 0.878
+
+(a)
+(b)
+(c)
+(d)
+
+Scale Local
+
+Figure 10: Visual comparison of different scales and local
+information.
+
+Zero-shot Analysis
+
+SAM has a strong segmentation ability when prompts are provided.
+We extract bounding boxes from each connected component in
+the ground truth and used it as box prompts for SAM. We also
+conduct experiments with SAM-HQ [22], which enables SAM to
+segment high-quality results. As shown in the Tab. 7, when accurate prompts are given, SAM performs significantly well on SOD.
+However, SOD requires corresponding semantic information. SAM
+performs poorly when no prompts are given. Our MDSAM not only
+improves upon SAM’s segmentation but also learns the semantic
+information of SOD.
+
+A.3
+
+1,2,3,6
+3,6,9,12
+9,9,9,9
+3,5,7,9
+
+DUTS-TE
+DUT-OMRON
+𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥 𝑆𝑚 𝑀𝐴𝐸 𝐹 𝛽𝑚𝑎𝑥 𝑆𝑚
+0.026 0.927 0.910 0.044 0.865 0.869
+0.026 0.928 0.912 0.042 0.872 0.873
+0.025 0.930 0.916 0.041 0.875 0.873
+0.024 0.936 0.921 0.039 0.882 0.881
+
+Method
+
+0.232
+0.243
+0.968
+0.967
+0.963
+
+From the above experiments, one can see that our MDSAM not
+only performs excellently on SOD tasks but also exhibits outstanding performance on COD and Polyp Segmentation. They clearly
+demonstrate the excellent generalization capabilities of our model.
+
+A.2
+
+Table 8: Results of different scales and local information.
+
+More Ablation Studies
+
+In our proposed LMSA, we use Average Pooling (AP) to obtain multiscale features. In addition, we introduce local-detail information
+to address the shortcomings of SAM. In this section, we conduct
+experiments on varied scales of LMSA and whether to introduce
+local information in MDSAM. The experiments are conducted under
+the fully designed MDSAM and the input resolution of the model
+is set to 512 × 512.
+Effects of Scales. Tab. 8 shows the effect of using different
+pooling scales. As indicated by methods (a) and (b), as well as (d)
+and (e), the change in scales has a very small impact on the results
+as long as it is multi-scale. However, as shown in methods (c) and
+(e), multi-scale methods usually perform better than single-scale
+methods. Fig. 10 demonstrates that, compared with the single-scale
+setting (c), the multi-scale settings (d) and (e) can more accurately
+detect salient objects in complex scenes. Therefore, the scale setting
+of LMSA prefers to maintain multi-scale.
+Effectiveness of Local Information. To further explore the
+effect of local information, we conduct more experiments presented
+in Tab. 8. It can be observed that with the introduction of local
+
+information, the model’s performance has significantly improved.
+Additionally, when compared with method (b) and method (e),
+one can see that our MDSAM exhibits better performances with
+the same scales under the presence of local information. Fig. 10
+illustrates that local information enables the model to extract more
+precise features, resulting in better saliency maps.
+
+A.4
+
+Attribute-based Analysis
+
+In this section, we provide an attribute-based analysis by evaluating our proposed method on the challenging SOC [12] dataset.
+The SOC test dataset is divided into 9 major categories, which are
+Appearance Change (AC, 79 images), Big Object (BO, 24 images),
+Clutter (CL, 92 images), Heterogeneous Object (HO, 153 images),
+Motion Blur (MB, 32 images), Occlusion (OC, 157 images), Out-ofView (OV, 155 images), Shape Complexity (SC, 116 images), and
+Small Object (SO, 389 images). We compare our MDSAM with 17
+methods, including Amulet [70], DSS [17], NLDF [33], SRM [49],
+BMPM [66], C2SNet [27], DGRL [50], RANet [3], CPD [56], EGNet [73], PoolNet [30], SCRN [57], BANet [44], MINet [39], ICONR [78], DC-Net-R [77], and full fine-tuned SAM [23]. As shown in
+Tab. 9, our MDSAM demonstrates superior performance in most
+scenarios at resolutions of 512×512 and 384×384. And they perform
+averagely only in the categories AC and BO, which have a small
+amount of data. Fig. 11 shows some visualization results of the
+proposed MDSAM and six representative state-of-the-art methods.
+This visualization demonstrates that current methods struggle to
+accurately localize both large and small objects, and the results lack
+fine-grained details. Our MDSAM can accurately locate multi-scale
+objects, and both edges and details are highly precise.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Table 9: Performance comparison between our method and other 17 methods on the SOC dataset in terms of 𝑀𝐴𝐸, 𝐹 𝛽𝜔 , 𝑆𝑚 , and
+𝐸𝑚 . The best, second and third results are highlighted in red, green, and blue, respectively. MDSAM is with a 512 × 512 input.
+MDSAM* is with a 384 × 384 input.
+Attr
+
+AC
+
+BO
+
+CL
+
+HO
+
+MB
+
+OC
+
+OV
+
+SC
+
+SO
+
+Metrics
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+𝑀𝐴𝐸
+𝐹 𝛽𝜔
+𝑆𝑚
+𝐸𝑚
+
+Amulet
+[70]
+0.120
+0.620
+0.752
+0.790
+0.334
+0.625
+0.589
+0.566
+0.141
+0.763
+0.763
+0.788
+0.119
+0.688
+0.790
+0.809
+0.142
+0.561
+0.712
+0.762
+0.143
+0.607
+0.735
+0.762
+0.173
+0.637
+0.721
+0.750
+0.098
+0.608
+0.768
+0.793
+0.119
+0.523
+0.718
+0.744
+
+DSS
+[17]
+0.113
+0.629
+0.753
+0.787
+0.343
+0.628
+0.577
+0.554
+0.153
+0.721
+0.721
+0.763
+0.124
+0.660
+0.767
+0.796
+0.132
+0.577
+0.719
+0.760
+0.144
+0.595
+0.719
+0.760
+0.180
+0.622
+0.700
+0.737
+0.098
+0.599
+0.761
+0.798
+0.109
+0.524
+0.713
+0.755
+
+NLDF
+[33]
+0.119
+0.620
+0.737
+0.793
+0.341
+0.635
+0.583
+0.556
+0.159
+0.713
+0.713
+0.764
+0.126
+0.661
+0.755
+0.798
+0.138
+0.551
+0.685
+0.755
+0.149
+0.593
+0.709
+0.755
+0.184
+0.616
+0.688
+0.736
+0.101
+0.593
+0.746
+0.787
+0.115
+0.526
+0.703
+0.747
+
+SRM
+[49]
+0.096
+0.690
+0.791
+0.824
+0.294
+0.679
+0.628
+0.630
+0.134
+0.758
+0.758
+0.792
+0.115
+0.696
+0.794
+0.819
+0.115
+0.619
+0.742
+0.780
+0.129
+0.630
+0.749
+0.780
+0.150
+0.682
+0.745
+0.778
+0.090
+0.638
+0.783
+0.812
+0.099
+0.561
+0.737
+0.769
+
+BMPM
+[66]
+0.098
+0.680
+0.780
+0.815
+0.292
+0.683
+0.619
+0.635
+0.123
+0.760
+0.760
+0.801
+0.116
+0.684
+0.781
+0.813
+0.105
+0.651
+0.762
+0.799
+0.119
+0.644
+0.752
+0.799
+10.360
+0.701
+0.751
+0.806
+0.081
+0.677
+0.799
+0.840
+0.096
+0.567
+0.732
+0.779
+
+C2SNet
+[27]
+0.109
+0.647
+0.755
+0.806
+0.257
+0.739
+0.667
+0.674
+0.144
+0.742
+0.742
+0.789
+0.123
+0.668
+0.768
+0.805
+0.128
+0.593
+0.719
+0.784
+0.130
+0.622
+0.738
+0.784
+0.159
+0.671
+0.728
+0.789
+0.100
+0.611
+0.756
+0.805
+0.116
+0.531
+0.707
+0.751
+
+DGRL
+[50]
+0.081
+0.718
+0.791
+0.853
+0.207
+0.794
+0.696
+0.736
+0.119
+0.769
+0.769
+0.824
+0.104
+0.722
+0.791
+0.833
+0.113
+0.655
+0.744
+0.808
+0.116
+0.659
+0.747
+0.808
+0.125
+0.733
+0.762
+0.828
+0.087
+0.669
+0.772
+0.837
+0.092
+0.602
+0.736
+0.802
+
+RANet
+[3]
+0.132
+0.603
+0.709
+0.765
+0.440
+0.469
+0.437
+0.423
+0.188
+0.633
+0.633
+0.715
+0.143
+0.626
+0.713
+0.777
+0.139
+0.576
+0.696
+0.718
+0.169
+0.527
+0.641
+0.718
+0.217
+0.529
+0.611
+0.664
+0.110
+0.594
+0.724
+0.791
+0.113
+0.518
+0.682
+0.758
+
+CPD
+[56]
+0.089
+0.721
+0.799
+0.852
+0.236
+0.755
+0.679
+0.699
+0.112
+0.786
+0.786
+0.823
+0.098
+0.736
+0.807
+0.838
+0.104
+0.655
+0.753
+0.818
+0.106
+0.679
+0.773
+0.818
+0.125
+0.724
+0.765
+0.809
+0.076
+0.701
+0.807
+0.848
+0.084
+0.613
+0.756
+0.806
+
+EGNet
+[73]
+0.085
+0.731
+0.806
+0.854
+0.358
+0.602
+0.546
+0.547
+0.139
+0.757
+0.757
+0.789
+0.106
+0.720
+0.802
+0.829
+0.109
+0.649
+0.762
+0.798
+0.121
+0.658
+0.754
+0.798
+0.146
+0.707
+0.752
+0.802
+0.083
+0.678
+0.793
+0.843
+0.098
+0.594
+0.749
+0.784
+
+PoolNet
+[30]
+0.093
+0.713
+0.795
+0.846
+0.339
+0.625
+0.578
+0.572
+0.134
+0.760
+0.760
+0.800
+0.100
+0.739
+0.815
+0.845
+0.121
+0.642
+0.751
+0.800
+0.118
+0.659
+0.756
+0.800
+0.148
+0.697
+0.747
+0.795
+0.075
+0.695
+0.807
+0.856
+0.087
+0.626
+0.768
+0.814
+
+SCRN
+[57]
+0.078
+0.723
+0.809
+0.848
+0.217
+0.784
+0.707
+0.716
+0.113
+0.795
+0.795
+0.819
+0.096
+0.743
+0.823
+0.842
+0.100
+0.690
+0.792
+0.800
+0.111
+0.673
+0.775
+0.800
+0.126
+0.723
+0.774
+0.807
+0.078
+0.691
+0.809
+0.843
+0.082
+0.614
+0.767
+0.796
+
+BANet
+[44]
+0.086
+0.739
+0.806
+0.858
+0.261
+0.729
+0.657
+0.663
+0.117
+0.784
+0.784
+0.824
+0.094
+0.753
+0.819
+0.850
+0.104
+0.670
+0.764
+0.808
+0.112
+0.677
+0.766
+0.808
+0.119
+0.751
+0.779
+0.835
+0.078
+0.705
+0.807
+0.850
+0.091
+0.617
+0.755
+0.801
+
+MINet
+[39]
+0.079
+0.930
+0.802
+0.843
+0.175
+0.828
+0.743
+0.769
+0.108
+0.719
+0.783
+0.819
+0.089
+0.759
+0.821
+0.858
+0.105
+0.676
+0.761
+0.821
+0.102
+0.686
+0.771
+0.821
+0.117
+0.738
+0.775
+0.822
+0.077
+0.711
+0.808
+0.859
+0.820
+0.624
+0.759
+0.806
+
+ICON-R
+[78]
+0.062
+0.784
+0.835
+0.891
+0.200
+0.794
+0.714
+0.740
+0.113
+0.736
+0.791
+0.832
+0.091
+0.767
+0.823
+0.865
+0.100
+0.699
+0.774
+0.828
+0.106
+0.683
+0.771
+0.817
+0.120
+0.749
+0.779
+0.834
+0.080
+0.714
+0.808
+0.871
+0.079
+0.660
+0.778
+0.835
+
+DC-Net-R
+[77]
+0.076
+0.768
+0.824
+0.867
+0.278
+0.699
+0.637
+0.641
+0.112
+0.746
+0.798
+0.834
+0.092
+0.761
+0.818
+0.848
+0.109
+0.676
+0.757
+0.787
+0.102
+0.708
+0.787
+0.824
+0.126
+0.738
+0.771
+0.814
+0.072
+0.749
+0.826
+0.869
+0.084
+0.656
+0.774
+0.813
+
+SAM
+[23]
+0.078
+0.757
+0.821
+0.860
+0.232
+0.749
+0.684
+0.703
+0.098
+0.772
+0.818
+0.847
+0.087
+0.793
+0.837
+0.864
+0.091
+0.758
+0.810
+0.845
+0.089
+0.732
+0.808
+0.843
+0.110
+0.769
+0.796
+0.842
+0.068
+0.757
+0.831
+0.866
+0.079
+0.685
+0.791
+0.834
+
+MDSAM*
+
+MDSAM
+
+0.079
+0.759
+0.815
+0.863
+0.264
+0.709
+0.658
+0.681
+0.092
+0.772
+0.819
+0.851
+0.083
+0.788
+0.835
+0.869
+0.074
+0.754
+0.820
+0.859
+0.085
+0.728
+0.798
+0.847
+0.100
+0.780
+0.804
+0.857
+0.062
+0.746
+0.825
+0.882
+0.072
+0.676
+0.786
+0.844
+
+0.078
+0.764
+0.819
+0.868
+0.231
+0.758
+0.687
+0.709
+0.090
+0.777
+0.823
+0.855
+0.080
+0.795
+0.842
+0.872
+0.065
+0.779
+0.834
+0.870
+0.089
+0.733
+0.802
+0.845
+0.097
+0.790
+0.811
+0.860
+0.065
+0.772
+0.839
+0.882
+0.070
+0.694
+0.798
+0.847
+
+Figure 11: Visual comparison of saliency maps with our model and 6 representative methods. MDSAM is with a 512 × 512 input
+resolution. MDSAM* is with a 384 × 384 input resolution.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+A.5
+
+More Comparison Results
+
+In the main paper, we compare our MDSAM with other methods by four widely-used metrics. In this section, we present the
+precision-recall curves and F-measure curves in Fig. 12 and Fig. 13,
+compared with CAGNet-L [37], TE7 [25], MENet [52], VST [31],
+SelfReformer [63], ICON-S [78], BBR [36], DC-Net-S [77] and full
+fine-tuned SAM [23] on five SOD datasets. In addition, we provide
+more visual comparisons in Fig. 14, Fig. 15 and Fig. 16. In Fig. 17 and
+Fig. 18, we display these curves to compare with SINetv2 [11], BSANet [76], BGNet [46], ZoomNet [38], FEDER [14] and FSPNet [20]
+on three COD datasets. More visual comparisons are shown in
+Fig. 19.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Figure 12: Precision-Recall curves comparison on five SOD datasets.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Figure 13: F-measure curves comparison on five SOD datasets.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Figure 14: Visual comparison of saliency maps with our model and 9 representative methods on five SOD datasets.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Figure 15: Visual comparison of saliency maps with our model and 9 representative methods on five SOD datasets.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Figure 16: Visual comparison of saliency maps with our model and 9 representative methods on five SOD datasets.
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Shixuan Gao, Pingping Zhang, Tianyu Yan, and Huchuan Lu.
+
+Figure 17: Precision-Recall curves comparison on three COD datasets.
+
+Figure 18: F-measure curves comparison on three COD datasets.
+
+Multi-Scale and Detail-Enhanced Segment Anything Model for Salient Object Detection
+
+MM ’24, October 28–November 1, 2024, Melbourne, VIC, Australia.
+
+Figure 19: Visual comparison of segmentation maps with our model and 6 representative methods on three COD datasets.
+
+

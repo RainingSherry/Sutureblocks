@@ -1,0 +1,1058 @@
+arXiv:2502.18394v5 [cs.LG] 16 Mar 2025
+
+The FFT Strikes Again: An Efficient Alternative to
+Self-Attention
+Jacob Fein-Ashley
+University of Southern California
+feinashl@usc.edu
+
+Rajgopal Kannan
+DEVCOM Army Research Office
+rajgopal.kannan.civ@army.mil
+
+Viktor Prasanna
+University of Southern California
+prasanna@usc.edu
+
+Abstract
+Conventional self-attention mechanisms exhibit quadratic complexity in sequence
+length, making them challenging to scale for long inputs. We present FFTNet,
+an adaptive spectral filtering framework that uses the Fast Fourier Transform
+(FFT) to achieve global token mixing in O(n log n) time. By mapping inputs into
+the frequency domain, FFTNet exploits orthogonality and energy preservation—
+guaranteed by Parseval’s theorem—to efficiently model long-range dependencies.
+Our main theoretical contributions include 1) An adaptive spectral filter that highlights salient frequency components, 2) A hybrid scheme combining local windowing with a global FFT branch, 3) Nonlinear feature transformations applied in
+both the frequency and token domains. Experiments on Long Range Arena and
+ImageNet validate our theoretical insights and demonstrate superior performance
+over fixed Fourier-based and standard attention models.
+
+1
+
+Introduction
+
+Conventional self-attention mechanisms capture global interactions through explicit token-pair
+computations, resulting in quadratic complexity O(n2 ). This high cost becomes prohibitive for
+tasks involving lengthy sequences, such as long-context language modeling or large-scale image
+processing.
+In this paper, we introduce an adaptive spectral filtering framework that leverages the Fast Fourier
+Transform (FFT) to perform global token mixing with O(n log n) efficiency. By converting the input
+sequence into the frequency domain, we harness orthogonal frequency components to naturally capture long-range dependencies. This frequency-domain representation not only reduces computational
+overhead but also preserves the original signal’s energy due to Parseval’s theorem.
+A distinguishing feature of our approach is a learnable spectral filter that modulates the Fourier
+coefficients based on a global context vector. This adaptive mechanism selects which frequency
+bands are most relevant, allowing the model to dynamically focus on critical components of the input.
+Additionally, introducing nonlinear activations to both the real and imaginary parts of the signal
+extends the representational capacity beyond linear transformations, enabling the model to capture
+more complex interactions.
+Overall, our adaptive spectral filtering framework unifies the efficiency of FFT-based methods with a
+powerful, input-dependent spectral filter and nonlinear feature modulation. This combination offers
+a computationally efficient and expressive alternative to traditional self-attention, promising robust
+handling of long-range dependencies in various sequence modeling tasks.
+Preprint. Under review.
+
+2
+
+Related Work
+
+In this section, we review existing methods aimed at improving the efficiency of sequence models.
+We first discuss the complexity issues inherent in self-attention (Section 2.1), then highlight Fourierbased approaches (Section 2.2) and other approximation techniques (Section 2.3). We then examine
+orthogonal matrix decomposition methods (Section 2.5), and finally position our adaptive spectral
+filtering method within this landscape (Section 2.6).
+2.1
+
+Self-Attention Complexity
+
+The original Transformer architecture Vaswani et al. [2017] uses pairwise dot-product attention,
+incurring a computational and memory cost of O(n2 ), where n is the sequence length. As n grows,
+this quadratic complexity quickly becomes infeasible for long sequences in tasks such as language
+modeling and long-context document understanding.
+2.2
+
+Fourier-Based Mixing
+
+Fourier-based approaches leverage the Fast Fourier Transform (FFT) Cooley and Tukey [1965]
+to achieve more efficient global mixing of tokens. FNet Lee-Thorp et al. [2022], for example,
+replaces the self-attention sublayer with a fixed Fourier transform, drastically lowering computational
+overhead. However, the use of a static transform limits its capacity to adapt to varying inputs or
+highlight task-specific frequency components.
+Beyond language and vision tasks, Fourier-based methods have also proven effective in modeling
+physical processes governed by partial differential equations. Fourier Neural Operator (FNO) Li
+et al. [2021] demonstrates that neural architectures parameterized in the Fourier domain can learn
+solution operators for parametric PDEs, achieving resolution-invariant performance and fast inference.
+Although primarily designed for PDE modeling and simulation, FNO nonetheless highlights the
+broader potential of leveraging Fourier representations for efficient token mixing in deep learning
+applications.
+In another line of work, Xu et al. Xu et al. [2020] propose learning-based frequency selection
+methods for large-scale vision tasks, showing that CNNs can be trained directly on partial frequency
+components while retaining high accuracy. Their approach offers a path to reducing data transmission
+overhead and computational costs without sacrificing performance.
+2.3
+
+Linear, Sparse, and Low-Rank Approximations
+
+Beyond Fourier methods, several alternative strategies aim to reduce the cost of self-attention.
+Performer Choromanski et al. [2021] and linear transformer variants Katharopoulos et al. [2020]
+approximate the softmax attention matrix to achieve linear or near-linear complexity. Meanwhile,
+Reformer Kitaev et al. [2020], Linformer Wang et al. [2020], and BigBird Zaheer et al. [2020] employ
+sparse or low-rank approximations, extending the effective context length without paying the full
+quadratic price. Other approaches like Synthesizer Tay et al. [2020] and MLP-Mixer Tolstikhin et al.
+[2021] avoid explicit token-pair interactions, replacing them with fixed or learned mixing operations.
+2.4
+
+Convolution-Based Approaches
+
+Another line of work replaces or augments self-attention with convolutional modules to capture longrange dependencies. Methods such as Hyena Poli et al. [2023] introduce a hierarchical, convolutionbased framework that can scale to long input sequences while maintaining the expressive capacity
+of attention. Similarly, lightweight and dynamic convolutions Wu et al. [2019] have been proposed
+to reduce the cost associated with attention heads, learning per-feature or per-time-step kernels to
+approximate global interactions. Although these methods can exhibit favorable scaling compared to
+vanilla self-attention, they often rely on carefully designed convolutional architectures to handle very
+long contexts.
+2
+
+2.5
+
+Orthogonal Matrix Decomposition Methods
+
+Orthogonal (or unitary) transformations provide a powerful avenue for stable and efficient sequence
+modeling. A key advantage of orthogonal decompositions is their norm-preserving property, which
+can mitigate issues such as vanishing or exploding gradients Wisdom et al. [2016]. In the context of
+RNNs, unitary or orthonormal recurrent weights have been shown to preserve long-term dependencies
+while keeping representations stable Arjovsky et al. [2016], Lezcano-Casado and Martínez-Rubio
+[2019]. From another perspective, the discrete Fourier transform (DFT) itself is an orthonormal
+transformation (up to scaling) that can mix tokens globally without explicit pairwise attention.
+The FFT-based approaches discussed above can be viewed as a special class of such orthonormal
+transforms, where the matrix is structured by the DFT. More general orthogonal transformations—
+whether learned or hand-crafted—have also been proposed to reduce complexity or enhance stability
+in modern architectures. These include fast variants of orthonormal transforms, often parameterized in
+ways that ensure orthogonality is preserved throughout training Lezcano-Casado and Martínez-Rubio
+[2019]. Within Transformers, adopting orthogonal or unitary blocks has been explored to stabilize
+training and capture global structure, although these methods may not always achieve the same
+O(n log n) cost as the FFT. Nonetheless, they highlight a broad paradigm wherein structured or
+parameterized orthonormal decompositions serve as efficient global mixing mechanisms.
+Recently, there has also been significant progress in state space modeling approaches for sequence
+tasks, exemplified by S4 and its extensions. More streamlined variants such as the Simplified State
+Space layer (S5) Smith et al. [2023] have demonstrated that parameterizing the state space system
+with a diagonal transition matrix can enable efficient parallel scans over the sequence dimension while
+preserving high performance. These developments underscore the ongoing push to find alternatives
+to self-attention that can handle long sequence lengths without sacrificing expressiveness.
+2.6
+
+Adaptive Spectral Filtering in Context
+
+Our work diverges from both fixed Fourier-based schemes and the various attention approximations
+by incorporating a learnable filter in the frequency domain. This adaptive mechanism leverages
+the theoretical underpinnings of FFT-based transformations—including energy preservation via
+Parseval’s theorem—while permitting dynamic reweighting of salient frequency bands. Thus, our
+method maintains an O(n log n) complexity yet provides richer expressivity than fixed spectral
+mixing approaches. In contrast to purely approximate or sparse attention mechanisms, adaptive
+spectral filtering offers a direct and theoretically grounded route to capture long-range dependencies
+efficiently.
+Notably, our approach also differentiates itself from recent work such as Guibas et al. [2022], which
+introduces Adaptive Fourier Neural Operators (AFNO) for token mixing. While AFNO employs
+a block-diagonal structure for channel mixing and adaptive weight sharing, our method takes a
+distinct approach. Specifically, we compute a global context vector that directly modulates the Fourier
+coefficients via learnable scaling and bias parameters, followed by a nonlinear modReLU activation.
+This design not only preserves the computational advantages of FFT-based mixing but also enhances
+expressivity by dynamically emphasizing salient frequency bands based on the input. As such, our
+adaptive spectral filtering strategy offers a complementary alternative to AFNO, merging efficiency
+with adaptive, context-dependent feature modulation.
+Overall, while approaches such as FNet, Performer, and sparse transformers demonstrate that either
+fixed or approximate token mixing can reduce computational overhead, our adaptive spectral filtering
+strategy uniquely merges the efficiency of the FFT with a learnable, input-dependent spectral filter.
+This provides a compelling combination of scalability and adaptability, which is crucial for complex
+sequence modeling tasks.
+
+3
+
+Adaptive Spectral Filtering Method
+
+We present an adaptive spectral filtering framework that avoids explicit pairwise interactions while
+retaining global mixing capabilities. Rather than computing dot-product self-attention, this approach
+applies the discrete Fourier transform (DFT) to capture long-range dependencies in O(n log n) time.
+By adaptively reweighting the resulting frequency components and then applying an inverse transform,
+3
+
+the method achieves an effective balance of expressive power and computational efficiency, backed
+by solid theoretical foundations.
+3.1
+
+Motivation
+
+Traditional attention mechanisms incur quadratic cost in the sequence length n when computing
+pairwise token interactions. As n increases, this quickly becomes expensive. By contrast, the DFT
+naturally encodes global interactions in O(n log n) time, since it decomposes the token sequence into
+orthogonal frequency components. To increase representational power, we introduce a learnable filter
+in the frequency domain that emphasizes or attenuates particular frequency bands based on a global
+context.
+Why Local Windowing (or Wavelets)? While the global DFT branch is excellent for capturing
+large-scale dependencies, it can blur fine-grained or short-range signals. Local windowing (STFT)
+is optional, but it can help preserve the high-resolution structure within shorter segments. In fact,
+wavelet transforms can also be used here instead of or alongside STFT, offering a multi-resolution
+perspective that naturally adapts to local signal changes. When used, merging these local (STFT or
+wavelets) and global representations yields a model capable of both wide-ranging context and precise
+local detail. If purely global context suffices, one may omit local windowing or wavelet transforms
+altogether.
+3.2
+
+Method Description
+
+Let X ∈ Rn×d be an input sequence of length n and embedding dimension d. Our method integrates
+both global and local spectral representations to capture wide-ranging dependencies and fine-grained
+context. The approach proceeds in five main steps:
+1 Global Fourier Transform.
+Apply the discrete Fourier transform (FFT) across the entire sequence:
+
+Fglobal = FFT(X) ∈ Cn×d ,
+which captures long-range dependencies without explicit pairwise comparisons.
+2 Local Windowing (STFT) or Wavelets. (Optional)
+In parallel, and optionally, perform a short-time Fourier transform (STFT) or a wavelet transform for
+local context:
+
+1. For STFT: Partition the input X into overlapping windows of length w. Let each window
+be denoted by X(m) ∈ Rw×d , where m indexes the window.
+2. Apply a window function (e.g., Hann or Hamming) to each segment.
+3. Compute the FFT for each window to obtain local frequency components:
+
+(m)
+Flocal = FFT X(m) .
+4. Alternatively (Wavelets): Decompose each local segment using a chosen wavelet family
+(e.g. Daubechies) to capture time-varying frequency information at multiple scales.
+These local spectra or wavelet coefficients emphasize short-range patterns that might be blurred in a
+purely global transform. If the application does not require high-resolution local detail, this step can
+be omitted.
+3 Merging Global and Local Representations.
+To maximize information flow from both branches, we propose an isometric fusion approach in the
+frequency (or transform) domain. First, concatenate the global and local representations (spectra or
+wavelet coefficients) along their feature dimension:1
+
+
+F̂ = Fglobal ∥ Flocal ∈ Cn×(2d) ,
+1
+
+If multiple local windows exist, they may be pooled or aggregated (e.g. average or max) before concatenation,
+or one can apply a deeper fusion network to combine them.
+
+4
+
+where Flocal can be a representative fusion of all local windows (or wavelet scales).2
+Next, apply a learnable matrix U ∈ C(2d)×d that fuses the concatenated features into a unified
+spectral representation:
+F = F̂ U.
+In the simplest form, U can be unconstrained and learned end-to-end. However, to preserve (and
+thus maximize) the signal energy from both branches, U may be constrained to be isometric (or
+approximately isometric), satisfying U∗ U = I. This ensures that no information is lost during the
+fusion step, effectively providing a richer merge than a simple gating or element-wise sum.
+Gating Instead of Concatenation (When Resources Are Limited). If memory or computational
+overhead from concatenation is a concern, one may gate the local and global transforms instead. For
+example, one can learn a scalar or vector gate σ(c) (where c is a global context) that modulates:
+
+F̂ = σ(c) ⊙ Fglobal + 1 − σ(c) ⊙ Flocal .
+In this case, the fusion dimension is unchanged and can be more lightweight, albeit at the cost of
+discarding some of the richer information that the concatenation-based approach retains.
+4 Adaptive Spectral Filtering.
+Compute a global context vector
+n
+
+1X
+Xi
+c =
+n i=1
+and feed it into a small MLP to generate scaling and bias parameters, ∆s and ∆b, for each frequency
+bin and attention head. These parameters modify a base filter and bias via
+W = Wbase ⊙ (1 + ∆s),
+
+b = bbase + ∆b,
+
+reweighting the complex coefficients:
+F̃ = F ⊙ W + b.
+Here, F includes both local and global frequency (or wavelet) information from the isometric fusion
+step (or the gated mixture).
+5 Nonlinear Activation (modReLU) and Inverse FFT.
+To enrich the representation, we apply modReLU Arjovsky et al. [2016] on each complex coefficient
+z = reiθ . This preserves the phase while applying a threshold to the magnitude:
+(
+(r + b) eiθ , if r + b > 0,
+modReLU(z) =
+0,
+otherwise.
+
+Finally, if using FFT-based local features, we map back to the token domain via the inverse FFT:
+
+Y = IFFT F̃ ∈ Rn×d .
+For wavelet-based features, one may similarly invert them if a full reconstruction in the token domain
+is desired. The resulting output is a globally mixed representation that also incorporates local spectral
+(or wavelet) features (if local transforms were used).
+3.3
+
+Efficient Mixing
+
+Using the FFT to encode global interactions has several advantages. It performs global mixing
+in O(n log n) time, contrasting with the O(n2 ) cost of self-attention. Meanwhile, local STFT or
+wavelets capture short-range structure that may be lost in a purely global transform. By isometrically
+merging (or gating) local and global frequency components, we fuse high-resolution local context
+with a global view, all in roughly O(n log n) time.
+The adaptive filter serves as an implicit frequency-domain mask, conditioned on global context rather
+than explicit pairwise comparisons. Nonlinear activation in the complex domain (modReLU) further
+enriches representational capacity by capturing higher-order structure. Parseval’s theorem and the
+unitary properties of the DFT ensure that this transformation preserves both energy and inner-product
+structure.
+2
+
+If retaining every window or wavelet scale separately, this dimension becomes n × (d +
+
+5
+
+P
+
+(m)
+m dlocal ).
+
+3.4
+
+Parseval’s Theorem
+
+Parseval’s theorem asserts that the total energy of a signal remains constant under the Fourier
+transform, aside from a constant scaling factor. For an input sequence X ∈ Rn×d and its Fourier
+transform F = FFT(X), the theorem states:
+1
+∥X∥22 = ∥F∥22 .
+n
+This energy preservation is crucial for our method as it guarantees that the adaptive filtering and
+subsequent nonlinear operations do not inadvertently distort the input signal’s inherent information.
+3.5
+
+Orthogonal Decomposition and Unitary Property of the DFT
+
+The DFT can be represented by a matrix Fn ∈ Cn×n with entries given by
+[Fn ]j,k = e−2πi(j−1)(k−1)/n .
+This matrix is unitary up to a scaling factor, satisfying:
+F∗n Fn = n I,
+where F∗n is the conjugate transpose and I is the identity matrix. This property implies that the
+transformation preserves inner products:
+1
+⟨Fi , Fj ⟩.
+⟨Xi , Xj ⟩ =
+n
+Thus, every token in the input contributes to every frequency component, enabling effective global
+mixing akin to self-attention but at a significantly reduced computational cost.
+3.6
+
+Proof of Computational Complexity
+
+Global FFT and Inverse FFT. For X ∈ Rn×d , the full-sequence FFT and IFFT each cost
+O(n log n) per channel, leading to O(d n log n) overall.
+Local Windowing (STFT) or Wavelets. (Optional) If each STFT window has length w and we
+n
+assume an overlap of αw tokens, the number of windows is approximately (1−α)w
+. Each windowed
+FFT thus costs O(w log w) for each of the d channels. The total cost is:
+
+
+n
+O (1−α)w
+d w log w .
+For wavelets, the complexity is usually O(n) or O(n log n) depending on the chosen algorithm and
+wavelet family, often comparable to STFT approaches. These steps are optional and can be skipped if
+local structure is not critical for the task.
+Isometric Fusion and Adaptive Filtering. Merging local and global representations with an
+isometric (or unconstrained) matrix U is an O(n d2 ) step when viewed as a matrix multiplication in
+Cn×(2d) . This is generally modest compared to the O(d n log n) term for large n. Adaptive filtering,
+which includes the MLP for context-based parameter generation, similarly contributes O(d n).
+Overall Complexity. Because O(d n log n) typically dominates the cost of element-wise operations
+for large n, the total complexity remains O(d n log n). For practical configurations, this effectively
+behaves as O(n log n).
+3.7
+
+Comparison with Convolution-Based Methods
+
+Although a sufficiently large convolution kernel can span the entire sequence, it generally lacks the
+adaptability of self-attention unless the kernel itself is dynamically generated. Our approach bridges
+this gap by using a data-dependent, learnable filter in the frequency domain, guided by global context
+and applied through modReLU. Because frequency-domain multiplication corresponds to convolution
+in the token domain, the model can realize global, context-aware mixing more flexibly than standard
+convolutional methods. Local windowing or wavelet transforms further refine the representation
+without resorting to large kernel sizes.
+6
+
+Figure 1: Overall Process of FFTNet with Local Windowing (STFT or wavelets, optional) and Global
+FFT, followed by isometric fusion (or gating) in the frequency/transform domain.
+3.8
+
+Comparison with FNet
+
+FNet Lee-Thorp et al. [2022] similarly uses the DFT for token mixing but employs no learnable
+parameters in the mixing step. In contrast, our method includes a context-dependent, adaptive filter
+and a nonlinear activation that both enhance expressivity and allow emphasis on specific frequency
+components. Further, we incorporate a local STFT or wavelet pathway to capture fine-grained
+interactions. Despite these adaptive steps, the overall complexity remains O(n log n), dominated by
+the FFT itself.
+3.8.1
+
+Mitigating Complexity in the Adaptive MLP
+
+For very long sequences, generating frequency-bin parameters can still be demanding. Possible
+solutions include 1 subsampling or pooling the frequency representation before the MLP, 2
+sharing parameters among adjacent frequency bins, and 3 applying low-rank factorization to reduce
+dimensionality. These techniques help maintain a reasonable balance between the expressive power
+of the adaptive filter and computational cost.
+Conclusion. Adaptive spectral filtering integrates frequency-domain global mixing, data-driven
+filtering, and nonlinear activation into a unified framework. By adding an optional local transform
+path (STFT or wavelets) and merging (or gating) it with the global FFT via an isometric fusion, the
+model captures both short-range and long-range interactions with O(n log n) efficiency. Parseval’s
+theorem and the orthogonal properties of the DFT ensure stable transformations, enabling many
+benefits of self-attention at a reduced computational cost. Full implementation details are available at:
+https://github.com/jacobfa/fft.
+
+4
+
+Experiments
+
+We present a comprehensive evaluation of our proposed approach, FFTNet, comparing it against both
+FNet and traditional Transformers based on self-attention. Our experiments cover the Long Range
+Arena (LRA) benchmark Tay et al. [2021] and ImageNet classification. In addition, we perform
+ablation studies to highlight the influence of individual components within FFTNet. We compare
+against the “standard” variants of the ViT Dosovitskiy et al. [2021] and transformer Vaswani et al.
+[2017], so as to form an “apples-to-apples” comparison.
+4.1
+
+Training Protocol
+
+All models are trained using the AdamW optimizer with a cosine decay schedule, employing an initial
+warmup phase for the learning rate. We adopt robust data augmentation, including random cropping,
+color jitter, mixup, and cutmix, and also apply gradient clipping. In certain configurations, we
+7
+
+maintain an exponential moving average (EMA) of the model parameters. Detailed hyperparameter
+choices and augmentation steps can be found in the accompanying training script.
+4.2
+
+Long Range Arena (LRA) Benchmark
+
+We evaluate on six LRA tasks: ListOps, Text, Retrieval, Image, Pathfinder, and Path-X. Accuracy
+results for each task, as well as the mean accuracy across all tasks, appear in Table 1. Here, the
+standard Transformer serves as the baseline for computing improvements/drops. “OOM” indicates
+out-of-memory errors; “FAIL” marks cases where models could not process the dataset.
+Table 1: Accuracy (%) on the Long Range Arena (LRA) benchmark tasks. Arrows indicate the performance difference relative to the
+standard Transformer.
+Model
+ListOps
+Text
+Retrieval
+Image
+Pathfinder Path-X
+Avg.
+Transformer
+FNet
+FFTNet (No-Windowing)
+FFTNet (With Windowing)
+
+36.06
+35.33↓0.7
+37.65↑ 1.6%
+38.02↑ 2.0%
+
+61.54
+65.11↑ 3.6%
+66.01↑ 4.5%
+66.25↑ 4.7%
+
+59.67
+59.61↓0.1
+60.21↑ 0.5%
+60.64↑ 1.0%
+
+41.51
+38.67↓2.8
+42.02↑ 0.5%
+42.45↑ 0.9%
+
+80.38
+77.80↓2.6
+80.71↑ 0.3%
+80.99↑ 0.6%
+
+OOM
+FAIL
+83.25
+83.64
+
+55.83
+55.32↓0.5
+58.31↑ 2.5%
+58.83↑ 3.0%
+
+As shown, even the FFTNet (No-Windowing) version outperforms both baselines (Transformer
+and FNet) on most tasks. Adding local windowing (STFT) further improves the accuracy slightly,
+achieving the highest average score.
+4.3
+
+ImageNet Classification
+
+We further assess our FFTNetViT variants on ImageNet, comparing them against standard ViT
+baselines. Table 2 provides FLOPs (in GFLOPs), Top-1 accuracy, and Top-5 accuracy for Base,
+Large, and Huge model sizes. Although FFTNetViT typically uses fewer FLOPs, the No-Windowing
+variant is slightly worse than the standard ViT. By contrast, adding local windowing (STFT) brings a
+small but consistent accuracy boost, surpassing the ViT baseline.
+
+Table 2: Comparison on ImageNet for Base, Large, and Huge variants. FLOPs are in GFLOPs.
+“No-Windowing” vs. “With Windowing” are two configurations of FFTNetViT.
+FFTNetViT (No-Windowing)
+
+FFTNetViT (With Windowing)
+
+ViT
+
+Variant
+
+FLOPs
+
+Top-1 (%)
+
+Top-5 (%)
+
+FLOPs
+
+Top-1 (%)
+
+Top-5 (%)
+
+FLOPs
+
+Top-1 (%)
+
+Top-5 (%)
+
+Base
+Large
+Huge
+
+22.64
+79.92
+166.14
+
+79.2↓0.2
+81.5↓0.3
+82.7↓0.2
+
+94.7↓0.1
+95.9↓0.1
+96.5↓0.1
+
+22.64
+79.92
+166.14
+
+79.8↑ 0.4%
+82.3↑ 0.5%
+83.4↑ 0.5%
+
+95.0↑ 0.2%
+96.3↑ 0.3%
+96.9↑ 0.3%
+
+36.65
+127.18
+261.39
+
+79.4
+81.8
+82.9
+
+94.8
+96.0
+96.6
+
+Throughput and Speedup Analysis (No-Windowing). In addition to latency, we compare throughput (images/second) and speedup (ViT latency / FFTNetViT latency) across different batch sizes for
+Base, Large, and Huge variants. Figure 3 displays these two plots side by side, illustrating:
+1 Throughput: FFTNetViT variants consistently process more images per second than standard
+ViT, and the gap widens at larger batch sizes. 2 Speedup: The ratio of ViT latency to FFTNetViT
+latency is generally above 1, confirming that FFT-based variants are faster. This advantage becomes
+more pronounced as the batch size increases.
+4.4
+
+Ablation Studies
+
+Ablation studies on ImageNet (Base variant, No-Windowing) were conducted to isolate key FFTNet
+components. Four configurations are examined. The first is the full FFTNet model (baseline in
+Table 3), which includes spectral gating, the adaptive module, and FFT-based mixing. The other rows
+each omit or replace one key component, showing how it affects Top-1 accuracy.
+Table 3: Ablation experiments on ImageNet (Base variant, No-Windowing). The FFTNet (full) row is the baseline.
+Arrows show accuracy drops relative to it.
+Variant
+Top-1 Acc (%) Observation
+FFTNet (full)
+Without spectral gating
+Without adaptive module
+Replace FFT with convolution
+
+79.2
+77.8↓1.4
+77.2↓2.0
+75.4↓3.8
+
+Baseline: spectral gating, adaptive module, FFT-based filtering
+Omitting gating causes a moderate performance decline.
+Disabling the adaptive module degrades accuracy further.
+Using a standard convolution causes the largest drop.
+
+All components contribute to performance, with substituting the FFT layer for a convolution causing
+the largest accuracy drop.
+8
+
+Latency vs Batch Size: FFTNetViT vs Standard ViT
+Base (FFTNetViT)
+Base (ViT)
+Large (FFTNetViT)
+Large (ViT)
+Huge (FFTNetViT)
+Huge (ViT)
+
+Average Latency (ms)
+
+2000
+
+1500
+
+1000
+
+500
+
+0
+0
+
+20
+
+40
+
+60
+Batch Size
+
+80
+
+100
+
+120
+
+Figure 2: Latency comparison (No-Windowing) of FFTNetViT vs. standard ViT for various batch
+sizes on ImageNet. FFTNetViT typically exhibits better scaling properties.
+Speedup vs Batch Size: ViT / FFTNetViT
+
+Throughput vs Batch Size: FFTNetViT vs Standard ViT
+500
+
+Speedup (ViT latency / FFTNetViT latency)
+
+1.4
+
+Throughput (images/second)
+
+400
+
+Base (FFTNetViT)
+Base (ViT)
+Large (FFTNetViT)
+Large (ViT)
+Huge (FFTNetViT)
+Huge (ViT)
+
+300
+
+200
+
+100
+
+1.2
+
+1.0
+
+0.8
+
+0.6
+
+0.4
+0
+
+20
+
+40
+
+60
+Batch Size
+
+80
+
+100
+
+0
+
+120
+
+20
+
+40
+
+60
+Batch Size
+
+80
+
+100
+
+Base
+Large
+Huge
+No Speedup
+120
+
+(a) Throughput (images/second) for FFTNetViT vs. (b) Speedup (ViT latency / FFTNetViT latency) for
+standard ViT.
+FFTNetViT vs. standard ViT.
+
+Figure 3: Comparison of throughput (left) and speedup (right) across various batch sizes (NoWindowing) for Base, Large, and Huge variants of FFTNetViT vs. standard ViT.
+
+5
+
+Conclusion
+
+We presented FFTNet, a novel approach that overcomes the inherent limitations of self-attention
+through adaptive spectral filtering. Our method transforms inputs into the frequency domain, leveraging Fourier theory to ensure energy preservation and efficient global mixing. The integration of a
+learnable spectral filter with a modReLU activation allows the model to dynamically focus on critical
+frequency bands, reducing complexity to O(n log n) while maintaining expressive power. Extensive
+evaluations on LRA and ImageNet confirm that FFTNet not only achieves competitive accuracy
+but also significantly improves computational efficiency compared to both fixed Fourier approaches
+and standard self-attention. These results underscore the potential of merging rigorous theoretical
+foundations with adaptive learning strategies for scalable sequence modeling. Future avenues of
+research include incorporating our FFT-based design into state-of-the-art language modeling and
+large language model (LLM) incorporation.
+9
+
+References
+Martin Arjovsky, Amar Shah, and Yoshua Bengio. Unitary evolution recurrent neural networks, 2016.
+URL https://arxiv.org/abs/1511.06464.
+Krzysztof Choromanski, Valerii Likhosherstov, David Dohan, Xingyou Song, Jared Davis, Tamas
+Sarlos, David Belanger, Lucy Colwell, and Adrian Weller. Rethinking attention with performers.
+In International Conference on Learning Representations, 2021.
+James W. Cooley and John W. Tukey. An algorithm for the machine calculation of complex fourier
+series. Mathematics of Computation, 19(90):297–301, 1965.
+Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas
+Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit,
+and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale,
+2021. URL https://arxiv.org/abs/2010.11929.
+John Guibas, Morteza Mardani, Zongyi Li, Andrew Tao, Anima Anandkumar, and Bryan Catanzaro.
+Adaptive fourier neural operators: Efficient token mixers for transformers, 2022. URL https:
+//arxiv.org/abs/2111.13587.
+Angelos Katharopoulos, Apoorv Vyas, Nikolaos Papadopoulos, and François Fleuret. Transformers
+are rnns: Fast autoregressive transformers with linear attention. In International Conference on
+Machine Learning, 2020.
+Nikita Kitaev, Łukasz Kaiser, and Anselm Levskaya. Reformer: The efficient transformer. In
+International Conference on Learning Representations, 2020.
+James Lee-Thorp, Joshua Ainslie, Ilya Eckstein, and Santiago Ontanon. Fnet: Mixing tokens with
+fourier transforms, 2022. URL https://arxiv.org/abs/2105.03824.
+Mario Lezcano-Casado and Daniel Martínez-Rubio. Cheap orthogonal constraints in neural networks:
+A simple parametrization of the orthogonal and unitary group. arXiv preprint arXiv:1901.08428,
+2019.
+Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik Bhattacharya, Andrew
+Stuart, and Anima Anandkumar. Fourier neural operator for parametric partial differential equations,
+2021. URL https://arxiv.org/abs/2010.08895.
+Michael Poli, Stefano Massaroli, Eric Nguyen, Daniel Y. Fu, Tri Dao, Stephen Baccus, Yoshua
+Bengio, Stefano Ermon, and Christopher Ré. Hyena hierarchy: Towards larger convolutional
+language models, 2023. URL https://arxiv.org/abs/2302.10866.
+Jimmy T. H. Smith, Andrew Warrington, and Scott W. Linderman. Simplified state space layers for
+sequence modeling, 2023. URL https://arxiv.org/abs/2208.04933.
+Yi Tay, Dara Bahri, Donald Metzler, Da-Cheng Juan, Zhe Zhao, and Che Zheng. Synthesizer:
+Rethinking self-attention in transformer models, 2020. URL https://arxiv.org/abs/2005.
+00743.
+Yi Tay, Mostafa Dehghani, Dara Bahri, and Donald Metzler. Long range arena: A benchmark for
+efficient transformers, 2021.
+Ilya Tolstikhin, Neil Houlsby, Alexander Kolesnikov, Lucas Beyer, Xiaohua Zhai, Thomas Unterthiner, Jessica Yung, Andreas Steiner, Daniel Keysers, Jakob Uszkoreit, et al. Mlp-mixer: An
+all-mlp architecture for vision. In Advances in Neural Information Processing Systems, 2021.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+Kaiser, and Illia Polosukhin. Attention is all you need. In Advances in Neural Information
+Processing Systems, 2017.
+Sinong Wang, Belinda Li, Madian Khabsa, Han Fang, and Hao Ma. Linformer: Self-attention with
+linear complexity. In International Conference on Machine Learning, 2020.
+10
+
+Scott T Wisdom, Thomas Powers, John R Hershey, Jonathan Le Roux, and Les E Atlas. Full-capacity
+unitary recurrent neural networks. arXiv preprint arXiv:1611.00035, 2016.
+Felix Wu, Angela Fan, Alexei Baevski, Yann N. Dauphin, and Michael Auli. Pay less attention with
+lightweight and dynamic convolutions. In International Conference on Learning Representations,
+2019.
+Kai Xu, Minghai Qin, Fei Sun, Yuhao Wang, Yen-Kuang Chen, and Fengbo Ren. Learning in the
+frequency domain, 2020. URL https://arxiv.org/abs/2002.12416.
+Manzil Zaheer, Guru Guruganesh, Kumar Avinava Dubey, Joshua Ainslie, Chris Alberti, Santiago
+Ontanon, Philip Pham, Anirudh Ravula, Qifan Wang, Li Yang, et al. Big bird: Transformers for
+longer sequences. In Advances in Neural Information Processing Systems, 2020.
+
+A
+
+Appendix
+
+A.1
+
+GPU Utilization and Scaling Analysis
+
+To further illustrate the performance characteristics of our approach, we show additional plots
+capturing GPU utilization, FLOPs achieved, latency, and throughput under different configurations.
+Specifically, the next figures highlight how increasing data size (e.g., batch size or input resolution) can
+better saturate the GPU, leading to improved scaling until the model becomes bandwidth-constrained,
+after which performance gains plateau.
+Achieved GFLOPs vs Batch Size
+Input Size = 224x224
+
+Input Size = 32x32
+
+Achieved GFLOPs/s
+
+20000
+
+15000
+
+10000
+Base (FFTNetViT)
+Base (ViT)
+Large (FFTNetViT)
+Large (ViT)
+Huge (FFTNetViT)
+Huge (ViT)
+
+5000
+
+0
+0
+
+20
+
+40
+
+60
+
+Batch Size
+
+80
+
+100
+
+120
+
+0
+
+20
+
+40
+
+60
+
+80
+
+Batch Size
+
+100
+
+120
+
+Figure 4: Achieved GFLOPs under varying input sizes/batch configurations. Larger data sizes utilize
+the GPU more effectively and improve model scaling. As the lines flatten, the GPU is becoming
+bandwidth-limited.
+Latency vs Batch Size (DDP) - Img 32x32
+
+7.0
+
+Latency vs Batch Size (DDP) - Img 224x224
+FFTNetViT
+ViT
+
+120
+
+6.5
+
+100
+
+Latency (ms)
+
+Latency (ms)
+
+FFTNetViT
+ViT
+
+6.0
+
+5.5
+
+80
+60
+40
+20
+
+5.0
+
+0
+
+100
+
+200
+
+300
+
+Global Batch Size
+
+400
+
+0
+
+500
+
+(a) DDP Latency (32).
+
+0
+
+100
+
+200
+
+300
+
+Global Batch Size
+
+400
+
+500
+
+(b) DDP Latency (224).
+
+Figure 5: DDP Latency for two different input sizes. As input size increases, the GPU is better
+utilized and the model scales more efficiently. The flattening of the line indicates bandwidth is
+becoming the limiting factor.
+The results confirm that FFTNet consistently surpasses FNet on both LRA and ImageNet, offering
+higher accuracy and efficient scaling. When compared to self-attention, FFTNetViT typically has
+11
+
+Throughput vs Batch Size (DDP) - Img 32x32
+
+Throughput vs Batch Size (DDP) - Img 224x224
+
+FFTNetViT
+ViT
+
+6000
+
+80000
+
+Throughput (images/sec)
+
+Throughput (images/sec)
+
+5000
+60000
+
+40000
+
+20000
+
+4000
+
+3000
+
+2000
+
+0
+
+FFTNetViT
+ViT
+
+1000
+0
+
+100
+
+200
+
+300
+
+400
+
+Global Batch Size
+
+500
+
+0
+
+100
+
+(a) DDP Throughput (32).
+
+200
+
+300
+
+400
+
+Global Batch Size
+
+500
+
+(b) DDP Throughput (224).
+
+Figure 6: DDP Throughput at two input sizes. Larger data sizes lead to better GPU utilization, but
+once bandwidth constraints kick in, scaling gains flatten.
+Speedup vs Batch Size: ViT / FFTNetViT
+Input Size = 224x224
+
+2.0
+
+Input Size = 32x32
+Base
+Large
+Huge
+
+Speedup (ViT / FFTNetViT)
+
+1.8
+1.6
+1.4
+1.2
+1.0
+0.8
+0
+
+20
+
+40
+
+60
+
+Batch Size
+
+80
+
+100
+
+120
+
+0
+
+20
+
+40
+
+60
+
+Batch Size
+
+80
+
+100
+
+120
+
+Figure 7: Speedup comparison subplots. When the data size is smaller, the GPU is underutilized. As
+the data size grows, speedup increases until bandwidth constraints force the line to flatten.
+lower FLOPs while delivering comparable or slightly superior accuracy. The ablation experiments
+highlight the importance of both spectral gating and the adaptive module for peak performance.
+Additionally, as the data size increases, the GPU is utilized more efficiently, leading to better
+throughput and speedup. Once the lines begin to flatten, it indicates that the GPU has become
+bandwidth-constrained, limiting further scaling gains.
+
+12
+
+

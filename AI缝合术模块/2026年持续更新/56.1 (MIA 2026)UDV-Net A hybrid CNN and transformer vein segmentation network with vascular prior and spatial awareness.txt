@@ -1,0 +1,1026 @@
+Medical Image Analysis 109 (2026) 103929
+
+Contents lists available at ScienceDirect
+
+Medical Image Analysis
+journal homepage: www.elsevier.com/locate/media
+
+UDV-Net: A hybrid CNN and transformer vein segmentation network with
+vascular prior and spatial awareness
+Bowei Shen a,b,c,1 , Xiaoquan Huang a,1 , Yuli Li a,c , Xinghuan Li a , Lili Ma d ,
+Yonghong Shi e,f,∗∗, Shiyao Chen a,b,d,∗
+a Department of Gastroenterology and Hepatology, Zhongshan Hospital, Fudan University, Shanghai, 200032, China
+b
+
+Shanghai Institute of Infectious Disease and Biosecurity, Fudan University, Shanghai, 200032, China
+
+c School of Health Science and Engineering, University of Shanghai for Science and Technology, Shanghai, 200093, China
+d
+e
+f
+
+Endoscopy Center and Endoscopy Research Institute, Zhongshan Hospital, Fudan University, Shanghai, 200032, China
+Digital Medical Research Center, School of Basic Medical Sciences, Fudan University, Shanghai, 200032, China
+Shanghai Key Laboratory of Medical Imaging Computing and Computer Assisted Intervention, Shanghai, 200032, China
+
+a r t i c l e
+
+i n f o
+
+Keywords:
+Vessels segmentation
+Hybrid CNN and transformer
+Prior knowledge
+Spatial-awareness
+
+a b s t r a c t
+CNNs handling multi-scale variations and Transformers modeling long-range dependencies are crucial for vascular segmentation. The fusion of these two models eﬀectively combines the multi-scale local features extracted by
+CNNs with the global information modeled by Transformers, signiﬁcantly enhancing the accuracy of blood vessel
+segmentation. However, the powerful model faces challenges when dealing with the gradual formation of extensive collateral vessels in the upper digestive system veins of patients with cirrhotic portal hypertension, leading
+to numerous false negative and false positive segmentation results. To this end, the paper proposes UDV-Net, a
+fusion network combining CNN and Transformer with vessel prior and spatial awareness for upper digestive system vein vessel segmentation. Initially, a CNN utilizing an encoding-decoding architecture is employed to create
+a multi-scale representation of blood vessels from the image. The representation is further reﬁned by the blood
+vessel attention module at the corresponding scale to address tubular structures, thereby reducing false positive
+results. Secondly, a Transformer bridge with three-dimensional voxel position encoding is proposed to connect
+the corresponding encoding-decoding layer, eﬀectively perceiving widely distributed blood vessels with diverse
+shapes, improving blood vessel connectivity, and avoiding false negative blood vessel results. We collected and
+annotated abdominal contrast-enhanced CT images of 191 patients with liver cirrhosis, constituting the PHCT
+dataset. Our method’s validation result on this dataset is state-of-the-art. When evaluated on the publicly available 3D-IRCADb dataset as an unseen external validation set for PHCT, the model demonstrated satisfactory
+performance. Additionally, our method also achieves the optimal performance on the public MSD hepatic vessel
+dataset.
+
+1. Introduction
+Liver diseases result in two million deaths annually, with cirrhosis as a primary cause of death De Franchis et al. (n.d.), Sun et al.
+(2023). Conditions like cirrhosis can lead to an abnormal increase in
+portal vein blood ﬂow and a sustained rise in portal vein pressure. Portal hypertension further triggers extensive collateral circulation formation De Franchis (2015). The venous vessels of the upper digestive system are closely connected to the portal vein system, and their structure
+and appearance are directly aﬀected by portal hypertension. Their clinical manifestations are crucial for clinical diagnosis and treatment. For
+∗∗
+
+example, esophageal and gastric varices are complications caused by
+portal hypertension, which can be very harmful and potentially fatal if
+ruptured.
+Abdominal contrast-enhanced portal venous phase CT images are the
+main modality for diagnosing venous lesions in patients with portal hypertension. The venous vascular regions of the upper digestive system
+in the study include esophageal and extraluminal varices, gastric fundus varicose veins, hepatic portal vein, splenic portal vein, and superior
+mesenteric vein, as well as collateral circulation vessels formed due to
+portal hypertension. These regions are collectively referred to as the
+upper digestive system vein (UDV), and precise and rapid voxel-level
+
+Co-corresponding authors.
+
+∗ Corresponding authors.
+1
+
+E-mail addresses: yonghong.shi@fudan.edu.cn (Y. Shi), chen.shiyao@zs-hospital.sh.cn (S. Chen).
+These authors contributed equally to this work.
+
+https://doi.org/10.1016/j.media.2025.103929
+Received 16 July 2024; Received in revised form 27 November 2025; Accepted 26 December 2025
+Available online 1 January 2026
+1361-8415/© 2025 Elsevier B.V. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+automatic segmentation of venous vessels in these areas will assist in
+clinical diagnosis, treatment planning, and prognosis.
+Currently, deep learning techniques play a signiﬁcant role in vascular segmentation tasks. U-Net Ronneberger et al. (2015) based on
+convolutional neural network (CNN) is the primary method for vessel
+segmentation. Incorporating skip connections in U-Net allows merging
+encoder feature maps with the corresponding decoder maps. This fusion
+of features at various scales aids in the restoration of more precise image
+edges and details. Yu et al. Yu et al. (2019) integrated residual blocks
+into 3D U-Net to segment hepatic vein and portal vein. LVSNet Yan et al.
+(2021), which includes an attention-guided module (AGC) in U-Net, utilized attention from high-level features to direct low-level features and
+capture more vascular details. Gao et al. Gao et al. (2023) introduced a
+Laplacian saliency gated ﬁlter to U-Net. Following the fusion of multiscale features, the features were ﬁltered to enhance the vascular area
+while suppressing other areas of the liver. However, convolutional networks primarily capture local patterns due to limited receptive ﬁelds
+and translation-equivariant weight sharing, which can hinder modeling
+of long-range dependencies.
+Vision Transformer (ViT) Dosovitskiy et al. (2021) divides the input
+image into a sequence of patches, enhancing the overall perception of
+the image by utilizing the powerful long-range dependency modeling capability of self-attention. However, the Transformer’s extensive training
+parameters rely on a larger training dataset, which can be challenging
+to acquire, particularly in the ﬁeld of medical imaging. Consequently,
+many studies are exploring the use of the Transformer to establish longrange connections between the local features extracted by CNN, aiming
+to create a network that combines the strengths of both CNN and Transformer. Yu et al. Yu et al. (2022) integrated the channel attention vision
+transformer (CAViT) into the skip connection of U-Net to leverage the
+interdependence among channel features for enhancing the extraction of
+crucial edge structures of fundus blood vessels. Xu et al. Xu et al. (2024)
+introduced a dual-stream encoder that merges CNN encoding with Swin
+Transformer encoding. The Transformer branch is utilized to establish
+the relative position relationship between targets, create connections between patches, and broaden the receptive ﬁeld; the CNN branch captures
+local features and enhances sensitivity to small blood vessels, resulting
+in improved segmentation of the hepatic vein and portal vein. Li et al. Li
+et al. (2023) utilized U-Net as the backbone network for fundus vessel
+segmentation. They substituted the bottleneck layer with Transformer
+to incorporate long-distance dependencies for comprehensive modeling.
+Additionally, they integrated local attention into the jump connection
+to improve edge details.
+However, existing methods have two deﬁciencies in segmenting UDV
+region: 1) False negative predictions for small vascular structures. Some
+methods yield fragmented segmentation results for minor vessels that
+should be continuous in the Ground Truth, while other models directly
+produce negative results, as illustrated in Fig. 1(b). 2) False positive outcomes for metal instruments. As depicted in Fig. 1(c), the CT value of the
+metal instrument indicated by the red arrow is similar to the CT value of
+the vein on the portal venous phase contrast-enhanced CT image, leading the model to generate a false positive result for this instrument and
+incorrectly recognize it as the target vessel.
+To tackle the complexity of the UDV region, it is essential to obtain
+vessel priors using classical image-processing algorithms. Then, this paper proposes a novel hybrid framework of CNN and Transformer, which
+integrates vascular priors and spatial perception for precise segmentation of UDV in patients with portal hypertension. Firstly, the CNN encoder with a pyramid structure extracts multi-scale features from the
+input 3D image. Subsequently, the vessel attention module computes
+the Hessian and applies the FrangiFrangi et al. (1998) vesselness ﬁlter
+to multi-scale feature maps, incorporating prior knowledge about vessels to ﬁlter out non-tubular regions, enhancing the model’s perception
+of anisotropic vessels. Lastly, the Vision Transformer bridges the corresponding stages of the CNN encoder and decoder. A voxel position encoding (VPE) module improves the Transformer’s positional awareness
+
+and enhances vessel connectivity. VPE simulates global spatial position
+information, aiding in extracting deep semantic features of the network
+and eﬀectively addressing the issue of vascular interruption.
+The contributions are summarized as follows:
+1) We propose a novel UDV segmentation network that eﬀectively
+fuses the strengths of traditional image processing techniques (e.g.,
+Frangi ﬁltering) with those of CNNs and Transformers. This network
+enables end-to-end, fully automatic voxel-level segmentation of upper
+digestive system veins on contrast-enhanced CT.
+2) We propose a vessel attention module that combines vascular
+priors with multi-scale features to enhance the model’s perception of
+anisotropic vessels.
+3) We propose a spatial-awareness Transformer with VPE that enhances spatial positioning performance and preserves vessel continuity,
+leading to a reduction in both false-negative and false-positive detection
+outcomes.
+4) We collect and construct a novel dataset of abdominal contrastenhanced portal venous phase CT images from patients with portal hypertension (PHCT). We professionally annotate a total of 191 CT images
+to delineate upper gastrointestinal venous vessels, thereby supporting
+the training and validation of venous segmentation methods.
+2. Related works
+2.1. Frangi ﬁlter
+The Frangi ﬁlter Frangi et al. (1998) is a widely used method for enhancing vascular structures in medical images. It relies on second-order
+image derivatives to identify vessel-related intensity variations across
+scales. Speciﬁcally, the ﬁlter computes the Hessian matrix at multiple
+orientations to capture local structural information. By analyzing the
+eigenvalues of the Hessian, the method distinguishes tubular structures
+from blob-like or plate-like patterns (e.g., calciﬁcations), thereby selectively enhancing vessel-shaped regions.
+In this study, we integrate a Frangi-based vascular attention module
+into the channel features at each level of the encoder. Because the encoder progressively downsamples feature maps, this design enables the
+attention module to detect vascular structures at multiple resolutions,
+facilitating multi-scale representation of vascular morphology.
+2.2. CNN
+Convolutional neural networks (CNNs) have long been the dominant
+paradigm in medical image analysis. U-Net Ronneberger et al. (2015)
+is a representative architecture with two major strengths: (1) its Ushaped encoder-decoder design enables eﬀective multi-scale feature extraction, and (2) skip connections enrich high-level semantic features
+and reﬁne low-level boundary details by directly propagating encoder
+features to the decoder. The 3D U-Net Çiçek et al. (2016) extends this
+architecture from 2D to volumetric data, whereas V-Net Milletari et al.
+(2016) incorporates residual connections to improve gradient ﬂow and
+enhance representation learning. DenseU-Net Wu et al. (2021b) substitutes traditional encoding-decoding modules with densely connected
+blocks Huang et al. (2017), enabling high-density 3D feature representation and improving the detection of small structures in holographic
+reconstruction. U2 -Net Qin et al. (2020) further deepens contextual
+modeling by embedding nested U-shaped modules within each stage.
+U-Net++ Zhou et al. (2018) redesigns skip connections with nested
+and densely connected pathways to reduce semantic gaps between encoder and decoder. U-Net 3+ Huang et al. (2020) strengthens full-scale
+feature aggregation through extensive cross-layer connections, facilitating more accurate segmentation of targets with diverse scales. More recently, nnU-Net Isensee et al. (2021) has automated network conﬁguration by analyzing dataset-speciﬁc “ﬁngerprints,” thereby optimizing architectures, hyperparameters, and preprocessing steps without manual
+2
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+Fig. 1. (a) Challenges in upper digestive system veins segmentation. (b) The green blood vessels show true positive results, the yellow blood vessels display false
+negative results, and the noteworthy blood vessels are magniﬁed and indicated by red arrows. (c) The light red represents the segmentation result of the network,
+and the red arrow points to the false positive area of metal instruments that deserves attention.
+
+tuning, and achieving state-of-the-art performance across a wide range
+of segmentation tasks.
+
+(ViT) typically depends on large-scale training datasets, which are often diﬃcult to obtain in medical imaging. To address this, recent studies have explored hybrid architectures that combine the local feature
+extraction capabilities of CNNs with the global modeling power of
+Transformers.
+TransUNet Chen et al. (2021) incorporates a Transformer module
+into the bottleneck of U-Net, enriching lower-level features with local context to enhance ﬁne-grained details. UNETR Hatamizadeh et al.
+(2022b) replaces the U-Net encoder with a Transformer, capturing
+global multi-scale information and directly transmitting it to the decoder via multi-resolution skip connections. Swin UNETR Hatamizadeh
+et al. (2022a) retains the UNETR architecture but introduces the Swin
+Transformer, employing shifted windows to achieve ﬂexible multi-scale
+modeling. nnFormer Zhou et al. (2023) integrates local attention into
+both the encoder and decoder while applying global attention in the
+bottleneck, enabling joint learning of local and global representations.
+In this study, we leverage a Transformer to connect corresponding
+layers of the U-Net encoder and decoder, modeling spatial voxel representations at multiple resolutions. Given the demonstrated versatility
+and eﬀectiveness of CNN-Transformer hybrid models, our approach is
+primarily compared against these methods throughout the paper.
+
+2.3. Transformer
+The Transformer Vaswani et al. (2017), originally developed for natural language processing, employs a self-attention mechanism to capture long-range dependencies, addressing the limitations of traditional
+CNNs and RNNs in modeling global context. The Vision Transformer
+(ViT) Dosovitskiy et al. (2021) adapts this framework to images by partitioning them into patches and establishing dependencies between any
+two positions, thereby eﬃciently capturing global information. ViT relies on absolute positional encoding to retain spatial information, but
+this approach limits the model’s ﬂexibility. To address this, Wu et al.
+Wu et al. (2021a) incorporated relative positional encoding Shaw et al.
+(2018), allowing ViT to adapt more eﬀectively to inputs of varying resolutions, although at the cost of increased complexity. Conditional Positional ViT (CPVT) Chu et al. (2021) further improves ﬂexibility by
+dynamically generating conditional positional encodings that adjust to
+input size. Beyond positional encoding limitations, standard ViT uses
+ﬁxed-size image patches and lacks inherent multi-scale feature processing. Swin Transformer Hatamizadeh et al. (2022a) introduces a sliding window mechanism, enabling hierarchical patch processing and
+enhanced multi-scale representation. Similarly, Pyramid Vision Transformer (PVT) Wang et al. (2021) employs a pyramid structure to progressively extract features at diﬀerent scales while capturing both global
+and local context.
+
+3. Methods
+Our method aims to improve the representation of blood vessel by
+connecting a U-shaped network with a Transformer bridge. As shown
+in Fig. 2, the backbone network of our UDV-Net consists of an encoderdecoder architecture, with each encoder-decoder level connected by a
+spatial-aware Transformer. The output features of each encoder level
+will be enriched with vascular priors through the vessel attention module. This enhancement will assist the voxel position encoding module
+within the Transformer structure in recognizing the spatial relationships
+between voxels. The following are detailed explanations.
+
+2.4. Hybrid CNN and transformer
+Convolutional operations are inherently limited in capturing longrange dependencies in images. In contrast, Transformers, with their
+self-attention mechanism, can eﬀectively model global contextual information. However, the strong performance of Vision Transformers
+3
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+3.1. Vessel attention module
+
+As depicted in Fig. 2(a), the Transformer receives features from the
+CNN encoder. Since the Transformer operates in a sequence-to-sequence
+manner, similar to Xie et al. (2021), we initially ﬂatten the feature
+map from VAM into a 1D sequence, 𝑓𝑠 , 𝑠 ∈ {𝑆|𝑆 = 1, 2, 3}, where 𝑆
+denotes three stages. Furthermore, we apply sine and cosine functions
+Vaswani et al. (2017) on the sequence to compute the corresponding
+position encoding 𝑃𝑠 , and then combine it with 𝑓𝑠 to via element-wise
+summation generate the feature 𝐹 as the input for the Transformer
+layer.
+Hence, the Transformer layer receives an input sequence 𝐹 , in
+transmission process of the transformer layer, it is recorded as 𝐹𝑖 ,
+𝑖 = 1, 2, … , 𝐿, with 𝐿 representing the number of Transformer layers,
+where in this investigation 𝐿 = 8.
+Flattening the 3D features may result in the loss of the crucial spatial information necessary for vascular connectivity. The supplementary
+sine and cosine function encoding, which is solely based on the position index without considering contextual information, has limited accuracy. Therefore, we have developed a voxel position encoding (VPE)
+to enhance spatial perception and improve blood vessel connectivity in
+3D medical images. Fig. 2(a) illustrates the VPE process. Initially, the
+feature𝐹𝑖′ ∈ 𝑅𝐵×𝑁×𝐶 , 𝑁 = 𝐷 × 𝐻 × 𝑊 from the Transformer encoder
+layer is reshaped to 𝑅𝐵×𝐶×𝐷×𝐻×𝑊 . Subsequently, a convolution function is applied to capture spatial information. Finally, the embedding is
+reshaped back to 𝑅𝐵×𝑁×𝐶 to retain position details.
+The embedding is added to the 𝐹𝑖′ that from Transformer encoder
+layer to generate 𝐹𝑖 and transmitted to the next Transformer layer. The
+design of the Transformer encoder layer refers to the structure of ViT,
+which consists of multi-head self-attention (MSA), MLP, and LayerNorm
+(LN), as shown in Fig. 2 (d). The MLP consists of two linear layers and
+a GELU activation function. The Transformer layer can be expressed as:
+
+In order to enhance the perception of vascular structures, we incorporated prior knowledge about them and developed a vessel attention
+module (VAM) to boost the vascular feature captured by the encoder.
+Drawing inspiration from the Frangi ﬁlter, we examined the eigenvalues of the Hessian matrix of the feature image, eliminating point-like
+and plate-like structures that may indicate calciﬁcation points, thereby
+enhancing the tubular structure, as illustrated in Fig. 2(b).
+Consider a 3D feature image of any channel, 𝐈(𝐱), where 𝐱 =
+(𝑥1 , 𝑥2 , 𝑥3 )𝑇 ∈ Ω ⊂ 𝑅3 . Let′ s calculate the second-order partial derivative of image 𝐈 at 𝐱 ∈ Ω with scale 𝜎, which is, the Hessian matrix, 𝐻𝐱,𝜎 .
+To mitigate the image’s sensitivity to noise, it is typically preprocessed
+using a noise removal method, such as the Gaussian ﬁlter, deﬁned as
+1
+𝐺(𝐱, 𝐲; 𝜎) = 2𝜋𝜎
+2𝑒
+
+−
+
+‖𝐱−𝐲‖2
+2
+2𝜎 2 , to convolve the image (low-pass ﬁlter); then
+
+calculate the derivative. Here, ‖𝐱 − 𝐲‖22 is the square of the 𝐿2 norm of
+𝐱 − 𝐲, and 𝐲 = (𝑦1 , 𝑦2 , 𝑦3 )𝑇 belongs to the spatial neighborhood of 𝐱 with
+𝜎 as the potential control factor. Due to the commutative law between
+convolution and derivatives, the elements of the Hessian matrix 𝐻𝐱,𝜎
+can be calculated as:
+𝜕2
+𝜕2
+= 𝜎2
+(𝐼 ∗ 𝐺(⋅, ⋅; 𝜎)(𝐱))
+𝜕𝑥𝑖 𝜕𝑥𝑗
+𝜕𝑥𝑖 𝜕𝑥𝑗
+
+(1)
+
+where ∗ is the convolution operator, 𝑖 = 1, 2, 3 and 𝑗 = 1, 2, 3.
+In the study, as shown in Fig. 2(c), the Gaussian function is directly used as convolution kernel function of the convolution layer to
+convolve the original image and obtain the second-order derivatives
+of the image in diﬀerent directions, namely the Hessian matrix. Let
+𝜆1 (𝐱; 𝜎), 𝜆2 (𝐱; 𝜎) and 𝜆3 (𝐱; 𝜎) be the eigenvalues of the Hessian matrix 𝐻𝐱,𝜎 , where ‖𝜆1 (𝐱; 𝜎)‖1 ≤ ‖𝜆2 (𝐱; 𝜎)‖1 and ‖𝜆1 (𝐱; 𝜎)‖1 ≤ ‖𝜆3 (𝐱; 𝜎)‖1 .
+According to prior knowledge, blood vessels (tubular structures) will
+enhance the following features of the eigenvalues:
+𝜆1 (𝐱; 𝜎) ≈ 0, 𝜆2 (𝐱; 𝜎) ≈ 𝜆3 (𝐱; 𝜎) ⎫
+⎪
+‖𝜆1 (𝐱; 𝜎)‖ ≪ ‖𝜆2 (𝐱; 𝜎)‖
+⎬
+‖
+‖1
+‖
+‖1
+‖𝜆 (𝐱; 𝜎)‖ ≪ ‖𝜆 (𝐱; 𝜎)‖
+⎪
+‖ 1
+‖1
+‖ 3
+‖1
+⎭
+
+⎧𝐹̂𝑖 = 𝑀𝑆𝐴(𝐿𝑁(𝐹𝑖−1 )) + 𝐹𝑖−1 ,
+⎪ ′
+⎨𝐹𝑖 = 𝑀𝐿𝑃 (𝐿𝑁(𝐹̂𝑖 )) + 𝐹̂𝑖 ,
+⎪
+′
+′
+⎩𝐹𝑖 = 𝑉 𝑃 𝐸(𝐹𝑖 ) + 𝐹𝑖
+
+(2)
+3.3. Optimization
+
+Speciﬁcally, refer to the response function 𝑉𝐹 (𝑖, 𝜎) proposed in [25] , and
+use the eigenvalues of 𝐻𝐱,𝜎 to describe the extent to which any given
+voxel 𝑖 (𝑖 = 0, 1, 2, … , 𝐷 × 𝑊 × 𝐻 − 1) belongs to a vascular region of
+scale 𝜎, that is:
+⎧0, 𝑖𝑓 𝜆𝑖 𝑜𝑟 𝜆𝑖 > 0
+2
+3
+⎪
+∑
+𝑖 2
+(𝜆𝑖 )2 ][
+(𝜆𝑖 )2
+][
+𝑗≤𝑑 (𝜆𝑗 ) ]
+𝑉𝐹 (𝑖; 𝜎) = ⎨[
+− 2𝑖 2
+− 2 𝑖12 𝑖 2
+−
+2𝛼(𝜆 )
+2𝛾 2
+3
+⎪ 1−𝑒
+𝑒 2𝛽 (𝜆2 ) (𝜆3 )
+1−𝑒
+⎩
+
+(4)
+
+The UDV-Net, as proposed in the paper, utilizes nnU-Net as the backbone network for segmenting the UDV. The image X serves as input and
+is forwarded to the encoder for feature extraction. Each layer of the
+encoder downsamples the extracted features before passing them to the
+subsequent layer. Simultaneously, the features are fed into the vessel attention module to enhance the vascular structure and then transmitted
+to the Transformer. The Transformer reconstructs the spatial position of
+the features, reshapes them, and sends them to the corresponding layer
+of the decoder. Subsequently, the features are element-wise summed
+with those upsampled from the lower layer of the decoder. Finally, the
+prediction results are generated. The loss between the prediction result
+Y and the true label G is then calculated, followed by gradient backpropagation.
+During the training phase, the deep supervision strategy serves a speciﬁc regularization role in mitigating issues like gradient vanishing and
+slow convergence. The training loss function is deﬁned as a combination
+of Dice loss and cross-entropy loss, which can be computed as follows:
+)
+∑ (
+𝑁
+2× 𝑁
+1 ∑
+𝑖=1 𝑌𝑖 𝐺𝑖
+𝐿𝑜𝑠𝑠(𝑌 , 𝐺) = 1 − ∑𝑁
+−
+𝐺𝑖 𝑙𝑜𝑔𝑌𝑖
+(5)
+∑
+𝑌 2 + 𝑁 𝐺2 𝑁 𝑖=1
+
+(3)
+
+Here, 𝛼, 𝛽, 𝛾 are the hyper parameters which are used to control the
+threshold of the sensitivity of the ﬁlter. 𝑑 is set to 3.
+In the original Frangi ﬁlter, various 𝜎 values are utilized to enhance
+the vascular structure across diﬀerent scales. In this study, the encoder
+follows a pyramid structure entirely. As the resolution decreases through
+downsampling, each stage focuses on vascular features of varying scales.
+The shallow layer, with a higher feature frequency and more detailed
+information, uses a smaller 𝜎 value to highlight small local blood vessels.
+Conversely, the deep layer, with a lower feature frequency capturing
+broader contextual details, employs a larger 𝜎 value to detect high-level
+structures like the overall shape, as demonstrated in Section 4.3.
+
+𝑖=1
+
+𝑖
+
+𝑖=1
+
+𝑖
+
+where 𝑁 is the total number of voxels, 𝑖 ∈ {1, 2, … 𝑁} is the voxel index,
+and 𝑌𝑖 , 𝐺𝑖 is the 𝑖th voxel.
+
+3.2. Spatial-aware transformer with voxel position encoding
+For 3D images, features can be extracted from pixels in a 2D slice
+image or from voxels across multiple slices. The beneﬁt of 3D images
+compared to 2D images is the inclusion of spatial information. To enhance the utilization of information across slices, we adopt the approach
+proposed in CPVT Chu et al. (2021) and develop a Transformer model
+with voxel position encoding for 3D images.
+
+4. Experiments
+The proposed method’s perception of vascular targets is validated
+on three datasets: the PHCT dataset of abdominal contrast-enhanced
+CT images of patients with portal hypertension, and the similar hepatic
+4
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+Fig. 2. (a) The framework of the proposed network.(b) Vessel attention module and its related Filter (c) The detail of prior knowledge. (d) The compose of Transformer
+encoder layer.
+
+4.1. Dataset
+
+vessel dataset in the MSD Antonelli et al. (2022) and 3D-IRCADb Soler
+et al. (n.d.).
+In assessing the segmentation results, we utilize four metrics: Dice,
+Jaccard, 95HD, and ASD. Dice Score and Jaccard measure the similarity
+of two sets, speciﬁcally the overlap between the segmentation result and
+the ground truth. Higher values of these metrics indicate better segmentation results. 95HD and ASD represent the surface distance between
+the segmentation result and the ground truth. Lower values of these
+metrics signify better performance. Our approach is compared with the
+following methods in the three datasets: 3D U-Net Çiçek et al. (2016),
+nnU-Net Isensee et al. (2021), UNETR Hatamizadeh et al. (2022b),
+CoTr Xie et al. (2021), Swin UNETR Hatamizadeh et al. (2022a), nnFormer Zhou et al. (2023). With the exception of 3D U-Net and nnU-Net,
+the other methods are fusion models combining CNN and Transformer
+architectures.
+
+PHCT dataset. We gathered abdominal portal venous phase contrastenhanced CT images of patients with cirrhosis and portal hypertension at Zhongshan Hospital aﬃliated to Fudan University in Shanghai,
+China from 2013 to 2022. Excluding data related to damage, liver resection and splenectomy, the PHCT dataset consists of 191 remaining
+cases. The average age of the included patients was 57.9±11.9 years,
+of which 118 (61.78%) were males, and the average portal vein pressure was 28±5 mmHg. Patients fasted for a minimum of 4 hours before undergoing CT scanning. The contrast agent (Ultravist 370, Bayer
+Schering Pharma) was intravenously injected at a rate of 3.0–3.5ml/s,
+followed by MDCT (64-slice Light Speed, GE Medical or 64-slice CT,
+Siemens) to capture transverse, sagittal, and tubular images at 1mm slice
+intervals. The spacing of each image was approximately [0.78mm,
+5
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+Fig. 3. Visualize the segmentation results of two images selected from the PHCT dataset to demonstrate the performance of diﬀerent methods in solving false
+negatives. Green indicates true positive (TP), brown represents false positive (FP), and yellow denotes false negative (FN) In the magniﬁed area of the image, pay
+attention to the area marked with a red arrow.
+
+0.78mm, 0.78mm], which was uniformly adjusted to [1.0mm, 1.0mm,
+1.0mm] through resampling. The number of slices for all images ranged
+between [350, 600]. It is evident that a larger number of slices increases
+labeling complexity and time, but improves vessel detail and presentation quality. The data were annotated by two graduate students and reviewed by a radiologist with 15 years of experience and a gastroenterologist with 10 years of experience. In cases of disagreement between the
+two observers, a consensus was reached through discussion. The dataset
+was split into training and testing sets at an 8:2 ratio in the experiment.
+
+trained exclusively on PHCT was then directly applied to the unseen
+3D-IRCADb dataset for inference.
+4.2. Quantitative and qualitative performance
+PHCT dataset. As shown in Table 1, our method demonstrates superior
+performance across all four evaluation metrics, outperforming all other
+competing methods. Speciﬁcally, our model achieves outstanding scores
+of 0.958 ± 0.027 for Dice, 0.936 ± 0.033 for Jaccard, 1.738 ± 2.269 mm
+for 95HD, and 0.697 ± 1.162 mm for ASD, respectively. Comparing to
+the strong baseline model, nnU-Net, our approach shows enhancements
+of 2.6% in Dice and 2.5% in Jaccard, while substantially reducing the
+95HD and ASD errors by 0.859 mm and 1.122 mm, respectively. Beyond
+the mean and standard deviation on the test set reported in Table 1, Supplementary Figure S2 provides detailed box plots to illustrate the performance distribution. These plots reveal that our method achieves a more
+concentrated distributions with fewer outliers across all four metrics,
+demonstrating its superior stability and robustness. Fig. 3 illustrates the
+segmentation results for two representative images. The ﬁrst and third
+rows show the overlap between the ground truth and the segmentation results of each method, respectively. The second and fourth rows
+show magniﬁed views of local region, with red arrows highlighting areas of notable diﬀerence. In these visualizations, green represents the
+true positives (TP), yellow denotes the false negatives (FN). Our method
+exhibits exceptional spatial awareness, generating the fewest false negatives and surpassing other methods in preserving vessel connectivity.
+Furthermore, Fig. 4 visualizes the 3D segmentation results from axial,
+coronal, and sagittal views. The regions highlighted by red arrows shows
+our method’s superior ability to identify and exclude metallic artifacts,
+eﬀectively mitigating the false positive issues prevalent in other methods and thereby enhancing segmentation.
+
+MSD hepatic vessel dataset. Hepatic vessel dataset is a subset of MSD,
+aiming to segment liver blood vessels and tumors from liver CT images. The dataset comprises 443 3D CT scans, with 303 in the training
+set and 140 in the testing set. Each image has a voxel size of approximately [0.9mm, 0.9mm, 5.0mm], and the slice count ranges from 24
+to 181. This study speciﬁcally targets blood vessels, excluding tumors
+by removing their labels and focusing solely on liver veins for method
+validation. In comparison to the PHCT dataset, the CT images in MSD
+dataset have thicker slices.
+3D-IRCADb vein dataset. The 3D-IRCADb dataset consists of 20 contrastenhanced abdominal CT scans (10 women
+and 10 men; 2823 slices in total), with approximately 75% of patients presenting liver tumors. Each scan has an isotropic voxel size of
+about 0.8 mm. The dataset provides annotations for multiple organs and
+structures, including the liver, spleen, liver tumors, veins, and kidneys;
+however, only venous structures were used in this study.
+To rigorously evaluate the generalization capability of UDV-Net, particularly given the limited size of our internal PHCT dataset, we conducted an external validation using 3D-IRCADb, which has a spatial
+resolution comparable to PHCT. To ensure consistency and a fair comparison, the same region of interest (ROI) deﬁnition and annotation protocol were applied, and labeling was performed by the same expert (see
+Supplementary Figure S4 for vessel visibility comparison). The model
+
+MSD hepatic vessel dataset. As depicted in Table 2, our approach
+achieved the most favorable outcomes across all four evaluation metrics. Speciﬁcally, it obtained a Dice of 0.798 ± 0.067, a Jaccard index
+6
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+Fig. 4. Visualize the segmentation results of any image in the PHCT dataset using three views to demonstrate the performance of diﬀerent methods in solving false
+positives. Metal instruments are marked with red arrows from diﬀerent viewing angles.
+
+Table 1
+Performance comparison between our method and other methods on PHCT dataset.
+Models
+
+3D U-Net Çiçek et al. (2016)
+nnU-Net Isensee et al. (2021)
+UNETR Hatamizadeh et al. (2022b)
+CoTr Xie et al. (2021)
+Swin UNETR Hatamizadeh et al. (2022a)
+nnFormer Zhou et al. (2023)
+Ours
+
+Metrics
+Dice
+
+Jaccard
+
+95HD(mm)
+
+ASD(mm)
+
+0.841 ± 0.044
+0.922 ± 0.051
+0.927 ± 0.035
+0.944 ± 0.031
+0.940 ± 0.038
+0.945 ± 0.031
+𝟎.𝟗𝟓𝟖 ± 𝟎.𝟎𝟐𝟕
+
+0.803 ± 0.051
+0.901 ± 0.045
+0.905 ± 0.040
+0.824 ± 0.057
+0.925 ± 0.044
+0.920 ± 0.036
+𝟎.𝟗𝟑𝟔 ± 𝟎.𝟎𝟑𝟑
+
+10.771 ± 8.249
+4.597 ± 5.065
+3.987 ± 4.568
+3.289 ± 3.877
+3.456 ± 5.513
+2.081 ± 2.594
+𝟏.𝟕𝟑𝟖 ± 𝟐.𝟐𝟔𝟗
+
+8.082 ± 9.164
+4.219 ± 5.080
+3.813 ± 5.583
+3.006 ± 3.870
+2.108 ± 3.971
+1.074 ± 1.307
+𝟎.𝟔𝟗𝟕 ± 𝟏.𝟏𝟔𝟐
+
+Fig. 5. Visualize the segmentation results of two images of the Hepatic Vessel dataset. Green is a true positive result, brown is a false positive result, and yellow is
+a false negative result.
+
+of 0.656 ± 0.073, a 95HD of 23.738 ± 11.680, and an ASD of 13.438
+± 9.154. Compared to the baseline model like nnU-Net, our method
+yielded signiﬁcant improvements of 4.6% in Dice and 4.9% in Jaccard,
+while concurrently reducing 95HD and ASD by 7.591 and 0.089 respectively. Furthermore, the box plots in Supplementary Figure S3 show that
+the distributions for all four metrics are more concentrated with fewer
+outliers, which further indicates the enhanced stability and robustness
+of our approach.
+Despite the consistent performance gain, we also observed that all
+methods yield systematically lower segmentation quality on the MSD
+Hepatic Vessel dataset compared with our in-house PHCT dataset (Fig. 3
+vs. Fig. 5). This performance gain can be partially attributed to the
+inherent challenge of the MSD dataset, such as lower in-plane resolution and thicker slice spacing of the MSD images, which compromise the vessel boundary clarity and thus increase the segmentation
+diﬃculty.
+
+In addition to these imaging limitations, we identiﬁed that annotation quality also plays a signiﬁcant role. As demonstrated in Supplementary Figure S1, the manual annotations in the MSD dataset are incomplete, omitting numerous small peripheral vessels. Consequently,
+when our model correctly identiﬁes these unannotated structures, they
+are penalized as “false positives” during evaluation. This phenomenon
+explains why our model occasionally appears to produce larger “false
+positive” regions (shown in brown in Fig. 5) and, more importantly, suggests that the lower scores on the MSD dataset are not solely indicative
+of model performance deﬁcits but are also confounded by the limited
+ﬁdelity of the ground-truth labels.
+3D-IRCADb vein dataset. Our method exhibited satisfactory segmentation performance on this unseen external validation dataset. The
+mean values for Dice, Jaccard, 95HD, and ASD were 0.933 ±
+0.108, 0.889 ± 0.146, 13.269 ± 21.907 mm and 2.988 ± 7.315 mm,
+7
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+Fig. 6. Visualization of segmentation results of three cases on the unseen external validation set. Green represents correctly segmented voxels (true positives, TPs),
+brown indicates over-segmented voxels (false positives, FPs) and yellow highlights under-segmented voxels (false negatives, FNs).
+Table 2
+Performance comparison between our method and other methods on hepatic vessel dataset.
+Models
+
+3D U-Net Çiçek et al. (2016)
+nnU-Net Isensee et al. (2021)
+UNETR Hatamizadeh et al. (2022b)
+CoTr Xie et al. (2021)
+Swin UNETR Hatamizadeh et al. (2022a)
+nnFormer Zhou et al. (2023)
+Ours
+
+Metrics
+Dice
+
+Jaccard
+
+95HD(mm)
+
+ASD(mm)
+
+0.685 ± 0.076
+0.752 ± 0.070
+0.724 ± 0.065
+0.753 ± 0.070
+0.731 ± 0.052
+0.772 ± 0.067
+𝟎.𝟕𝟗𝟖 ± 𝟎.𝟎𝟔𝟕
+
+0.529 ± 0.062
+0.607 ± 0.065
+0.572 ± 0.071
+0.609 ± 0.066
+0.581 ± 0.063
+0.628 ± 0.074
+𝟎.𝟔𝟓𝟔 ± 𝟎.𝟎𝟕𝟑
+
+48.337 ± 21.872
+31.329 ± 12.083
+53.994 ± 23.420
+31.118 ± 12.013
+30.456 ± 12.340
+27.081 ± 11.672
+𝟐𝟑.𝟕𝟑𝟖 ± 𝟏𝟏.𝟔𝟖𝟎
+
+21.750 ± 14.866
+17.572 ± 9.521
+23.765 ± 9.188
+19.537 ± 9.495
+18.608 ± 8.281
+16.510 ± 9.126
+𝟏𝟑.𝟒𝟑𝟖 ± 𝟗.𝟏𝟓𝟒
+
+respectively. And the detailed results for all four evaluation metrics on
+a per-case basis for the external set are provided in Supplementary Table S1. Representative segmentation results are visualized in Fig. 6. As
+previously noted, while the model achieved excellent overall overlap, it
+exhibited certain limitations in segmenting the surface of distal vessels.
+Notably, one signiﬁcant outlier case was observed. As shown in Supplementary Figure S5, this case presented with substantial ascites and
+altered pathological conditions, leading to prominent contrast agent perfusion within the bowel. This resulted in CT values that were comparable
+to or even exceeded those of the target vasculature, consequently causing extensive false positive predictions. After excluding this outlier, the
+model’s performance metrics improved markedly: the average Dice, Jaccard, 95HD, and ASD increased to 0.95 ± 0.039, 0.918 ± 0.070, 9.135
+± 12.077 mm and 1.378 ± 1.346 mm, respectively.
+In summary, the model trained with our proposed method exhibits
+strong generalization capability and robust performance on unseen external data. For challenging cases like the one discussed, future improvements could involve non-Hessian-based feature engineering or advanced
+network modules to enhance the discriminability between vessels and
+contrast-enhanced bowel tissue.
+
+sampling reduces resolution and enables multi-scale vessel detection.
+To cope with targets of varying sizes, we set corresponding Gaussian
+kernels with diﬀerent sigmas at three stages to measure the contrast between the sigma’s interior and exterior in the derivative direction. As
+shown in Fig. 7, the ﬁrst column shows the three-dimensional distribution of the Gaussian kernel, and the second to seventh columns depict
+the internal and external comparisons of the second-order derivative
+detection of the three-dimensional image in diﬀerent directions.
+According to the region detected by the second-order derivative, we
+present three views of a patch (the top row in Fig. 7), and the focus region of the network at various stages and diﬀerent second-order derivatives (rows 2, 4, and 6 in Fig. 7). The colorbar illustrates that the blood
+vessels of varying scales are detected at diﬀerent U-Net encoding stages,
+showing that the VAM proposed in this paper appropriately and eﬃciently enhances the blood vessels.
+4.4. Ablation experiment
+The proposed UDV-Net comprises two key modules: a vascular attention module (VAM) and a spatial-awareness Transformer. VAM strengthens the representation of vascular structures, whereas the spatialawareness Transformer improves spatial modeling. To assess their individual contributions, we removed each module in turn while keeping
+all other settings unchanged. As shown in Table 3, the model combining
+both modules achieved the best performance, with Dice, Jaccard, 95HD,
+and ASD of 0.958, 0.936, 1.738, and 0.697, respectively.
+
+4.3. Rationality of vascular prior information
+In order to explore the rationality of using second-order information
+to enhance the tubular structure in the vascular attention module for
+UDV segmentation, we apply the Frangi ﬁltering on the channel feature maps generated at diﬀerent levels of the CNN architecture. The
+Frangi ﬁltering technique involves Gaussian kernels and their respective second-order derivatives. The CNN branch encoder with U-Net as
+the backbone network in the study utlizes a pyramid structure. Down-
+
+5. Discussion
+The morphological characteristics of the upper gastrointestinal veins
+(UDV) can indirectly reﬂect the portal vein pressure in patient with
+8
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+Fig. 7. The ﬁrst row is the slices of the 3D patch on the three axes, from left to right, the axial plane, the coronal plane, and the sagittal plane. The ﬁrst column is
+the 3D visualization of the Gaussian kernel of the three-level VAM. The second to sixth columns from left to right are the six directions, 𝐷𝑥𝑥 , 𝐷𝑥𝑦 , 𝐷𝑥𝑧 , 𝐷𝑦𝑦 , 𝐷𝑦𝑧 , 𝐷𝑧𝑧 ,
+and the second, fourth, and sixth rows are the areas detected by the second-order derivatives in each direction at diﬀerent levels.
+Table 3
+Ablation experiment about vessel attention module and spatial-awareness Transformer.
+Methods
+
+VAM
+
+Spatial-awareness Transformer
+
+Dice
+
+Jaccard
+
+95HD
+
+ASD
+
+Baseline
+UDV-Net V1
+UDV-Net V2
+UDV-Net V3
+
+✗
+✓
+✗
+✓
+
+✗
+✗
+✓
+✓
+
+0.922
+0.934
+0.949
+0.958
+
+0.901
+0.917
+0.928
+0.936
+
+4.597
+3.417
+2.233
+1.738
+
+4.219
+3.291
+1.946
+0.697
+
+cirrhosis. Therefore, accurate segmentation of UDV is crucial for the
+clinical management of cirrhosis. However, due to complex collateral
+circulation, overlapping blood vessels, and thrombus-related signal inhomogeneities, existing algorithms face signiﬁcant challenges (Fig. 1a).
+To address these issues, we propose a hybrid CNN-Transformer network with spatial awareness and vascular prior. The spatial-awareness
+Transformer module eﬀectively captures the wide vessel distribution by
+encoding the voxel position, thereby reducing the phenomenon of breakage in the segmentation results (Fig. 1b). To provide structural cue for
+the model without interfering with semantic learning, we incorporated
+a vessel-enhancement prior derived from the classical Frangi ﬁlter. This
+prior information is not directly applied to semantic feature maps, but is
+fused through a learnable vascular attention module (VAM). This design
+enables the network to selectively utilize structural information while
+preserving semantic integrity. In this manner, the Frangi prior, as a soft
+
+complementary cue, not only highlights tubular patterns and suppresses
+background noise, but also eﬀectively reduces false positive segmentation caused by metal artifacts (Fig. 1c). Our method achieves state-ofthe-art (SOTA) performance on both the internal PHCT datasets, external 3D-IRCADb dataset and publicly available hepatic vessel datasets
+(MSD hepatic vein). In key evaluation indicators such as Dice, Jaccard,
+95HD, and ASD, this method comprehensively surpasses previous research results (Tables 1–2), and signiﬁcantly improves the key failure
+modes shown in Figs. 3–4.
+Despite these advances, our framework’s performance is inherently
+linked to the quality of the vascular prior used. The chosen Frangi
+ﬁlter, which relies on Hessian eigenvalue analysis, struggles in clinically complex scenarios. Its core assumption of tubular structure fails
+at the junctions and overlapping regions of blood vessels; its response
+is unstable in high-curvature vascular segments; and its gradient-based
+9
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+nature yields weak and fragmented priors in thrombotic or low-contrast
+areas. Fortunately, due to the fact that the Frangi response is used only
+as a soft prior through attention, the aforementioned limitations may
+constrain the strength of the structural cue but do not distort the core
+semantic features. Therefore, we mainly consider Frangi as an eﬃcient
+baseline to validate the eﬀectiveness of our prior integration framework,
+while acknowledging that its own quality determines its contribution to
+the ﬁnal performance.
+To address these bottlenecks, we propose to adopt non-Hessian
+strategies, especially monogenic-signal-based local phase analysis, being
+a promising direction. By decomposing local measurement into phase,
+amplitude, and orientation, the monogenic signal oﬀers descriptors that
+are robust to complex topologies and intensity inhomogeneity. Future
+extension will explore the following directions: (1) using local phase
+information to more accurately model vascular overlap and abnormal
+collaterals; (2) exploiting phase-amplitude decoupling to enhance robustness to thrombus-induced disruptions; and (3) integrating phase,
+amplitude, and orientation features via a multi-feature fusion attention
+module to generate richer priors. The contribution of this article also introduces a practical trade-oﬀ: although the proposed spatial-awareness
+Transformer and VAM signiﬁcantly improve segmentation accuracy,
+they also increase the size and computational cost of the model. This
+expense will aﬀect the deployment of the model in resource constrained
+environments. Thus, the future work will focus on lightweight design,
+including methods such as model pruning, knowledge distillation, and
+eﬃcient Transformer modules.
+We also note a practical trade-oﬀ introduced by our design. Compared with the baseline U-Net, integrating the spatial-awareness Transformer and VAM consistently improves segmentation performance but
+increases the number of parameters and computational cost. In our implementation, these modules raise both the parameter count and FLOPs
+during inference. While the overhead remains moderate relative to the
+accuracy gains, it may hinder deployment in resource-constrained settings. Future work will therefore investigate lightweight and acceleration techniques, including model pruning, knowledge distillation, and
+more eﬃcient Transformer variants.
+In summary, our hybrid framework integrates long-range reasoning
+with spatially awareness and vascular priors containing structural information, aiming to improve vessel segmentation performance in complex clinical scenarios. While this study focuses on the structure of upper gastrointestinal veins, the architectural principles proposed here are
+not task-speciﬁc, and the framework has the potential to be extended to
+other vascular systems such as retinal vessels. Looking ahead, a highly
+promising research path is to integrate more robust signal-driven priors
+(such as the monogenic signal Felsberg and Sommer (n.d.)) and combine
+them with model compression strategies (including pruning, knowledge
+distillation, and eﬃcient Transformer modules) to further enhance the
+robustness and clinical applicability of the model in diverse vascular
+segmentation tasks.
+
+0.108), conﬁrming its excellent robustness and generalization capability.
+Future work will focus on addressing the segmentation challenges
+caused by pathological conditions such as cirrhosis. Firstly, under pathological conditions, blood vessels often overlap, aggregate, or become
+highly tortuous, which can obscure their original tubular morphology.
+At the same time, portal vein thrombosis, due to their variable locations, heterogeneous density, and indistinct boundaries, further complicates accurate delineation. To mitigate these issues, we aim to integrate
+non-Hessian-based priors that better capture complex vascular morphology and signal inhomogeneity. Secondly, we will continue to expand
+and reﬁne high-quality annotated datasets to support more rigorous
+model evaluation and promote their broader community use. Finally,
+although the incorporation of the spatial-awareness Transformer and
+the vessel attention module improves segmentation accuracy, it also increases model complexity. Therefore, developing a lightweight version
+of UDV-Net will be an important direction to enhance its practicality in
+clinical deployment.
+
+6. Conclusions
+
+Antonelli, M., Reinke, A., Bakas, S., Farahani, K., Kopp-Schneider, A., Landman, B.A., Litjens, G., Menze, B., Ronneberger, O., Summers, R.M., Van Ginneken, B., Bilello, M.,
+Bilic, P., Christ, P.F., Do, R. K.G., Gollub, M.J., Heckers, S.H., Huisman, H., Jarnagin, W.R., McHugo, M.K., Napel, S., Pernicka, J. S.G., Rhode, K., Tobon-Gomez, C.,
+Vorontsov, E., Meakin, J.A., Ourselin, S., Wiesenfarth, M., Arbeláez, P., Bae, B., Chen,
+S., Daza, L., Feng, J., He, B., Isensee, F., Ji, Y., Jia, F., Kim, I., Maier-Hein, K., Merhof, D., Pai, A., Park, B., Perslev, M., Rezaiifar, R., Rippel, O., Sarasua, I., Shen, W.,
+Son, J., Wachinger, C., Wang, L., Wang, Y., Xia, Y., Xu, D., Xu, Z., Zheng, Y., Simpson,
+A.L., Maier-Hein, L., Cardoso, M.J., 2022. The medical segmentation decathlon. Nat.
+Commun. 13 (1), 4128. https://doi.org/10.1038/s41467-022-30695-9
+Chen, J., Lu, Y., Yu, Q., Luo, X., Adeli, E., Wang, Y., Lu, L., Yuille, A.L., Zhou, Y.,
+2021. TransUNet: Transformers make strong encoders for medical image segmentation. arXiv:2102.04306. https://api.semanticscholar.org/CorpusID:231847326.
+Chu, X., Tian, Z., Zhang, B., Wang, X., Shen, C., 2021. Conditional positional encodings for
+vision transformers. In: International Conference on Learning Representations. https:
+//api.semanticscholar.org/CorpusID:256827775.
+Çiçek, Ö., Abdulkadir, A., Lienkamp, S.S., Brox, T., Ronneberger, O., 2016. 3D U-Net:
+Learning dense volumetric segmentation from sparse annotation. In: Ourselin, S.,
+Joskowicz, L., Sabuncu, M.R., Unal, G., Wells, W. (Eds.), Medical Image Computing
+and Computer-Assisted Intervention – MICCAI 2016. Springer International Publishing, Cham. Vol. 9901, pp. 424–432. https://doi.org/10.1007/978-3-319-46723-8_49
+
+CRediT authorship contribution statement
+Bowei Shen: Writing – original draft, Visualization, Validation, Software, Methodology, Conceptualization; Xiaoquan Huang: Methodology, Investigation, Data curation, Writing – review; Yuli Li: Data curation; Xinghuan Li: Data curation; Lili Ma: Data curation; Yonghong
+Shi: Conceptualization, Methodology, Writing – review, Visualization,
+Supervision; Shiyao Chen: Resources, Project administration, Supervision, Funding acquisition, Methodology, Conceptualization, Writing –
+review.
+Declaration of competing interest
+The authors declare that they have no known competing ﬁnancial
+interests or personal relationships that could have appeared to inﬂuence
+the work reported in this paper.
+Acknowledgement
+This study was supported by the National Key R&D Program of China
+(2023YFC2507504) and the Shanghai Committee of Science and Technology (No. 22Y11907400). The funder played no role in the study design, data collection and analysis, decision to publish, or preparation of
+the manuscript.
+Supplementary material
+Supplementary material associated with this article can be found in
+the online version at 10.1016/j.media.2025.103929.
+References
+
+This study proposes an innovative hybrid CNN-Transformer architecture, UDV-Net, with the core objective of achieving precise segmentation of upper gastrointestinal venous structures. A key innovation of
+this architecture is the design of a multi-scale vessel attention module, which seamlessly integrates vessel-speciﬁc prior knowledge into the
+deep learning model. We conducted comprehensive evaluations on an
+internal PHCT dataset and two public benchmarks. The experimental
+results demonstrate strong evidence that UDV-Net consistently outperforms state-of-the-art baseline models. On the PHCT dataset, it achieved
+gains of 2.6% and 2.5% in average Dice and Jaccard coeﬃcients, respectively, while also eﬀectively improving the accuracy of segmentation
+boundaries, as indicated by a 0.86 mm reduction in 95HD and 1.22 mm
+reduction in ASD. Furthermore, UDV-Net maintained a high performance on an independent external validation cohort (Dice = 0.933 ±
+10
+
+Medical Image Analysis 109 (2026) 103929
+
+B. Shen et al.
+
+De Franchis, R., 2015. Expanding consensus in portal hypertension. J. Hepatol. 63 (3),
+743–752. https://doi.org/10.1016/j.jhep.2015.05.022
+De Franchis, R., Bosch, J., Garcia-Tsao, G., Reiberger, T., Ripoll, C., Abraldes, J.G., Albillos,
+A., Baiges, A., Bajaj, J., Bañares, R., Barrufet, M., Benajiba, L., Berzigotti, A., Bureau,
+C., Calvaruso, V., Cardenas, A., D’Amico, G., De Gottardi, A., Dell’Era, A., Escorsell,
+A., Fallowﬁeld, J., Ferral, H., Francque, S., Gaba, R., Garcia-Pagàn, J.C., Genescà, J.,
+Rodrigues, S.G., Gracia-Sancho, J., Han, G., Hernandez-Gea, V., Jia, J., Kiladjian, J.J.,
+Krag, A., Laleman, W., La Mura, V., Lens, S., Luo, X., Mandorfer, M., Murad, S.D.,
+Paradis, V., Patch, D., Piano, S., Pinzani, M., Plessier, A., Primignani, M., Procopet,
+B., Rautou, P.E., Rudler, M., Sarin, S.K., Schepis, F., Senzolo, M., Shah, V., Shukla, A.,
+Tandon, P., Tellez, L., Thabut, D., Thiele, M., Trebicka, J., Tripathi, D., Tsochatzis,
+E., Turco, L., Turon, F., Valla, D., Villanueva, C., Wanless, I., Yoshiji, H., . Baveno
+VII-renewing consensus in portal hypertension. J. Hepatol. 76 (4), 959–974. https:
+//doi.org/10.1016/j.jhep.2021.12.022
+Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J., Houlsby, N., 2021. An
+image is worth 16x16 words: transformers for image recognition at scale. In: International Conference on Learning Representations. https://openreview.net/forum?id=
+YicbFdNTTy.
+Felsberg, M., Sommer, G., . The monogenic signal 49 (12), 3136–3144. http://ieeexplore.
+ieee.org/document/969520/. https://doi.org/10.1109/78.969520
+Frangi, A.F., Niessen, W.J., Vincken, K.L., Viergever, M.A., 1998. Multiscale vessel enhancement ﬁltering. In: Wells, W.M., Colchester, A., Delp, S. (Eds.), Medical Image Computing and Computer-Assisted Intervention — MICCAI’98. Springer Berlin
+Heidelberg, Berlin, Heidelberg. Vol. 1496, pp. 130–137. https://doi.org/10.1007/
+BFb0056195
+Gao, Z., Zong, Q., Wang, Y., Yan, Y., Wang, Y., Zhu, N., Zhang, J., Wang, Y., Zhao, L., 2023.
+Laplacian salience-Gated feature pyramid network for accurate liver vessel segmentation. IEEE Trans. Med. Imag. 42 (10), 3059–3068. https://doi.org/10.1109/TMI.2023.
+3273528
+Hatamizadeh, A., Nath, V., Tang, Y., Yang, D., Roth, H.R., Xu, D., 2022a. Swin UNETR:
+swin transformers for semantic segmentation of brain tumors in MRI images. In: Crimi,
+A., Bakas, S. (Eds.), Brainlesion: Glioma, Multiple Sclerosis, Stroke and Traumatic Brain
+Injuries. Springer International Publishing, Cham. Vol. 12962, pp. 272–284. https://
+doi.org/10.1007/978-3-031-08999-2_22
+Hatamizadeh, A., Tang, Y., Nath, V., Yang, D., Myronenko, A., Landman, B., Roth,
+H.R., Xu, D., 2022b. UNETR: Transformers for 3D medical image segmentation. In:
+2022 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV).
+IEEE, Waikoloa, HI, USA, pp. 1748–1758. https://doi.org/10.1109/WACV51458.
+2022.00181
+Huang, G., Liu, Z., Van Der Maaten, L., Weinberger, K.Q., 2017. Densely connected convolutional networks. In: 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR). IEEE, Honolulu, HI, pp. 2261–2269. https://doi.org/10.1109/CVPR.
+2017.243
+Huang, H., Lin, L., Tong, R., Hu, H., Zhang, Q., Iwamoto, Y., Han, X., Chen, Y.-W., Wu,
+J., 2020. UNet 3+: A full-Scale connected UNet for medical image segmentation.
+In: ICASSP 2020 - 2020 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, Barcelona, Spain, pp. 1055–1059. https://doi.org/10.
+1109/ICASSP40776.2020.9053405
+Isensee, F., Jaeger, P.F., Kohl, S. A.A., Petersen, J., Maier-Hein, K.H., 2021. NnU-Net: a
+self-conﬁguring method for deep learning-based biomedical image segmentation. Nat.
+Methods 18 (2), 203–211. https://doi.org/10.1038/s41592-020-01008-z
+Li, Y., Zhang, Y., Liu, J.-Y., Wang, K., Zhang, K., Zhang, G.-S., Liao, X.-F., Yang, G., 2023.
+Global transformer and dual local attention network via deep-Shallow hierarchical
+feature fusion for retinal vessel segmentation. IEEE Trans. Cybern. 53 (9), 5826–5839.
+https://doi.org/10.1109/TCYB.2022.3194099
+Milletari, F., Navab, N., Ahmadi, S.-A., 2016. V-Net: fully convolutional neural networks
+for volumetric medical image segmentation. In: 2016 Fourth International Conference
+on 3D Vision (3DV). IEEE, Stanford, CA, USA, pp. 565–571. https://doi.org/10.1109/
+3DV.2016.79
+Qin, X., Zhang, Z., Huang, C., Dehghan, M., Zaiane, O.R., Jagersand, M., 2020. U2-Net:
+going deeper with nested U-structure for salient object detection. Pattern Recognit.
+106, 107404. https://doi.org/10.1016/j.patcog.2020.107404
+Ronneberger, O., Fischer, P., Brox, T., 2015. U-Net: convolutional networks for biomedical image segmentation. In: Navab, N., Hornegger, J., Wells, W.M., Frangi, A.F.
+(Eds.), Medical Image Computing and Computer-Assisted Intervention – MICCAI 2015.
+Springer International Publishing, Cham. Vol. 9351, pp. 234–241. https://doi.org/10.
+1007/978-3-319-24574-4_28
+
+Shaw, P., Uszkoreit, J., Vaswani, A., 2018. Self-attention with relative position representations. In: Proceedings of the 2018 Conference of the North American Chapter of the
+Association for Computational Linguistics: Human Language Technologies, Volume 2
+(Short Papers). Association for Computational Linguistics, New Orleans, Louisiana, pp.
+464–468. https://doi.org/10.18653/v1/N18-2074
+Soler, L., Hostettler, A., Agnus, V., Charnoz, A., Moreau, J.-B. F.J., Osswald, A.-B.,
+Bouhadjar, M., Marescaux, J., . 3d image reconstruction for comparison of algorithm database : A patient-speciﬁc anatomical and medical image database. [Online].
+https://www.ircad.fr/research/data-sets/liver-segmentation-3d-ircadb-01/.
+Sun, L., Long, L., Wang, Q., Xiang, H., Huangxing, C., Yanfang, C., Feng, C., Wei, C.,
+Jianguo, C., Aijun, S., Ying, D., Bangjiang, F., Zhijie, F., Fei, G., Xiaotong, H., Mingsheng, H., Guiyun, J., Jinlong, Jiaping, L., Lei, L., Peiwu, L., Xiao, L., Zhanfei, L.,
+Zhen, L., Fuquan, L., Jueshi, L., Peng, L., Xiaoran, L., Ligong, L., Jianjun, L., Xuefeng,
+L., Chuanzhu, L., Weifu, L., Qingbian, M., Yilong, M., Zhiqun, M., Ya, P., Junhui, S.,
+Jun, T., Xianzheng, T., Qing, W., Rixing, W., Yong, W., An, W., Zhiyu, X., Bin, X.,
+Bin, X., Shuogui, X., Hui, X., Weizhu, Y., Min, Y., Chunqing, Z., Guoqiang, Z., Jianfeng, Z., Jinxiang, Z., Zhiming, Z., Jianbo, Z., Xiaodong, Z., Fachun, Z., Shi, Z., Xiaoli,
+Z., Changju, Z., Zheng, Z.Y., Yimin, Z., Yinghua, Z., 2023. Expert consensus on emergency procedures for portal hypertension bleeding (2022). J. Intervent. Med. 6 (1),
+1–9. https://doi.org/10.1016/j.jimed.2022.10.006
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L.,
+Polosukhin, I., 2017. Attention is all you need. In: Proceedings of the 31St International
+Conference on Neural Information Processing Systems. Curran Associates Inc., Red
+Hook, NY, USA, p. 6000-6010.
+Wang, W., Xie, E., Li, X., Fan, D.-P., Song, K., Liang, D., Lu, T., Luo, P., Shao, L., 2021.
+Pyramid vision transformer: a versatile backbone for dense prediction without convolutions. In: 2021Del InsThinspace IEEE/CVF International Conference on Computer
+Vision (ICCV), pp. 548–558. https://doi.org/10.1109/ICCV48922.2021.00061
+Wu, K., Peng, H., Chen, M., Fu, J., Chao, H., 2021a. Rethinking and improving relative
+position encoding for vision transformer. In: 2021 IEEE/CVF International Conference
+on Computer Vision (ICCV). IEEE, Montreal, QC, Canada, pp. 10013–10021. https:
+//doi.org/10.1109/ICCV48922.2021.00988
+Wu, Y., Wu, J., Jin, S., Cao, L., Jin, G., 2021b. Dense-U-net: dense encoder–decoder
+network for holographic imaging of 3D particle ﬁelds. Opt. Commun. 493, 126970.
+https://doi.org/10.1016/j.optcom.2021.126970
+Xie, Y., Zhang, J., Shen, C., Xia, Y., 2021. Cotr: eﬃciently bridging CNN and transformer
+for 3D medical image segmentation. In: De Bruijne, M., Cattin, P.C., Cotin, S., Padoy,
+N., Speidel, S., Zheng, Y., Essert, C. (Eds.), Medical Image Computing and Computer
+Assisted Intervention – MICCAI 2021. Springer International Publishing, Cham. Vol.
+12903, pp. 171–180. https://doi.org/10.1007/978-3-030-87199-4_16
+Xu, J., Jiang, W., Wu, J., Zhang, W., Zhu, Z., Xin, J., Zheng, N., Wang, B., 2024. Hepatic
+and portal vein segmentation with dual-stream deep neural network. Med. Phys. ,
+mp.17090. https://doi.org/10.1002/mp.17090
+Yan, Q., Wang, B., Zhang, W., Luo, C., Xu, W., Xu, Z., Zhang, Y., Shi, Q., Zhang, L., You,
+Z., 2021. Attention-guided deep neural network with multi-Scale feature fusion for
+liver vessel segmentation. IEEE J. Biomed. Health Inform. 25 (7), 2629–2642. https:
+//doi.org/10.1109/JBHI.2020.3042069
+Yu, H., Shim, J.-h., Kwak, J., Song, J.W., Kang, S.-J., 2022. Vision transformer-Based retina
+vessel segmentation with deep adaptive gamma correction. In: ICASSP 2022 - 2022
+IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP).
+IEEE, Singapore, Singapore, pp. 1456–1460. https://doi.org/10.1109/ICASSP43922.
+2022.9747597
+Yu, W., Fang, B., Liu, Y., Gao, M., Zheng, S., Wang, Y., 2019. Liver vessels segmentation based on 3d residual U-NET. In: 2019 IEEE International Conference on Image
+Processing (ICIP). IEEE, Taipei, Taiwan, pp. 250–254. https://doi.org/10.1109/ICIP.
+2019.8802951
+Zhou, H.-Y., Guo, J., Zhang, Y., Han, X., Yu, L., Wang, L., Yu, Y., 2023. Nnformer: volumetric medical image segmentation via a 3D transformer. IEEE Trans. Image Process.
+32, 4036–4045. https://doi.org/10.1109/TIP.2023.3293771
+Zhou, Z., Rahman Siddiquee, M.M., Tajbakhsh, N., Liang, J., 2018. UNet++: A nested
+U-Net architecture for medical image segmentation. In: Stoyanov, D., Taylor, Z.,
+Carneiro, G., Syeda-Mahmood, T., Martel, A., Maier-Hein, L., Tavares, J. M. R.S.,
+Bradley, A., Papa, J.P., Belagiannis, V., Nascimento, J.C., Lu, Z., Conjeti, S., Moradi, M.,
+Greenspan, H., Madabhushi, A. (Eds.), Deep Learning in Medical Image Analysis and
+Multimodal Learning for Clinical Decision Support. Springer International Publishing,
+Cham. Vol. 11045, pp. 3–11. https://doi.org/10.1007/978-3-030-00889-5_1
+
+11
+
+

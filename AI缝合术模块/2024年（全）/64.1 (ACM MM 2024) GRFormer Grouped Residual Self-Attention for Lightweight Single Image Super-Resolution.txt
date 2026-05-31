@@ -1,0 +1,1610 @@
+GRFormer: Grouped Residual Self-Attention for Lightweight
+Single Image Super-Resolution
+Yuzhen Li
+
+Zehang Deng∗
+
+Tsinghua University
+Shenzhen, Guangdong, China
+liyuzhen22@mails.tsinghua.edu.cn
+
+Swinburne University of Technology
+Melbourne, Australia
+zehangdeng@swin.edu.au
+
+Yuxin Cao
+
+Lihua Liu
+
+National University of Singapore
+Singapore
+e1374346@u.nus.edu
+
+University of International Business and Economics
+Beijing, China
+202102027@uibe.edu.cn
+
+Abstract
+
+ACM Reference Format:
+Yuzhen Li, Zehang Deng, Yuxin Cao, and Lihua Liu. 2024. GRFormer: Grouped
+Residual Self-Attention for Lightweight Single Image Super-Resolution. In
+Proceedings of the 32nd ACM International Conference on Multimedia (MM
+’24), October 28-November 1, 2024, Melbourne, VIC, Australia. ACM, New
+York, NY, USA, 9 pages. https://doi.org/10.1145/3664647.3681554
+
+Previous works have shown that reducing parameter overhead and
+computations for transformer-based single image super-resolution
+(SISR) models (e.g., SwinIR) usually leads to a reduction of performance. In this paper, we present GRFormer, an efficient and
+lightweight method, which not only reduces the parameter overhead and computations, but also greatly improves performance.
+The core of GRFormer is Grouped Residual Self-Attention (GRSA),
+which is specifically oriented towards two fundamental components. Firstly, it introduces a novel grouped residual layer (GRL) to
+replace the Query, Key, Value (QKV) linear layer in self-attention,
+aimed at efficiently reducing parameter overhead, computations,
+and performance loss at the same time. Secondly, it integrates a
+compact Exponential-Space Relative Position Bias (ES-RPB) as a
+substitute for the original relative position bias to improve the ability to represent position information while further minimizing the
+parameter count. Extensive experimental results demonstrate that
+GRFormer outperforms state-of-the-art transformer-based methods for ×2, ×3 and ×4 SISR tasks, notably outperforming SOTA by
+a maximum PSNR of 0.23dB when trained on the DIV2K dataset,
+while reducing the number of parameter and MACs by about 60%
+and 49% in only self-attention module respectively. We hope that
+our simple and effective method that can easily applied to SR models based on window-division self-attention can serve as a useful
+tool for further research in image super-resolution. The code is
+available at https://github.com/sisrformer/GRFormer.
+
+1
+
+Introduction
+
+Single Image Super-Resolution (SISR) aims to enhance image resolution by reconstructing a high-resolution image from a lowresolution counterpart. With the development of CNN-based and
+transformer-based SR models, one achievement after another has
+been achieved for single image super-resolution tasks. For whether
+CNN-based models or transformer-based ones, it is an easy way to
+improve performance by increasing the number of the network layers and feature dimension, accompanied by the increase of parameters and calculations. A straight question should be: Is it possible to
+improve the performance while reducing number of the parameters
+and calculations for transformer-based SR models? Motivated by
+this question, we conduct in-depth research into self-attention and
+present three sub-questions concerning self-attention:
+• RQ1. Is there any redundancy within self-attention?
+• RQ2. Can the expressive power of self-attention be further improved?
+• RQ3. Is there a better alternative to relative position bias for
+representing the position information?
+
+CCS Concepts
+
+The research into RQ1. Self-attention [16] has achieved great
+performance in the fields of text, image, and video since it was published in 2017. However, despite the effectiveness of self-attention
+mechanisms, they are often criticized for their extensive parameter
+count and computational demands. Existing work [2] has observed
+redundancy in self-attention layers, but its solutions focus mainly
+on how to reduce the size of the attention window [17]. Through
+empirical analysis, we explore the interaction among the varying
+parameter counts, MACs, and the performance of the self-attention
+module, as depicted in Fig. 1. This analysis reveals significant potential for optimization in both parameters and computational efficiency within the SwinIR’s self-attention mechanism. Inspired
+by these findings, we propose a novel grouping scheme of Q, K, V
+linear layer, aimed at reducing both the parameter overhead and
+computational complexity.
+
+• Computing methodologies → Visual inspection.
+
+Keywords
+Lightweight image super-resolution; Self-Attention; Parameter overhead
+∗ Corresponding Author
+
+This work is licensed under a Creative Commons Attribution
+International 4.0 License.
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+© 2024 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-0686-8/24/10
+https://doi.org/10.1145/3664647.3681554
+
+9378
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Yuzhen Li, Zehang Deng, Yuxin Cao, and Lihua Liu
+
+Exponential-Space Relative Position Bias (ES-RPB). The three methods above constitute the two fundamental components of Grouped
+Residual Self-Attention (GRSA). Given the proposed GRSA, we design a lightweight network for SR, termed GRFormer. We evaluate
+our GRFormer on five widely-used datasets. Benefiting from the
+proposed GRSA, our GRFormer achieves significant performance
+improvements on almost five benchmark datasets. Notably, trained
+on DIV2K dataset[15] for ×2 SR task, our GRFormer achieves a
+33.17 PSNR score on the challenging Urban100 dataset[6]. The result is much higher than recent SwinIR-light[8](32.76) and the SOTA
+lightweight SR model (32.94). This improvement is consistently observed across ×3 and ×4 tasks. Comprehensive experiments show
+that GRFormer not only outperforms previous lightweight SISR
+models [8, 10, 18], but also reduces the parameter count by about
+20% in total model architecture, compared with SwinIR [8] (1000k
+parameters) with the same hyperparameter. To sum up, our contributions can be summarized as follows:
+
+Legend
+Transformer-based
+
+PSNR(dB)
+
+MACs(M)
+
+CNN-based
+
+Params(K)
+
+Params(K)
+
+(a)
+
+(b)
+
+Figure 1: (a) shows the comparisons of self-attention of recent transformer-based SR models in terms of multiplyaccumulate operations (MACs) and parameters. (b) shows
+SISR comparisons of recent SR models (×4) in terms of
+PSNR on Urban100, network parameters. Our model (GRFormer) outperforms the SOTA model (×4) by 0.19dB in PSNR
+score while having comparably low network parameters and
+MACs.
+The research into RQ2. In the field of single image super-resolution,
+previous transformer-based approaches [8, 18] have primarily utilized residual learning [5] at the outer layers of self-attention mechanisms. This methodology has been effective in mitigating network
+degradation and improving the expressive capabilities of deep networks. Given the success of residual learning in enhancing network
+performance, an intriguing question arises: could the integration of
+residual connections within the Query, Key, and Value (QKV) linear
+layers of self-attention mechanisms further augment their expressive power? Motivated by this consideration, our work explores the
+incorporation of residual connections directly into the QKV linear
+layers, aiming to enhance their representational efficacy in deep
+neural architectures.
+The research into RQ3. When self-attention [16] is proposed, it
+uses position embedding to provide position information of words
+in text. After self-attention is applied to computer vision, relative
+position bias (RPB) is found to be more suitable for representing
+relative position information, which is important for models in computer vision. However, RPB has four fatal flaws: First, if we assume
+the shape of the window in self-attention is H × W, the number
+of parameters occupied by RPB is (2H-1)×(2W-1), which is a huge
+parameter overhead. Second, the original RPB in SwinIR[8] sets a
+position parameter for each position within the window, which is
+not only the redundancy of the parameters, but also it is easy to
+be interfered by noises during training. Specifically, many subtle
+fluctuations can be found in the figures of Fig. 2 (a). Third, during
+training, each parameter of RPB is trained independently, ignoring
+the relative relationship between the weights of different positions.
+Fourth, RPB fails to clearly reflect intuition: For reconstructing an
+image, near pixels tend to be more important than far pixels. Motivated by this, we designed an Exponential-Space Relative Position
+Bias (ES-RPB) to replace RPB.
+First and foremost, to solve the RQ1, we propose a grouping
+scheme for the QKV linear layer. Furthermore, to solve the RQ2 and
+compensate for performance loss from the grouping scheme, we add
+residuals for the QKV linear layer. Lastly, to solve RQ3, we propose
+
+9379
+
+• We propose a novel Grouped Residual Self-Attention (GRSA) for
+lightweight image super-resolution, which can not only reduces
+the parameter count but also enhances the performance in an
+easy-to-understand way for SR tasks. In addition, our proposed
+GRSA module can seamlessly replace the self-attention module
+and its variants in other transformer-based SR models, simultaneously reducing the number of parameter by about 60% and the
+number of MACs by about 49% in only self-attention module.
+• Based on GRSA, we construct a novel transformer-based SR
+network, termed GRFormer. Our GRFormer achieves state-ofthe-art performance in lightweight image SR, and outperforms
+previous lightweight SISR networks by a large margin in most of
+the five benchmark datasets.
+
+2 Related Works
+2.1 CNN-Based Image Super-Resolution
+A lot of CNN-based SR models [1, 9, 13] have emerged since SRCNN
+[4] introduces CNN-based deep learning method for image SR. By
+removing unnecessary modules in conventional residual networks
+and using a new multi-scale deep super-resolution system, EDSR
+[9] achieves significant performance improvement. By implementing a cascading mechanism upon a residual network, CARN [1]
+reduces the amount of computation. To further reduce the amount
+of computation, LatticeNet [13] applies two butterfly structures to
+combine two residual blocks.
+
+2.2
+
+Transformer-based Image Super-Resolution
+
+Since Swin Transformer [12] introduces hierarchical architecture
+and shifted windowing scheme, the feasibility of transformer application in the field of computer vision has been greatly improved.
+In order to introduce transformer into the field of image superresolution, SwinIR[8] is proposed, which has been baseline model
+for transformer-based SR models. However, for some lightweight
+scenarios, the amount of parameters and calculations in SwinIR is
+still too large and its relative position bias lacks a certain organization.
+
+GRFormer: Grouped Residual Self-Attention for Lightweight Single Image Super-Resolution
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+𝑅𝐻 ×𝑊 ×𝐶𝑖𝑛 , we first use a 3×3 convolution 𝐿𝑆𝐹 to transform the
+low-resolution image 𝐼𝐿𝑅 to shallow feature 𝑋 0 ∈ 𝑅𝐻 ×𝑊 ×𝐶 as
+𝑋 0 = 𝐿𝑆𝐹 (𝐼𝐿𝑅 )
+
+(1)
+
+where 𝐶𝑖𝑛 and C is the channel number of LR input and shallow
+feature. This convolution layer simply converts the input from
+image space into high-dimensional feature space. Then, we use
+N grouped residual self-attention block groups 𝐿𝐺𝑅𝑆𝐴𝐵𝐺 and a
+3×3 convolution layer 𝐿𝑐𝑜𝑛𝑣 at the end to extract the deep feature
+𝐼𝐷𝐹 ∈ 𝑅𝐻 ×𝑊 ×𝐶 . The process can be expressed as
+
+(a)
+
+𝑋𝑖 = 𝐿𝐺𝑅𝑆𝐴𝐵𝐺𝑖 (𝑋𝑖 −1 ),
+𝐼𝐷𝐹 = 𝐿𝑐𝑜𝑛𝑣 (𝑋 𝑁 ) + 𝑋 0
+
+(2)
+
+In GRSAB Group, given 𝑋𝑖 as input, we use M grouped residual selfattention block 𝐿𝐺𝑅𝑆𝐴𝐵 to get 𝑋𝑖,𝑀 . Then we use a 3×3 convolution
+layer 𝐿𝑐𝑜𝑛𝑣 to get 𝑋𝑖+1 . The process can be expressed as
+𝑋𝑖,0 = 𝑋𝑖 ,
+𝑋𝑖,𝑗 = 𝐿𝐺𝑅𝑆𝐴𝐵 𝑗 (𝑋𝑖,𝑗 −1 ) ,
+
+(b)
+
+Figure 2: Comparison between RPB and ES-RPB. The subfigure (a) and (b) showcase the relative position bias (RPB)
+from the SwinIR model and an GRFomer model where RPB
+are replaced to ES-RPB, respectively. The subfigure at 𝑖𝑡ℎ row
+and 𝑗𝑡ℎ column corresponds to the relative position bias of 𝑖𝑡ℎ
+GRSAB Group and 𝑗𝑡ℎ GRSAB in the network. These figures
+specifically highlight the horizontal evolution of the relative
+position bias values. The x-axis extends from 0 to 62, while
+the y-axis corresponds to the data taken at the 7th point on
+the x-axis from an RPB matrix of size 15×63.
+
+2.3
+
+(3)
+
+𝑋𝑖+1 = 𝐿𝑐𝑜𝑛𝑣 (𝑋𝑖,𝑀 ) + 𝑋𝑖,𝑀
+Finally, we use a 3×3 convolution layer 𝐿𝑐𝑜𝑛𝑣 to get better feature
+aggregation, and aggregate shallow and deep features to reconstruct
+HR image 𝐼𝐻𝑅 ∈ 𝑅𝐻 ×𝑊 ×𝐶𝑜𝑢𝑡 as
+𝐼𝐻𝑅 = 𝐿𝑠ℎ𝑢 𝑓 𝑓 𝑙𝑒 (𝐿𝑐𝑜𝑛𝑣 (𝐼𝐷𝐹 ) + 𝐼𝑆𝐹 ),
+
+(4)
+
+where 𝐶𝑜𝑢𝑡 is the channel number of the high-resolution image
+and 𝐿𝑠ℎ𝑢 𝑓 𝑓 𝑙𝑒 is a PixelShuffle [14] module.
+
+3.2
+
+Grouped Residual Self-Attention Block
+
+The Grouped Residual Self-Attention Block (GRSAB) mainly consists of two core components: Grouped Residual Self-Attention
+(GRSA), Feed Forward Network module (FFN). Given the input of
+GRSAB as 𝐼𝑖𝑛 ∈ 𝑅𝐻 ×𝑊 ×𝐶 , we first use a grouped residual selfattention module 𝐿𝐺𝑅𝑆𝐴 to learn the global relationships of pixels
+in a window. After 𝐿𝐺𝑅𝑆𝐴 , we use a LayerNorm module to normalize the feature, because the normalized features can eliminate
+gradient vanishing and make the training stable. The process can
+be expressed as
+
+Relative position bias
+
+When self-attention is proposed to solve problems in the field of
+natural language processing (NLP), absolute position embedding
+is designed to supplement position information of words in text.
+After self-attention is applied into image super-resolution, relative
+position bias enjoys more popularity than the absolute position
+embedding, because relative position bias can provide the relative
+position information, which is intrinsically more suitable for image
+super-resolution. However, there are some problems concerning relative position bias that cannot be ignored, such as parameter redundancy, weak ability to resist interference during training and so on.
+Afterwards, in order to tackle resolution gaps between pre-training
+of large vision models, SwinIR-v2 [11] proposes a log-spaced continuous position bias method to effectively transfer large-scale models
+pre-trained using low-resolution images to downstream tasks with
+high-resolution inputs. Although the log-spaced continuous position bias is designed to solve the problem of resolution difference
+of pre-trained large-scale models, it is very inspiring for the design
+of relative position bias of transformer-based SR models.
+
+𝐼𝐺𝑅𝑆𝐴 = 𝑁𝑜𝑟𝑚(𝐿𝐺𝑅𝑆𝐴 (𝐼𝑖𝑛 )) + 𝐼𝑖𝑛
+
+(5)
+
+where 𝐼𝐺𝑅𝑆𝐴 is the ouput of GRSA module. Then we use a feed
+forward network to transform the 𝐼𝐺𝑅𝑆𝐴 to another feature space
+and a LayerNorm module to normalize the feature as
+𝐼𝑜𝑢𝑡 = 𝑁𝑜𝑟𝑚(𝐿𝐹 𝐹 𝑁 (𝐼𝐺𝑅𝑆𝐴 )) + 𝐼𝐺𝑅𝑆𝐴
+
+3.3
+
+(6)
+
+Grouped Residual Self-Attention
+
+To reduce the number of parameters as well as calculations and
+enhance the performance, we introduce the Grouped Residual SelfAttention (GRSA), which incorporates two novel and compact components: grouped residual layer (GRL) and exponential-space relative position (ES-RPB). GRL consists of two parts: residuals for
+QKV linear layer to transform the feature space of self-attention
+from the linear space to residual space, grouping scheme for QKV
+linear layer to reduce the parameters and calculations. By reducing
+the noise interference during training and making self-attention
+sensitive to pixel distance, ES-RPB improves the expression ability
+of position information. The proposed GRSA aggregates features
+
+3 Method
+3.1 Overall Architecture
+The overall architecture of our GRFormer is shown in Fig. 3, consisting of three parts: shallow feature extraction, deep feature
+extraction, and image reconstruction. Given the LR input 𝐼𝐿𝑅 ∈
+
+9380
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+P
+
+S
+
+Permutation
+
+Matrix
+Multiplication
+
+Softmax
+
+Scalar
+Multiplication
+
+Shallow Feature
+Extraction
+
+GRSAB Group
+
+GIRSAB
+
+...
+
+...
+
+xM
+
+xN
+
+xM
+
+3x3
+
+GIRSAB
+
+GIRSAB
+
+3x3
+
+Scale
+Factor
+
+Scale
+
+R
+
+ES-RPB
+
+BNxC
+
+Normalize
+
+GRL
+
+Scale
+
+Grouped Residual Self-Attention
+(GRSA)
+
+exp
+
+Q
+
+Cat
+
+3x3
+
+Grouped Residual
+Self-Attention Block
+(GRSAB)
+
+GRSA
+
+Chunk
+
+GRSAB Group
+
+...
+GIRSAB
+
+Element-wise
+Addition
+
+Image
+Reconstruction
+
+Reshape
+
+1x1
+
+MLP
+
+R
+
+Yuzhen Li, Zehang Deng, Yuxin Cao, and Lihua Liu
+
+x
+
+y
+
+BNxBN
+
+P
+
+S
+
+BNxC/2
+
+CxBN
+
+Linear
+
+R
+
+K
+
+Normalize
+
+BxNxC
+
+GRL
+
+Norm
+
+BNxBN
+
+Norm
+
+R
+
+BxNxC
+
+BNxC
+
+V
+
+BNxC/2
+
+Linear
+
+BxNxC/2
+
+R
+
+Grouped Residual Layer(GRL)
+
+BxNxC/2
+
+BxNxC
+
+Linear
+
+GRL
+
+FFN
+
+BxNxC
+
+Linear
+
+BxNxC/2
+
+BxNxC/2
+
+Figure 3: Network architecture of the proposed GRFormer. It mainly consists of a shallow feature extraction module, several
+grouped residual self-attention block groups (GRSAB Group) to learn deep feature mapping in an efficient and effective way,
+and a high-resolution image reconstruction module.
+of pixels globally in the window. Specifically, given input of GRSA
+as X ∈ 𝑅𝐻 ×𝑊 ×𝐶 , we uses 𝐿𝐺𝑅𝐿𝑄 , 𝐿𝐺𝑅𝐿𝐾 , 𝐿𝐺𝑅𝐿𝑉 to get Q, K, V.
+
+of reducing the amount of parameters and calculations and basically
+maintaining the feature learning ability. By integrating concepts
+of grouping and residuals into the self-attention mechanism, we
+enhance its structural efficiency and functional effectiveness.
+
+𝑄 = 𝐿𝐺𝑅𝐿𝑄 (𝑋 ),
+𝐾 = 𝐿𝐺𝑅𝐿𝐾 (𝑋 ),
+
+(7)
+
+• Grouping scheme of QKV linear layer in self-attention.
+A lot of works, such as [18], show that there is redundancy in
+generation of Q, K, V and matrix product of Q, K. To reduce the
+redundancy, we apply the idea of grouping. Given the input as X,
+we divide X into two equal parts in the channel dimension and
+then use two independent linear layers to get Q, K, V respectively.
+Grouping scheme of Q, K, V will not significantly reduce the
+interaction of pixel features, because the matrix multiplication of
+Q and K in self-attention will offset these shortcomings to some
+extent, which is discussed in section 3.6.
+• Residuals of the Q, K, V linear layers. Residuals allows training to be performed in the residual space, which makes the network find the optimal solution in the residual space. So we add
+it into the QKV linear layer to transform the training space of
+QKV linear layer from linear space to residual space in order to
+enhance the feature learning ability of QKV linear layer.
+
+𝑉 = 𝐿𝐺𝑅𝐿𝑉 (𝑋 )
+where 𝐿𝐺𝑅𝐿𝑄 , 𝐿𝐺𝑅𝐿𝐾 , 𝐿𝐺𝑅𝐿𝑉 are the GRL module corresponding
+to Q, K, V. Then we normalize Q and K and calculate the matrix
+product of Q and K to get the similarity of Q and K. We multiply
+𝑄𝐾𝑇 by a trainable self-attention scaling factor 𝜆, add 𝐵𝐸𝑆 −𝑅𝑃𝐵
+and perform a Softmax operation. Next, we calculate the matrix
+product of the 𝑄𝐾𝑇 after Softmax and V. If multi-head self-attention
+is applied, we will use a grouped linear layer 𝐿𝑝𝑟𝑜 𝑗 as a projection
+at the last to map the multi-head to one head. The formulation can
+be written as:
+GRSA = 𝐿𝑝𝑟𝑜 𝑗 (Softmax(𝜆 · Normalize(Q)
+(8)
+∗ Normalize(K) T + B𝐸𝑆 −𝑅𝑃𝐵 )V)
+
+3.4
+
+Grouped Residual Linear.
+
+Specifically, we assume the input of GRL module is X ∈ 𝑅𝐻 ×𝑊 ×𝐶 .
+We first divide X in channel dimension into two parts 𝑋𝑖𝑛1 , 𝑋𝑖𝑛2 .
+
+As a substitute for the QKV linear layer, the Grouped Residual
+Linear (GRL) is one of the core modules of GRSA, with the objective
+
+9381
+
+GRFormer: Grouped Residual Self-Attention for Lightweight Single Image Super-Resolution
+
+Urban100-img062
+
+(a) HR
+
+(b) EDSR
+
+(c) CARN
+
+(d) LatticeNet
+
+(e) SwinIR
+
+(f) SwinIR-NG
+
+(g) SRFormer
+
+(h) HPINet
+
+(i) Ours
+
+(a) HR
+
+(b) EDSR
+
+(c) CARN
+
+(d) LatticeNet
+
+(e) SwinIR
+
+(f) SwinIR-NG
+
+(g) SRFormer
+
+(h) HPINet
+
+(i) Ours
+
+(a) HR
+
+(b) EDSR
+
+(c) CARN
+
+(d) LatticeNet
+
+(e) SwinIR
+
+(f) SwinIR-NG
+
+(g) SRFormer
+
+(h) HPINet
+
+(i) Ours
+
+where 𝛼 and 𝛽 is trainable distance-sensitive factors to control the
+sensitivity to distances between reference pixel and the others in
+the same window and the symbol * represents the multiplication of
+each position in the matrix. MLP consists of two linear layers and
+an activation layer sandwiched between them.
+
+3.6
+
+• Explanation of the effectiveness of grouping scheme. First,
+we analyse the effectiveness in reduction of parameters and
+MACs. We assume that the number of input features is N. Then,
+both the parameters and the MACs occupied by the linear layer
+are 𝑁 2 . But, if we group the input features into halves and use two
+linear layers with the number of input features of 𝑁2 to process
+the two parts of input features, respectively, both parameters and
+2
+MACs occupied by the two linear layers are only 𝑁2 . Obviously,
+the grouping scheme can halve the number of parameters and
+MACs.
+Second, we analyse the effectiveness analysis in preventing severe performance degradation. A possible concern about the
+grouping scheme is that grouping features will result in a lack of
+aggregation of the two groups of features, leading to performance
+degradation. We will analyze below that, at least for Q, K matrices, this worry is unnecessary. As shown
+ inthe self-attention
+
+Figure 4: Qualitative comparison with recent state-of-the-art
+lightweight image SR methods on the ×4 SR task.
+Then, by using residuals, each uses a linear layer to get 𝑋𝑜𝑢𝑡1 , 𝑋𝑜𝑢𝑡2 .
+Finally, we merge 𝑋𝑜𝑢𝑡1 , 𝑋𝑜𝑢𝑡2 in channel dimension to get the
+output 𝑋𝑜𝑢𝑡 at the last as
+
+𝑄𝐾
+formula: Attention(𝑄, 𝐾, 𝑉 ) = Softmax √
+
+𝑋𝑜𝑢𝑡1 = 𝐿𝐿𝑖𝑛𝑒𝑎𝑟 1 (𝑋𝑖𝑛1 ) + 𝑋𝑖𝑛1 ,
+𝑋𝑜𝑢𝑡 = 𝑋𝑜𝑢𝑡1 , 𝑋𝑜𝑢𝑡2 ,
+
+where 𝐿𝐿𝑖𝑛𝑒𝑎𝑟 1 and 𝐿𝐿𝑖𝑛𝑒𝑎𝑟 2 are linear layers, 𝑋𝑖𝑛1 , 𝑋𝑖𝑛2 , 𝑋𝑜𝑢𝑡1 ,
+𝐶
+
+𝑋𝑜𝑢𝑡2 ∈ 𝑅𝐻 ×𝑊 × 2 .
+
+Exponential-Space Relative Position Bias
+
+To solve the four disadvantages of original RPB mentioned in RQ3,
+we propose the Exponential-Space Relative Position Bias (ES-RPB).
+We design a exponential mapping for original absolute position
+coordinates to forcibly add pixel distance sensitive rules to original
+RPB, which makes it give more weight to nearby pixels. What’s
+more, we use a tiny multilayer perceptron (MLP) to obtain the
+mapping of all absolute position coordinates, which reduces the
+impact of noise during training and makes it easier to be trained.
+Specifically, we transform the abscissa ΔX and the ordinate ΔY in
+absolute position coordinate matrix from linear space to exponential
+space, and then we use a tiny MLP to get 𝐵𝐸𝑆 −𝑅𝑃𝐵
+
+𝑁
+
+𝐶
+
+where 𝑋 11 , 𝑋 12 , 𝑋 21 , 𝑋 22 ∈ 𝑅 2 × 2 . By packing parameter matrices of two grouped linear layers with input features of 𝐶2 into
+one parameter matrix,
+the parameter matrices of
+ we can
+ assume
+
+𝑀𝑄 1 𝑀𝐾1
+Q, K projections as
+,
+respectively, where 𝑀𝑄 1 , 𝑀𝑄 2 ,
+𝑀𝑄 2 𝑀𝐾2
+𝐶
+
+𝐶
+
+𝑀𝐾1 , 𝑀𝐾2 ∈ 𝑅 2 × 2 . Then we can perform matrix product of X
+and the parameter matrices of Q, K projections respectively as
+
+ 
+
+𝑋
+𝑋 12
+𝑀
+𝑄, 𝐾 = 11
+∗ 𝑄 1 ∨𝐾1
+𝑋 21 𝑋 22
+𝑀𝑄 2 ∨𝐾2
+(12)
+
+
+𝑋 ∗ 𝑀𝑄 1 ∨𝐾1 𝑋 12 ∗ 𝑀𝑄 2 ∨𝐾2
+= 11
+,
+𝑋 21 ∗ 𝑀𝑄 1 ∨𝐾1 𝑋 22 ∗ 𝑀𝑄 2 ∨𝐾2
+
+b = 𝑠𝑖𝑔𝑛(Δ𝑋 ) ∗ (1 − exp(−|𝛼 ∗ Δ𝑋 |)),
+Δ𝑋
+Δ𝑌b = 𝑠𝑖𝑔𝑛(Δ𝑌 ) ∗ (1 − exp(−|𝛽 ∗ Δ𝑌 |)),
+
+𝑉 , Q and K matri-
+
+ces are only used to perform matrix product and get 𝑄𝐾𝑇 matrix.
+During the matrix product of Q and K, even if we employ the
+grouping scheme to divide the input features into two groups
+and perform feature aggregation individually, the subsequent
+matrix product of Q and K will deeply aggregate the two groups
+of features. The process can be shown as follows.
+Specifically, given input of self-attention as X ∈ 𝑅 𝑁 ×𝐶 , where N
+is the number of pixels in a window and C is number of input
+features, we cut up X into 2×2 blocks as
+
+
+𝑋 11 𝑋 12
+= 𝑋,
+(11)
+𝑋 21 𝑋 22
+
+(9)
+
+𝑋𝑜𝑢𝑡2 = 𝐿𝐿𝑖𝑛𝑒𝑎𝑟 2 (𝑋𝑖𝑛2 ) + 𝑋𝑖𝑛2 ,
+
+𝑇
+
+𝑑𝑘
+
+𝑋𝑖𝑛1 , 𝑋𝑖𝑛2 = 𝑋,
+
+3.5
+
+Explanation of the effectiveness of GRL
+
+GRL consists of two parts: a grouping scheme and a residual structure. Grouping scheme is proposed to efficiently reduce the parameters and calculations without severe performance degradation,
+and residual structure makes the network find the optimal solution in the residual space, thereby reducing the difficulty of feature
+learning. The explanation is as follows:
+
+Urban100-img028
+
+Urban100-img074
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+(10)
+
+b Δ𝑌b)
+𝐵𝐸𝑆 −𝑅𝑃𝐵 = 𝑀𝐿𝑃 (Δ𝑋,
+
+9382
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Yuzhen Li, Zehang Deng, Yuxin Cao, and Lihua Liu
+
+Table 1: Quantitative evaluations of the lightweight GRFormer against state-of-the-art methods on commonly used benchmark
+datasets. Best and second best results are marked in red and blue colors. #Params means the number of the network parameters.
+#MACs denotes the number of the MACs which are calculated on images with an upscaled spatial resolution of 1280 × 720
+Í5
+pixels. #Weighted-Avg means the weighted average PSNR and SSIM on five benchmark datasets. #Weighted-Avg = 𝑖=1
+𝑀𝑖 ×
+𝑆𝑐𝑜𝑟𝑒𝑖 , where M is the number of images in the dataset and Score is the corresponding PSNR or SSIM score.
+Scale
+
+×2
+
+×3
+
+×4
+
+Method
+EDSR-baseline[9]
+CARN [1]
+LatticeNet [13]
+SwinIR-light [8]
+SwinIR-NG [3]
+DLGSANet-light [7]
+SRFormer-light [18]
+HPINet-M [10]
+GRFormer (Ours)
+EDSR-baseline [9]
+CARN [1]
+LatticeNet [13]
+SwinIR-light [8]
+SwinIR-NG [3]
+DLGSANet-light [7]
+SRFormer-light [18]
+HPINet-M [10]
+GRFormer (Ours)
+EDSR-baseline [9]
+CARN [1]
+LatticeNet [13]
+SwinIR-light [8]
+SwinIR-NG [3]
+DLGSANet-light [7]
+SRFormer-light [18]
+HPINet-M [10]
+GRFormer (Ours)
+
+Year
+CVPRW2017
+ECCV2018
+ECCV2020
+ICCV2021
+CVPR2023
+ICCV2023
+ICCV2023
+AAAI2023
+CVPRW2017
+ECCV2018
+ECCV2020
+ICCV2021
+CVPR2023
+ICCV2023
+ICCV2023
+AAAI2023
+CVPRW2017
+ECCV2018
+ECCV2020
+ICCV2021
+CVPR2023
+ICCV2023
+ICCV2023
+AAAI2023
+-
+
+#Params(/K)
+1370
+1592
+756
+910
+1181
+745
+853
+783
+781
+1555
+1592
+765
+918
+1190
+752
+861
+924
+789
+1518
+1592
+777
+930
+1201
+761
+873
+896
+800
+
+#MACs(/G)
+316.3
+222.8
+169.7
+207.5
+210.7
+169.4
+198.6
+213.1
+198.4
+160.1
+118.6
+76.2
+94.2
+95.67
+75.8
+88.3
+110.6
+93.5
+114.2
+90.88
+43.6
+54.18
+55
+43.2
+53
+81.1
+50.8
+
+Set5
+37.99/0.9604
+37.76/0.9590
+38.15/0.9610
+38.14/0.9611
+38.17/0.9612
+38.20/0.9612
+38.23/0.9613
+38.12/38.22/0.9614
+34.37/0.9270
+34.29/0.9255
+34.53/0.9281
+34.62/0.9289
+34.64/0.9293
+34.70/0.9295
+34.67/0.9296
+34.70/34.67/0.9293
+32.09/0.8938
+32.13/0.8937
+32.30/0.8962
+32.44/0.8976
+32.44/0.8980
+32.54/0.8993
+32.51/0.8988
+32.60/32.58/0.8994
+
+where ∨ represents the logical symbol "or". Then, we perform
+the matrix product of Q and K as follows:
+
+
+𝑂
+𝑂 12
+,
+(13)
+𝑄𝐾𝑇 = 11
+𝑂 21 𝑂 22
+
+Urban100
+31.98/0.9272
+31.92/0.9256
+32.43/0.9302
+32.76/0.9340
+32.78/0.9340
+32.94/0.9355
+32.91/0.9353
+32.85/33.17/0.9375
+28.15/0.8527
+28.06/0.8493
+28.33/0.8538
+28.66/0.8624
+28.75/0.8639
+28.83/0.8653
+28.81/0.8655
+28.93/29.07/0.8702
+26.04/0.7849
+26.07/0.7837
+26.25/0.7873
+26.47/0.7980
+26.61/0.8010
+26.66/0.8033
+26.67/0.8032
+26.71/26.90/0.8097
+
+Manga109
+38.54/0.9769
+38.36/0.9765
+-/39.12/0.9783
+39.20/0.9781
+39.29/0.9780
+39.28/0.9785
+39.08/39.30/0.9785
+33.45/0.9439
+33.50/0.9440
+-/33.98/0.9478
+34.22/0.9488
+34.16/0.9483
+34.19/0.9489
+34.21/34.35/0.9494
+30.35/0.9067
+30.47/0.9084
+-/30.92/0.9151
+31.09/0.9161
+31.13/0.9161
+31.17/0.9165
+31.19/31.31/0.9183
+
+#Weighted-Avg
+34.37/0.9353
+34.27/0.9342
+-/34.87/0.9386
+34.90/0.9385
+34.98/0.9389
+34.98/0.9393
+34.88/35.07/0.9399
+30.38/0.8692
+30.36/0.8676
+-/30.76/0.8746
+30.89/0.8757
+30.89/0.8759
+30.90/0.8764
+30.95/31.04/0.8781
+28.14/0.8119
+28.19/0.8118
+-/28.51/0.8204
+28.62/0.8221
+28.65/0.8227
+28.67/0.8230
+28.69/28.80/0.8260
+
+3.7
+
+Explanation of the effectiveness of ES-RPB
+
+We mainly analyze the effectiveness of ES-RPB from the perspective
+of parameter reduction and performance improvement for ES-RPB.
+
+𝑂 11 = 𝑋 11 𝑀𝑄 1 𝑀𝐾1 𝑇 𝑋 11𝑇 + 𝑋 12 𝑀𝑄 2 𝑀𝐾2 𝑇 𝑋 12𝑇 ,
+𝑂 21 = 𝑋 21 𝑀𝑄 1 𝑀𝐾1 𝑇 𝑋 11𝑇 + 𝑋 22 𝑀𝑄 2 𝑀𝐾2 𝑇 𝑋 12𝑇 ,
+
+B100
+32.16/0.8994
+32.09/0.8978
+32.25/0.9005
+32.31/0.9012
+32.31/0.9013
+32.30/0.9012
+32.36/0.9019
+32.31/32.35/0.9018
+29.09/0.8052
+29.06/0.8034
+29.15/0.8059
+29.20/0.8082
+29.24/0.8090
+29.24/0.8089
+29.26/0.8099
+29.26/29.27/0.8100
+27.57/0.7357
+27.58/0.7349
+27.62/0.7367
+27.69/0.7406
+27.73/0.7418
+27.73/0.7415
+27.73/0.7422
+27.73/27.75/0.7431
+
+layer from linear space to residual space, enhancing the feature
+learning ability of QKV linear layer.
+
+then, each element in matrix of 𝑄𝐾𝑇 is calculated:
+
+𝑂 12 = 𝑋 11 𝑀𝑄 1 𝑀𝐾1 𝑇 𝑋 21𝑇 + 𝑋 12 𝑀𝑄 2 𝑀𝐾2 𝑇 𝑋 22𝑇 ,
+
+Set14
+33.57/0.9175
+33.52/0.9166
+33.78/0.9193
+33.86/0.9206
+33.94/0.9205
+33.89/0.9203
+33.94/0.9209
+33.94/34.01/0.9214
+30.28/0.8417
+30.29/0.8407
+30.39/0.8424
+30.54/0.8463
+30.58/0.8471
+30.58/0.8465
+30.57/0.8469
+30.63/30.64/0.8481
+28.58/0.7813
+28.60/0.7806
+28.68/0.7830
+28.77/0.7858
+28.83/0.7870
+28.84/0.7871
+28.82/0.7872
+28.87/28.88/0.7886
+
+• Explanation of parameter reduction for ES-RPB. We assume
+that the size of the window of self-attention is W×H and the selfattention head is 1. The number of parameters occupied by the
+original RPB is (2×W-1)×(2×H-1). Specifically, the window size
+is usually set to 16×16, so the parameter count is 961 in this
+case. In contrast, if we suppose that the number of features of
+the hidden layer in MLP is 𝐶ℎ𝑖𝑑𝑑𝑒𝑛 , the amount of parameters
+occupied by ES-RPB is 3𝐶ℎ𝑖𝑑𝑑𝑒𝑛 . Specifically, 𝐶ℎ𝑖𝑑𝑑𝑒𝑛 is set to
+128 in our GRFormer, so the number of parameters occupied by
+ES-RPB in GRFormer is 384, which is much less than 961. What
+has to be noted is that, when the height and width of window
+grow simultaneously at a linear rate, the parameters occupied by
+original RPB will grow squarely, while the parameters occupied
+by ES-RPB will not grow.
+• Explanation of performance improvement for ES-RPB. The
+ES-RPB mechanism within GRFormer improves performance
+through three key strategies. Firstly, instead of training positional
+parameters directly, which can be noise-sensitive, we utilize a
+tiny MLP to get the 𝐵𝐸𝑆 −𝑅𝑃𝐵 . This approach minimizes the noise
+impact on positional parameters during training. Secondly, the
+mechanism enhances interaction of parameters representing relative position information by training them through this tiny MLP
+
+(14)
+
+𝑂 22 = 𝑋 21 𝑀𝑄 1 𝑀𝐾1 𝑇 𝑋 21𝑇 + 𝑋 22 𝑀𝑄 2 𝑀𝐾2 𝑇 𝑋 22𝑇
+It can be seen from Equation 14, in the matrix product of Q and
+K of the self-attention mechanism, both 𝑋 11 and 𝑋 12 are used to
+perform a series of matrix products to get 𝑂 11 , 𝑂 12 , and so do 𝑋 21
+and 𝑋 22 to get 𝑂 21 , 𝑂 22 , which aggregates two groups of features.
+Therefore, the matrix product of Q and K will offset the weak
+aggregation of input features brought by the use of grouping
+scheme. In other words, our grouping scheme won’t lead to lack
+of aggregation of the two groups of features and thereby won’t
+lead to severe performance degradation.
+• Explanation of the effectiveness of residual structure for
+the QKV linear layer. As shown in Formula 8, self-attention
+involves multiple matrix products, which makes it difficult for
+the network to learn the optimal parameters. Given the input
+b 𝐾,
+b 𝑉b, if we
+of self-attention as X and the optimal Q, K, V as 𝑄,
+add the residual structure for QKV linear layer, the network only
+b
+b - X, 𝑉b - X instead of 𝑄,
+b 𝐾,
+b 𝑉b. The
+needs to optimize 𝑄-X,
+𝐾
+residual structure transforms the learning space of QKV linear
+
+9383
+
+GRFormer: Grouped Residual Self-Attention for Lightweight Single Image Super-Resolution
+
+rather than in isolation. Thirdly, ES-RPB introduces a distancesensitive design. It employs an exponential function to map the
+absolute positional coordinates (Δ𝑋, Δ𝑌 ) from linear space to
+b and Δ𝑌b. This transformation
+exponential space, resulting in Δ𝑋
+ensures that positions closer to the reference pixel exhibit more
+significant changes, aligning with the principle that nearer pixels
+should attract more attention.
+
+4
+
+Experiments
+
+In this section, we conduct experiments on the lightweight image
+SR tasks, compare our GRFormer with existing state-of-the-art
+methods, and do ablation analysis of the proposed method.
+
+4.1
+
+Experimental Setup
+
+Datasets and Evaluation. For training, we use DIV2K (Agustsson
+and Timofte 2017), the same as the comparison models, to train our
+GRFormer. It includes 800 training images and 100 validation images, mainly concerning human, animals, plants, buildings, etc. For
+testing, we use five public SR benchmark datasets: Set5 (Bevilacqua
+et al. 2012), Set14 (Zeyde, Elad, and Protter 2010), B100 (Martin et
+al. 2001), Urban100 (Huang, Singh, and Ahuja 2015) and Manga109
+(Matsui et al. 2017) to evaluate model. The experimental results are
+evaluated in terms of two objective criteria: peak signal-to-noise
+ratio (PSNR) and structural similarity index (SSIM), which are both
+calculated on the Y channel from the YCbCr space.
+Implementation Details. We set the GRSAB Group number, GRSAB
+number of a GRSAB Group, feature number, and attention head
+number, window size to 4, 6, 60, 3, 8×32, respectively. The training
+low-resolution patch size we use is 64×64. When training, we randomly rotate the images by 0◦ , 90◦ , 180◦ , 270◦ and randomly flip
+images horizontally for data augmentation. We adopt the Adam
+optimizer with 𝛽 1 = 0.9 and 𝛽 2 = 0.99 to train the model for 600k
+iterations. The learning rate is initialized as 2 × 10 −4 and halves
+on {250000, 400000, 510000, 540000}-th iterations. We use L1 loss to
+train the model. The whole process is implemented by Pytorch on
+NVIDIA GeForce RTX 3080 GPUs.
+
+4.2
+
+Comparisons with State-of-the-arts
+
+We compare our GRFormer with commonly used lightweight SR
+models for upscaling factor ×2, ×3, ×4, including EDSR [9], CARN[1],
+LatticeNet[13], SwinIR[8], SwinIR-NG[3], HPINet[10], DLGSANet[7],
+SRFormer[18]. We compare the parameters, calculations as well
+as performance on five commonly used SR benchmark datasets
+(Set5, Set14, B100, Urban100, Manga109). The comparison results
+are grouped for ×2, ×3, ×4 upscaling factor.
+Quantitative Comparison Table 1 shows quantitative comparisons in terms of PSNR and SSIM on five benchmark datasets. As
+shown in Table 1, our GRFormer achieves the best PSNR score and
+SSIM score for ×2, ×3, ×4 task on Set14, Urban100, Manga109 and
+weighted average of the five benchmark datasets, and the PSNR
+score and SSIM score achieved by our GRFormer is either quite close
+or superior to that of SOTA model on Set5 and B100. What’s more,
+GRFormer outperforms SOTA model on Urban100 and Manga109
+by a large margin. It is worth noting that, our GRFormer outperforms SwinIR-light by a maximum PSNR of 0.42dB and SOTA by a
+maximum PSNR of 0.23dB, which is a significant improvement for
+
+9384
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+image SR. Furthermore, our GRFormer outperforms SOTA model by
+about 0.1dB on the weighted average of the five benchmark datasets
+for ×2, ×3, ×4 task. Although our GRFormer achieves great performance, the parameters and MACs of GRFormer is relatively low.
+As shown in Fig. 1 (a), compared with the self-attention of other
+transformer-based SR models, our GRSA has the smallest number
+of parameters and calculations.
+Qualitative Comparison We further show visual examples of
+common used methods under scaling factor ×4. As shown in Fig.4,
+we use three images reconstructed by EDSR, CARN, LatticeNet,
+SwinIR, SwinIR-NG, SRFormer, HPINet and GRFormer to make
+qualitative comparisons.
+We qualitatively compare models on Urban100-img062, img028,
+and img074. For img062, EDSR, CARN, LatticeNet, SwinIR, SwinIRNG, and SRFormer show severe texture and color distortions, especially in the lower right corner, while GRFormer has the smallest
+distortion and closest color to HR. For img028, models like EDSR,
+CARN, LatticeNet, and SRFormer exhibit significant blurring and
+deformation, whereas GRFormer achieves the best reconstruction.
+For img074, only GRFormer accurately reconstructs the clear window frame direction without distortion, highlighting its superior
+detail preservation.
+
+4.3
+
+Ablation Analysis
+
+We conduct ablation experiments to study the effect of Grouped
+Residual Layer (GRL) and Exponential-Space Relative Position Bias
+(ES-RPB). Ablation experiments are trained on DF2K and evaluated
+on the Set5, Set14, B100, Urban100, Manga109 datasets. PSNR and
+SSIM are adopted to evaluate the perceptual quality of recovered
+images. We also adopt parameters and MACs on images with an
+upscaled spatial resolution of 1280 × 720 pixels to evaluate the
+complexity. The results are shown in Table 2.
+1 achieves
+Effectiveness of GRL As shown in Table 2, model ○
+a 47% reduction in #SA-Params, a 17% reduction in #Params, a 43%
+reduction in #SA-MACs, and a 17% reduction in #MACs compared to
+3 primarily due to optimizations in self-attention. Despite
+model ○,
+these reductions, GRL maintains performance, demonstrating its
+4 and ○
+5 reveal:
+effectiveness. Further experiments with models ○
+1 significantly reduces
+• Effectiveness of grouping scheme. Model ○
+4 with minor
+parameters and computations compared to model ○,
+performance degradation mitigated by the residual structure in
+the QKV layer.
+4 retaining the same
+• Effectiveness of residual structure. Model ○,
+3 significantly improves performance,
+parameters as model ○,
+especially on Urban100 and Manga109, by 0.07dB and 0.08dB,
+respectively.
+Effectiveness of ES-RPB The core feature of ES-RPB is the
+ability to represent the pixel position information. To highlight
+the contribution of our ES-RPB, we replace the ES-RPB of model
+1 with RPB in SwinIR to get model ○.
+2 As shown in Table 2,
+○
+2 model ○
+1 improves the performance on
+compared with model ○,
+1
+five benchmark datasets in a large margin. Specifically, model ○
+2 on Urban100 by 0.44dB PSNR score, which
+outperforms model ○
+is a notable boost in lightweight image super-resolution. To further
+understand the reason of improvement brought by ES-RPB, we
+1 and
+draw the three dimensional view of both ES-RPB in model ○
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+Yuzhen Li, Zehang Deng, Yuxin Cao, and Lihua Liu
+
+Table 2: Effect of the GRFormer on SISR. #SA-Params and #SA-MACs mean the parameters and MACs in our GRSA respectively.
+#Params and #MACs mean the parameters and MACs in our GRFormer. The ablation experiments are trained on DF2K for ×4
+SR task and tested on benchmark datasets (Set5, Set14, B100, Urban100, Manga109) to get PSNR and SSIM.
+Method
+1
+○
+2
+○
+3
+○
+4
+○
+5
+○
+6
+○
+
+Group
+✓
+✓
+
+GRL
+Residuals
+✓
+✓
+
+ES-RPB
+
+#SA-Params
+
+#Params
+
+#SA-MACs
+
+#MACs
+
+Set5
+
+Set14
+
+B100
+
+Urban100
+
+Manga109
+
+✓
+
+8.2K
+10.3K
+15.4K
+15.4K
+8.2K
+20.4K
+
+810K
+850K
+973K
+973K
+810K
+1023K
+
+39.5M
+38.9M
+69M
+69M
+39.5M
+77.8M
+
+50.8G
+50.8G
+61.4G
+61.4G
+50.8G
+64.8G
+
+32.59/0.8999
+32.46/0.8980
+32.60/0.9000
+32.63/0.9002
+32.58/0.8996
+32.53/0.8988
+
+28.92/0.7890
+28.81/0.7865
+28.93/0.7892
+28.95/0.7897
+28.91/0.7888
+28.85/0.7874 2
+
+27.77/0.7435
+27.72/0.7414
+27.77/0.7437
+27.78/0.7441
+27.76/0.7434
+27.74/0.7424
+
+26.97/0.8110
+26.53/0.7998
+27.00/0.8118
+27.07/0.8139
+26.97/0.8116
+26.64/0.8030
+
+31.47/0.9195
+31.07/0.9150
+31.48/0.9197
+31.56/0.9206
+31.43/0.9191
+31.17/0.9165
+
+✓
+✓
+✓
+
+✓
+✓
+
+Table 3: Quantitative evaluations for ×4 task. GRFormer-8×32, GRFormer-16×16 means GRFormer that uses window size of
+8×32, 16×16 respectively.
+Method
+GRFormer-8 × 32
+GRFormer-16 × 16
+
+#Params(/K)
+800
+800
+
+#MACs(/G)
+50.8
+50.8
+
+Set5
+32.58/0.8994
+32.53/0.8994
+
+Set14
+28.88/0.7886
+28.89/0.7883
+
+Table 4: Classical SR model comparisons (×4 SR). We report
+PSNR on Urban100 and Manga109. All models are trained on
+DF2K training set.
+Method
+SwinIR
+SRFormer
+GRFormer
+
+window size
+8×8
+16 × 16
+16 × 16
+
+#Params(/M)
+11.9
+10.52
+9.5
+
+#MACs(/G)
+747
+683
+641
+
+Urban100
+27.45
+27.53
+27.7
+
+×2
+183
+248
+205
+
+×3
+125
+185
+167
+
+Manga109
+32.03
+32.07
+32.16
+
+7
+
+×4
+109
+160
+142
+
+8
+
+#Weighted-Avg
+28.80/0.8260
+28.81/0.8262
+
+Running time
+
+Conclusion
+
+In this paper, we propose GRSA, an efficient self-attention mechanism composed of two components: GRL, which significantly
+reduces parameters and calculations, and ES-RPB, which efficiently
+and effectively represents distance-sensitive relative position information. The GRL module employs a grouping scheme to minimize
+redundancy in parameters and calculations with minimal performance loss and uses a residual structure to enhance feature learning
+for the QKV linear layer. Based on GRSA, we introduce GRFormer,
+a simple yet effective model for lightweight single image superresolution. GRFormer leverages GRL and ES-RPB to significantly
+reduce parameters and MACs while enhancing PSNR and SSIM performance. Experimental results demonstrate GRFormer’s superior
+performance over previous state-of-the-art lightweight SR models on benchmark datasets, particularly Urban100 and Manga109.
+We hope GRSA will be a valuable tool for future SR model design
+research.
+
+Comparison of window size
+
+As shown in Table 3, GRFormer-8 × 32 outperforms GRFormer16 × 16 by 0.05dB in Set5, while GRFormer-16×16 outperforms
+GRFormer-8×32 by 0.03dB in Manga109. Additionally, compared
+with Table 1, our GRFormer-16×16 still achieves state-of-the-art
+results. Therefore, the choice between window sizes 8×32 and 16×16
+does not significantly impact the model’s overall performance.
+
+6
+
+Manga109
+31.31/0.9183
+31.34/0.9187
+
+As shown in Table 5, the running times for the SwinIR-light, SwinIRNG, and GRFormer-light methods are 109 ms, 160 ms, and 142 ms,
+respectively, for the ×4 task. These times were measured using
+images with an upscaled spatial resolution of 256×256 pixels on
+NVIDIA GeForce RTX 3080 GPUs. Although GRFormer-light exhibits a slightly higher running time compared to SwinIR-light, it
+still offers a competitive performance with significantly lower running times than SwinIR-NG. Furthermore, GRFormer-light strikes a
+balance between efficiency and effectiveness, ensuring satisfactory
+performance while maintaining manageable computation times,
+thus making it a viable option for practical applications where both
+speed and quality are critical.
+
+2 As shown in Fig.2, we can see that, the curve
+RPB in model ○.
+1 is roughly similar to that of RPB in model
+of ES-RPB in model ○
+2 because both ES-RPB and RPB represent the relative position
+○,
+information. As shown in Fig.2, after comparing the curves of RPB
+and ES-RPB, we can find two differences: First, minor fluctuations
+on the curve of ES-RPB are much less than that of RPB, which
+means that most of noise interference is removed. Secondly, we can
+see from the curve of RPB that RPB is overfitted, which will lead
+to poor generalization ability. In contrast, our ES-RPB use simpler
+structure to improve generalization ability. It means that RPB learns
+a lot of content that is not universally applicable, which affects its
+generalization ability to represent relative position information.
+
+5
+
+Urban100
+26.90/0.8097
+26.92/0.8102
+
+models. As shown in Table 4, for ×4 task, our GRFormer outperforms SwinIR by 0.25dB and outperforms SRFormer by 0.17dB in
+Urban100. Therefore, our GRFormer still still outperforms the stateof-the-art Transformer-based methods in classical Image SuperResolution.
+
+Table 5: Evaluations of running time (/ms) on NVIDIA
+GeForce RTX 3080 GPUs.
+Method
+SwinIR-light
+SwinIR-NG
+GRFormer-light
+
+B100
+27.75/0.7431
+27.75/0.7431
+
+Classical Image Super-Resolution
+
+For the classical image SR task, we compare our GRFormer with
+two state-of-the-art Transformer-based methods: SwinIR, and SRFormer. Our GRFormer, SRFormer, and SwinIR are all 10M-scale
+
+9385
+
+GRFormer: Grouped Residual Self-Attention for Lightweight Single Image Super-Resolution
+
+References
+
+MM ’24, October 28-November 1, 2024, Melbourne, VIC, Australia
+
+of the AAAI Conference on Artificial Intelligence, Vol. 37. 1666–1674.
+[11] Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia Ning,
+Yue Cao, Zheng Zhang, Li Dong, et al. 2022. Swin transformer v2: Scaling up
+capacity and resolution. In Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition. 12009–12019.
+[12] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin,
+and Baining Guo. 2021. Swin transformer: Hierarchical vision transformer using shifted windows. In Proceedings of the IEEE/CVF international conference on
+computer vision. 10012–10022.
+[13] Xiaotong Luo, Yuan Xie, Yulun Zhang, Yanyun Qu, Cuihua Li, and Yun Fu. 2020.
+Latticenet: Towards lightweight image super-resolution with lattice block. In
+Computer Vision–ECCV 2020: 16th European Conference, Glasgow, UK, August
+23–28, 2020, Proceedings, Part XXII 16. Springer, 272–289.
+[14] Wenzhe Shi, Jose Caballero, Ferenc Huszár, Johannes Totz, Andrew P Aitken,
+Rob Bishop, Daniel Rueckert, and Zehan Wang. 2016. Real-time single image and
+video super-resolution using an efficient sub-pixel convolutional neural network.
+In Proceedings of the IEEE conference on computer vision and pattern recognition.
+1874–1883.
+[15] Radu Timofte, Eirikur Agustsson, Luc Van Gool, Ming-Hsuan Yang, and Lei
+Zhang. 2017. Ntire 2017 challenge on single image super-resolution: Methods
+and results. In Proceedings of the IEEE conference on computer vision and pattern
+recognition workshops. 114–125.
+[16] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
+Aidan N Gomez, Ł ukasz Kaiser, and Illia Polosukhin. 2017. Attention is All
+you Need. In Advances in Neural Information Processing Systems, I. Guyon, U. Von
+Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett (Eds.),
+Vol. 30. Curran Associates, Inc. https://proceedings.neurips.cc/paper_files/paper/
+2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf
+[17] Xindong Zhang, Hui Zeng, Shi Guo, and Lei Zhang. 2022. Efficient long-range
+attention network for image super-resolution. In European conference on computer
+vision. Springer, 649–667.
+[18] Yupeng Zhou, Zhen Li, Chun-Le Guo, Song Bai, Ming-Ming Cheng, and Qibin
+Hou. 2023. Srformer: Permuted self-attention for single image super-resolution.
+In Proceedings of the IEEE/CVF International Conference on Computer Vision. 12780–
+12791.
+
+[1] Namhyuk Ahn, Byungkon Kang, and Kyung-Ah Sohn. 2018. Fast, accurate, and
+lightweight super-resolution with cascading residual network. In Proceedings of
+the European conference on computer vision (ECCV). 252–268.
+[2] Yuchen Bian, Jiaji Huang, Xingyu Cai, Jiahong Yuan, and Kenneth Church. 2021.
+On attention redundancy: A comprehensive study. In Proceedings of the 2021
+conference of the north american chapter of the association for computational
+linguistics: human language technologies. 930–945.
+[3] Haram Choi, Jeongmin Lee, and Jihoon Yang. 2023. N-gram in swin transformers
+for efficient lightweight image super-resolution. In Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition. 2071–2081.
+[4] Chao Dong, Chen Change Loy, Kaiming He, and Xiaoou Tang. 2014. Learning
+a deep convolutional network for image super-resolution. In Computer Vision–
+ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014,
+Proceedings, Part IV 13. Springer, 184–199.
+[5] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep Residual
+Learning for Image Recognition. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR).
+[6] Jia-Bin Huang, Abhishek Singh, and Narendra Ahuja. 2015. Single Image SuperResolution From Transformed Self-Exemplars. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR).
+[7] Xiang Li, Jiangxin Dong, Jinhui Tang, and Jinshan Pan. 2023. DLGSANet:
+lightweight dynamic local and global self-attention networks for image superresolution. In Proceedings of the IEEE/CVF International Conference on Computer
+Vision. 12792–12801.
+[8] Jingyun Liang, Jiezhang Cao, Guolei Sun, Kai Zhang, Luc Van Gool, and Radu
+Timofte. 2021. Swinir: Image restoration using swin transformer. In Proceedings
+of the IEEE/CVF international conference on computer vision. 1833–1844.
+[9] Bee Lim, Sanghyun Son, Heewon Kim, Seungjun Nah, and Kyoung Mu Lee.
+2017. Enhanced deep residual networks for single image super-resolution. In
+Proceedings of the IEEE conference on computer vision and pattern recognition
+workshops. 136–144.
+[10] Jie Liu, Chao Chen, Jie Tang, and Gangshan Wu. 2023. From coarse to fine: Hierarchical pixel integration for lightweight image super-resolution. In Proceedings
+
+9386
+
+

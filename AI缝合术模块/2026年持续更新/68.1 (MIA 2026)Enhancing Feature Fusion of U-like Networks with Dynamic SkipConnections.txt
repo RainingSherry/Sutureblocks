@@ -1,0 +1,1883 @@
+Enhancing Feature Fusion of U-like Networks with Dynamic Skip
+Connections
+Yue Caoa , Quansong Hea , Kaishen Wanga , Jianlong Xionga , Zhang Yia and Tao Hea,∗
+
+arXiv:2509.14610v5 [cs.CV] 4 Mar 2026
+
+a College of Computer Science, Sichuan University, Chengdu, 610065, China
+
+ARTICLE INFO
+
+ABSTRACT
+
+Keywords:
+Test-time training
+Medical image segmentation
+Dynamic convolution
+
+U-like networks have become fundamental frameworks in medical image segmentation through skip
+connections that bridge high-level semantics and low-level spatial details. Despite their success,
+conventional skip connections exhibit two key limitations: inter-feature constraints and intra-feature
+constraints. The inter-feature constraint refers to the static nature of feature fusion in traditional skip
+connections, where information is transmitted along fixed pathways regardless of feature content.
+The intra-feature constraint arises from the insufficient modeling of multi-scale feature interactions,
+thereby hindering the effective aggregation of global contextual information. To overcome these
+limitations, we propose a novel Dynamic Skip Connection (DSC) block that fundamentally enhances
+cross-layer connectivity through adaptive mechanisms. The DSC block integrates two complementary
+components: (1) Test-Time Training (TTT) module: This module addresses the inter-feature constraint
+by enabling dynamic adaptation of hidden representations during inference, facilitating contentaware feature refinement. (2) Dynamic Multi-Scale Kernel (DMSK) module: To mitigate the intrafeature constraint, this module adaptively selects kernel sizes based on global contextual cues,
+enhancing the network’s capacity for multi-scale feature integration. The DSC block is architectureagnostic and can be seamlessly incorporated into existing U-like network structures. Extensive
+experiments demonstrate the plug-and-play effectiveness of the proposed DSC block across CNN-based,
+Transformer-based, hybrid CNN-Transformer, and Mamba-based U-like networks. The code is available
+at https://github.com/BlackJack-Cao/U-like-Networks-with-DSC.
+
+1. Introduction
+Medical image segmentation has emerged as a fundamental task in contemporary healthcare applications. It serves
+as an essential component in clinical diagnosis, preoperative
+planning, and disease monitoring. The proliferation of medical imaging modalities, including computed tomography
+(CT), magnetic resonance imaging (MRI), ultrasound, and
+dermoscopy, has generated unprecedented volumes of highresolution medical data requiring automated analysis. Traditional manual segmentation approaches, while accurate, are
+prohibitively time-consuming and subject to inter-observer
+variability, particularly when dealing with complex anatomical structures or subtle pathological changes. Within this
+domain, the U-Net architecture [1] has garnered significant
+attention due to its sophisticated encoder-decoder framework
+augmented by skip connections, which integrate low-level
+spatial information from the encoder with high-level semantic
+representations from the decoder counterpart.
+Despite the success of U-Net, we identify two fundamental constraints that limit the performance of existing
+architectures. Recent advances have attempted to address
+the static nature of skip connections. For instance, Attention
+U-Net [2] introduces attention gates to selectively weight
+features transmitted through skip pathways. However, the
+attention coefficients in these approaches are computed from
+fixed feature representations learned during training and
+remain static during inference, limiting their adaptability
+to diverse input characteristics. Similarly, while methods
+∗ Corresponding author
+
+caoyue1@stu.scu.edu.cn (Y. Cao); tao_he@scu.edu.cn (T. He)
+
+Yue Cao et al.: Preprint submitted to Elsevier
+
+like UNet++ [3] and UNet3+ [4] propose architectural
+modifications with nested or full-scale skip connections,
+FuseUNet [5] treated skip connections as discrete nodes in
+an initial value problem framework, they fundamentally rely
+on predetermined fusion strategies that cannot dynamically
+adjust based on input-specific content. We define the interfeature constraints as this fundamental limitation: skip connections maintain static transmission pathways that cannot
+dynamically modulate based on input-specific characteristics.
+In medical imaging contexts where anatomical structures and
+pathological lesions exhibit substantial heterogeneity [6, 7, 8],
+such inflexible connection frameworks cannot adaptively
+optimize feature propagation.
+Beyond the static transmission mechanism, another critical limitation exists within individual skip pathways. This
+limitation stems from insufficient modeling of adaptive
+multi-scale feature interactions. Convolutional operations
+in the main processing streams have incorporated multiscale mechanisms. For example, SKNet [9] demonstrates the
+effectiveness of dynamic kernel selection through attention
+guided solely by local statistics from its own parallel branches.
+However, traditional skip connections in U-like networks
+still rely on fixed kernel sizes for feature integration and lack
+comparable input-specific global-guided dynamic multi-scale
+adaptation. Consequently, these fixed-size kernels cannot
+effectively capture features at different scales [10, 11], which
+is particularly problematic given the substantial variation
+in organ sizes and shapes across medical images [6]. We
+define this as the intra-feature constraint, which arises from
+the absence of adaptive multi-scale processing within skip
+pathways themselves.
+Page 1 of 13
+
+To simultaneously address these dual constraints, we
+propose a Dynamic Skip Connection (DSC) block that
+integrates Test-Time Training (TTT) module and Dynamic
+Multi-Scale Kernel (DMSK) module into U-Net architectures.
+Our contributions are summarized as follows:
+• The DSC block serves as a versatile plug-and-play
+module demonstrating seamless integration across
+diverse U-like architectures spanning CNN-based,
+Transformer-based, hybrid CNN-Transformer, and
+Mamba-based networks.
+• Different from existing methods that integrate TTT
+within encoder or decoder components, we pioneer the
+application of TTT to skip connections. We transform
+static pathways into adaptive mechanisms that dynamically modulate internal weights based on input-specific
+characteristics during inference.
+• The DMSK module introduces adaptive kernel size
+selection based on global contextual cues. It effectively
+mitigates intra-feature constraints through dynamic
+multi-scale feature extraction. Meanwhile, it enhances
+feature representation via integrated channel-wise
+attention and spatial information aggregation.
+
+2. Related Work
+2.1. The Development of Skip-connection
+2.1.1. Implicit Skip-Connection Enhancement Methods
+Implicit skip-connection enhancement methods improve
+the overall effectiveness of skip connections by enhancing
+the quality of features generated in the encoder. These
+enhanced features are subsequently transmitted through
+skip pathways. TransUNet [12] enhanced the encoder with
+Transformer-based feature processing. The improved global
+feature representations from the hybrid CNN-Transformer
+encoder provided richer contextual information for subsequent skip connection transmission. SwinUNet [13] improved
+feature representation quality by employing hierarchical shiftwindow attention mechanisms in the encoder which generated
+more discriminative multi-scale features that were subsequently transmitted through skip pathways to the decoder.
+HiFormer [14] combined CNN and Transformer pathways
+in the encoder with cross-scale feature fusion mechanisms.
+The cross-scale feature fusion approach improved the quality
+of features available for skip connection transmission and
+enhanced the overall information flow between encoder and
+decoder components.
+
+2.1.2. Explicit Skip-Connection Modification Methods
+Explicit skip-connection modification methods focus on
+enhancing feature integration by restructuring or augmenting
+the skip pathways themselves. GridNet [15] introduced a
+generalized encoder-decoder framework that utilized gridstructured connections between feature maps to enhance
+feature aggregation at multiple scales. Similarly, U-Net++ [3]
+
+Yue Cao et al.: Preprint submitted to Elsevier
+
+incorporated nested, dense skip pathways that enabled multiscale feature aggregation through densely connected convolutional blocks. UNet3+ [4] employed full-scale skip connections that explicitly aggregated features from all encoder levels at each stage of the decoder. FuseUNet [5] conceptualized
+skip connections as discrete nodes within an initial value problem framework. While implicit methods effectively enhance
+feature quality and explicit methods improve connection
+patterns, both implicit and explicit approaches fundamentally
+rely on static architectures. These architectures have fixed
+transmission pathways and predetermined kernel sizes that
+cannot dynamically adapt to input-specific characteristics
+during inference. This limitation restricts their optimization
+potential for diverse medical imaging scenarios.
+
+2.2. Test-Time Training
+Recent advances in deep learning have introduced
+TTT [16, 17] as an innovative method characterized by
+its linear computational complexity and adaptive dynamic
+parameters during inference. Unlike traditional methods with
+fixed parameters, TTT employs a self-supervised learning
+framework that allows continuous optimization based on test
+data. This enhances the model’s ability to adapt to distribution
+shifts. Current applications of TTT in medical imaging have
+demonstrated its versatility. Zhou et al. [18] proposed TTTUNet, which integrates TTT layers into the encoder of the
+traditional U-Net architecture. Xu [19] introduced Med-TTT,
+a visual backbone network that incorporates TTT layers
+to enable effective modeling of long-range dependencies
+with linear computational complexity. Beyond medical
+imaging, TTT has been successfully applied to sequential data
+processing. Yang, Wang, and Ge [20] developed TTT4Rec
+for sequential recommendation tasks, where TTT layers
+facilitate real-time adaptation to dynamic user behaviors. In
+bioinformatics, Meng et al. [21] proposed scFusionTTT for
+single-cell multi-omics fusion. This approach leverages TTTbased masked autoencoders to handle sequential relationships
+between genes and proteins.
+
+3. Motivation
+Medical image segmentation presents unique challenges
+that motivate test-time adaptation mechanisms. Unlike natural images where object appearances remain relatively
+consistent within categories, medical images demonstrate
+substantial inter-sample heterogeneity even within the same
+anatomical region and imaging modality. Patient-specific
+anatomy, pathological variations, imaging protocol differences, and acquisition artifacts create scenarios where each
+test sample presents characteristics that may significantly
+deviate from the training distribution. For instance, organ
+sizes vary dramatically across patients, tissue contrast differs
+due to disease states, and anatomical boundaries exhibit high
+shape variability [6, 7]. A critical question then arises: why is
+test-time adaptation necessary when simpler attention mechanisms could provide feature weighting? The fundamental
+distinction lies in adaptivity. Attention mechanisms such as
+Attention U-Net [2] compute attention coefficients from static
+Page 2 of 13
+
+Input
+
+Output
+
+𝑙
+𝑥𝑜𝑢𝑡
+
+Sigmoid
+Conv
+AVP
+Sigmoid
+Conv
+
+DSC
+
+2
+𝑥𝑖𝑛
+
+DWConv-S
+(𝑘෠ 𝑠 )
+𝑤
+𝑤𝑠𝑠
+𝑤𝑠
+
+...
+𝑦1
+
+𝑥1𝑙
+
+Linear
+
+Linear
+
+Linear
+
+V
+
+K
+
+Q
+
+Conv K
+
+Conv Q
+
+𝑥2𝑙
+
+𝐶
+
+(a) The proposed framework
+
+𝑙
+𝑥𝑖𝑛
+
+𝑧𝑡−1
+
+𝑊𝑡
+
+𝑧𝑡
+
+State Update
+
+Loss ℓ
+
+LayerNorm
+
+𝑤𝑏
+𝑤
+𝑏
+𝑤𝑙
+
+⊘
+
+⨂
+
+SiLU
+
+Linear
+
+GAP
+
+𝑥 𝑙 ∈ 𝑅 2×𝐻×𝑊
+
+𝑊𝑡−1
+
+𝑥𝑡
+
+TTT Layer
+
+DWConv-L
+(𝑘෠ 𝑏 )
+
+Conv+Softmax
+𝑥𝐺𝐴𝑃
+
+𝑥𝑡−1
+
+𝑧1
+
+TTT Layer
+
+...
+
+DSC
+
+𝑙
+𝑥𝑠𝑝
+Concat
+Concat
+
+𝑥1𝑙
+
+𝑦 n−𝑙+1
+
+...
+
+...
+𝑛
+𝑥𝑖𝑛
+
+...
+
+...
+
+DSC
+
+𝑙
+𝑥𝑖𝑛
+
+𝑦 𝑛−1
+
+Linear
+
+𝑊1
+
+×2
+
+LayerNorm
+MAP
+
+AVP
+
+𝑥1
+
+...
+
+𝑦𝑛
+
+Output
+tokens
+
+𝑊0
+
+IN+Leaky Relu
+
+⨁
+
+DSC
+
+1
+𝑥𝑖𝑛
+
+Hidden
+state
+
+Input
+tokens
+
+Conv
+
+Reshape
+
+L. DMSK Module
+
+R. TTT Module
+
+Weight Update
+V
+
+K
+
+Q
+
+out
+
+(b) Dynamic Skip Connection (DSC) block
+
+Figure 1: (a) Proposed framework with Dynamic Skip Connection (DSC) blocks. (b) DSC block architecture: DMSK module (left)
+performs adaptive multi-scale kernel selection based on global context; TTT module (right) enables dynamic weight adjustment
+during inference. Input features (𝑥1𝑖𝑛 , 𝑥2𝑖𝑛 , … , 𝑥𝑛𝑖𝑛 ) from encoder layers are processed through DMSK and TTT for adaptive feature
+propagation to the decoder.
+
+parameters learned during training. These predetermined
+transformations cannot adjust to novel anatomical configurations or imaging characteristics specific to individual test
+samples. In contrast, TTT enables genuine sample-specific
+adaptation by treating each input as a unique learning problem.
+This per-sample adaptivity necessitates careful consideration
+of where to integrate such mechanisms within network
+architectures.
+While TTT has demonstrated remarkable capabilities in
+enabling dynamic parameter adaptation during inference,
+determining the optimal integration point within U-like
+architectures presents critical design decisions with distinct
+theoretical and practical implications. Specifically, the choice
+between encoder components, decoder components, or skip
+connection pathways significantly influences the model’s
+adaptive capacity and overall performance. Skip connections
+in encoder-decoder architectures serve a fundamentally different role compared to encoder or decoder layers. Encoder
+layers perform progressive feature abstraction within their
+processing streams, while decoder layers execute semanticto-spatial reconstruction within their pathways. Skip connections serve as direct feature transmission pathways that
+preserve spatial details from encoder layers to corresponding
+decoder layers. However, this direct transmission approach
+in traditional U-Net architectures is inherently static and
+cannot adapt to input-specific characteristics. The heterogeneous nature of medical images, characterized by varying
+anatomical structures and pathological conditions, requires
+adaptive feature processing at these transmission points to
+optimize encoder-decoder feature integration. This creates
+unique optimization opportunities that make skip connections
+
+Yue Cao et al.: Preprint submitted to Elsevier
+
+particularly suitable locations for adaptive mechanisms like
+TTT integration.
+The advantages of applying TTT to skip connection
+pathways rather than encoder or decoder components are
+twofold. First, skip connections process encoder features
+before they are transmitted to decoder layers for integration.
+TTT can learn input-specific transformations of these encoder features, optimizing their compatibility with decoder
+processing based on the varying anatomical structures and
+pathological conditions in medical images. Second, applying
+TTT to skip connections allows targeted feature adaptation
+without modifying the encoder and decoder architectures,
+providing a modular enhancement approach.
+Recent works like TTT-UNet [18] have demonstrated
+TTT effectiveness when applied to encoder components,
+validating the general utility of TTT in medical image segmentation. However, our analysis suggests that skip connection
+pathways represent optimal locations for TTT integration due
+to their unique role in adaptive feature transmission and their
+computational efficiency advantages.
+Dynamic multi-scale kernel approaches excel in adaptively capturing features across different spatial scales, making them particularly valuable for medical image analysis.
+While prior works such as SKNet [9] have introduced
+dynamic kernel selection via attention guided by local
+branch statistics in the main backbone, MSU-Net [22] has
+employed static multi-branch heterogeneous convolutions
+with fixed fusion weights primarily in the encoder, and
+D-Net [23] has used multiple large kernels with dynamic
+channel and spatial selection based on global context, our
+DMSK module distinguishes itself by applying input-specific
+global-guided dynamic kernel weighting specifically within
+Page 3 of 13
+
+skip connection pathways for cross-layer feature transmission.
+This targeted design provides fine-grained, content-aware
+multi-scale aggregation that seamlessly complements our
+TTT-enhanced skip connections, enabling adaptive utilization
+of multi-scale semantic information in both local and global
+contexts to meet the critical need for input-specific feature
+adaptation in medical image segmentation.
+
+4. Method
+4.1. Framework Structure
+As illustrated in Fig. 1(a), our proposed framework
+follows an encoder-decoder architecture with enhanced skip
+connections for medical image segmentation. Let 𝑋 ∈
+ℝ𝐶×𝐻×𝑊 denote the input feature, where 𝐶, 𝐻, 𝑊 represent
+the number of channels, height, and width, respectively.
+The encoder  consists of sequential downsampling operations, extracting hierarchical features at multiple resolution
+levels:
+{𝑥1𝑖𝑛 , 𝑥2𝑖𝑛 , ..., 𝑥𝑙𝑖𝑛 , ..., 𝑥𝑛𝑖𝑛 } = (𝑋),
+
+(1)
+
+where 𝑥𝑙𝑖𝑛 represents the feature maps at the 𝑙-th level
+of the encoder. Correspondingly, the decoder  performs
+progressive upsampling operations to restore the spatial
+dimensions:
+{𝑦1 , … , 𝑦𝑛−𝑙+1 , … , 𝑦𝑛 } = ({𝑥𝑛𝑖𝑛 , … , 𝑥𝑙𝑖𝑛 , … , 𝑥1𝑖𝑛 }), (2)
+where 𝑦𝑛−𝑙+1 represents the feature maps at the 𝑙-th level of
+the decoder.
+We propose the DSC block as the core innovation of
+our framework. Unlike traditional U-Net architectures that
+directly concatenate encoder features 𝑥𝑙𝑖𝑛 with corresponding
+decoder features 𝑦𝑛−𝑙+1 , our enhanced architecture transforms
+this pathway by introducing the DSC block to enable adaptive
+feature processing. The DSC block is designed to simultaneously tackle both inter-feature and intra-feature constraints
+through dynamic adaptation mechanisms. As depicted in
+Fig. 1(b), each DSC block comprises two complementary
+modules: the DMSK module (Fig. 1(b.L)) and the TTT
+module (Fig. 1(b.R)). The DMSK module addresses intrafeature constraints by adaptively capturing multi-scale spatial
+dependencies through dynamic kernel selection, while the
+TTT module tackles inter-feature constraints by enabling
+self-supervised adaptation during inference. The integration
+of these modules transforms the traditional skip connection
+pathway as follows:
+𝑦𝑛−𝑙+1 = decode (𝑦𝑛−𝑙 , TTT (DMSK (𝑥𝑙𝑖𝑛 ))).
+
+(3)
+
+When an input feature map 𝑥𝑙𝑖𝑛 from the encoder enters
+the DSC block, it first passes through the DMSK module
+DMSK , which processes encoder features to generate multiscale adaptive representations capturing both local details
+and global context. These refined features are subsequently
+processed by the TTT module TTT , which implements selfsupervised learning during inference to further optimize
+feature representations based on current input characteristics.
+Yue Cao et al.: Preprint submitted to Elsevier
+
+The processed features are then integrated into the corresponding decoder level through the decoding function decode .
+The decoder generates the final segmentation output at full
+resolution while preserving both fine-grained spatial details
+and high-level semantic information.
+
+4.2. Dynamic Multi-Scale Kernel Module
+To address intra-feature constraints, we propose the
+DMSK module which performs dynamic kernel selection to
+adaptively capture both local and global spatial dependencies
+based on input feature characteristics.
+To effectively model multi-scale contextual relationships,
+two sets of kernels are defined: small-scale kernels and
+large-scale kernels. The former are capable of extracting
+fine-grained local details while the latter are able to capture
+long-range dependencies. Each kernel is implemented as a
+depthwise separable convolution to reduce computational
+complexity. Furthermore, dilated convolution is applied to
+expand the receptive field without increasing the number of
+parameters. To ensure adaptive selection of the most relevant
+kernel for each input. Specifically, for the input feature 𝑥𝑙𝑖𝑛 , a
+Global Average Pooling (GAP) operation is first performed
+to capture global channel-wise statistics:
+(4)
+
+𝑥𝑙GAP = GAP(𝑥𝑙𝑖𝑛 ),
+
+the weights for small-scale kernel selection 𝑤𝑠 are computed
+as:
+(5)
+
+𝑤𝑠 = Sof tmax(Conv𝑙𝑠 (𝑥𝑙GAP )),
+
+where Conv𝑙𝑠 is a 1 × 1 convolution layer that maps the
+input channel dimension to the number of small-scale kernels
+(|𝐿𝑠 |). Similarly, the weights for large-scale kernel selection
+𝑤𝑏 are obtained using a separate convolutional transformation:
+(6)
+
+𝑤𝑏 = Sof tmax(Conv𝑙𝑏 (𝑥𝑙GAP )),
+
+where Conv𝑙𝑏 is a different 1 × 1 convolution layer mapping
+the input channels to the number of large-scale kernels (|𝐿𝑏 |).
+Consequently, 𝑤𝑠 and 𝑤𝑏 are indicative of divergent selection
+probabilities, thereby enabling the model to autonomously
+determine the most pertinent small-scale and large-scale
+kernels for each individual input instance.
+Subsequently, a selection method is applied to choose
+the kernel index. To ensure this discrete selection process
+is differentiable during training, we employ the StraightThrough Estimator (STE) [24].
+𝑘̂ 𝑠 = STEargmax (𝑤𝑠 ),
+
+𝑘̂ 𝑏 = STEargmax (𝑤𝑏 ),
+
+(7)
+
+where 𝑘̂ 𝑠 and 𝑘̂ 𝑏 represent the indices of the selected smallscale and large-scale kernels, respectively. Finally, the most
+relevant small-scale and large-scale convolution kernels are
+obtained.
+Once the most relevant small-scale and large-scale kernels are identified, these kernels are then cascaded with
+progressively increasing kernel sizes and dilation rates. This
+Page 4 of 13
+
+Table 1
+Dataset information, "# Targets" specifies distinct segmentation classes in each dataset.
+Dataset
+
+Dimension
+
+# Training Image
+
+# Testing Image
+
+# Targets
+
+2D
+3D
+3D
+2D
+2D
+
+1505
+50 (4794 slices)
+60 (5615 slices)
+1800
+1000
+
+645
+50 (10894 slices)
+50 (3357 slices)
+1200
+101
+
+2
+13
+13
+7
+2
+
+ISIC 2017
+Abdomen CT
+Abdomen MRI
+Endoscopy Images
+Microscopy Images
+
+design is characterized by two distinct advantages. First, the
+contextual information is recursively aggregated within the
+receptive field, thereby enabling the effective receptive field
+size to gradually expand [25]. Second, features extracted
+from more extensive and receptive fields contribute more
+significantly to the output, thereby enabling DMSK to capture
+more precise and information-rich features. The methodology
+involves the projection of input features to lower dimensions,
+followed by the sequential application of kernels that are
+dynamically selected:
+⎧𝑥𝑙 = Project(𝑥𝑙 ),
+𝑖𝑛
+⎪ 𝑙
+𝑙
+⎨𝑥1 = DWConv(𝑘̂ 𝑠 ) (𝑥 ),
+⎪𝑥𝑙 = DWConv (𝑥𝑙 ).
+(𝑘̂ 𝑏 ) 1
+⎩ 2
+
+(8)
+
+The resulting features are then concatenated and refined
+through a spatial attention module that uses both Average
+Pooling (AVP) and Maximum Pooling (MAP) operations to
+capture global spatial relationships:
+⎧𝑥𝑙 = Concat([𝑥𝑙 ; 𝑥𝑙 ]),
+1 2
+⎪ 𝑠𝑝
+⎪𝑤𝑎 = AVP(𝑥𝑙𝑠𝑝 ),
+⎨
+𝑙
+⎪𝑤𝑚 = MAP(𝑥𝑠𝑝 ),
+⎪[𝑤 ; 𝑤 ] = Sigmoid(Conv([𝑤 ; 𝑤 ])),
+𝑎
+𝑚
+⎩ 1 2
+
+(9)
+
+where both 𝑤1 and 𝑤2 facilitate the selection of adaptive
+features from multiple kernel branches. The calibration of
+feature fusion is achieved through the implementation of
+element-wise operations:
+𝑥𝑙𝑐ℎ = (𝑤1 ⊗ 𝑥𝑙𝑠𝑝 ) ⊕ (𝑤2 ⊗ 𝑥𝑙𝑠𝑝 ),
+
+(10)
+
+where the spatial attention is followed by channel attention
+that emphasizes feature significance across channels:
+{
+𝑤𝑐ℎ = Sigmoid(Conv(AVP(𝑥𝑙𝑐ℎ )),
+(11)
+𝑥𝑙𝑜𝑢𝑡 = 𝑤𝑐ℎ ⊗ 𝑥𝑙𝑐ℎ + 𝑥𝑙𝑖𝑛 ,
+where the channel-wise and spatial attention design complements the dynamic kernel selection by enabling the model
+to focus on the most informative regions both spatially and
+channel-wise, significantly enhancing feature representation.
+
+4.3. TTT Module
+To mitigate inter-feature constraints, we propose the TTT
+module which dynamically replaces static skip connections
+Yue Cao et al.: Preprint submitted to Elsevier
+
+with adaptive feature propagation during inference. It enables
+real-time adjustment of feature pathways based on inputspecific characteristics. As shown in Fig. 1(b.R), the TTT
+module is essential for facilitating model adaptability during
+the testing phase. Initially, output features 𝑥𝑙𝑜𝑢𝑡 from the
+DMSK module are processed through two sequential residual
+blocks [26]. Each block consists of a convolutional layer
+followed by instance normalization [27] and leaky ReLU
+activation [28]. Subsequently, layer normalization [29] is
+applied to these features, which are then flattened in preparation for linear transformations. Processing these features
+through three distinct linear transformation branches yields
+feature sets designated as 𝑉 , 𝐾, and 𝑄 while a fourth branch
+implements linear transformation with SiLU activation function [30] to enrich feature representations. The 𝑉 , 𝐾, and 𝑄
+outputs are then transferred to the TTT layer where hidden
+state updating takes place.
+In the TTT layer, the hidden state ℎ𝑡 at time 𝑡 is parameterized as a trainable model 𝑓 with dynamically adjustable
+weights 𝑊𝑡 . These weights are optimized through gradient
+descent based on the current input 𝑥𝑡 :
+𝑊𝑡 = 𝑊𝑡−1 − 𝜂∇𝓁(𝑊𝑡−1 ; 𝑥𝑡 ),
+
+(12)
+
+where 𝜂 denotes the learning rate. In the basic naive version,
+self-supervised loss 𝓁 designed to restore corrupted input
+𝑥̃ 𝑡 . Although this straightforward reconstruction strategy
+proves beneficial in specific contexts, it exhibits constraints
+when modeling intricate relationships within input sequences,
+particularly for tasks demanding deeper contextual comprehension. To overcome these constraints, we follow an
+advanced self-supervised task that exploits multiple views of
+the input data. We introduce learnable projection matrices 𝜃𝐾
+and 𝜃𝑉 to map input data into different feature spaces. The
+training view 𝐾 = 𝜃𝐾 𝑥𝑡 extracts essential learning features
+while the label view 𝑉 = 𝜃𝑉 𝑥𝑡 serves as the reconstruction
+target:
+𝓁(𝑊 ; 𝑥𝑡 ) = ‖𝑓 (𝐾; 𝑊 ) − 𝑉 ‖2 ,
+
+(13)
+
+this method enables the model to autonomously focus on
+the most critical features of the input data, significantly
+improving its ability to capture long-range dependencies and
+subtle relationships.
+The final output feature 𝑧𝑡 is generated through the test
+view 𝑄 = 𝜃𝑄 𝑥𝑡 :
+𝑧𝑡 = 𝑓 (𝑄; 𝑊𝑡 ),
+
+(14)
+Page 5 of 13
+
+Table 2
+Configurations for each dataset. Patch Size refers to spatial dimensions of input patches (height, width) for 2D or (depth, height,
+width) for 3D datasets. "# Stages" denotes the number of resolution states in the network hierarchy. "# Pooling per axis"
+represents the number of downsampling operations along different spatial axes.
+Configurations
+
+Patch Size
+
+Batch Size
+
+# Stages
+
+# Pooling per axis
+
+ISIC2017
+Abdomen CT
+3D Abdomen MR
+Endoscopy
+Microscopy
+
+(256, 256)
+(40, 224, 192)
+(48, 160, 224)
+(384, 640)
+(512, 512)
+
+8
+2
+2
+13
+12
+
+4
+6
+6
+7
+8
+
+(6, 6)
+(3, 3, 5)
+(3, 3, 5)
+(6, 6)
+(7, 7)
+
+Figure 2: Visualized segmentation examples of cell segmentation in microscopy images (1st row), MedNext network + DSC block
+(2nd row), instruments segmentation in endoscopy images (3rd row), and U-Mamba network + DSC block (4th row).
+
+where 𝑓 can be a linear model or multi-layer perceptron (we
+use a linear model in our implementation). The introduction
+of 𝜃𝑄 endows the model with the ability to dynamically adjust
+feature attention during inference and automatically focus on
+the most discriminative features for different test samples,
+thereby greatly enhancing model adaptability to new data.
+Finally, the output from the TTT layer and the result from
+the fourth branch are combined using the Hadamard product,
+followed by linear transformation and reshaping to meet the
+required dimensions for the Decoder’s subsequent layers.
+
+5. Experiments
+5.1. Datasets
+To comprehensively assess the performance and scalability of the proposed DSC block, we conducted extensive
+experiments across five diverse medical image datasets
+encompassing various imaging modalities, dimensionalities,
+and segmentation objectives. Table 1 summarizes the essential characteristics of these datasets.
+Yue Cao et al.: Preprint submitted to Elsevier
+
+5.1.1. ISIC 2017
+The ISIC 2017 [31] dataset is a comprehensive collection
+of 2,150 dermoscopic images of skin lesions, serving as
+a valuable resource for advancements in dermatology and
+computer-aided diagnosis. It encompasses a broad spectrum
+of skin conditions, including both benign and malignant lesions, and is primarily designed for tasks related to melanoma
+detection and skin cancer classification.
+5.1.2. Endoscopy images
+From the MICCAI 2017 EndoVis Challenge [32], this
+dataset focuses on instrument segmentation within endoscopic images, featuring seven distinct instruments: the large
+needle driver, prograsp forceps, monopolar curved scissors,
+cadiere forceps, bipolar forceps, vessel sealer, and a drop-in
+ultrasound probe. The dataset is divided into 1,800 training
+frames and 1,200 testing frames.
+
+Page 6 of 13
+
+5.1.3. Microscopy images
+This dataset, from the NeurIPS 2022 Cell Segmentation Challenge [33], is designed for cell segmentation in
+microscopy images, comprising 1,000 training images and
+101 testing images. Following U-Mamba [34], we treat this
+as a semantic segmentation task, focusing on cell boundaries
+and interiors rather than instance segmentation.
+5.1.4. Abdomen CT
+The Abdomen CT dataset (Ma et al. 2024b), part of the
+MICCAI 2022 FLARE challenge, includes the segmentation
+of 13 abdominal organs from 50 CT scans in both the training
+and testing sets. The segmented organs include the liver,
+spleen, pancreas, kidneys, stomach, gallbladder, esophagus,
+aorta, inferior vena cava, adrenal glands, and duodenum.
+5.1.5. Abdomen MRI
+The Abdomen MR dataset (Ji et al. 2022), from the MICCAI 2022 AMOS Challenge, focuses on the seg- mentation of
+the same 13 abdominal organs using MRI scans. It comprises
+60 MRI scans for training and 50 for testing. Additionally,
+we generate a 2D version of the dataset by converting the
+3D abdominal MRI scans into 2D slices. This conversion
+allows us to evaluate DSC block within the common 2D
+segmentation framework, which is widely used in practice
+due to its lower computational requirements. The conversion
+retains the same 13 organs, ensuring consistent evaluation
+across both 2D and 3D modalities.
+
+5.2. Implementation Details
+The specific configurations are comprehensively outlined
+in Table 2. To balance computational efficiency with performance gains, we integrate the DSC block exclusively at the
+bottleneck layer (the deepest connection between encoder and
+decoder where feature dimensions are minimal but semantic
+information is richest) . This strategic placement minimizes
+parameter overhead (as shown in Table 3) while maximizing
+adaptive feature refinement at the most critical transmission
+point. This implementation was consistent across all six evaluated architectures: two CNN-based segmentation networks
+(nnU-Net [35] and SegResNet [36]), two Transformer-based
+networks (UNETR [37] and SwinUNETR [38]), one hybrid
+CNN-Transformer network (MedNext [39]), and one stateof-the-art Mamba-based network (U-Mamba [34]).
+Training employed a combination of Dice loss and crossentropy loss with SGD optimizer (initial learning rate: 1e-2)
+for 1000 epochs on a single A100 GPU. Network blocks were
+automatically configured using nnU-Net’s self-configuration
+capability. Performance evaluation followed the protocol
+established in U-Mamba [34]: Dice Similarity Coefficient
+(Dice score) and Normalized Surface Distance (NSD) for
+ISIC2017 skin lesion segmentation, abdominal organ segmentation, and endoscopic instrument segmentation. F1 score was
+employed for microscopy cell segmentation tasks. The TTT
+module employs several key design choices to ensure both
+effectiveness and stability. Following the mini-batch TTT
+strategy [17], the number of gradient update steps during
+inference is determined by 𝑇 ∕𝑏, where 𝑇 is the the feature
+Yue Cao et al.: Preprint submitted to Elsevier
+
+sequence length and b is the mini-batch size. In our implementation, we use b=16 to balance computational efficiency and
+adaptation quality. The hidden state dimensions are controlled
+by a reduction ratio r=16, where the intermediate dimension
+is computed as 𝑑 = 𝑚𝑎𝑥(𝐶∕𝑟, 32) with 𝐶 being the number
+of input channels. The projection matrices 𝜃𝐾 , 𝜃𝑉 , 𝜃𝑄 are
+implemented as 1 × 1 × 1 convolutional layers that map input
+features from dimension C to the reduced dimension d.
+
+5.3. Quantitative and Qualitative Segmentation
+Results
+5.3.1. 2D Dataset Results
+For 2D tasks, we report Dice score, NSD, and F1 scores as
+percentages using cross-validation, following the protocol of
+the backbone networks. Table 4 presents the performance of
+DSC block integration across multiple 2D segmentation tasks.
+TTT-UNet_Bot and Med-TTT are recent works that also apply
+TTT to medical image segmentation tasks. Med-TTT only
+provides 2D results, as its implementation supports 2D data
+processing and does not provide 3D functionality in their
+released code. The DSC block demonstrates consistent improvements across all evaluated architectures. For endoscopy
+instrument segmentation, U-Mamba_Bot with DSC achieves
+the highest Dice score of 0.6733±0.3217, substantially
+improving over baseline (0.6540±0.3008). nnU-Net with
+DSC reaches 0.6718±0.3221 compared to 0.6264±0.3024
+without DSC. SegResNet shows remarkable enhancement
+from 0.5820±0.3268 to 0.6620±0.3029. The consistent performance gains across CNN-based architectures demonstrate
+the broad compatibility of our approach with traditional
+convolutional frameworks. Transformer-based architectures
+also benefit significantly from DSC integration. UNETR
+advances from 0.5017±0.3201 to 0.5137±0.3320, while
+SwinUNETR shows improvement from 0.5528±0.3089 to
+0.6064±0.3408. These enhancements are particularly noteworthy given that Transformer-based methods already incorporate sophisticated global attention mechanisms, suggesting
+that our dynamic skip connection approach provides complementary benefits to existing self-attention computations.
+For ISIC2017 skin lesion segmentation, SwinUNETR with
+DSC achieves 0.8820±0.3190, while MedNext with DSC
+reaches 0.8901±0.3821. The most pronounced improvements
+occur in cell segmentation, where U-Mamba_Bot with DSC
+achieves F1 score of 0.6101±0.2465, substantially outperforming baseline (0.5389±0.2817). nnU-Net demonstrates
+improvement from 0.5383±0.2657 to 0.5460±0.2653, while
+SegResNet shows enhancement from 0.5411±0.2633 to
+0.5779±0.2748. The substantial improvement in UNETR performance, advancing from 0.4357±0.2572 to 0.4856±0.2637,
+indicates that dynamic adaptation is particularly beneficial
+for architectures that may struggle with fine-grained cellular
+feature discrimination.
+Fig. 2 provides comprehensive qualitative analysis across
+different 2D segmentation scenarios. For microscopic cell
+segmentation (top row), the visualizations reveal diverse
+cellular morphologies with varying sizes, densities, and
+clustering patterns. The enhanced segmentation capability of
+Page 7 of 13
+
+Table 3
+Computational complexity comparison of baseline networks before and after integrating DSC block on Abdomen MRI dataset. The
+DSC block is integrated only at the bottleneck layer following the configuration in Section 4.2. The reported inference time is
+measured on a per-sample basis.
+Model
+
+DSC block
+
+Params (M)
+
+GFLOPs
+
+Inference Time (ms)
+
+nnU-Net
+
+×
+✓
+
+𝟥𝟣.𝟤
+𝟥𝟤.𝟨
+
+𝟧𝟤𝟦.𝟪
+𝟧𝟤𝟧.𝟥
+
+𝟥𝟩.𝟤𝟨
+𝟦𝟣.𝟥𝟢
+
+SegResNet
+
+×
+✓
+
+𝟣𝟪.𝟪
+𝟣𝟫.𝟤
+
+𝟨𝟥𝟨.𝟪
+𝟨𝟦𝟧.𝟦
+
+𝟣𝟢𝟤.𝟩𝟢
+𝟤𝟫𝟢.𝟢𝟦
+
+UNETR
+
+×
+✓
+
+𝟫𝟥.𝟢
+𝟫𝟦.𝟧
+
+𝟣𝟫𝟦.𝟧
+𝟣𝟫𝟧.𝟨
+
+𝟥𝟫.𝟦𝟨
+𝟪𝟥.𝟫𝟣
+
+SwinUNETR
+
+×
+✓
+
+𝟨𝟤.𝟣
+𝟨𝟩.𝟪
+
+𝟪𝟥𝟢.𝟩
+𝟪𝟥𝟣.𝟣
+
+𝟣𝟨𝟧.𝟦𝟦
+𝟣𝟨𝟪.𝟤𝟢
+
+MedNext
+
+×
+✓
+
+𝟣𝟣.𝟣
+𝟣𝟤.𝟤
+
+𝟥𝟢𝟫.𝟦
+𝟥𝟣𝟥.𝟣
+
+𝟣𝟩𝟦.𝟦𝟢
+𝟤𝟣𝟨.𝟤𝟤
+
+U-Mamba_Bot
+
+×
+✓
+
+𝟦𝟣.𝟫
+𝟦𝟥.𝟥
+
+𝟩𝟫𝟤.𝟣
+𝟩𝟫𝟤.𝟥
+
+𝟣𝟢𝟢.𝟧𝟦
+𝟣𝟢𝟫.𝟥𝟣
+
+Table 4
+Results summary of 2D segmentation tasks. In the DSC block column, “-” indicates methods unrelated to DSC block integration,
+“×” indicates baseline methods without DSC block, and “✓” indicates methods with DSC block integrated. “*” and “†” means the
+experimental results are from existing works, where “*” are from [34], “†” are from [18].
+Instruments in Endoscopy
+
+Methods
+
+DSC block
+
+Med-TTT
+
+−
+
+0.5011±0.3168
+
+TTT-UNet_Bot
+
+Dice
+
+ISIC 2017
+
+NSD
+0.5319±0.3033
+
+Cells in Microscopy
+
+Dice
+
+NSD
+
+F1
+
+0.8149±0.3105
+
+0.8642±0.2974
+
+0.4018±0.2239
+
+−
+
+†
+
+0.6643±0.3018
+
+†
+
+0.6799±0.3056
+
+0.8878±0.3216
+
+0.9103±0.3164
+
+0.5818±0.2410†
+
+nnU-Net
+
+×
+✓
+
+0.6264±0.3024∗
+0.6718±0.3221
+
+0.6412±0.3074∗
+0.6865±0.3182
+
+0.8825±0.2739
+0.8846±0.2634
+
+0.9120±0.3110
+0.9210±0.3354
+
+0.5383±0.2657∗
+0.5460±0.2653
+
+SegResNet
+
+×
+✓
+
+0.5820±0.3268∗
+0.6620±0.3029
+
+0.5968±0.3303∗
+0.6782±0.3410
+
+0.8763±0.3521
+0.8796±0.3211
+
+0.9070±0.3619
+0.9108±0.3117
+
+0.5411±0.2633∗
+0.5779±0.2748
+
+UNETR
+
+×
+✓
+
+0.5017±0.3201∗
+0.5137±0.3320
+
+0.5168±0.3235∗
+0.5275±0.3302
+
+0.8499±0.3328
+0.8580±0.3019
+
+0.8850±0.3198
+0.8930±0.3164
+
+0.4357±0.2572∗
+0.4856±0.2637
+
+SwinUNETR
+
+×
+✓
+
+0.5528±0.3089∗
+0.6064±0.3408
+
+0.5683±0.3123∗
+0.6226±0.3356
+
+0.8803±0.2482
+0.8820±0.3190
+
+0.9145±0.3216
+0.9156±0.2682
+
+0.3967±0.2621∗
+0.4807±0.2375
+
+MedNext
+
+×
+✓
+
+0.6055±0.3476
+0.6104±0.3528
+
+0.6211±0.3329
+0.6263±0.3427
+
+0.8871±0.2398
+0.8901±0.3821
+
+0.9212±0.3182
+0.9223±0.3742
+
+0.5613±0.2573
+0.5746±0.2469
+
+U-Mamba_Bot
+
+×
+✓
+
+0.6540±0.3008∗
+0.6733±0.3217
+
+0.6692±0.3050∗
+0.6887±0.3054
+
+0.8889±0.3471
+0.8892±0.3328
+
+0.9173±0.3284
+0.9182±0.3165
+
+0.5389±0.2817∗
+0.6101±0.2465
+
+DSC-enabled networks is particularly evident in regions with
+overlapping cells and ambiguous boundaries. In the endoscopic instrument segmentation examples (bottom rows), the
+DSC block demonstrates superior performance in delineating
+surgical instruments against complex tissue backgrounds. The
+adaptive kernel selection mechanism effectively handles the
+varying scales of instruments, from fine-tipped graspers to
+broader surgical paddles, while the TTT module enables
+real-time adaptation to different lighting conditions and
+tissue appearances commonly encountered in endoscopic
+procedures. These results demonstrate that the DSC block
+provides consistent performance gains across diverse 2D
+Yue Cao et al.: Preprint submitted to Elsevier
+
+segmentation tasks, with particularly strong improvements
+in challenging scenarios involving complex morphological
+structures.
+
+5.3.2. 3D Dataset Results
+For 3D tasks, we report Dice score and NSD scores
+using cross-validation, following the protocol of the backbone
+networks. Table 5 presents the performance of DSC block
+integration on 3D organ segmentation across abdominal
+CT and MRI datasets. The DSC block shows performance
+improvements across most evaluated methods. For abdominal CT segmentation, nnU-Net with DSC achieves
+Page 8 of 13
+
+GT
+
+UNETR
+
+UNETR
++DSC
+
+MedNext
+
+MedNext
++DSC
+
+GT
+
+SwinUNETR
+
+SwinUNETR
++DSC
+
+Umamba_Bot
+
+(a) Abdomen MRI
+
+(a) Abdomen CT
+
+Umamba_Bot
++DSC
+
+Figure 3: Visualized segmentation examples of abdominal organ segmentation in CT(a) and MRI(b).
+Table 5
+Results summary of 3D segmentation tasks. “*” and “†” means the experimental results are from existing works, where “*” are
+from [34], “†” are from [18].
+Methods
+
+Organs in Abdomen CT
+
+DSC block
+
+Dice
+
+TTT-UNet_Bot
+
+Organs in Abdomen MRI
+
+NSD
+
+Dice
+
+NSD
+
+−
+
+†
+
+0.8709±0.1011
+
+†
+
+0.8995±0.0721
+
+†
+
+0.8677±0.0482
+
+0.9247±0.0631†
+
+nnU-Net
+
+×
+✓
+
+0.8615±0.0790∗
+0.8718±0.1177
+
+0.8972±0.0824∗
+0.9093±0.0317
+
+0.8309±0.0769∗
+0.8461±0.1062
+
+0.8996±0.0729∗
+0.9133±0.0401
+
+SegResNet
+
+×
+✓
+
+0.7927±0.1162∗
+0.8054±0.1700
+
+0.8257±0.1194∗
+0.8439±0.0147
+
+0.8146±0.0959∗
+0.8136±0.0963
+
+0.8841±0.0917∗
+0.8795±0.0928
+
+UNETR
+
+×
+✓
+
+0.6824±0.1506∗
+0.6972±0.2410
+
+0.7004±0.1577∗
+0.7265±0.0865
+
+0.6867±0.1488∗
+0.6971±0.0591
+
+0.7440±0.1627∗
+0.7576±0.0453
+
+SwinUNETR
+
+×
+✓
+
+0.7594±0.1095∗
+0.7847±0.2005
+
+0.7663±0.1190∗
+0.8179±0.0411
+
+0.7565±0.1394∗
+0.7469±0.0655
+
+0.8218±0.1409∗
+0.8091±0.0467
+
+MedNext
+
+×
+✓
+
+0.8427±0.1137
+0.8642±0.0786
+
+0.8706±0.1538
+0.8920±0.0412
+
+0.8270±0.0625
+0.8421±0.1098
+
+0.8951±0.0428
+0.9065±0.0667
+
+U-Mamba_Bot
+
+×
+✓
+
+0.8683±0.0808∗
+0.8712±0.0973
+
+0.9049±0.0821∗
+0.9037±0.0321
+
+0.8453±0.0673∗
+0.8535±0.0597
+
+0.9121±0.0634∗
+0.9172±0.0340
+
+0.8718±0.1177 compared to baseline 0.8615±0.0790. UMamba_Bot with DSC reaches 0.8712±0.0973, while baseline achieves 0.8683±0.0808. MedNext with DSC achieves
+0.8642±0.0786 compared to baseline 0.8427±0.1137. SegResNet demonstrates significant enhancement from 0.7927±0.
+1162 to 0.8054±0.1700, while UNETR shows improvement
+from 0.6824±0.1506 to 0.6972±0.2410. SwinUNETR advances from 0.7594±0.1095 to 0.7847±0.2005, and these
+consistent improvements across all architectures indicate
+that the DSC block provides universal benefits across
+different architectural paradigms in volumetric segmentation
+scenarios. For abdominal MRI segmentation, U-Mamba_Bot
+with DSC achieves 0.8535±0.0597 compared to baseline
+0.8453±0.0673. nnU-Net with DSC reaches 0.8461±0.1062
+Yue Cao et al.: Preprint submitted to Elsevier
+
+compared to baseline 0.8309±0.0769. MedNext demonstrates
+improvement from 0.8270±0.0625 to 0.8421±0.1098, while
+UNETR advances from 0.6867±0.1488 to 0.6971±0.0591.
+Although SwinUNETR shows a slight decrease from 0.7565±
+0.1394 to 0.7469±0.0655, the DSC block maintains stable
+and competitive performance across different MRI contrast
+patterns and imaging protocols. Fig. 3 illustrates qualitative
+segmentation results on abdominal CT and MRI data. The systematic comparison presents ground truth annotations alongside baseline network outputs and their corresponding DSCenhanced versions across four representative architectures:
+UNETR, MedNext, SwinUNETR, and U-Mamba. The visual
+evidence clearly demonstrates consistent improvements when
+DSC blocks are integrated into existing frameworks. The CT
+Page 9 of 13
+
+Table 6
+Results summary of 2D skin lesion segmentation on ISIC2017
+dataset.
+Methods
+
+mIoU
+
+Dice
+
+NSD
+
+U-Net [1]
+U-Net++ [3]
+SwinUNet [13]
+UNet3+ [4]
+TransUNet [12]
+Hiformer [14]
+FuseUNet [5]
+
+𝟢.𝟩𝟣𝟢𝟤
+𝟢.𝟩𝟥𝟥𝟦
+𝟢.𝟨𝟨𝟫𝟥
+𝟢.𝟩𝟪𝟢𝟧
+𝟢.𝟩𝟪𝟥𝟦
+𝟢.𝟩𝟨𝟫𝟧
+0.8058
+
+𝟢.𝟪𝟥𝟧𝟧
+𝟢.𝟪𝟦𝟨𝟣
+𝟢.𝟩𝟩𝟪𝟤
+𝟢.𝟪𝟩𝟨𝟩
+𝟢.𝟪𝟨𝟨𝟧
+𝟢.𝟪𝟧𝟤𝟦
+𝟢.𝟪𝟩𝟩𝟥
+
+𝟢.𝟧𝟤𝟫𝟪
+𝟢.𝟨𝟤𝟨𝟧
+𝟢.𝟧𝟩𝟩𝟪
+𝟢.𝟨𝟤𝟪𝟥
+𝟢.𝟨𝟣𝟤𝟦
+𝟢.𝟨𝟢𝟥𝟣
+𝟢.𝟨𝟦𝟤𝟢
+
+U-Net + DSC
+
+𝟢.𝟩𝟫𝟪𝟢
+
+0.8876
+
+0.6423
+
+segmentation results reveal that DSC integration leads to
+more accurate organ boundary delineation and improved
+anatomical consistency.
+Across most evaluated architectures, the DSC-enhanced
+versions produce segmentations that more closely approximate the ground truth annotations, with notable improvements in maintaining proper organ connectivity and reducing
+segmentation artifacts. The MRI segmentation comparisons
+demonstrate the performance of DSC across different imaging
+modalities, with enhanced networks generally delivering
+improved segmentation quality and better handling of the
+complex tissue contrast patterns characteristic of MRI imaging. The results indicate that DSC integration addresses
+common segmentation challenges, including boundary ambiguities and intensity variations. The clinical significance
+of these improvements extends beyond quantitative metrics,
+as enhanced segmentation accuracy supports more reliable
+automated analysis in diagnostic workflows. Through comprehensive evaluation spanning multiple architectures and
+imaging technologies, the DSC block establishes itself as an
+effective enhancement strategy that maintains performance
+across diverse medical imaging scenarios.
+
+5.4. Ablation Study
+5.4.1. Impact of Skip-Connection Enhancement
+Strategies
+This experiment was conducted on the ISIC2017 dataset
+to evaluate the effectiveness of our DSC block against existing
+skip connection enhancement methods. Table 6 illustrates the
+performance when different skip connection enhancement
+strategies are applied. Our UNet+DSC achieves superior
+performance with mIoU of 0.7980 and Dice score of 0.8876,
+outperforming both direct modification methods including
+U-Net++ (mIoU: 0.7334, Dice: 0.8461) and UNet3+ (mIoU:
+0.7805, Dice: 0.8767), as well as indirect enhancement approaches including TransUNet (mIoU: 0.7834, Dice: 0.8665)
+and HiFormer (mIoU: 0.7695, Dice: 0.8524). Notably, the
+improvements are consistent across both evaluation metrics.
+The results demonstrate that our DSC block provides more
+effective skip connection enhancement compared to existing
+static connection architectures and indirect encoder-based
+improvements.
+Yue Cao et al.: Preprint submitted to Elsevier
+
+5.4.2. Impact of DSC block Placement Strategy
+To evaluate the performance-efficiency trade-off of different DSC block integration strategies, we conducted an
+ablation study using UNETR as the baseline architecture on
+the ISIC 2017 dataset. We compared three configurations:
+(1) Baseline (no DSC), (2) Bottleneck-only (DSC integrated
+solely at the deepest skip connection), and (3) All levels (DSC
+integrated at every skip connection level). This allows us to
+assess the impact of placement on parameters, computational
+cost (GFLOPs), inference time, and segmentation metrics
+(Dice and NSD). Note that while the DSC block is designed
+as a general module applicable to any skip connection level,
+multi-level integration, though feasible and yielding slight
+performance gains, incurs significantly higher computational
+overhead due to repeated TTT updates across layers. This
+validates our strategic choice of bottleneck-only placement to
+balance efficacy and efficiency, avoiding misleading readers
+about the "dynamic skip connections" being limited to a
+single layer—multi-level application is possible but not
+recommended for practical deployment where inference
+time is critical. As shown in Table 7, the Bottleneck-only
+configuration achieves an optimal balance, with minimal
+increases in parameters (87.9M vs. baseline 87.7M) and
+GFLOPs (26.5 vs. 26.4), and a moderate rise in inference
+time (47.19 ms vs. 17.41 ms), while improving Dice to
+0.8580±0.3019 (vs. baseline 0.8499±0.3328) and NSD to
+0.8930±0.3164 (vs. baseline 0.8850±0.3198). The All levels
+configuration further enhances accuracy slightly, with Dice
+at 0.8625±0.2950 and NSD at 0.8975±0.3100, but escalates
+parameters to 88.1M, GFLOPs to 27.5, and inference time
+dramatically to 641.55 ms. This performance uplift does not
+justify the substantial overhead, confirming that bottleneckonly integration is preferable for real-time medical imaging
+applications, though multi-level placement remains viable
+for scenarios prioritizing maximal accuracy over efficiency.
+5.4.3. Impact of Kernel Size Configuration
+This experiment was conducted on the ISIC2017 dataset
+to examine the effect of different kernel combinations within
+the DMSK module. Table 8 shows that combining small and
+large kernels achieves optimal performance (mIoU: 0.7980,
+Dice: 0.8876), significantly outperforming small kernels
+only (mIoU: 0.7629, Dice: 0.8638) or large kernels only
+(mIoU: 0.7729, Dice: 0.8695). The results indicate that small
+kernels excel at capturing fine-grained local details and
+precise boundary information, while large kernels provide
+superior global contextual understanding and long-range
+spatial dependencies. The performance gap between singlescale configurations and the combined approach highlights
+the importance of multi-scale feature integration in medical
+image segmentation tasks. This demonstrates that multiscale kernel integration effectively captures complementary
+information, with small kernels providing fine-grained details
+and large kernels offering global context.
+
+Page 10 of 13
+
+Table 7
+Performance-efficiency trade-off of DSC block placement strategies on ISIC 2017. UNETR is used as the baseline architecture.
+Bottleneck-only integration demonstrates optimal balance between accuracy gains and computational overhead.
+Configuration
+Baseline
+Bottleneck-only
+All levels
+
+Params(M)
+𝟪𝟩.𝟩
+𝟪𝟩.𝟫
+𝟪𝟪.𝟣
+
+GFLOPs
+𝟤𝟨.𝟦
+𝟤𝟨.𝟧
+𝟤𝟩.𝟧
+
+Inference Time (ms)
+𝟣𝟩.𝟦𝟣
+𝟦𝟩.𝟣𝟫
+𝟨𝟦𝟣.𝟧𝟧
+
+Dice
+0.8499±0.3328
+0.8580±0.3019
+0.8625±0.2950
+
+NSD
+0.8850±0.3198
+0.8930±0.3164
+0.8975±0.3100
+
+Table 8
+Kernel size ablation study on ISIC2017 dataset with UNet +
+DSC.
+
+Table 10
+Ablation study comparing cascade and parallel multi-scale fusion
+strategies in DMSK on the ISIC 2017 dataset.
+
+Configuration
+
+Method
+
+Kernel Strategy
+
+mIoU
+
+Dice
+
+NSD
+
+UNet + DSC
+
+Parallel
+Cascade (ours)
+
+𝟢.𝟩𝟪𝟥𝟢
+𝟢.𝟩𝟫𝟪𝟢
+
+𝟢.𝟪𝟪𝟤𝟩
+𝟢.𝟪𝟪𝟩𝟨
+
+𝟢.𝟨𝟤𝟧𝟩
+𝟢.𝟨𝟦𝟤𝟥
+
+UNet + DSC
+
+Kernel Strategy
+
+mIoU
+
+Dice
+
+NSD
+
+Small & Large Kernels 𝟢.𝟩𝟫𝟪𝟢 𝟢.𝟪𝟪𝟩𝟨 𝟢.𝟨𝟦𝟤𝟥
+Small Kernels Only 𝟢.𝟩𝟨𝟤𝟫 𝟢.𝟪𝟨𝟥𝟪 𝟢.𝟨𝟦𝟣𝟪
+Large Kernels Only 𝟢.𝟩𝟩𝟤𝟫 𝟢.𝟪𝟨𝟫𝟧 𝟢.𝟨𝟦𝟤𝟢
+
+Table 9
+Component ablation study on UNETR with DSC block.
+Dataset
+
+DMSK TTT
+
+Dice
+
+NSD
+
+Organs in
+Abdomen MRI
+
+×
+✓
+×
+✓
+
+×
+×
+✓
+✓
+
+0.6867±0.1488 0.7440±0.1627
+0.6943±0.1408 0.7534±0.1603
+0.6965±0.1538 0.7546±0.1548
+0.6971±0.1533 0.7576±0.1653
+
+Instruments in
+Endoscopy
+
+×
+✓
+×
+✓
+
+×
+×
+✓
+✓
+
+0.5017±0.3201 0.5168±0.3235
+0.5038±0.3148 0.5237±0.2365
+0.5042±0.2785 0.5259±0.2876
+0.5137±0.3320 0.5275±0.3302
+
+5.4.4. Impact of Individual Module Components
+This experiment evaluates individual contributions of
+DMSK and TTT modules on Organs in Abdomen MRI
+(3D) and Instruments in Endoscopy (2D) datasets. Table
+9 demonstrates each component’s impact on segmentation
+performance. On the Abdomen MRI dataset, baseline UNETR achieves 0.6867±0.1488 (Dice) and 0.7440±0.1627
+(NSD). Individual modules provide incremental improvements: DMSK alone achieves 0.6943±0.1408 Dice and
+0.7534±0.1603 NSD, while TTT alone reaches 0.6965±0.153
+8 Dice and 0.7546±0.1548 NSD, with DMSK addressing
+intra-feature constraints through adaptive multi-scale feature extraction and TTT resolving inter-feature constraints
+through dynamic weight adaptation. The combined implementation yields optimal performance at 0.6971±0.1533
+Dice and 0.7576±0.1653 NSD. On the Endoscopy dataset,
+individual modules show progressive gains over baseline
+(0.5017±0.3201 Dice, 0.5168±0.3235 NSD), with DMSK
+achieving 0.5038±0.3148 Dice and 0.5237±0.2365 NSD,
+and TTT reaching 0.5042±0.2785 Dice and 0.5259±0.2876
+NSD. The combination achieves highest performance at
+0.5137±0.3320 Dice and 0.5275±0.3302 NSD. These results indicate that both modules contribute complementary
+enhancements, with their integration consistently outperforming individual components across imaging modalities.
+Yue Cao et al.: Preprint submitted to Elsevier
+
+Figure 4: Singular value spectrum of weight updates ΔW1 for (a)
+a challenging sample and (b) an easier sample. Larger singular
+values in the challenging case demonstrate input-dependent
+adaptation, while rapid decay in both cases indicates targeted,
+low-rank updates.
+
+5.4.5. Impact of Multi-Scale Fusion Strategy
+To justify the sequential (cascade) application of kernels
+in the DMSK module, we conducted an ablation study
+comparing it with a parallel multi-branch variant, where the
+small-scale kernel 𝑘𝑠 and large-scale kernel 𝑘𝑏 operate independently on the input features before concatenation. This
+parallel design follows common multi-scale fusion practices
+in the literature, but differs from our recursive aggregation
+in Equation (8), which enables hierarchical refinement by
+processing local details first and then integrating broader
+context. The experiment was performed on the ISIC 2017
+dataset using UNet as the baseline backbone with DSC
+integration. As reported in Table 10, the cascade strategy
+outperforms the parallel variant across all metrics. These
+gains demonstrate that the sequential fusion promotes more
+effective multi-scale interaction, allowing fine-grained local
+Page 11 of 13
+
+features from 𝑘𝑠 to inform the global contextual extraction
+in 𝑘𝑏 , which is particularly beneficial for handling varying
+lesion scales and complex boundaries in medical images. In
+contrast, the parallel approach may introduce redundancy
+and less adaptive refinement, leading to suboptimal feature
+integration.
+
+6. Conclusion
+Our DSC block transforms static skip connections into
+adaptive mechanisms that respond to unique image characteristics during inference. As a plug-and-play component, it seamlessly incorporates into existing U-like network
+structures without modifications. The TTT is applied to
+skip connection, allowing targeted feature adaptation, as
+illustrated in Fig. 4. Our work moves beyond empirical
+network design by identifying and addressing fundamental
+limitations in skip connection mechanisms. The DSC block
+fundamentally enhances cross-layer connectivity through
+adaptive mechanisms, demonstrating superior feature representation capabilities. This approach is particularly valuable when handling the substantial heterogeneity present
+in medical imaging data. However, a common limitation
+across TTT-enhanced methods is the inherent computational
+overhead introduced by dynamic adaptation mechanisms.
+The TTT module requires additional processing during
+inference, potentially increasing latency in time-sensitive
+clinical applications. This computational burden represents
+a persistent trade-off between adaptivity and efficiency in
+existing TTT-based approaches. Future research should prioritize developing computationally efficient TTT implementations and lightweight dynamic adaptation strategies. Such
+developments are crucial for translating adaptive mechanisms
+into real-world clinical applications where both accuracy and
+computational efficiency are paramount.
+
+Acknowledgements
+This work was supported by the Major Program of the
+National Natural Science Foundation of China under Grant
+No. 62495064 and the Youth Program of the National Natural
+Science Foundation of China under Grant No. 62206189.
+
+References
+[1] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In International
+Conference on Medical image computing and computer-assisted
+intervention, pages 234–241, 2015.
+[2] Ozan Oktay, Jo Schlemper, Loic Le Folgoc, Matthew Lee, Mattias
+Heinrich, Kazunari Misawa, Kensaku Mori, Steven McDonagh, Nils Y
+Hammerla, Bernhard Kainz, et al. Attention u-net: Learning where to
+look for the pancreas. arXiv preprint arXiv:1804.03999, 2018.
+[3] Zongwei Zhou, Md Mahfuzur Rahman Siddiquee, Nima Tajbakhsh,
+and Jianming Liang. Unet++: A nested u-net architecture for medical
+image segmentation. In International workshop on deep learning in
+medical image analysis, pages 3–11, 2018.
+[4] Huimin Huang, Lanfen Lin, Ruofeng Tong, Hongjie Hu, Qiaowei
+Zhang, Yutaro Iwamoto, Xianhua Han, Yen-Wei Chen, and Jian Wu.
+Unet 3+: A full-scale connected unet for medical image segmentation.
+
+Yue Cao et al.: Preprint submitted to Elsevier
+
+In ICASSP 2020-2020 IEEE international conference on acoustics,
+speech and signal processing (ICASSP), pages 1055–1059, 2020.
+[5] Quansong He, Xiangde Min, Kaishen Wang, and Tao He. Fuseunet:
+A multi-scale feature fusion method for u-like networks. ICML,
+267:22669–22685, 2025.
+[6] Mohammad Hesam Hesamian, Wenjing Jia, Xiangjian He, and Paul
+Kennedy. Deep learning techniques for medical image segmentation:
+achievements and challenges. Journal of digital imaging, 32(4):582–
+596, 2019.
+[7] Bingzhi Chen, Xiaolin Huang, Yishu Liu, Zheng Zhang, Guangming
+Lu, Zheng Zhou, and Jiahui Pan. Attention-guided and noise-resistant
+learning for robust medical image segmentation. IEEE Transactions
+on Instrumentation and Measurement, 73:1–13, 2024.
+[8] Haiying Luo, Tao He, and Zhang Yi. A stable mapping of nmode.
+Artificial Intelligence Review, 57(5):120, 2024.
+[9] Xiang Li, Wenhai Wang, Xiaolin Hu, and Jian Yang. Selective kernel
+networks. In 2019 IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 510–519, 2019.
+[10] Run Su, Deyun Zhang, Jinhuai Liu, and Chuandong Cheng. Msu-net:
+Multi-scale u-net for 2d medical image segmentation. Frontiers in
+Genetics, 12:639930, 2021.
+[11] Lingjie Kong, Qiaoling Wei, Chengming Xu, Han Chen, and Yanwei
+Fu. Efcnet: Every feature counts for small medical object segmentation.
+arXiv preprint arXiv:2406.18201, 2024.
+[12] Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan
+Wang, Le Lu, Alan L Yuille, and Yuyin Zhou. Transunet: Transformers
+make strong encoders for medical image segmentation. arXiv preprint
+arXiv:2102.04306, 2021.
+[13] Hu Cao, Yueyue Wang, Joy Chen, Dongsheng Jiang, Xiaopeng Zhang,
+Qi Tian, and Manning Wang. Swin-unet: Unet-like pure transformer
+for medical image segmentation. In European conference on computer
+vision, pages 205–218, 2022.
+[14] Moein Heidari, Amirhossein Kazerouni, Milad Soltany, Reza Azad,
+Ehsan Khodapanah Aghdam, Julien Cohen-Adad, and Dorit Merhof.
+Hiformer: Hierarchical multi-scale representations using transformers
+for medical image segmentation. In Proceedings of the IEEE/CVF
+winter conference on applications of computer vision, pages 6202–
+6212, 2023.
+[15] Damien Fourure, Rémi Emonet, Elisa Fromont, Damien Muselet, Alain
+Tremeau, and Christian Wolf. Residual conv-deconv grid network for
+semantic segmentation. arXiv preprint arXiv:1707.07958, 2017.
+[16] Yu Sun, Xiaolong Wang, Zhuang Liu, John Miller, Alexei Efros,
+and Moritz Hardt. Test-time training with self-supervision for
+generalization under distribution shifts. In International conference
+on machine learning, pages 9229–9248, 2020.
+[17] Yu Sun, Xinhao Li, Karan Dalal, Jiarui Xu, Arjun Vikram, Genghan
+Zhang, Yann Dubois, Xinlei Chen, Xiaolong Wang, Sanmi Koyejo,
+et al. Learning to (learn at test time): Rnns with expressive hidden
+states. arXiv preprint arXiv:2407.04620, 2024.
+[18] Rong Zhou, Zhengqing Yuan, Zhiling Yan, Weixiang Sun, Kai Zhang,
+Yiwei Li, Yanfang Ye, Xiang Li, Lifang He, and Lichao Sun. Ttt-unet:
+Enhancing u-net with test-time training layers for biomedical image
+segmentation. arXiv preprint arXiv:2409.11299, 2024.
+[19] Jiashu Xu. Med-ttt: Vision test-time training model for medical image
+segmentation. arXiv preprint arXiv:2410.02523, 2024.
+[20] Zhaoqi Yang, Yanan Wang, and Yong Ge. Ttt4rec: A test-time training
+approach for rapid adaption in sequential recommendation. arXiv
+preprint arXiv:2409.19142, 2024.
+[21] Dian Meng, Bohao Xing, Xinlei Huang, Yanran Liu, Yijun Zhou,
+Zitong Yu, Xubin Zheng, et al. scfusionttt: Single-cell transcriptomics
+and proteomics fusion with test-time training layers. arXiv preprint
+arXiv:2410.13257, 2024.
+[22] Run Su, Deyun Zhang, Jinhuai Liu, and Chuandong Cheng. Msu-net:
+Multi-scale u-net for 2d medical image segmentation. Frontiers in
+Genetics, 12:639930, 2021.
+[23] Jin Yang, Peijie Qiu, Yichi Zhang, Daniel S Marcus, and Aristeidis Sotiras. D-net: Dynamic large kernel with dynamic feature
+fusion for volumetric medical image segmentation. arXiv preprint
+
+Page 12 of 13
+
+arXiv:2403.10674, 2024.
+[24] Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating
+or propagating gradients through stochastic neurons for conditional
+computation. arXiv preprint arXiv:1308.3432, 2013.
+[25] Wenjie Luo, Yujia Li, Raquel Urtasun, and Richard Zemel. Understanding the effective receptive field in deep convolutional neural networks.
+Advances in neural information processing systems, 29:4905–4913,
+2016.
+[26] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep
+residual learning for image recognition. In Proceedings of the IEEE
+conference on computer vision and pattern recognition, pages 770–778,
+2016.
+[27] Dmitry Ulyanov, Andrea Vedaldi, and Victor Lempitsky. Instance
+normalization: The missing ingredient for fast stylization. arXiv
+preprint arXiv:1607.08022, 2016.
+[28] Andrew L Maas, Awni Y Hannun, Andrew Y Ng, et al. Rectifier
+nonlinearities improve neural network acoustic models. In Proc. ICML,
+2013.
+[29] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer
+normalization. arXiv preprint arXiv:1607.06450, 2016.
+[30] Dan Hendrycks and Kevin Gimpel. Gaussian error linear units (gelus).
+arXiv preprint arXiv:1606.08415, 2016.
+[31] Noel CF Codella, David Gutman, M Emre Celebi, Brian Helba,
+Michael A Marchetti, Stephen W Dusza, Aadi Kalloo, Konstantinos
+Liopyris, Nabin Mishra, Harald Kittler, et al. Skin lesion analysis
+toward melanoma detection: A challenge at the 2017 international
+symposium on biomedical imaging (isbi), hosted by the international
+skin imaging collaboration (isic). In 2018 IEEE 15th international
+symposium on biomedical imaging (ISBI 2018), pages 168–172, 2018.
+[32] Max Allan, Alex Shvets, Thomas Kurmann, Zichen Zhang, Rahul Duggal, Yun-Hsuan Su, Nicola Rieke, Iro Laina, Niveditha Kalavakonda,
+Sebastian Bodenstedt, et al. 2017 robotic instrument segmentation
+challenge. arXiv preprint arXiv:1902.06426, 2019.
+[33] Jun Ma, Ronald Xie, Shamini Ayyadhury, Cheng Ge, Anubha Gupta,
+Ritu Gupta, Song Gu, Yao Zhang, Gihun Lee, Joonkee Kim, et al. The
+multimodality cell segmentation challenge: toward universal solutions.
+Nature methods, 21(6):1103–1113, 2024.
+[34] Jun Ma, Feifei Li, and Bo Wang. U-mamba: Enhancing long-range
+dependency for biomedical image segmentation. arXiv preprint
+arXiv:2401.04722, 2024.
+[35] Fabian Isensee, Paul F Jaeger, Simon AA Kohl, Jens Petersen, and
+Klaus H Maier-Hein. nnu-net: a self-configuring method for deep
+learning-based biomedical image segmentation. Nature methods,
+18(2):203–211, 2021.
+[36] Andriy Myronenko. 3d mri brain tumor segmentation using autoencoder regularization. In International MICCAI brainlesion workshop,
+pages 311–320, 2018.
+[37] Ali Hatamizadeh, Yucheng Tang, Vishwesh Nath, Dong Yang, Andriy
+Myronenko, Bennett Landman, Holger R Roth, and Daguang Xu. Unetr: Transformers for 3d medical image segmentation. In Proceedings
+of the IEEE/CVF winter conference on applications of computer vision,
+pages 574–584, 2022.
+[38] Ali Hatamizadeh, Vishwesh Nath, Yucheng Tang, Dong Yang, Holger R Roth, and Daguang Xu. Swin unetr: Swin transformers for
+semantic segmentation of brain tumors in mri images. In International
+MICCAI brainlesion workshop, pages 272–284, 2021.
+[39] Saikat Roy, Gregor Koehler, Constantin Ulrich, Michael Baumgartner,
+Jens Petersen, Fabian Isensee, Paul F Jaeger, and Klaus H MaierHein. Mednext: transformer-driven scaling of convnets for medical
+image segmentation. In International Conference on Medical Image
+Computing and Computer-Assisted Intervention, pages 405–415, 2023.
+
+Yue Cao et al.: Preprint submitted to Elsevier
+
+Page 13 of 13
+
+

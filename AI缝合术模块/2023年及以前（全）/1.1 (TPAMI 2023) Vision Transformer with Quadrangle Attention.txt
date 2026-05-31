@@ -1,0 +1,2862 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+1
+
+Vision Transformer with Quadrangle Attention
+
+arXiv:2303.15105v1 [cs.CV] 27 Mar 2023
+
+Qiming Zhang, Student Member, IEEE, Jing Zhang, Member, IEEE,
+Yufei Xu, Student Member, IEEE, and Dacheng Tao, Fellow, IEEE
+Abstract—Window-based attention has become a popular choice in vision transformers due to its superior performance, lower
+computational complexity, and less memory footprint. However, the design of hand-crafted windows, which is data-agnostic, constrains
+the flexibility of transformers to adapt to objects of varying sizes, shapes, and orientations. To address this issue, we propose a novel
+quadrangle attention (QA) method that extends the window-based attention to a general quadrangle formulation. Our method employs
+an end-to-end learnable quadrangle regression module that predicts a transformation matrix to transform default windows into target
+quadrangles for token sampling and attention calculation, enabling the network to model various targets with different shapes and
+orientations and capture rich context information. We integrate QA into plain and hierarchical vision transformers to create a new
+architecture named QFormer, which offers minor code modifications and negligible extra computational cost. Extensive experiments on
+public benchmarks demonstrate that QFormer outperforms existing representative vision transformers on various vision tasks, including
+classification, object detection, semantic segmentation, and pose estimation. The code will be made publicly available at QFormer.
+Index Terms—Quadrangle attention, Vision Transformer, Object detection, Semantic segmentation, Pose estimation
+
+F
+
+1
+
+I NTRODUCTION
+
+V
+
+ISION transformers (ViT) [1] have emerged as a promising
+approach for various vision tasks. ViT treats 2D images
+as 1D sequences by dividing the input image into patches and
+embedding them as tokens, which are then processed with stacked
+transformer blocks containing self-attention and feed-forward networks. Despite its simplicity, this architecture yields superior
+performance. However, the quadratic complexity of the vanilla
+self-attention over the input token length poses a challenge for
+processing high-resolution images. To address this issue, local
+window-based attention [2] is proposed, which partitions images
+into several non-overlapping squares (i.e., windows) and performs
+attention within each window individually. This design balances
+performance, computation complexity, and memory footprint,
+thereby significantly expanding the usage of plain and hierarchical
+transformers [2], [3] in various vision tasks [2], [4], [5], [6],
+[7], [8], [9], [10]. However, it also imposes a constraint on the
+design form of windows, i.e., the squares, thereby limiting the
+transformer’s ability to model long-range dependency as well as
+handle objects of varying sizes, shapes, and orientations, which is
+crucial for vision tasks.
+Previous studies have focused on improving window-based
+attention by enabling it to model long-range dependencies with
+advanced designs. One simple approach, as explored in the Swin
+transformer [2], involves enlarging window sizes from 7 × 7 to
+32 × 32 [11] to include more tokens in the calculation, albeit
+at a higher computational cost. Other works try to manually
+design various forms of windows, such as Focal attention [4],
+which incorporates coarse granularity tokens to capture longrange context, cross-shaped window attention [5], which uses
+two cross rectangular windows to model long-range dependency
+from both vertical and horizontal directions, and Pale [12], which
+attends to tokens in dilated vertical/horizontal directions to model
+long-range dependency from diagonal directions. These methods
+
+Q. Zhang, J. Zhang, Y. Xu, and D. Tao are with the School of
+Computer Science, Faculty of Engineering, The University of Sydney,
+Australia (email: qzha2506@uni.sydney.edu.au; jing.zhang1@sydney.edu.au;
+yuxu7116@uni.sydney.edu.au; dacheng.tao@gmail.com).
+
+have improved image classification performance by enlarging the
+attention distance. However, all of them adopt fixed rectangular
+windows for attention calculation, despite the arbitrary sizes,
+shapes, and orientations of targets in images. This data-agnostic
+and hand-crafted window design may be suboptimal for vision
+transformers. In this study, we propose a data-driven solution to
+this problem by extending the default windows from rectangular
+shapes to quadrangles, the optimal parameters of which (e.g.,
+shape, size, and orientation) can be automatically learned. It enables transformers to learn better feature representation to handle
+diverse objects, e.g., by capturing rich context from long-range
+tokens enclosed by the adaptive quadrangles.
+Specifically, we present a novel attention method dubbed
+Quadrangle Attention (QA), which aims to learn adaptive quadrangle configurations from data for calculating local attention.
+It employs default windows to partition the input images and
+uses an end-to-end learnable quadrangle regression module to
+predict a parameterized transformation matrix for each window.
+The transformation involves translation, scaling, rotation, shear,
+and projection, which is utilized to transform the default window
+to a target quadrangle. To enhance the training stability and allow
+good explainability, the transformation matrix is formulated as
+the composition of several basic transformations. Unlike window
+attention, where the window definition is shared between different
+heads in the multi-head self-attention (MHSA) layer, the proposed
+quadrangle transformation is performed independently for each
+head. This design enables attention layers to model diverse longterm dependencies and facilitates information exchange among
+overlapped windows without requiring window shift [2] or token
+permutation [14]. We integrate QA into plain and hierarchical
+vision transformers to create a new architecture named QFormer,
+which offers minor code modifications and negligible extra computational cost. We have conducted extensive experiments and
+ablation studies on public benchmarks for various vision tasks
+including classification, object detection, semantic segmentation,
+and pose estimation. The results demonstrate the effectiveness of
+QA and the superiority of QFormer over existing representative
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+2
+Quadformer
+83.0
+
+Swin
+
+83.2
+
+83.0
+
+82.5
+
+layer 1 layer 2
+layer 3
+
+head 1
+
+head 2
+
+head 3
+
+Top-1 Accuracy
+
+82.5
+82.0
+82.0
+81.5
+
+81.0
+
+(a) Hand-crafted window
+
+(a) Learned quadrangles
+
+81.6
+81.2
+224
+
+320
+
+384
+
+Image Size
+
+Fig. 1: Comparison of window configurations in previous hand-crafted designs [2] (a) and the proposed learnable quadrangle design
+(b), as well as their image classification performance under different settings of input size on the ImageNet [13] validation set (c).
+
+vision transformers. As shown in Figure 1, the proposed QFormer
+significantly outperforms the Swin Transformer [2] for image
+classification under different settings of input size.
+In summary, the contribution of this study is threefold. (1)
+We present a novel quadrangle attention method that can directly
+learn adaptive quadrangle configurations from data. It breaks the
+constraint of the fixed-size window in existing architectures and
+makes it possible for transformers to adapt to objects of various
+sizes, shapes, and orientations in a much easier way. (2) We
+employ the QA in both plain and hierarchical vision transformers
+to create a new architecture named QFormer, which offers minor
+code modifications and negligible extra computational cost. (3)
+Extensive experiments on public benchmarks demonstrate the
+effectiveness of QA and the superiority of QFormer over representative vision transformers on various visual tasks, including
+image classification, object detection, and semantic segmentation.
+
+2
+
+R ELATED W ORK
+
+2.1
+
+Vision transformer
+
+Vision transformers [1] have demonstrated superior performance
+in many vision tasks by modeling long-term dependency among
+image patches (a.k.a. tokens) [9], [15]. However, the use of vanilla
+full attention in vision transformers can lead to inferior training
+efficiency due to the lack of inductive bias. To address this issue,
+previous works [8], [16], [17], [18] have introduced inductive
+bias into vision transformers either implicitly or explicitly and
+have achieved superior classification performance. Multi-stage
+designs have also been explored to better adapt vision transformers
+to downstream vision tasks [2], [6], [19], [20], [21]. Among
+them, Swin Transformer [2] is a representative work, which
+partitions the tokens into non-overlapping windows and conducts
+attention within each window to reduce the computational cost
+and memory footprint, especially when dealing with larger input
+images. However, window-based attention imposes a constraint
+on the attention distance due to the fixed window size. To recover
+the transformer’s ability to model long-term dependency, various
+techniques have been explored, such as using additional tokens for
+efficient cross-window feature exchange or designing other forms
+of windows to allow the transformer layers to attend to far-away
+tokens in specific directions [5], [12], [14], [22]. These techniques
+rely on hand-crafted windows for attention computation and need
+to stack the transformers layers sequentially to enable feature
+
+exchange across all windows and model long-term dependency.
+As a result, they lack the flexibility to adapt well to inputs of
+various sizes. In contrast, the proposed QA learns the window
+configurations from input features and calculates attention within
+such generated adaptive quadrangles. It allows transformer layers
+to model long-term dependency, capture rich context, and promote
+cross-window information exchange from the diverse “windows”,
+thereby learning better feature representation for vision tasks.
+2.2
+
+Deformable sampling
+
+Deformable sampling has been extensively studied to aid convolutional networks [23], [24] in selectively attending to regions of
+interest and extracting high-quality features. Such techniques have
+been adapted in deformable-DETR [25] to help transformer detectors efficiently identify and utilize token features crucial for object
+detection. More recently, DPT [26] has proposed deformable patch
+merging layers based on the Pyramid Vision Transformer (PVT)
+architecture [19] to enable transformers to better preserve features following downsampling. From a different perspective, our
+QA introduces learnable quadrangle-based window attention into
+transformers. By learning the position, size, orientation, and shape
+of the windows for attention calculation, QA circumvents the
+restriction of hand-crafted fixed-size windows, facilitating better
+adaptation of window-based transformers to objects of varying
+sizes, shapes, and orientations.
+2.3
+
+Comparison to the conference version
+
+A preliminary version of this paper is presented in VSA [27],
+which learns varied-size windows for attention calculation. This
+paper extends the previous study with three major improvements:
+1)
+
+VSA uses rectangular to represent the attention area,
+which may not well adapt to the complex scenes in
+images, such as the objects of different shapes, and
+restrict the modeling ability. We rethink the idea from a
+more general concept by extending the regular rectangles
+to quadrangles and propose the QA accordingly. Thanks
+to the more flexible configuration, QA can learn the
+position, size, orientation, and shape of the windows
+for attention calculation and thus facilitate extracting
+the rich context of objects and learning better feature
+representation, while the learned rectangles in VSA can
+be regarded as a specific case in QA.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+𝑸, 𝑲, 𝑽
+
+Projection
+Default windows
+
+Attention
+
+3
+
+Default windows
+
+(a)
+𝑻
+
+𝑲𝒘, 𝑽𝒘
+
+sampling
+
+Window locations
+
+𝑲, 𝑽
+Projection
+
+Attention
+
+Target windows
+
+Default windows
+
+𝑸𝒘
+
+(b)
+Fig. 2: Illustration of window attention (a) and the proposed quadrangle attention (QA) (b).
+
+2)
+
+3)
+
+We resort to projective transformation to transform the
+default windows to arbitrary quadrangles, where the
+transformation matrix is directly learned from data. The
+transformation is formulated as the composition of several basic transformations. Besides, we propose a regularization that encourages the quadrangles to cover reasonable areas to stabilize the training process and accelerate
+the model convergence.
+We employ the QA in both plain and hierarchical vision transformers to create a new architecture named
+QFormer, bringing only minor code modifications and
+negligible extra computational cost. We have conducted
+extensive experiments on four vision tasks including classification, object detection, semantic segmentation, and
+pose estimation to evaluate QA and QFormer. The results
+demonstrate that QFormer outperforms representative vision transformers by a large margin while enjoying low
+computation complexity and memory footprint, establishing it as a promising architecture for various vision tasks.
+
+Besides, more experiment results, ablation studies, and analyses
+are presented. Some visual results are also provided to demonstrate
+the promising performance and explainability of QA.
+
+3
+
+M ETHOD
+
+In this section, we present the preliminaries of vision transformers,
+the technical details of QA, the implementation of QFormer by
+employing QA in both plain ViTs and hierarchical ones such as
+the Swin Transformer, and the computational complexity analysis.
+3.1
+
+Preliminary
+
+We will first briefly review the typical window-based attention in
+vision transformers [2], [3]. As illustrated in Figure 2(a), given
+the input feature map X ∈ R H×W ×C as input, it is partitioned into
+]},
+non-overlapping windows, i.e., {X i ∈ R w×w×C |i ∈ [1, . . . , H×W
+w2
+
+where w is the predefined window size and the windows are
+typical squares. The partitioned tokens within each window are
+flattened along the spatial dimension and projected to query, key,
+and value tokens following the same projection process of vanilla
+self-attention, i.e.,
+2
+H ×W
+]}, (1)
+{Q, K,V } = {Qi , K i ,V i ∈ R w ×C |i ∈ [1, . . . ,
+w2
+where Q, K,V represent the query, key, and value tokens, respectively. C is the channel dimension. To allow the model to capture
+context information from different representation subspaces, the
+tokens are chunked along the channel dimension equally by N
+heads, resulting in the tokens:
+2
+0
+H ×W
+]}, (2)
+{Qh , Kh ,Vh } = {Qih , Khi ,Vhi ∈ R w ×C |i ∈ [1, . . . ,
+w2
+where h ∈ [1, . . . , N] and C0 is the channel dimension along each
+head, i.e., C0 = C/N. We omit the subscript h in the following
+for simplicity. Given the flattened query Qi , key K i , and value V i
+tokens from the ith window, the window-based attention layers
+conduct the self-attention as follows, i.e.,
+F i = SA(Qi , K i ,V i ).
+
+(3)
+
+w2 ×N×C0
+
+Fi ∈ R
+is the output features after the self-attention
+operation SA(·) [1]. Then the features are concatenated along the
+spatial and channel dimension respectively to recover the feature
+map. Note that the tokens within each window are processed in the
+same manner and we dismiss the window index notation i of query,
+key, and value tokens in the following for simplicity. The attention
+operation is computed as a weighted sum of the values, where
+the weight, i.e., attention matrix, is determined by the similarity
+between the query and corresponding keys via a dot product and
+softmax functions, i.e.,
+F = (so f tmax(QK T ) + r)V,
+
+(4)
+
+where r is the relative position embedding [2], [28] to encode
+spatial information. It is always learnable during training.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+𝒛𝒍
+
+𝒛𝒍
+
+FFN
+
+FFN
+
+Norm
+
+Norm
+
+Attention
+
+QA
+
+Norm
+
+Norm
+
+𝒛𝒍"𝟏
+
+𝒛𝒍"𝟏
+
+(a)
+
+(b)
+
+4
+
+We directly use the query tokens for QA calculation, i.e., Qw = Q,
+while reshaping the key and value tokens into feature maps for the
+following sampling step in QA calculation.
+Quadrangle generation. We regard the base windows as references and resort to the projective transformation to transform each
+base window into a target quadrangle. Since projective transformation does not preserve parallelism, length, and orientation, the
+obtained quadrangles are very flexible with respect to locations,
+sizes, orientations, and shapes, making them well-suited to cover
+objects of different sizes, orientations, and shapes. We will briefly
+introduce the definition of projective transformation as follows. It
+is represented by a transformation matrix of eight parameters:
+
+
+a1 a2 b1
+T = a3 a4 b2  ,
+(6)
+c1 c2 1
+
+𝒛𝒍
+
+FFN
+Norm
+
+QA
+Norm
+
+CPE
+𝒛𝒍"𝟏
+
+(c)
+
+Fig. 3: The block of traditional window attention (a), the proposed
+QA in the plain ViT (b), and the hierarchical ViT (c).
+
+One key advantage of the window-based attention over the
+villain self-attention is reducing the computational complexity
+to linear regards the input size, i.e., each window attention’s
+complexity is O(w4C) and the computation complexity of window attention for each image is O(w2 HWC). To encourage
+the information exchange between different windows, a shifted
+window strategy is used between two adjacent transformer layers
+in Swin [2] and several vanilla self-attention layers are employed
+at intervals in ViTDet [3]. As a result, the receptive field of the
+model is enlarged by stacking transformer layers in sequence.
+However, current window-based attention restricts the attention
+area of the tokens within the hand-crafted fixed-size window at
+each transformer layer. It limits the model’s ability to capture
+far-away context and learn better features to represent objects
+of different sizes, orientations, and shapes. Thus, they need to
+carefully tune the size of the windows for different tasks, e.g.,
+enlarging the window size in Swin Transformers [2], [11] when
+the input resolution becomes larger.
+
+3.2
+
+quadrangle attention
+
+where a = [a1 , a2 ; a3 , a4 ] defines the transformation of scaling,
+rotation, and shearing, b = [b1; b2] defines the translation, and
+c = [c1, c2] is a projection vector that defines how the perceived
+objects change when the viewpoint of the observer changes in the
+depth dimension.
+As shown in Figure 2 (b), given the tokens in a base window
+Xw , QA uses a quadrangle prediction module to predict the
+projective transformation regarding the base window. However,
+directly regressing the eight parameters of the projective matrix is
+not easy. Instead, we disentangle the projective transformation into
+several basic transformations and predict the parameters for each
+of the basic transformations accordingly. Specifically, the quadrangle prediction module first predicts the surrogate parameters
+t ∈ R 9 , where the module consists of an average pooling layer, a
+LeakyReLU [29] activation layer, and a 1 × 1 convolutional layer
+in sequence:
+t = Conv ◦ LeakyReLU ◦ AveragePool(Xw ).
+
+(7)
+
+Then, it obtains the basic transformations including scaling Ts ,
+shearing Th , rotation Tr , translation Tt , and projection Tp based on
+the output t in Eq. (7):
+
+
+
+
+t1 + 1
+0
+0
+1 t3 0
+t2 + 1 0 , Th = t4 1 0 ,
+Ts =  0
+(8)
+0
+0
+1
+0 0 1
+
+
+cost5 − sint5 0
+cost5 0 ,
+Tr =  sint5
+(9)
+0
+0
+1
+
+
+
+
+1 0 β1t6
+1 0 0
+(10)
+Tt = 0 1 β2t7  , Tp =  0 1 0 ,
+0 0
+1
+t8 t9 1
+
+Base window generation. To alleviate the difficulties in using
+hand-crafted windows to deal with various objects, we propose
+the QA that allows the model to dynamically determine the
+appropriate location, size, orientation, and shape of each window
+in a data-driven manner. QA is easy-to-implement and only needs
+to make minor modifications to the basic structure of window
+attention-based vision transformers by simply substituting the
+attention module, as shown in Figure 3. Since the proposed QA
+conducts the same and independent operation for each head, we
+take one head as an example in the following. Technically, given
+the input feature map, it is first partitioned into several windows
+X with the predefined window size w, which is the same as the
+window-based attention, as shown in Figure 2(b). We refer to these
+windows as base windows and get the query, key, and value tokens
+from the feature from each window, respectively, i.e.,
+
+where β1 = Ww and β2 = Hw scale the translation regarding the
+image size to help adapt the model to different input sizes.
+Finally, the transformation matrix T is obtained by multiplying
+all transformations sequentially, i.e.,
+
+Q, K,V = Linear(X).
+
+[xtmp , ytmp , ztmp ]T = T × [x1 , y1 , 1]T ,
+
+(5)
+
+T = Ts × Th × Tr × Tt × Tp .
+
+(11)
+
+Given the estimated projection matrix, we get the location of
+the projected points via the standard projection process, i.e., given
+the coordinates of a point (x1 , y1 ), the transformation can be done
+by the simple multiplication:
+(12)
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+5
+
+𝑥$ , 𝑦$
+
+(a) A default window
+
+(b) Getting relative coordinates
+
+(c) Projective transformation upon relative coordinates
+
+(d) Coordinates recovery
+
+Fig. 4: Illustration of the projective transformation pipeline. (a) a default window. (b) The relative coordinates with respect to the window
+center (xc , yc ) are calculated. (c) The target quadrangle is obtained after projective transformation upon the relative coordinates. (d) The
+absolute coordinates are recovered by adding the window center coordinates.
+
+𝑙"
+
+𝛼
+
+𝑙#
+
+𝛼
+
+𝑙% ≠ 𝑙&
+Same 𝛼 but different 𝑙
+
+(a)
+
+(b)
+
+(c)
+
+Fig. 5: Comparison of the same transformation to two windows at
+different locations using the absolute coordinates.
+
+and the final coordinates are:
+(x2 , y2 ) = (xtmp /ztmp , ytmp /ztmp ).
+
+3.3
+(13)
+
+The calculation is conducted for each point in the base window
+in parallel to get the target location in the projected quadrangle.
+It is noted that this formulation also includes the traditional
+window attention a special case of QA, where t = 0 and thus
+T is an identity matrix. By default, we initialize the weights of the
+quadrangle prediction module to produce t = 0.
+However, simply using the token coordinates under the same
+coordinate system can lead to ambiguity when generating quadrangles as shown in Figure 5. For example, given the two windows
+at different locations, the window far from the origin point in
+(b) can have a significantly different translation compared with
+the one close to the origin point in (a), even though they have
+the same projective transformation matrix, i.e., rotation. This will
+lead to optimization difficulty of the quadrangle regression module
+during training. To address this issue, the projective transformation
+is conducted by taking each window’s relative coordinates as
+input instead of using the absolute ones as shown in Figure 4.
+Specifically, given the coordinates of tokens within a window
+{(xi , yi )|i = 0 . . . M}, where i indexes the token and M = w × w,
+we transform its coordinates to the relative coordinates as:
+(xir , yri ) = (xi − xc , yi − yc ),
+
+tokens Kw ,Vw from K,V , respectively. Thanks to the data-driven
+learning mechanism of window configurations in QA, there may
+be many diverse and overlapped quadrangles, thereby promoting
+the cross-window information exchange. However, such a design
+may generate quadrangles that cover the area outside the feature
+map. A simple sampling strategy is proposed to address this issue:
+(1) for the sampled coordinates within the feature map, a bi-linear
+interpolation is employed to sample the values; and (2) for those
+whose coordinates are outside the feature map, we use zero vector
+as their sampling values. Finally, we use the sampled Kw ,Vw and
+the original Qw for self-attention calculation according to Eq. (4).
+
+(14)
+
+and the regularization loss for all the token coordinates is:
+Lreg = ∑ R(xq,i ) · xq,i + R(yq,i ) · yq,i .
+
+where λ is the hyper-parameter. We sum the regularization loss
+and the common training loss, e.g., the cross-entropy loss for
+image classification.
+TABLE 1: The specifications of QFormer. The subscript h and p
+denote hierarchical and plain architectures, respectively.
+Model
+QFormerh -T
+QFormerh -S
+QFormerh -B
+QFormer p -B
+
+Figure 2(b) and (xir , yri ) are the relative coordinates with respect
+to the center. After obtaining the transformation matrix, we can
+get the relative coordinates of each token in the target quadrangle
+r , yr ) from (xr , yr ) according to Eq. (12) and Eq. (13). Then the
+(xq,i
+q,i
+i i
+absolute coordinates after transformation are obtained as follows:
+(15)
+
+After getting the coordinates of tokens in each target quadrangle, we use the grid-sampling function to sample the key and value
+
+(17)
+
+i
+
+where xc , yc denotes the center of window center as shown in
+
+r
+(xq,i , yq,i ) = (xq,i
++ xc , yrq,i + yc ).
+
+Regularization
+
+As stated above, the learned quadrangles may cover regions that
+are outside the feature maps and zero values are sampled in this
+case. Such a phenomenon hinders the learning of the quadrangle
+regression module since the gradients from such regions are
+always zero. To address this issue, we design a regularization term
+to encourage the projected quadrangles to cover more valid regions
+within the feature maps. Specifically, given the token coordinates
+(xq,i , yq,i ) within a quadrangle, we define a penalty function to
+penalize those coordinates outside the feature map:
+
+
+−λ , x < −1
+R(x) = 0,
+(16)
+−1 <= x <= 1
+
+
+λ,
+x>1
+
+3.4
+
+Layers
+2,2,6,2
+2,2,18,2
+2,2,18,2
+12
+
+Channel
+96
+96
+128
+768
+
+MLP
+4×
+4×
+4×
+4×
+
+Heads
+3,6,12,24
+3,6,12,24
+4,8,16,32
+12
+
+Params
+29 M
+50 M
+88 M
+86 M
+
+Model specifications
+
+We integrate QA into both plain and hierarchical vision transformers to create a new architecture named QFormer, whose
+model specifications are shown in Table 1. Both architectures
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+Images
+
+QA
+Transformer
+Blocks
+
+QA
+Transformer
+Blocks
+
+Classification
+head
+
+H/16 × W/16 × C
+
+Patch Embedding
+
+H×W×3
+
+6
+
+H/16 × W/16 × 4C
+
+H/32 × W/32 × 8C
+
+×N
+
+×N1
+Stage1
+
+QA
+Transformer
+Blocks
+×N2
+
+QA
+Transformer
+Blocks
+×N3
+Stage3
+
+Stage2
+
+QA
+Transformer
+Blocks
+×N4
+
+Classification
+head
+
+QA
+Transformer
+Blocks
+
+Patch Merging
+
+Images
+
+H/8 × W/8 × 2C
+
+Patch Merging
+
+H×W×3
+
+Patch Merging
+
+H/4 × W/4 × C
+
+Patch Merging
+
+(a)
+
+Stage4
+
+(b)
+
+Fig. 6: The pipeline of window attention (a), our proposed quadrangle attention (QA) (b), and the details of transformer blocks with
+the proposed quadrangle attention.
+
+are composed of a series of transformer layers as shown in
+Figure 6. The hierarchical architecture QFormerh downsamples
+the feature maps gradually in several stages, i.e., by a factor of
+4×, 2×, 2×, 2×, respectively, as shown in Figure 6(b). We use
+Swin Transformer [2] as the reference architecture and adopt the
+conditional position embedding (CPE) in CPVT [30] before the
+attention layers to encode the spatial information into the model
+as shown in Figure 3 (c), i.e.,
+X = Z l−1 +CPE(Z l−1 ).
+
+(18)
+
+The number of transformer layers and the channel dimension in
+each stage are the same as Swin Transformer, but we remove the
+window shifting operation for simplicity. For large models, we use
+plain ViT as the reference architecture and adopt the MAE pretrained [31] weights for initialization. As shown in Figure 6(a),
+The plain architecture QFormer p has the same feature size for all
+transformer layers, following the setting in ViT [1].
+3.5
+
+Computation complexity analysis
+
+The extra computations brought by QA come from CPE and the
+quadrangle prediction module, while the other parts, including the
+window-based MHSA and FFN, are exactly the same as the reference architectures. Given the input features X ∈ R H×W ×C , QA in
+hierarchical architectures firstly uses a depth-wise convolutional
+layer with a 7 × 7 kernel to generate CPE, which brings extra
+O(49 · HWC) computations. For learning the projective matrix,
+we first employ an average pooling layer with a kernel size and a
+stride equal to the window size to aggregate features from the base
+windows, whose computational complexity is O(HWC). The following activation function does not introduce extra computations,
+and the last convolutional layer with a kernel size 1 × 1 takes
+H W
+X pool ∈ R w × w ×C as the input and predicts the transformation
+parameters {ti |i = 1...9} for each head. Thus, its computational
+complexity is O( HW
+· 9NC). After obtaining the transformation
+w2
+matrix, we transform the default windows to quadrangles where
+we uniformly sample w × w tokens. Here we ignore the computational complexity of calculating the new coordinates because
+it is very marginal (i.e., 27HW ). The computational complexity
+
+of sampling in each quadrangle is w2 × 4 × C, and the total
+computational complexity of sampling is O(4 · HWC). Thus, the
+total extra computations brought by QA is O{(54 + 4N
+)HWC},
+w2
+which is far less (≤ 5%) than the total computations of the
+reference architectures. Note that the computational complexity
+of FFN is O(2αHWC2 ), where α is the expansion ratio and C
+is always larger than 96 for both plain and hierarchical vision
+transformers. When the model size increases with a larger token
+dimension (C), the extra FLOPs brought by QA can be negligible,
+i.e., 0.1% for QFormer p -B with C = 768.
+
+4
+
+E XPERIMENTS
+
+4.1
+
+Experiment settings
+
+4.1.1
+
+Datasets
+
+To comprehensively evaluate the effectiveness of QA, we conduct
+experiments on various vision tasks, including classification, semantic segmentation, instance segmentation, detection, and pose
+estimation, on well-known public datasets such as ImageNet1k [13], ADE20k [32], and MS COCO [33].
+ImageNet-1k [13] is a widely used large-scale image classification dataset, organized hierarchically into 1,000 categories based
+on the WordNet hierarchy. It contains 1 million images for training
+and 50,000 for testing, with 1,000 and 50 images per category,
+respectively. It is a de facto standard benchmark for evaluating
+the performance of backbone networks [2], [34]. Additionally, it
+serves as a fundamental dataset for pre-training various backbone
+models in either supervised or self-supervised ways. In this study,
+we adopt the ImageNet-1k pre-trained backbone for downstream
+tasks including object detection, semantic segmentation, and pose
+estimation, following the common practice.
+ADE20k [35] is a popular dataset for semantic segmentation,
+comprising 27k images with 150 labeled classes. It includes 25k
+images for training and 2k for validation, with diverse scenarios
+encompassing indoor and outdoor city street scenes. In this study,
+we adopt ADE20k as the representative dataset for semantic
+segmentation, in line with previous works such as BeiT [36] and
+Swin Transformer [2].
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+MS COCO [33] is a popular dataset used for a variety of vision
+tasks such as object detection, instance segmentation, and pose
+estimation. In contrast to the object-centered images in ImageNet,
+COCO images contain natural scenes with complex backgrounds,
+multiple objects of different categories, and different resolutions.
+The dataset includes 200k images from 80 object classes, and all
+object instances are annotated with detailed segmentation masks.
+For the human class, the dataset includes 150k human instances,
+each annotated with 17 different keypoints, making it suitable for
+the human pose estimation task.
+4.1.2
+
+Evaluation metrics
+
+For classification, we report the widely used Top-1 and Top5 accuracy as the evaluation metric, while for object detection,
+instance segmentation, and human pose estimation tasks, we
+adopt the widely used mean average precision (mAP) over all
+classes/keypoints as the primary evaluation metric. The mAP
+value is obtained by averaging the average precision (AP) scores
+calculated given a series of thresholds ranging from 0.5 to 0.95
+with a step of 0.05. For pose estimation, we use the object keypoint similarity (OKS), to determine the threshold. For semantic
+segmentation tasks, we use the intersection over union (IoU) as
+the evaluation metric.
+4.1.3
+
+Implementation details
+
+In this study, we employ QA in both plain and hierarchical
+vision transformers. We adopt the same model specifications as
+ViT [1] and Swin Transformer [2] for QFormer p and QFormerh ,
+respectively. If not specified, the input image resolution is set to
+224 × 224 for image classification. For hierarchical architectures,
+we follow the hyper-parameter settings of Swin Transformer to
+train QFormerh in a supervised manner. For plain architectures,
+we adopt the MAE [31] pre-training strategy to provide a good
+initialization for QFormer p , which has been proven effective in
+mitigating over-fitting in plain ViTs. For different downstream
+tasks, we used the ImageNet-1k pre-trained weights for initialization. It is worth noting that we only incorporate the proposed QA
+during the fine-tuning phase of QFormer p to reuse the pre-trained
+weights of plain ViTs and reduce the training cost, although
+incorporating quadrangle attention in pre-training may result in
+better performance.
+4.2
+4.2.1
+
+Plain models
+Image classification
+
+Settings. For the plain models, we adopt the fine-tuning practice
+proposed in [31], which involves pre-training the model on the
+ImageNet-1K dataset for 1,600 epochs using the ImageNet-1K
+training set, followed by supervised fine-tuning. We make several
+modifications to the backbone network, including introducing
+relative position encodings in each attention layer to incorporate
+position information, using average pooling of all visual tokens
+instead of the class token for the final prediction, and implementing window attention with a window size of 7 [2] and a patch
+size of 16 [1], following the common practice in [3]. The hyperparameter for the proposed regularization term is set to 1, and all
+other parameters follow the same settings as in [31]. We employ
+the AdamW optimizer with a weight decay of 0.05 and a layerwise learning rate decay of 0.75. The model was trained for 100
+epochs, with the first 5 epochs for warm-up.
+
+7
+
+TABLE 2: Ablation study results of each basic transformations on
+the QFormer p -B model.
+Transformations
+ImageNet
+scale and shift (Ts · Tt ) shear (Th ) rotation (Tr ) projection (Tp ) Top-1 Top-5
+81.2 95.5
+X
+82.3 96.1
+X
+X
+82.5 96.1
+X
+X
+X
+82.6 96.2
+X
+X
+X
+X
+82.9 96.3
+
+TABLE 3: Comparison between window attention and quadrangle
+attention, where full attention is placed evenly in the ViT-B/16
+model following ViTDet [3].
+Attention number
+Window Quadrangle
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+
+Full
+0
+2
+3
+4
+6
+
+Top-1
+81.2
+82.9
+82.5
+83.0
+82.6
+83.1
+82.8
+83.2
+82.9
+83.3
+
+Accuracy
+Gain (∆)
++1.7
++0.5
++0.5
++0.4
++0.4
+
+Top-5
+95.5
+96.3
+96.1
+96.3
+96.2
+96.3
+96.3
+96.4
+96.4
+96.6
+
+Ablation study. In order to evaluate the effectiveness of the
+flexible window design in QA, we conduct an ablation study
+using QFormer p -B. We gradually add basic transformations in
+QA, including scale and shift, shear, rotation, and projection
+transformations. The results are presented in Table 2, where X
+indicates that the corresponding transformation is used. The first
+row denotes the default setting, i.e., using the fixed-size windows.
+We observe that the representation ability of the model improves
+continuously with using more transformations, with the Top-1
+accuracy increasing from 81.2 to 82.9 (+1.7). This improvement
+is attributed to the ability of the generated flexible quadrangles to
+capture richer context and better handle objects of different sizes,
+orientations, and shapes. Furthermore, this flexible window configuration enables the network to capture long-range dependency
+better, thereby unleashing the potential of self-attention.
+Another way to address the limited attention distance problem
+in window attention is to combine it with the vanilla full attention,
+which allows each token to attend to all other tokens, thus enabling
+the modeling of long-range dependency [3]. ViTDet [3] interleaves
+window attention and full attention layers to enhance the model’s
+ability. We investigate the effectiveness of QA in this setting.
+TABLE 4: Comparison of using different attention methods in
+ViT-B/16 on ImageNet-1k. Quadrangle* refers to directly predicting the transformation while Quadrangle denotes the composition
+of basic transformation as depicted in Eq. (11).
+
+Window
+Shift window
+Quadrangle*
+Quadrangle
+
+Accuracy
+Top-1
+81.2
+82.0
+82.7
+82.9
+
+Epoch time
+6:20
+7:48
+8:10
+8:19
+
+Traing cost
+FLOPs (G) Memory (MB)
+16.9
+13,045
+16.9
+13,238
+16.9
+15,320
+16.9
+15,331
+
+TABLE 5: Hyper-parameter study of λ for the regularization.
+λ
+Top-1
+
+0
+diverged
+
+0.0001
+82.6
+
+0.001
+82.7
+
+0.01
+82.8
+
+0.1
+82.9
+
+1
+82.9
+
+10
+82.7
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+8
+
+TABLE 6: Object detection results on MS COCO [33] with the Mask RCNN detector [37]. Full attention is used every 1/4 attention
+layers. The results of bounding box mAPbb and instance mask mAPmk are reported, respectively.
+Model
+ViTDet-B [3]
+QFormer p -B
+
+mAPbb
+51.6
+52.3
+
+APbb
+50
+72.3
+73.0
+
+APbb
+75
+57.1
+57.7
+
+APbb
+s
+35.6
+36.2
+
+APbb
+m
+55.3
+55.5
+
+APbb
+l
+66.5
+67.4
+
+mAPmk
+45.9
+46.6
+
+APmk
+50
+69.4
+70.4
+
+APmk
+75
+50.0
+50.9
+
+APmk
+s
+27.8
+27.8
+
+APmk
+m
+48.7
+49.3
+
+APmk
+l
+63.7
+65.3
+
+FLOPs
+0.8T
+0.8T
+
+Params
+111M
+111M
+
+TABLE 7: The semantic segmentation results on ADE20k [32] with UPerNet [38] as the segmentation head. * denotes the results
+obtained by the multi-scale test.
+
+ViT-B + window attn
+ViT-B + shifted window attn
+QFormer p -B
+
+mIoU
+39.7
+41.6
+43.6
+
+mAcc
+50.3
+53.3
+55.2
+
+Image size 512
+aAcc mIoU*
+79.1
+41.8
+79.9
+43.6
+80.6
+45.0
+
+mAcc*
+51.0
+53.9
+55.4
+
+Specifically, we vary the number of full attention layers in the
+network, which are evenly distributed throughout the network,
+and evaluate the performance of using either fixed-size window
+attention or quadrangle attention in other transformer layers. The
+QFormer p -B backbone with 12 layers is used for the experiments.
+The results are presented in Table 3, where the third column
+indicates the number of full attention layers. It is surprising that
+even with the usage of full attention, QA continuously outperforms window attention in all settings. For example, with no full
+attention involved, QA brings the most significant performance
+gain, i.e., from 81.2 to 82.9 Top-1 accuracy. This is due to the
+better ability of QA to model long-range dependency and promote
+cross-window information exchange. It can also explain the fewer
+gains brought by the full attention for QA, compared with the
+window attention. It is noteworthy that the model using six full
+attention layers and window attention (i.e., the first row in the last
+group) only obtains comparable performance with the model only
+using QA (i.e., the second row in the first group). Since the QA
+has much fewer computations than the full attention, the results
+validate the superiority of the proposed QA.
+To further validate the effectiveness of QA, we compare it
+with the window attention as well as its shifted window version
+[2] using ViT-B/16 as the backbone. The results in Table 4 show
+that the proposed QA achieves the best performance with a Top1 accuracy of 82.9 and even outperforms the shifted window
+attention by a gain of 0.9, showing that flexible quadrangles in QA
+not only promote cross-window information exchange as shifted
+window attention but also help to extract rich context and learn
+better feature representation. Moreover, the proposed decomposed
+formulation, as illustrated in Eq. (11), yields a 0.2 performance
+improvement over directly predicting the transformation matrix.
+This highlights the effectiveness of the composition of basic
+transformations. The training cost of QA is similar to shifted
+window attention in terms of training time per epoch, overall
+FLOPs, and memory footprint, indicating that the proposed QA
+makes a good trade-off between accuracy and computational cost.
+We conduct an analysis of the hyper-parameter λ in the proposed regularization term, and the results are presented in Table 5,
+where λ ranges from 0 to 10. All results are obtained using
+QFormer p -B. When λ = 0, the regularization term is not applied
+during training. In this case, the quadrangle covers too many
+invalid regions (i.e., regions outside the feature maps), and the
+gradients from these regions are always zero, resulting in model
+divergence. By incorporating the proposed regularization term to
+penalize unreasonable attention regions, we stabilize the training
+process. We sweep the value of λ , and the best performance can
+
+aAcc*
+80.8
+81.4
+82.1
+
+mIoU
+40.2
+42.3
+44.9
+
+mAcc
+50.7
+53.6
+56.1
+
+Image size 640
+aAcc mIoU*
+79.4
+41.5
+80.6
+43.5
+81.7
+46.0
+
+mAcc*
+50.7
+53.4
+56.0
+
+aAcc*
+80.6
+81.5
+82.6
+
+be achieved in the range of 0.1 ∼ 1.
+4.2.2
+
+Object detection and instance segmentation
+
+Settings. The object detection model is built and trained following
+ViTDet [3]. Specifically, features are extracted from the last
+layer of the backbone, and a feature pyramid is constructed by
+downsampling and upsampling the extracted features. To better
+promote long-term dependency modeling, four full attention layers
+are uniformly placed in the backbone, while the other attention
+layers adopt the proposed QA. The official MAE pre-trained
+weights for the backbone are utilized, and the entire model is finetuned for 100 epochs on the MS COCO dataset. During training,
+the drop path rate is set to 0.2, and hyper-parameters from ViTDet
+are adopted, such as the AdamW optimizer with an initial learning
+rate of 0.0001, weight decay of 0.1, and layer-wise learning rate
+decay of 0.7. The input image resolution is set to 1024×1024.
+The performance of bounding box object detection (mAPbb ) and
+instance segmentation (mAPmk ) is evaluated and reported.
+Results. Table 6 presents the results on the MS COCO validation
+set. QFormer p -B and ViTDet-B differ only in the use of the
+proposed QA or window attention. The QFormer p -B model outperforms its baseline ViTDet-B model by a gain of 0.7 mAPbb and
+0.7 mAPmk while maintaining the model size and computational
+efficiency, as indicated by FLOPs and parameters. This considerable improvement demonstrates the effectiveness of QA in
+helping the detector learn better object representation. Moreover,
+QFormer p -B demonstrates superior performance in APs and APl ,
+bb
+mk
+exhibiting an improvement of 0.6 APbb
+s , 0.9 APl , and 1.6 APl .
+This outcome suggests that QA can handle objects of different
+scales due to its flexible design of window configuration.
+4.2.3
+
+Semantic segmentation
+
+Settings. We evaluate our QFormer for semantic segmentation on
+the ADE20k dataset. In contrast to the detection task, where only
+the last layer is used for feature extraction, features are collected
+from every 1/4 layer of the ViT-B backbone for the segmentation
+task. A feature pyramid is constructed for the segmentation head
+using simple deconvolution and downsampling layers. The MAE
+pre-trained weights are used to initialize the backbone, and the
+whole model is fine-tuned for 160k iterations. The UPerNet [38]
+is adopted as the segmentation head, following the common
+practice [11], [31], and the default training setting in MMSegmentation [39] is adopted. For example, the AdamW optimizer is
+used with an initial learning rate of 6e-5. A polynomial scheduler
+is employed to adjust the learning rate, while weight decay and
+layer-wise learning rate decay are set to 0.01 and 0.9, respectively.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+9
+
+TABLE 8: Human pose estimation results on the MS COCO [33] validation set. * denotes that FP16 is used due to the limit of GPU
+memory. When ‘Full’ is marked, we use full attention every 1/4 layer following ViTDet [3].
+Full
+
+Window
+X
+X
+
+Shift
+
+QA
+
+X
+X
+
+X
+X
+X
+
+X
+X
+
+Training Memory (M)
+21,161
+21,161
+24,378
+28,594
+32,641
+36,141*
+
+GFLOPs
+66.3
+66.3
+66.4
+69.9
+70.0
+76.6
+
+Two training settings with different input sizes, namely 512×512
+and 640×640, are used to compare the models’ performance. All
+the models are trained using 8 A100 GPUs with a total batch size
+of 16. The results are reported in terms of mIoU and accuracy, for
+both single-scale and multi-scale test settings.
+Results. Table 7 presents the results. The first two rows denote
+the results of using fixed window attention or shifted window
+attention [11] in ViT-B, respectively. The last row reports the
+results of using the proposed QA in ViT-B, i.e., QFormer p -B. The
+superior performance of QA can be observed in comparison to the
+other two variants, especially for this dense prediction task with
+various objects. Specifically, QFormer p -B achieves 43.6 mIoU for
+512×512 images and 44.9 mIoU for 640×640 images, which
+outperforms the shifted window attention by 2.0 and 2.6 mIoU,
+respectively. This improvement is due to the QA’s flexible design
+that learns adaptive window configurations to extract rich context
+and better feature representation. Moreover, when comparing
+models trained with different input resolutions, it can be observed
+that the models with the default or shifted window attention gain
+less or even no benefit from larger images. The default window
+attention yields inferior performance in this setting, as it lacks
+the ability to model global context. The shifted window attention
+helps promote cross-window information exchange and improves
+performance slightly. In contrast, QFormer p -B can adapt to objects
+of different sizes and effectively exploit the context information
+in larger images, resulting in better segmentation performance.
+For instance, QFormer p -B gains 1.4 mIoU and 1.1 mIoU* when
+increasing the input resolution from 512 to 640.
+4.2.4 Human pose estimation
+Settings. We follow the practice in ViTPose [9] to evaluate the
+effectiveness of QA for the human pose estimation task. The
+top-down pipeline is employed, where the images of human
+instances are used as input, extracted based on the detection results
+from SimpleBaseline [40]. Post-processing is carried out using
+Udp [41]. We use the official MAE pre-trained model to initialize
+the ViT-B backbone and the default training settings in MMPose,
+i.e., an input image size of 256×192 and a learning rate of 5e-4.
+The model is optimized by the AdamW optimizer and trained
+for 210 epochs. The learning rate is decreased by 10× at the
+170th and 200th epochs, with the layer-wise decay set to 0.75.
+Larger feature size is used by adjusting the convolutional stride
+in the patch embedding layer, changing the downsampling ratio
+from 1/16 to 1/8. The performance of different attention methods,
+including the vanilla full attention (‘Full’), fixed window attention
+(‘Window’), shifted window attention (‘Shift’), and the proposed
+QA, are reported on the MS COCO dataset [33].
+Results. As shown in Table 8, the model with window attention
+only, represented by the first row, demonstrates inferior performance due to its poor ability to extract global context information.
+Both the shifted window attention and our QA promote cross-
+
+AP
+66.4
+76.4
+77.0
+76.9
+77.2
+77.4
+
+AP50
+87.7
+90.9
+90.9
+90.8
+90.9
+91.0
+
+AR
+72.9
+81.6
+82.0
+82.1
+82.2
+82.4
+
+AR50
+91.9
+94.5
+94.7
+94.7
+94.7
+94.9
+
+Training time (min/epoch)
+3:50
+4:25
+4:36
+4:20
+4:40
+4:10
+
+window information exchange and show improved performance,
+where QA obtained larger gains in most metrics. The results
+suggest that the learned quadrangles of various shapes can adapt
+well to humans with diverse poses and learn better feature representation. Furthermore, when comparing the 3rd and 4th rows, we
+find that using QA alone has already outperformed the model of
+using both full and window attention but with less GPU memory
+footprint and fewer FLOPs. When using full attention and QA
+together, the performance reaches 77.2 AP (the second-last row)
+and is comparable to the full attention setting, while requiring
+much less memory footprint and FLOPs.
+4.3
+
+Hierarchical models
+
+4.3.1
+
+Image classification
+
+Settings. During training, we utilize the AdamW optimizer [56]
+with a cosine learning rate scheduler. The training process consists
+of 300 epochs on the ImageNet-1k [13] training set, and we also
+use linear warm-up for the first 20 epochs. The initial learning rate
+is set to 0.001 with a batch size of 1024. We apply various data
+augmentations, including random cropping, auto-augmentation
+[57], CutMix [58], MixUp [59], and random erasing. Furthermore,
+label smoothing with a weight of 0.1 is used. For training with
+input size larger than 224×224, we fine-tune the model pre-trained
+with an input size of 224×224, for 30 epochs using the same
+training settings but without the warm-up phase.
+Results. We evaluate different models on the ImageNet-1k [13]
+validation set. As shown in Table 9, the proposed QFormerh T outperforms its counterpart Swin-T (with the shifted window
+attention) by a gain of 1.3% Top-1 accuracy, i.e., from 81.2% to
+82.5%. This result suggests that QA can capture useful context
+information more effectively by learning the appropriate window
+configurations and thus attending to far-away but relevant tokens
+outside the default windows. Moreover, QFormerh -T achieves
+superior results over MSG-T [22] and Focal-T [4], which utilize additional messenger tokens for across-window information
+exchange, demonstrating that our QA can enable sufficient information exchange across windows without hand-crafted designs,
+making it simple and efficient. When increasing the model size,
+our QFormerh -S outperforms Swin-S by 1.0% accuracy and it
+even surpasses the larger Swin-B and Focal-B by 0.6% and 0.2%
+accuracy, respectively, while having significantly fewer parameters
+and FLOPs. The performance gains are not diminished when
+further scaling the QFormer to larger sizes, e.g., QFormerh -B
+achieves an even better performance of 84.1% accuracy, although
+the gain over its smaller version QFormerh -S is marginal. We
+suspect that the performance of large models may be limited by
+the small input size.
+To investigate the impact of image size, we compare the
+performance of Swin and our QFormerh under different settings
+as shown in Figure 1(c). Due to the limit of GPU memory, we
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+10
+
+TABLE 9: Image classification results on ImageNet [13]. ‘Input Size’ denotes the size of input images used for training and testing.
+Model
+DeiT-S [16]
+PVT-S [19]
+ViL-S [43]
+PiT-S [44]
+TNT-S [45]
+MSG-T [22]
+Twins-PCPVT-S [46]
+Twins-SVT-S [46]
+T2T-ViT-14 [47]
+Swin-T [2]
+Focal-T [4]
+DW-T [48]
+QFormerh -T
+Swin-T [2]
+QFormerh -T
+Swin-T [2]
+QFormerh -T
+PiT-B [44]
+TNT-B [45]
+ViL-B [43]
+MSG-S [22]
+PVTv2-B5 [20]
+HRFormer-B [49]
+Swin-S [2]
+Focal-S [4]
+CrossFormer-B [21]
+QFormerh -S
+Swin-B [2]
+DW-B [48]
+Focal-B [4]
+QFormerh -B
+
+Params
+(M)
+22
+25
+25
+24
+24
+25
+24
+24
+22
+29
+29
+30
+29
+29
+29
+29
+29
+74
+66
+56
+56
+82
+50
+50
+51
+52
+51
+88
+91
+90
+90
+
+FLOPs
+(G)
+4.6
+3.8
+4.9
+4.8
+5.2
+3.8
+3.8
+2.9
+5.2
+4.5
+4.9
+5.2
+4.6
+12.5
+13.0
+14.2
+14.9
+12.5
+14.1
+13.4
+8.4
+11.8
+13.7
+8.7
+9.4
+9.2
+8.9
+15.4
+17.0
+16.0
+15.7
+
+Input
+Size
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+320
+320
+384
+384
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+224
+
+ImageNet [13]
+Top-1 Top-5
+81.2
+95.4
+79.8
+82.4
+80.9
+81.3
+95.6
+82.4
+81.2
+81.7
+81.5
+95.7
+81.2
+82.2
+95.9
+82.0
+82.5
+96.2
+81.6
+83.0
+96.3
+82.0
+83.2
+96.5
+82.0
+82.8
+96.3
+83.7
+83.4
+83.8
+82.8
+83.2
+96.2
+83.5
+96.2
+83.4
+84.0
+96.8
+83.4
+96.5
+83.8
+83.8
+96.5
+84.1
+96.8
+
+Real [42]
+Top-1
+86.8
+86.8
+87.5
+
+88.0
+88.6
+88.0
+88.7
+
+TABLE 10: Object detection results on MS COCO [33] with the Mask RCNN detector [37].
+
+ResNet50 [34]
+ViL-S [50]
+PVT-M [19]
+PVT-L [19]
+PVTv2-B2 [20]
+CMT-S [51]
+RegionViT-S [52]
+XCiT-S12/16 [53]
+DPT-M [26]
+ResT-Base [54]
+Shuffle-T [14]
+Swin-T [2]
+DW-T [48]
+Focal-T [4]
+DAT-T [55]
+QFormerh -T
+
+Params
+(M)
+44
+45
+64
+81
+45
+45
+50
+44
+66
+50
+48
+48
+49
+49
+48
+49
+
+mAPbb
+38.6
+44.9
+42.0
+42.9
+45.3
+44.6
+42.5
+43.8
+41.6
+43.7
+44.8
+44.4
+45.9
+
+APbb
+50
+59.5
+67.1
+64.4
+65.0
+67.1
+66.8
+66.2
+64.9
+66.6
+67.6
+68.5
+
+Mask RCNN 1x
+APbb
+mAPmk
+75
+42.1
+35.2
+49.3
+41.0
+45.6
+39.0
+46.6
+39.5
+49.6
+41.2
+48.9
+40.7
+39.5
+48.3
+40.3
+45.1
+38.7
+47.7
+39.8
+41.0
+48.5
+40.4
+50.3
+41.5
+
+only conduct experiments on Swin-T and our QFormerh -T. When
+increasing the input image size from 224 × 224 to 320 × 320
+and 384 × 384, we observe that the proposed QA continually
+helps deliver better classification performance, which outperforms
+the (shifted) window attention significantly under all the settings.
+It is noteworthy that QFormerh -T achieves 82.5% accuracy with
+the image size of 224 × 224, even outperforming Swin-T at
+384 × 384 by a gain of 0.5. The results suggest that window
+attention that limits the attention area to a fixed-size square makes
+it ineffective in handling objects of different sizes, while the
+proposed quadrangle attention is very flexible and learns adaptive
+windows from the data directly.
+
+APmk
+50
+56.3
+64.2
+61.6
+61.9
+64.2
+63.9
+63.1
+61.6
+63.3
+64.2
+65.2
+
+4.3.2
+
+APmk
+75
+37.5
+44.1
+42.1
+42.5
+44.4
+43.4
+43.4
+41.4
+42.7
+43.1
+44.6
+
+mAPbb
+40.8
+47.1
+-
+
+APbb
+50
+61.2
+68.7
+-
+
+Mask RCNN 3x
+APbb
+mAPmk
+75
+44.4
+37.0
+51.5
+42.7
+-
+
+APmk
+50
+58.4
+65.9
+-
+
+APmk
+75
+39.3
+46.2
+-
+
+46.3
+45.3
+44.3
+46.8
+46.0
+46.7
+47.2
+47.1
+47.5
+
+67.0
+65.6
+68.9
+68.1
+69.1
+69.4
+69.2
+69.6
+
+49.5
+48.8
+51.5
+50.3
+51.4
+51.9
+51.6
+52.1
+
+64.0
+63.1
+66.0
+65.1
+66.2
+66.5
+66.1
+66.4
+
+43.8
+44.1
+45.6
+44.9
+45.6
+45.9
+45.5
+46.1
+
+42.3
+40.8
+40.7
+42.3
+41.6
+42.4
+42.7
+42.4
+42.7
+
+Object detection and instance segmentation
+
+Settings. We evaluate QA in hierarchical models for the object
+detection and instance segmentation tasks on the MS COCO [33]
+dataset. We utilize backbones pre-trained on ImageNet with an
+input size of 224 × 224 and two popular object detection frameworks, namely Mask RCNN [37] and Cascade RCNN [60], [62].
+We train and evaluate all the models using the common practices
+according to mmdetection [63]. Specifically, we use the AdamW
+optimizer and a batch size of 16 for multi-scale training. The
+initial learning rate and weight decay are set to 0.0001 and 0.05,
+respectively. We train the models under both 1× (12 epochs) and
+3× (36 epochs) schedules.
+Results. The results of QFormerh -T with Mask RCNN and Cascade RCNN are presented in Table 10 and Table 12, respec-
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+11
+
+TABLE 11: Object detection results on MS COCO [33] with the Mask RCNN detector [37].
+Params
+(M)
+81
+76
+69
+71
+69
+107
+111
+70
+
+PVT-L [19]
+ViL-B [43]
+Swin-S [2]
+Focal-S [4]
+DAT-S [55]
+Swin-B [2]
+DW-B [48]
+QFormerh -S
+
+mAPbb
+44.5
+45.7
+48.5
+48.8
+49.0
+48.5
+49.2
+49.5
+
+APbb
+50
+66.0
+67.2
+70.2
+70.5
+70.9
+69.8
+70.6
+71.2
+
+Mask RCNN 3x
+APbb
+mAPmk
+75
+48.3
+40.7
+49.9
+41.3
+53.5
+43.3
+53.6
+43.8
+53.8
+44.0
+53.2
+43.4
+54.0
+44.0
+54.2
+44.2
+
+APmk
+50
+63.4
+64.4
+67.3
+67.7
+68.0
+66.8
+68.0
+68.3
+
+APmk
+75
+43.7
+44.5
+46.6
+47.2
+47.5
+46.9
+47.7
+47.6
+
+TABLE 12: Object detection results on MS COCO [33] with the Cascade Mask RCNN detector [60].
+
+R50 [34]
+Swin-T [2]
+DAT-T [55]
+QFormerh -T
+
+Params
+(M)
+82
+86
+86
+87
+
+mAPbb
+44.3
+48.1
+49.1
+49.8
+
+APbb
+50
+62.7
+67.1
+68.2
+69.0
+
+Cascade RCNN 1x
+APbb
+mAPmk APmk
+75
+50
+48.4
+38.3
+59.7
+52.2
+41.7
+64.4
+52.9
+42.5
+65.4
+54.1
+43.0
+66.1
+
+APmk
+75
+41.2
+45.0
+45.8
+46.7
+
+mAPbb
+46.3
+50.2
+51.3
+51.4
+
+APbb
+50
+64.3
+69.2
+70.1
+70.1
+
+Cascade RCNN 3x
+APbb
+mAPmk APmk
+75
+50
+50.5
+40.1
+61.7
+54.7
+43.7
+66.6
+55.8
+44.5
+67.5
+55.8
+44.7
+67.6
+
+APmk
+75
+43.4
+47.3
+48.1
+48.2
+
+TABLE 13: Object detection results on MS COCO [33] with the Cascade Mask RCNN detector [60].
+
+X101-32 [61]
+Swin-S [2]
+Shuffle-S [14]
+MSG-S [22]
+QFormerh -S
+Swin-B [2]
+QFormerh -B
+
+Params
+(M)
+101
+107
+107
+113
+108
+145
+147
+
+mAPbb
+48.1
+51.9
+51.9
+52.5
+52.8
+51.9
+52.9
+
+APbb
+50
+66.5
+70.7
+70.9
+71.1
+71.5
+70.5
+71.6
+
+APbb
+75
+52.4
+56.3
+56.4
+57.2
+57.4
+56.4
+57.6
+
+APbb
+s
+35.2
+35.9
+35.4
+36.3
+
+APbb
+m
+55.7
+56.6
+55.2
+56.5
+
+TABLE 14: Semantic segmentation results on ADE20k [32] with
+UPerNet [38]. mIoU* denotes the result of multi-scale testing.
+ResNet-50 [34]
+Swin-T [2]
+DAT-T [55]
+DW-T [48]
+Focal-T [4]
+QFormerh -T
+ResNet-101 [34]
+Swin-S [2]
+DAT-S [55]
+Focal-S [4]
+QFormerh -S
+Swin-B [2]
+DW-B [48]
+Focal-B [4]
+QFormerh -B
+
+mIoU
+42.1
+44.5
+45.5
+45.7
+45.8
+46.9
+43.8
+47.6
+48.3
+48.0
+48.9
+48.1
+48.7
+49.0
+49.5
+
+mAcc
+53.0
+55.6
+57.9
+58.3
+54.7
+58.8
+60.4
+60.3
+59.1
+60.9
+
+aAcc
+80.0
+81.1
+82.1
+81.0
+82.5
+83.0
+83.0
+
+mIoU*
+42.8
+45.8
+46.4
+46.9
+47.0
+48.1
+44.9
+49.5
+49.8
+50.0
+50.3
+49.7
+50.3
+50.5
+50.6
+
+Params
+67M
+60M
+60M
+61M
+62M
+61M
+86M
+81M
+81M
+85M
+82M
+121M
+125M
+126M
+123M
+
+tively. More results of larger backbones, e.g., QFormerh -S and
+QFormerh -B, are presented in Table 11 and Table 13. As shown
+in Table 10, QFormerh -T with QA considerably outperforms the
+baseline method Swin-T [2] in both object detection and instance
+segmentation tasks with the Mask RCNN detector. Specifically,
+QFormerh -T improves the performance by 2.2 mAPbb and 1.7
+mAPmk compared to Swin-T with the 1× training schedule. These
+findings confirm the efficacy of the proposed QA in handling
+objects of different scales which are very common in object
+detection datasets like MS COCO. Additionally, the performance
+of QFormerh -T improves with an extended training schedule (3×)
+and achieves a gain of 1.5 mAPbb and 1.1 mAPmk over Swin-T,
+showing that the proposed learnable QA continually benefits from
+a longer training schedule by fitting the data with diverse objects
+better. Furthermore, QA demonstrates superior performance com-
+
+Cascade RCNN 3x
+APbb
+mAPmk
+APmk
+50
+l
+41.6
+63.9
+67.7
+45.0
+68.2
+44.9
+67.8
+45.5
+68.4
+68.5
+45.7
+69.1
+67.4
+45.0
+68.1
+68.5
+45.9
+69.2
+
+APmk
+75
+45.2
+48.8
+48.6
+49.5
+50.1
+48.9
+49.8
+
+APmk
+s
+28.8
+29.2
+28.9
+29.7
+
+APmk
+m
+48.7
+49.6
+48.3
+49.4
+
+APmk
+l
+60.6
+61.7
+60.4
+61.5
+
+pared to other advanced window attention methods, such as the
+multi-window approach (i.e., DW-T [48]), obtaining a gain of 0.8
+mAPbb with the 3× training schedule. This is because QA can
+learn quadrangles with arbitrary sizes and shapes to fit different
+objects, whereas the multiple windows used in DW-T are still
+manually designed, which requires careful tuning for each dataset
+and task. The superior performance of QA over the focal attention
+(i.e., Focal-T [4]) is also evident, with a performance gain of 1.1
+mAPbb with the 1× training schedule. It is worth noting that
+stacking more transformer layers does not mitigate the inherent
+drawback of the hand-crafted designs of window attention, and the
+superiority of our QA remains. For instance, QFormerh -S achieves
+the best performance among all other backbones, i.e., 49.5 mAPbb
+and 44.2 mAPmk , respectively, as demonstrated in Table 11.
+The detection results of different backbones with the Cascade
+RCNN [62] detector are presented in Table 12. Under the 1×
+schedule, QFormerh -T outperforms Swin-T with a significant
+margin of 1.7 mAPbb and 1.3 mAPmk . Moreover, as the training
+epochs increase, the proposed QA yields a performance gain of 1.2
+mAPbb and 1.0 mAPmk . For larger backbones such as QFormerh S and QFormerh -B, we conduct a more detailed comparison
+regarding detection performance on objects of different scales, as
+shown in Table 13. The results demonstrate that QFormerh -S and
+QFormerh-B exhibit substantially better performance compared
+to the Swin Transformers, with a minimum gain of 0.9 mAPbb
+and 0.7 mAPmk . These findings demonstrate the potential of
+QA to enhance large models with stronger representation ability.
+Additionally, the results also reveal that QFormerh consistently
+outperforms Swin variants in terms of detection accuracy on
+objects of various scales. For example, the performance of Swin-B
+regarding small, middle, and large size objects, i.e., APbb s, APbb m,
+APbb l, is improved by 0.9 AP, 1.3 AP, and 1.1 AP, respectively, by
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+12
+
+employing the proposed QA. Such observations further validate
+the effectiveness of QA in handling objects of different sizes.
+4.3.3 Semantic segmentation
+Settings. In this section, we employ the ADE20k dataset [32] to
+evaluate the performance of different backbones for the semantic
+segmentation task. Specifically, we adopt UPerNet [38] as the
+segmentation framework, following Swin Transformer [2]. All the
+models are trained and evaluated following common practice. We
+use the Adam optimizer with polynomial learning rate schedulers
+to train the models for 160k steps. The initial learning rate is
+initialized to 6e-5, and weight decay is set to 1e-2. All experiments
+are conducted on 8 NVIDIA A100 GPUs with a total batch size of
+16. We provide both single-scale and multi-scale testing results.
+Results. We report the results of QFormerh and other models in
+Table 14. As can be seen, our QFormerh models perform the
+best when compared to all other backbones with hand-crafted
+window designs. For example, QFormerh -T outperforms SwinT by 2.4 mIoU, 2.7 mAcc, and 2.3 mIoU*, respectively. While
+Focal-T and DW-T allow for extracting long-range context and
+cross-window information exchange by attending to more tokens,
+their performance still falls behind the proposed QFormerh -T,
+demonstrating the superiority of the learnable design of our
+QA over the hand-crafted windows. Furthermore, the benefit of
+QA extends to scaled-up backbones. For example, QFormerh -S
+achieves 48.9 mIoU and 50.3 mIoU*, respectively, outperforming
+other backbones. It is also noteworthy that QFormerh -S even
+outperforms the much larger Swin-B and DW-B models, showing
+that our QA can significantly improve the representation ability of
+vision transformers.
+TABLE 15: The inference speed of the backbones on different
+vision tasks. UPerNet [32] and Cascade Mask RCNN [60] are
+taken as the decoders for semantic segmentation and detection,
+respectively. The speed is measured on NVIDIA A100 GPUs.
+‘WA’ refers to window attention.
+Backbone
+Swin-T
+QFormerh -T
+Swin-S
+QFormerh -S
+ViT-B + WA
+ViT-B + shifted WA
+QFormer p -B
+ViT-B + WA
+ViT-B + shifted WA
+QFormer p -B
+Swin-T
+QFormerh -T
+Swin-S
+QFormerh -S
+
+4.4
+
+Speed
+(fps)
+73.0
+63.4
+57.8
+50.1
+62.7
+62.1
+58.9
+45.1
+44.5
+41.0
+18.4
+16.1
+15.7
+13.0
+
+Perform.
+44.5 mIoU
+46.9 mIoU
+47.6 mIoU
+48.9 mIoU
+39.7 mIoU
+41.6 mIoU
+43.6 mIoU
+40.2 mIoU
+42.3 mIoU
+44.9 mIoU
+50.2 mAP
+51.4 mAP
+51.9 mAP
+52.8 mAP
+
+Task
+
+Image size
+
+(512,512)
+Segment
+(640,640)
+
+Default window
+
+(1344, 800)
+
+Inference speed
+
+We evaluate the inference speed of plain and hierarchical architectures and present the results in Table 15. In addition to
+the proposed QFormer, baseline models, namely Swin [2] and
+ViT [1], have also been evaluated for comparison. For the tasks
+of semantic segmentation and object detection, we adopt UPerNet
+[32] and Cascade Mask RCNN [37] as task heads, respectively.
+The input image size is provided in the last column. We run each
+model 30 times and record the average speed. All experiments
+
+QA Layer 9
+
+Fig. 7: Visualization of the quadrangles generated by QFormerh -T.
+The model is trained on ImageNet for classification.
+
+Fig. 8: Visualization of the quadrangles generated by QFormerh T. The model is trained on MS COCO for object detection and
+instance segmentation.
+
+are conducted on NVIDIA A100 GPUs. As observed in the
+table, QFormerh is marginally slower than Swin Transformer by
+about 13% for various vision tasks while achieving significantly
+better performance. For plain models, QFormer p reduces the speed
+gap to less than 9% compared to ViT with window attention
+while obtaining a gain of over 4 mIoU, demonstrating the great
+potential of QA in achieving better Pareto frontier of speed and
+accuracy. The slightly slower speed of our model is attributed
+to the insufficient optimization of sampling operations compared
+with matrix multiplication operations in the PyTorch framework,
+where the latter is better optimized with cuBLAS. Faster speed
+can be achieved by integrating the sampling operation with subsequent attention and linear projection operations using CUDA
+acceleration techniques.
+4.5
+
+Detection
+
+QA Layer 8
+
+Visualization and analysis
+
+Visualization of learned quadrangles. To examine how QA
+attends to various images, we visualize the default windows
+employed in Swin-T [2] and the quadrangles generated by QA
+in Figure 7 and Figure 8. The images utilized are from the
+ImageNet [13] and MS COCO [33] datasets. The results presented
+in Figure 7 are derived from QFormerh -T, which is trained on
+ImageNet for image classification, and the quadrangles in different
+attention heads are shown in distinct columns. The model used to
+obtain the results in Figure 8 is trained on MS COCO.
+The results in Figure 7 demonstrate that the quadrangles
+produced by QA can cover a more diverse set of regions within
+the target objects in the images compared to the default fixed-size
+windows, which can only cover a limited portion of the targets. For
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+13
+
+Fig. 9: Visualization of the learned scale factors in QA. The mean
+(with standard deviation) and max values in each layer of all three
+hierarchical QFormerh models are presented.
+
+Fig. 10: Visualization of attention distance. The mean (with
+standard deviation) attention distance of each layer in QFormerh
+and Swin Transformer is plotted.
+
+instance, the default window restricts the receptive field within the
+areas of dog and horse heads. In contrast, by learning the appropriate attention regions, QA expands the window size and captures
+a more comprehensive context of animal heads. Additionally, the
+quadrangles generated by different heads in QA exhibit varying
+sizes, locations, and shapes to attend to different parts of the
+targets, which facilitates capturing rich contextual information and
+improving object feature representations. Furthermore, the diverse
+quadrangles as illustrated in Figure 8 promote cross-window
+information exchange, making it feasible to remove the shifted
+window operation that accompanies the window attention [2].
+Analysis of the learned transformations in QA. To explore
+the variations in attention regions across different layers, we
+perform an analysis of the learned parameters in the projective
+transformation T . To this end, we conduct experiments on the
+ImageNet validation set using three QFormerh models of varying
+depths and sizes. The results of these experiments are presented
+in Figure 9, which illustrates the curves of the scaling factor
+learned by each layer. The upper figure shows the mean value
+with standard deviation, while the bottom figure shows the maximum value. Generally, the scaling factor plays a crucial role
+in determining the attention area. Notably, we observe that all
+other learned parameters, such as rotation, shearing, shift, and
+projection, have mean values that are close to zero, with moderate
+standard deviations.
+Based on Figure 9, it is evident that the first four layers of
+all three models exhibit a strong similarity in the learned scaling
+factors. Specifically, these layers have the nearly identical mean
+and maximum values. This suggests that the models tend to
+emphasize similar regions during the early stages of processing,
+regardless of their depth or width. Moreover, with the exception
+of the first layer, the mean scaling factors in the subsequent
+three layers are roughly equal to 1.0, representing the default
+window. This underscores the significance of local structures relative to global context during early-stage feature extraction, which
+echoes the earlier work on early convolution [64]. Conversely,
+in deeper layers, the attention area varies substantially across
+the different models, exhibiting significant layer-wise differences.
+Nevertheless, some commonalities can still be discerned. First,
+all three models exhibit layers with both large (> 1.0) and small
+(∼1.0) scaling factors, emphasizing the importance of utilizing
+diverse windows to gather information from both global and local
+contexts. Furthermore, by considering each layer with a small
+scaling factor as a starting point, i.e., layer 3 for all models and
+
+layers 6, 7, and 8 for QFormerh -T, QFormerh -S, and QFormerh B, respectively, the models appear to inherently comprise several
+stages. Within each stage, the mean and standard deviation of the
+scaling factors initially increase before decreasing.
+Analysis of the real attention distance. We compute the average attention distance (with standard deviation) for each layer
+of QFormerh and Swin Transformer. The attention distance is
+obtained by summing up the weighted pixel distance between any
+two query and key tokens, followed by averaging the score across
+all token pairs for each individual layer. The results are depicted
+in Figure 10, with the curves for QFormerh and Swin Transformer
+denoted in red and blue, respectively. The figure reveals that our
+proposed QA exhibits significantly larger attention distances than
+the vanilla window attention in almost all layers for all three models. This finding supports our claim that QA is adept at adjusting
+the attention regions to handle objects of different sizes. Moreover,
+the larger standard deviation values in QA suggest a high degree of
+diversity in the attention regions, which can facilitate the capture
+of rich contextual information and the exchange of cross-window
+information. The stage-like variations of attention distance align
+with the observation in Figure 9, while the attention distance
+of Swin Transformers remains largely consistent with marginal
+variations.
+
+5
+
+C ONCLUSION AND D ISCUSSION
+
+In this paper, we introduce a novel quadrangle attention (QA)
+mechanism that learns attention regions from data, and integrate
+them into both plain and hierarchical vision transformers, resulting
+in a new architecture called QFormer. With minimal code modifications and negligible extra computation cost, QA provides the
+enhanced capacity to learn feature representation and effectively
+handle objects of varying sizes, shapes, and orientations, outperforming the vanilla window attention significantly. Our extensive
+experiments on various vision tasks, including image classification, object detection, instance segmentation, pose estimation, and
+semantic segmentation, demonstrate the efficacy of QA and the
+superiority of QFormer over representative models. Despite the
+promising results, there is still room for further improvement of
+QA and QFormer. For example, integrating QA into other training
+settings, such as self-supervised learning, warrants further research
+efforts. Moreover, in order to maintain the computational cost
+comparable to the vanilla window attention, we currently only
+sample sparse tokens from each target window, with the number
+of sampled tokens equaling the default window size. This may
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+overlook some informative tokens as the window size increases,
+even though the missed information may be compensated for
+through feature exchange with other windows. Therefore, it is
+worth investigating other effective sampling strategies to improve
+model performance and inference speed.
+
+R EFERENCES
+[1]
+
+A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai, T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly, J. Uszkoreit,
+and N. Houlsby, “An image is worth 16x16 words: Transformers for
+image recognition at scale,” in International Conference on Learning
+Representations, 2021.
+[2] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and B. Guo,
+“Swin transformer: Hierarchical vision transformer using shifted windows,” in Proceedings of the IEEE/CVF International Conference on
+Computer Vision (ICCV), 2021, pp. 10 012–10 022.
+[3] Y. Li, H. Mao, R. Girshick, and K. He, “Exploring plain vision
+transformer backbones for object detection,” in Computer Vision–ECCV
+2022: 17th European Conference, Tel Aviv, Israel, October 23–27, 2022,
+Proceedings, Part IX. Springer, 2022, pp. 280–296.
+[4] J. Yang, C. Li, P. Zhang, X. Dai, B. Xiao, L. Yuan, and J. Gao, “Focal
+attention for long-range interactions in vision transformers,” in Advances
+in Neural Information Processing Systems, 2021.
+[5] X. Dong, J. Bao, D. Chen, W. Zhang, N. Yu, L. Yuan, D. Chen, and
+B. Guo, “Cswin transformer: A general vision transformer backbone with
+cross-shaped windows,” arXiv preprint arXiv:2107.00652, 2021.
+[6] Q. Zhang, Y. Xu, J. Zhang, and D. Tao, “ViTAEv2: Vision transformer
+advanced by exploring inductive bias for image recognition and beyond,”
+arXiv preprint arXiv:2202.10108, 2022.
+[7] Z. Yang, D. Liu, C. Wang, J. Yang, and D. Tao, “Modeling image composition for complex scene generation,” in Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, 2022, pp.
+7764–7773.
+[8] Y. Xu, Q. ZHANG, J. Zhang, and D. Tao, “ViTAE: Vision transformer
+advanced by exploring intrinsic inductive bias,” in Advances in Neural
+Information Processing Systems, 2021.
+[9] Y. Xu, J. Zhang, Q. Zhang, and D. Tao, “Vitpose: Simple vision
+transformer baselines for human pose estimation,” arXiv preprint
+arXiv:2204.12484, 2022.
+[10] P. Wang, X. Wang, F. Wang, M. Lin, S. Chang, W. Xie, H. Li, and R. Jin,
+“Kvt: k-nn attention for boosting vision transformers,” arXiv preprint
+arXiv:2106.00515, 2021.
+[11] Z. Liu, H. Hu, Y. Lin, Z. Yao, Z. Xie, Y. Wei, J. Ning, Y. Cao, Z. Zhang,
+L. Dong et al., “Swin transformer v2: Scaling up capacity and resolution,”
+arXiv preprint arXiv:2111.09883, 2021.
+[12] S. Wu, T. Wu, H. Tan, and G. Guo, “Pale transformer: A general vision
+transformer backbone with pale-shaped attention,” in Proceedings of the
+AAAI Conference on Artificial Intelligence, 2022.
+[13] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, “Imagenet: A large-scale hierarchical image database,” in Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR). Ieee, 2009, pp. 248–255.
+[14] Z. Huang, Y. Ben, G. Luo, P. Cheng, G. Yu, and B. Fu, “Shuffle
+transformer: Rethinking spatial shuffle for vision transformer,” arXiv
+preprint arXiv:2106.03650, 2021.
+[15] Y. Jing, X. Liu, Y. Ding, X. Wang, E. Ding, M. Song, and S. Wen,
+“Dynamic instance normalization for arbitrary style transfer,” in AAAI,
+2020.
+[16] H. Touvron, M. Cord, M. Douze, F. Massa, A. Sablayrolles, and H. Jegou,
+“Training data-efficient image transformers; distillation through attention,” in International Conference on Machine Learning. PMLR, 2021.
+[17] Z. Dai, H. Liu, Q. V. Le, and M. Tan, “Coatnet: Marrying convolution
+and attention for all data sizes,” in Advances in Neural Information
+Processing Systems, 2021.
+[18] H. Yan, Z. Li, W. Li, C. Wang, M. Wu, and C. Zhang, “Contnet: Why
+not use convolution and transformer at the same time?” arXiv preprint
+arXiv:2104.13497, 2021.
+[19] W. Wang, E. Xie, X. Li, D.-P. Fan, K. Song, D. Liang, T. Lu, P. Luo,
+and L. Shao, “Pyramid vision transformer: A versatile backbone for
+dense prediction without convolutions,” in Proceedings of the IEEE/CVF
+International Conference on Computer Vision (ICCV), 2021, pp. 568–
+578.
+[20] W. Wang, E. Xie, X. Li, D.-P. Fan, K. Song, D. Liang, T. Lu, P. Luo, and
+L. Shao, “Pvtv2: Improved baselines with pyramid vision transformer,”
+2021.
+
+14
+
+[21] W. Wang, L. Yao, L. Chen, B. Lin, D. Cai, X. He, and W. Liu, “Crossformer: A versatile vision transformer hinging on cross-scale attention,”
+in International Conference on Learning Representations, 2022.
+[22] J. Fang, L. Xie, X. Wang, X. Zhang, W. Liu, and Q. Tian, “Msgtransformer: Exchanging local spatial information by manipulating messenger tokens,” arXiv preprint arXiv:2105.15168, 2021.
+[23] J. Dai, H. Qi, Y. Xiong, Y. Li, G. Zhang, H. Hu, and Y. Wei, “Deformable
+convolutional networks,” in Proceedings of the IEEE/CVF International
+Conference on Computer Vision (ICCV), 2017, pp. 764–773.
+[24] X. Zhu, H. Hu, S. Lin, and J. Dai, “Deformable convnets v2: More
+deformable, better results,” in Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), 2019, pp. 9308–
+9316.
+[25] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai, “Deformable detr: Deformable transformers for end-to-end object detection,” in International
+Conference on Learning Representations, 2021.
+[26] Z. Chen, Y. Zhu, C. Zhao, G. Hu, W. Zeng, J. Wang, and M. Tang,
+“Dpt: Deformable patch-based transformer for visual recognition,” in
+Proceedings of the 29th ACM International Conference on Multimedia,
+2021, pp. 2899–2907.
+[27] Q. Zhang, Y. Xu, J. Zhang, and D. Tao, “VSA: Learning varied-size window attention in vision transformers,” arXiv preprint arXiv:2204.08446,
+2022.
+[28] Y. Li, C.-Y. Wu, H. Fan, K. Mangalam, B. Xiong, J. Malik, and C. Feichtenhofer, “Improved multiscale vision transformers for classification
+and detection,” 2021.
+[29] B. Xu, N. Wang, T. Chen, and M. Li, “Empirical evaluation of rectified
+activations in convolutional network,” arXiv preprint arXiv:1505.00853,
+2015.
+[30] X. Chu, Z. Tian, B. Zhang, X. Wang, X. Wei, H. Xia, and C. Shen, “Conditional positional encodings for vision transformers,” arXiv preprint
+arXiv:2102.10882, 2021.
+[31] K. He, X. Chen, S. Xie, Y. Li, P. Dollár, and R. Girshick,
+“Masked autoencoders are scalable vision learners,” arXiv preprint
+arXiv:2111.06377, 2021.
+[32] B. Zhou, H. Zhao, X. Puig, S. Fidler, A. Barriuso, and A. Torralba,
+“Scene parsing through ade20k dataset,” in Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR), 2017,
+pp. 633–641.
+[33] T.-Y. Lin, M. Maire, S. Belongie, J. Hays, P. Perona, D. Ramanan,
+P. Dollár, and C. L. Zitnick, “Microsoft coco: Common objects in
+context,” in Proceedings of the European Conference on Computer Vision
+(ECCV). Springer, 2014, pp. 740–755.
+[34] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2016, pp. 770–778.
+[35] B. Zhou, H. Zhao, X. Puig, T. Xiao, S. Fidler, A. Barriuso, and A. Torralba, “Semantic understanding of scenes through the ade20k dataset,”
+International Journal of Computer Vision, vol. 127, no. 3, pp. 302–321,
+2019.
+[36] H. Bao, L. Dong, and F. Wei, “BEiT: BERT pre-training of image
+transformers,” 2021.
+[37] K. He, G. Gkioxari, P. Dollár, and R. Girshick, “Mask r-cnn,” in
+Proceedings of the IEEE/CVF International Conference on Computer
+Vision (ICCV), 2017, pp. 2961–2969.
+[38] T. Xiao, Y. Liu, B. Zhou, Y. Jiang, and J. Sun, “Unified perceptual parsing
+for scene understanding,” in Proceedings of the European Conference on
+Computer Vision (ECCV), 2018, pp. 418–434.
+[39] M. Contributors, “Openmmlab semantic segmentation toolbox and
+benchmark,” 2020.
+[40] B. Xiao, H. Wu, and Y. Wei, “Simple baselines for human pose estimation
+and tracking,” in Proceedings of the European conference on computer
+vision (ECCV), 2018, pp. 466–481.
+[41] J. Huang, Z. Zhu, F. Guo, and G. Huang, “The devil is in the details:
+Delving into unbiased data processing for human pose estimation,” in
+Proceedings of the IEEE/CVF conference on computer vision and pattern
+recognition, 2020, pp. 5700–5709.
+[42] L. Beyer, O. J. Hénaff, A. Kolesnikov, X. Zhai, and A. v. d. Oord, “Are
+we done with imagenet?” arXiv preprint arXiv:2006.07159, 2020.
+[43] P. Zhang, X. Dai, J. Yang, B. Xiao, L. Yuan, L. Zhang, and J. Gao, “Multiscale vision longformer: A new vision transformer for high-resolution
+image encoding,” in Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), October 2021, pp. 2998–3008.
+[44] B. Heo, S. Yun, D. Han, S. Chun, J. Choe, and S. J. Oh, “Rethinking spatial dimensions of vision transformers,” in Proceedings of the IEEE/CVF
+International Conference on Computer Vision (ICCV), 2021.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2015
+
+[45] K. Han, A. Xiao, E. Wu, J. Guo, C. Xu, and Y. Wang, “Transformer
+in transformer,” Advances in Neural Information Processing Systems,
+vol. 34, 2021.
+[46] X. Chu, Z. Tian, Y. Wang, B. Zhang, H. Ren, X. Wei, H. Xia, and C. Shen,
+“Twins: Revisiting the design of spatial attention in vision transformers,”
+in Advances in Neural Information Processing Systems, 2021.
+[47] L. Yuan, Y. Chen, T. Wang, W. Yu, Y. Shi, Z.-H. Jiang, F. E. Tay, J. Feng,
+and S. Yan, “Tokens-to-token vit: Training vision transformers from
+scratch on imagenet,” in Proceedings of the IEEE/CVF International
+Conference on Computer Vision (ICCV), 2021, pp. 558–567.
+[48] P. Ren, C. Li, G. Wang, Y. Xiao, Q. Du, X. Liang, and X. Chang, “Beyond
+fixation: Dynamic window visual transformer,” in Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2022, pp. 11 987–11 997.
+[49] Y. Yuan, R. Fu, L. Huang, W. Lin, C. Zhang, X. Chen, and J. Wang,
+“Hrformer: High-resolution vision transformer for dense predict,” Advances in Neural Information Processing Systems, vol. 34, pp. 7281–
+7293, 2021.
+[50] F. Yu and V. Koltun, “Multi-scale context aggregation by dilated convolutions,” in International Conference on Learning Representations, 2016.
+[51] J. Guo, K. Han, H. Wu, C. Xu, Y. Tang, C. Xu, and Y. Wang, “Cmt:
+Convolutional neural networks meet vision transformers,” arXiv preprint
+arXiv:2107.06263, 2021.
+[52] C.-F. Chen, R. Panda, and Q. Fan, “Regionvit: Regional-to-local attention for vision transformers,” in International Conference on Learning
+Representations, 2022.
+[53] A. El-Nouby, H. Touvron, M. Caron, P. Bojanowski, M. Douze, A. Joulin,
+I. Laptev, N. Neverova, G. Synnaeve, J. Verbeek et al., “Xcit: Crosscovariance image transformers,” arXiv preprint arXiv:2106.09681, 2021.
+[54] Q. Zhang and Y.-B. Yang, “Rest: An efficient transformer for visual recognition,” Advances in Neural Information Processing Systems,
+vol. 34, 2021.
+[55] Z. Xia, X. Pan, S. Song, L. E. Li, and G. Huang, “Vision transformer
+with deformable attention,” 2022.
+[56] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization.” in
+International Conference on Learning Representations, 2018.
+[57] C. Lin, M. Guo, C. Li, X. Yuan, W. Wu, J. Yan, D. Lin, and W. Ouyang,
+“Online hyper-parameter learning for auto-augmentation strategy,” in
+Proceedings of the IEEE/CVF International Conference on Computer
+Vision (ICCV), 2019, pp. 6579–6588.
+[58] S. Yun, D. Han, S. J. Oh, S. Chun, J. Choe, and Y. Yoo, “Cutmix: Regularization strategy to train strong classifiers with localizable features,”
+in Proceedings of the IEEE/CVF International Conference on Computer
+Vision (ICCV), 2019, pp. 6023–6032.
+[59] H. Zhang, M. Cisse, Y. N. Dauphin, and D. Lopez-Paz, “mixup: Beyond
+empirical risk minimization,” arXiv preprint arXiv:1710.09412, 2017.
+[60] Z. Cai and N. Vasconcelos, “Cascade r-cnn: High quality object detection
+and instance segmentation,” IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 2019.
+[61] S. Xie, R. Girshick, P. Dollár, Z. Tu, and K. He, “Aggregated residual transformations for deep neural networks,” in Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), 2017, pp. 1492–1500.
+[62] Z. Cai and N. Vasconcelos, “Cascade r-cnn: Delving into high quality
+object detection,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2018, pp. 6154–6162.
+[63] K. Chen, J. Wang, J. Pang, Y. Cao, Y. Xiong, X. Li, S. Sun, W. Feng,
+Z. Liu, J. Xu et al., “Mmdetection: Open mmlab detection toolbox and
+benchmark,” arXiv preprint arXiv:1906.07155, 2019.
+[64] T. Xiao, M. Singh, E. Mintun, T. Darrell, P. Dollár, and R. Girshick,
+“Early convolutions help transformers see better,” Advances in Neural
+Information Processing Systems, vol. 34, pp. 30 392–30 400, 2021.
+
+15
+
+

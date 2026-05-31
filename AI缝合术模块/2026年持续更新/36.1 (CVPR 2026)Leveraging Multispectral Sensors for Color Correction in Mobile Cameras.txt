@@ -1,0 +1,2079 @@
+Leveraging Multispectral Sensors for Color Correction in Mobile Cameras
+Luca Cogo1 Marco Buzzelli1 Simone Bianco1 Javier Vazquez-Corral2,3 Raimondo Schettini1
+1
+University of Milano-Bicocca 2 Computer Vision Center 3 Universitat Autònoma de Barcelona
+{luca.cogo, marco.buzzelli, simone.bianco, raimondo.schettini}@unimib.it
+
+arXiv:2512.08441v2 [cs.CV] 23 Mar 2026
+
+javier.vazquez@cvc.uab.cat
+
+Abstract
+
+Illumination
+
+Recent advances in snapshot multispectral (MS) imaging have enabled compact, low-cost spectral sensors for
+consumer and mobile devices. By capturing richer spectral
+information than conventional RGB sensors, these systems
+can enhance key imaging tasks, including color correction.
+However, most existing methods treat the color correction
+pipeline in separate stages, often discarding MS data early
+in the process. We propose a unified, learning-based framework that performs end-to-end color correction and jointly
+leverages data from a high-resolution RGB sensor and an
+auxiliary low-resolution MS sensor. Our approach integrates the full pipeline within a single model, producing coherent and color-accurate outputs. We demonstrate the flexibility and generality of our framework by refactoring two
+different state-of-the-art image-to-image architectures. To
+support training and evaluation, we construct a dedicated
+dataset by aggregating and repurposing publicly available
+spectral datasets, rendering under multiple RGB camera
+sensitivities. Extensive experiments show that our approach
+improves color accuracy and stability, reducing error by
+up to 50% compared to RGB-only and MS-driven baselines. Code, models and dataset available at: https://
+lucacogo.github.io/Mobile-Spectral-CC/.
+
+Camera  
+Module
+RGB
+Sensor
+
+raw RGB Image
+
+Scene
+
+Color
+Correction
+Model
+
+MS
+Sensor
+
+Corrected XYZ  
+Image
+Multispectral Image
+
+Classic Correction
+
+Proposed Correction
+
+GT
+
+Figure 1. Top: Overview of the proposed color correction framework. A high-resolution RGB sensor is paired with a lowresolution multispectral sensor within a camera module. The two
+inputs are fused by a unified model that jointly performs illuminant estimation, illuminant discounting, and color correction to
+produce a color-accurate output. Bottom: Visual comparison between our proposed approach and a classic correction pipeline (using FC4 [26] for illuminant estimation). We report the average
+∆E00 color distance and convert the images to sRGB for visualization purposes.
+
+1. Introduction
+consists of illuminant estimation and illuminant discounting, which compensate for the color of the scene illumination. The subsequent transformation maps the whitebalanced image from the camera’s raw color space to a
+device-independent representation. Although this modular
+approach simplifies the pipeline development, it also often
+propagates errors between stages, since the steps are treated
+independently. Furthermore, RGB sensors capture information in only three broad spectral channels, providing only
+limited spectral information about the observed scene. As
+a result, ambiguities arise when disentangling surface reflectance from illumination.
+Recent progress in nanophotonics, semiconductor fab-
+
+Color correction is a fundamental component of camera imaging pipelines, responsible for transforming raw
+sensor measurements into perceptually accurate, deviceindependent color representations within standard color
+spaces such as CIE XYZ [40] or ProPhoto RGB [28], typically under a canonical illuminant (e.g., D65). This task
+is particularly challenging in consumer digital photography
+applications, where a wide variety of lighting conditions
+must be handled robustly.
+Traditional color correction pipelines rely on highresolution RGB sensors and implement the process as a
+sequence of modular stages, namely automatic white balancing (AWB) and color space transformation (CST). AWB
+1
+
+rication, and on-chip optics has enabled compact snapshot multispectral sensors [46]. In contrast to high-end
+laboratory-grade systems that use line-scan mechanisms or
+tunable filters, snapshot MS sensors utilize spectral filter arrays (SFAs), where each pixel (or small cluster of pixels) is
+coated with a distinct spectral filter. Although the former
+offer high spectral resolution, they come with drawbacks
+such as mechanical complexity, bulky design, and lengthy
+acquisition times [32, 48]. In comparison, SFAs enable
+the simultaneous capture of multiple spectral bands within
+a single exposure. As a result, snapshot MS sensors are
+compact, cost-effective, and capable of real-time operation,
+prompting the community to explore their use in computational photography applications [45, 47, 51]. Despite their
+lower spatial resolution and coarser spectral sampling compared to high-end devices, they provide richer spectral cues
+than RGB sensors, which can be leveraged to improve the
+color correction process. The benefit of incorporating multispectral information into the color correction pipeline can
+be understood through the image formation model:
+Z λmax
+R(λ) E(λ) Sc (λ) dλ,
+(1)
+Ic =
+
+mation, our method integrates them throughout the entire pipeline, producing more stable and color-accurate results. The framework is designed for mobile configurations
+where a compact MS sensor complements a primary highresolution RGB camera. Our contributions are threefold:
+• We propose a dual-input, end-to-end color correction
+framework that fuses high-resolution RGB and lowresolution MS inputs, jointly modeling all stages of the
+color correction process.
+• We construct a physically grounded dataset comprising
+116,688 RGB–MS image pairs with ground-truth color
+references, covering a wide range of illuminants and camera sensitivities.
+• We refactor two lightweight image-to-image architectures [12, 39] into our framework, demonstrating the flexibility of our approach.
+
+2. Related Work
+Illuminant Estimation Illuminant estimation is the first
+step of automatic white balancing and aims to infer the color
+of the scene illumination from the captured image. Classical statistical methods rely on global color assumptions
+such as the Gray-World, White-Patch, and Gray-Edge hypotheses [49], which assume that the illuminant color can
+be inferred from simple image statistics (e.g., mean or max).
+These simple approaches are computationally inexpensive
+but often fail when their assumptions do not hold. Convolutional neural network based methods improve robustness by predicting the illuminant from learned image features; representative examples include the works of Barron
+et al. [6, 7], Hu et al. [26], and Bianco et al. [8, 9]. Recent
+research has tackled this task using different strategies, such
+as learning post-capture adjustments from rendered sRGB
+images [1–3, 43] or exploiting additional scene information [4]. In this context, the use of multispectral data has
+been increasingly investigated for improving illuminant estimation [14, 15, 22, 29, 31]. However, most existing methods rely solely on MS data rather than fusing it with RGB
+information, and typically discard the MS cues after illuminant estimation instead of leveraging them in subsequent
+processing stages. In this work, we address this limitation
+by introducing a unified RGB–MS framework that exploits
+multispectral information beyond illuminant estimation to
+achieve more accurate and consistent color correction.
+
+λmin
+
+where Ic denotes the sensor response in channel c, R(λ)
+is the surface reflectance, E(λ) is the spectral power distribution of the illuminant, and Sc (λ) is the spectral sensitivity of the channel c of the camera. Accurate color correction requires disentangling R(λ) and E(λ) to achieve
+illuminant-invariant and device-independent color representations. Since RGB sensors provide only three measurements of this integral, the problem is underdetermined, resulting in the ambiguities described earlier. By sampling the
+spectrum more densely, multispectral sensors provide additional constraints that enable more accurate estimation of
+both R(λ) and E(λ), supporting more reliable illuminant
+estimation, illuminant discounting, and color space transformation. However, most existing research, both in RGBonly and MS-driven settings, still treats these stages as independent [6–9, 26]. In many multispectral-based pipelines,
+the spectral data is used only for illuminant estimation and
+then discarded, thereby ignoring valuable information that
+could enhance subsequent processing steps [22, 31]. Recent
+works that attempt to jointly model the entire color correction process [33] perform the computation directly on multispectral images, which limits their applicability to mobile
+platforms where the MS sensor typically has low spatial resolution and serves as an auxiliary modality.
+In this work, we introduce a unified, learning-based
+framework that jointly performs illuminant estimation, illuminant discounting, and color space transformation by
+fusing high-resolution RGB imagery with auxiliary lowresolution MS measurements. As illustrated in Figure 1,
+rather than using spectral cues only for illuminant esti-
+
+Illuminant Discounting After the illuminant is estimated, its influence must be removed to recover the scene
+reflectance. This illuminant discounting stage is commonly
+implemented using the von Kries adaptation model [17],
+which applies a channel wise scaling that assumes the illuminant contribution can be neutralized independently in
+each channel. This yields a diagonal correction matrix that
+enforces a neutral response under a canonical white light.
+2
+
+Although the von Kries model is efficient and widely used,
+it is known to be suboptimal, as it generally achieves a
+neutral appearance for gray regions but introduces noticeable chromatic errors for non-neutral surfaces [11]. Several
+works have proposed more advanced correction strategies
+that integrate spatial or contextual information [11, 18], yet
+these remain constrained by the limited spectral information
+available in RGB data. Spectral measurements from multispectral sensors enable a more physically grounded separation of reflectance and illumination and directly address
+this limitation. In this work, given the end-to-end nature of
+our framework, we incorporate multispectral cues throughout the discounting process so that the model can perform
+more accurate illumination discount.
+
+resents the standard color correction structure adopted in
+commercial cameras. For a fair and realistic comparison,
+we employ this pipeline (hereafter referred to as the traditional correction pipeline) when evaluating state-of-the-art
+illuminant estimation methods, as they operate solely on the
+first stage of the color correction pipeline. In contrast, our
+framework learns all stages jointly, guided by both RGB
+and multispectral cues.
+
+3. Method
+We aim at performing the full color correction pipeline by
+leveraging both a high-resolution RGB image and an auxiliary low-resolution multispectral capture. The two modalities are fused within an image-to-image framework that
+implicitly estimates the scene illuminant, compensates for
+both its color cast and the spectral sensitivity of the camera, and produces color-corrected outputs directly in the
+CIE XYZ color space. We adapt to this setting two recent
+lightweight architectures, LPIENet [12] and cmKAN [39],
+modifying their designs to process the additional MS input.
+Figure 2 shows a schematic of both architectures.
+
+Color Space Transformation Color space transformation converts white-balanced camera RGB values
+into a device-independent color representation such as
+CIE XYZ [40] or ProPhoto RGB [28]. Conventional
+pipelines adopt pre-calibrated 3 × 3 CST matrices under
+multiple reference illuminants using standard color targets
+such as the Macbeth ColorChecker [38]. At runtime the
+estimated correlated color temperature determines interpolation weights between them, yielding the final transformation. This approach effectively normalizes the camera response but does not explicitly model interactions between
+illumination and reflectance, which limits color accuracy
+under varying lighting conditions. Other studies replace the
+linear transform with non-linear mappings learned end-toend from data [19, 24]. These methods can improve perceptual fidelity but they still rely solely on RGB inputs, which
+inherently constrains their accuracy. In contrast, the end-toend formulation of our framework leverages multispectral
+information to inform the color space transformation (CST)
+directly, resulting in more perceptually accurate colors.
+
+LPIENet was originally designed for general-purpose
+image restoration and optimized for lightweight deployment on mobile hardware. Its structure follows a U-Netlike topology [42], which makes it a suitable foundation
+for image-to-image problems requiring spatially coherent
+transformations. The core component of the architecture
+is the IRA block (Inverted Residual Attention), which integrates convolutional blocks inspired by the MobileNet architecture [25] with parallel channel and spatial attention
+mechanisms [50]. The network is composed of six main
+blocks: three encoder blocks and two decoder blocks, connected through skip connections, followed by a final refinement block. To integrate the multispectral modality,
+we introduce an additional spectral encoder that mirrors
+the original encoder architecture and consists of three IRA
+blocks without downsampling. The features extracted from
+each encoder of the multispectral branch are fused with
+those from the RGB encoder through the skip connections,
+where element-wise addition is applied before each decoding stage. The decoder structure is maintained identical
+to the original LPIENet. We conduct experiments using
+two model configurations. The first follows the original
+feature sizes [16, 32, 64, 32, 16] across the encoder-decoder
+blocks, while the second one uses a “small” configuration
+[8, 16, 32, 16, 8]. Both models are highly lightweight, containing approximately 220K and 60K trainable parameters,
+respectively.
+
+Traditional Camera Color Correction Pipelines Conventional camera pipelines perform color correction in two
+stages: automatic white balancing (AWB) and color space
+transformation (CST), both derived from the image formation model in Equation (1). The AWB stage discounts
+for the estimated illuminant using the von Kries adaptation model [17], which applies channel-wise scaling to enforce neutrality under a canonical white light. The CST
+stage then maps the white-balanced RGB values to a deviceindependent color space such as CIE XYZ [40]. Two
+3 × 3 CST matrices are typically calibrated under reference illuminants at 2500°K and 6500°K using Macbeth
+ColorChecker targets [38], and the final transformation is
+obtained by interpolating between them based on the estimated correlated color temperature. This modular pipeline,
+though efficient, treats illuminant estimation, discounting,
+and transformation as independent steps, which limits color
+accuracy under complex lighting. Nevertheless, it rep-
+
+cmKAN is an image-to-image architecture that differs
+from conventional encoder–decoder designs. Originally designed for color matching, it employs a hypernetwork gen3
+
+LPIENet
+RGB Encoder
+
+IRA Block
+
+↑
+
+↑
+
+Corrected
+XYZ Image
+
+↑
+
+Multispectral  
+Image
+
+Conv 1X1
+DWConv  
+3X3
+ELU
+Conv 1X1
+
+⋅
+
++
+
+Conv 1X1
+ELU
+Conv 1X1
+
+IRA IRA IRA
+
++
+
+FINAL
+
++
+
+Conv 7X7
+ReLU
+Conv 5X5
+ReLU
+Conv 3X3
+Sigmoid
+
+Spectral Encoder
+
+IRA ↑ F IRA ↑ F
+
+Conv 1X1
+Sigmoid
+Conv 1X1
+
+Decoder
+
++
+
+⋅
+C
+⋅
+
+⋅
+
++
+
+Final Block
+
+F
+
+Spectral Features
+RGB Features +
+Previous Block
+
+C
+
+Conv 1X1
+DWConv  
+3X3
+ELU
+Conv 1X1
+Conv 1X1
+ELU
+
+IRA ↓ IRA ↓ IRA
+
+IRB
+
+Channel
+Channel
+Attention
+Attention
+IRB IRB
+IRB IRB SpatialSpatialC
+Attention
+Attention
+
+Conv 3X3
+
+RGB Image
+
++
+
+cmKAN
+
+↑ : Upsampling
+
+Corrected
+XYZ Image
+
+Linear
+Proj.
+
+A
+
+B
+
+Layer
+Norm
+FFN
+
+1X1
+
+ReLU
+
+Layer
+Norm
+Conv
+
+3X3
+
+Q
+
+⋅
+
+CFM
+
+Linear
+Proj.
+
+FFN
+Conv 1X1
+GELU
+DWConv  
+3X3
+GELU
+Conv 1X1
+
+KAN
+Layer
+
+Conv 
+
+
+Layer
+Norm
+FFN
+CFM
+
+: Downsampling + : Sum
+
+W
+
+1X1
+
+↑
+
+AvgPool
+2D
+Conv 1X1
+
++
+
+↑
+
+Multispectral  
+Image
+
+Conv 3X3
+ReLU
+Conv 3X3
+ReLU
+Conv 3X3
+ReLU
+Spatial
+Pooling
+Linear
+
+Spectral Encoder
+
+3X3
+
+C
+
+K
+
+3X3
+
++ ↑
+
+3X3
+
++
+
+V
+
+Conv 
+ Conv 
+ Conv 
+ Conv 
+
+
++
+
+Layer
+Norm
+FFN
+
+⋅ +
+
+Layer
+Norm
+MCA
+
+C
+
+MCA
+
+Color Transformer
+DWT
+
+Illumination Estimator
+AVG
+
+Conv 1X1
+DWConv  
+3X3
+Conv 1X1
+ReLU
+
+RGB Image
+
+⋅ : Element-wise product C : Concatenation : Matrix multiplication
+
+Figure 2. Overview of the proposed architectures adapted from (top) LPIENet [12] and (bottom) cmKAN [39]. For both architectures, we
+add a spectral encoder module and fuse the features with the ones extracted from the RGB image. For visualization purposes the output
+and the input RGB images are respectively converted to sRGB and gamma corrected.
+
+Existing datasets for color constancy and color correction [10, 16, 21] or for RGB+MS imaging [22] lack the
+spectral and colorimetric information necessary to derive
+ground-truth reflectance and illumination. In practice, accurate color ground-truths cannot be obtained from RGB
+or MS captures alone, since this requires hyperspectral reflectance measurements that permit re-illumination under
+a known illuminant. Consequently, no real dataset currently satisfies the requirements of our task. To overcome
+this limitation, we construct a physically grounded simulated dataset derived from two publicly available hyperspectral datasets with densely sampled spectral reflectance images [13, 34]. Because these scenes were captured with real
+hyperspectral cameras, they inherently include realistic sensor noise, optical blur, and acquisition artifacts. Using these
+reflectance spectra, we synthesize corresponding RGB and
+MS measurements according to the image formation model
+in Equation (1) and render ground-truth color references
+under the canonical D65 illuminant. Figure 3 illustrates
+the dataset generation procedure and some representative
+scenes. Each scene is re-illuminated under 102 illuminants
+from the dataset of Barnard et al. [5], providing a wide variety of lighting conditions. RGB images are simulated using several representative camera spectral sensitivities from
+mobile devices1 and mirrorless cameras2 , while the MS images are rendered using the sensitivities of a Spectricity S1
+sensor [44], comprising 15 narrowband channels across the
+visible range. RGB images are rendered at 512 × 512 pix-
+
+erator that predicts spatially varying parameters controlling the splines of a Kolmogorov-Arnold Network (KAN)
+layer [35], enabling smooth and non-linear color transformations across the image. In this work, we refactor the
+lightweight generator variant proposed by the original authors, which comprises three principal modules: the Illumination Estimator (IE), which captures illumination information; the Color Transformer (CT), which incorporates a
+Multi-Scale Color Attention (MCA) mechanism to encode
+inter-channel dependencies; and the Color Feature Modulator (CFM), which fuses the learned features and projects
+them into the KAN parameter space. Consistent with the
+original implementation, a single KAN layer is employed,
+using B-splines of order k = 3 and a grid size G = 5. To
+integrate multispectral information, a compact spectral encoder composed of three convolutional layers with 3 × 3
+kernels and ReLU activations is introduced. Spectral features are incorporated within the generator at two distinct
+feature levels through element-wise addition with the outputs produced by the Illumination Estimator block. The entire architecture is highly compact, with only 18K trainable
+parameters in total.
+
+4. Dataset
+To validate the proposed framework, we require a dataset
+comprising high-resolution RGB and low-resolution MS
+acquisitions, along with ground-truth images in the
+CIE XYZ color space under a canonical illuminant (D65).
+Such data allow quantitative evaluation of the color correction process within a physically consistent environment.
+
+1 Google Pixel 3, iPhone Xs Max, Huawei Mate 20 Pro, Samsung Galaxy Note 9
+2 Canon R5, Sony α9 III, Nikon Zf
+
+4
+
+Hyperspectral Images
+
+Sensors SSFs
+
+Illuminants SPDs
+
+1.0
+
+0.8
+
+0.8
+
+0.6
+
+0.4
+
+0.2
+
+0.6
+
+0.6
+
+0.4
+
+0.2
+
+0.0
+
+0.0
+400
+
+450
+
+500
+
+550
+
+600
+
+650
+
+700
+
+450
+
+400
+
+Wavelengths (nm)
+
+0.4
+
+500
+
+550
+
+650
+
+600
+
+700
+
+Wavelengths (nm)
+
+1.0
+
+0.8
+Normalized Transmittance
+
+Normalized Intensity
+
+0.8
+
+1.0
+
+Normalized Transmittance
+
+Normalized Transmittance
+
+1.0
+
+0.2
+
+0.6
+
+0.4
+
+0.2
+
+0.0
+
+0.0
+
+400
+
+450
+
+500
+
+550
+
+600
+
+650
+
+700
+
+400
+
+450
+
+500
+
+550
+
+600
+
+650
+
+700
+
+Wavelengths (nm)
+
+Wavelengths (nm)
+
+Dataset Instance
+Generation
+
+#
+#
+#
+
+D
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+#
+
+CST2500K
+
+raw RGB
+
+MS
+
+GT
+
+CST6500K
+
+Metadata
+
+(a)
+
+(b)
+
+Figure 3. (a) Overview of the dataset generation pipeline. Hyperspectral reflectance images are rendered using multiple camera sensitivities
+under different illuminants with known spectral power distributions (SPDs) to produce RGB, MS and GT image triplets. (b) Representative
+samples of the proposed dataset. For visualization purposes, images are converted to sRGB.
+
+5. Experiments
+
+els, matching the native resolution of the hyperspectral data,
+and MS images at 64×64 pixels to emulate a compact snapshot spectral sensor. Prior to rendering, we mask the white
+reference patches used for calibration and perform manual
+quality control to remove corrupted or incomplete data. After filtering, 1,144 valid scenes remain. Combined with
+the 102 illuminants, this results in 116,688 image triplets
+of high-resolution RGB, low-resolution MS, and CIE XYZ
+ground-truth under D65 illuminant. In addition, we compute metadata for each image, including the ground-truth
+illuminant RGB triplet and the color space transformation
+(CST) presets required for the traditional color correction
+pipeline. To prevent data leakage, we apply a scene-wise
+split so that test and validation scenes remain entirely unseen during training. Specifically, 80% of scenes are used
+for training and 20% for testing, with 20% of the training
+subset reserved for validation.
+
+Experimental Setting All models are trained using the
+proposed dataset, conducting separate experiments for each
+simulated RGB sensor. Training is performed with the
+Adam optimizer [30], using a learning rate of 1 × 10−4 .
+We employ early stopping with a maximum of 300 epochs
+and a patience value of 5, retaining the model that achieves
+the best performance on the validation set. Cosine annealing scheduling [36] is used to adapt the learning rate during
+training. Illuminant estimation networks are optimized using the Angular Error as the loss function, while image-toimage models are trained using the ∆E76 color difference
+metric [41]. For quantitative evaluation, we compute the
+∆E00 color distance [37] and the Reproduction Error [20].
+Experiments on Aligned Data We compare the proposed
+framework against several state-of-the-art illuminant estimation methods, including both statistical and learningbased approaches. Statistical baselines are drawn from
+the edge-based color constancy framework [49], comprising Gray-World (GW), White-Patch (WP), Shadesof-Gray (SoG), General Gray-World (GGW), and the
+first and second-order Gray-Edge variants (GE1 and
+GE2). Learning-based baselines include FC4 [26], ConvMean [23], and QU [8]. Methods that apply post-capture
+adjustments on already rendered sRGB images [1–3, 43]
+are excluded from the comparison, as they do not operate
+within the camera color correction pipeline. To enable a
+
+Simulating Spatial Misalignments To emulate geometric inconsistencies in dual-sensor systems, we generate a
+misaligned version of the aforementioned dataset by introducing spatial offsets to the RGB–MS pairs. Realistic warping transformations are derived from the Zurich
+dataset [27], which provides 168 real misaligned image
+pairs. For each simulated scene, a homography randomly
+sampled from this distribution is applied to the MS image,
+introducing plausible misalignment while preserving physical consistency. The misaligned dataset mirrors the structure and partitioning of the aligned version.
+5
+
+Table 1. Results on the aligned version of the proposed dataset, aggregated by camera type: mirrorless (Canon R5, Nikon Zf, Sony α9 III)
+and mobile (Google Pixel 3, Huawei Mate 20 Pro, iPhone Xs Max, Samsung Galaxy Note 9). Aggregation is performed by averaging the
+results of each camera. We highlight best , second best and third best results for each metric. Per-camera results are provided in the
+Supplementary Material.
+∆E00 ↓
+Camera
+
+Mirrorless
+Sensors
+
+Mobile
+Sensors
+
+Reproduction Error ↓
+
+Method
+
+Mean
+
+Med.
+
+Tri.
+
+B-25
+
+W-25
+
+95-P
+
+99-P
+
+Max
+
+Mean
+
+Med.
+
+Tri.
+
+B-25
+
+W-25
+
+95-P
+
+99-P
+
+Max
+
+GW [49]
+WP [49]
+GGW [49]
+SoG [49]
+GE1 [49]
+GE2 [49]
+Squeezenet-FC4 [26]
+ConvMean [23]
+QU [8]
+QU+ft [8]
+SpectralFC4 [26]
+SpectralConvMean [23]
+
+7.80
+5.08
+6.13
+5.94
+5.53
+5.49
+3.28
+3.55
+6.37
+5.30
+3.25
+3.17
+
+7.15
+4.23
+5.47
+5.32
+4.91
+5.05
+2.86
+2.98
+5.73
+4.65
+2.79
+2.73
+
+7.28
+4.57
+5.61
+5.43
+4.92
+5.04
+2.97
+3.09
+5.79
+4.76
+2.88
+2.83
+
+2.81
+1.89
+2.05
+2.07
+1.84
+1.99
+1.45
+1.43
+2.31
+1.95
+1.35
+1.33
+
+13.63
+9.62
+11.53
+11.08
+10.54
+9.99
+5.82
+6.67
+11.70
+9.89
+5.98
+5.77
+
+15.92
+11.09
+13.65
+13.35
+12.72
+12.17
+6.72
+7.89
+13.90
+11.90
+6.90
+6.56
+
+21.89
+14.60
+19.49
+17.75
+18.79
+14.82
+9.90
+12.34
+18.84
+16.62
+10.66
+10.50
+
+26.15
+22.60
+24.70
+30.62
+24.90
+25.03
+18.64
+20.58
+26.52
+24.42
+20.42
+23.40
+
+9.42
+5.93
+7.31
+7.06
+6.40
+6.35
+4.38
+4.61
+7.88
+6.60
+4.31
+4.24
+
+8.07
+4.47
+5.88
+5.70
+4.79
+5.00
+2.78
+2.91
+5.88
+5.12
+2.73
+2.70
+
+8.24
+4.90
+5.98
+5.77
+5.08
+5.29
+3.17
+3.35
+6.36
+5.35
+3.14
+3.05
+
+2.75
+1.43
+1.79
+1.70
+1.47
+1.49
+0.92
+0.95
+2.03
+1.72
+0.88
+0.87
+
+18.91
+12.73
+15.51
+15.02
+14.03
+13.66
+10.57
+11.13
+17.04
+13.99
+10.45
+10.27
+
+23.89
+15.64
+19.82
+19.01
+17.65
+16.58
+13.68
+13.90
+21.42
+17.51
+13.01
+13.03
+
+33.06
+20.78
+29.29
+26.19
+22.60
+22.37
+18.37
+19.58
+29.43
+27.04
+18.74
+18.47
+
+42.69
+38.99
+40.85
+45.11
+40.34
+56.92
+37.72
+41.24
+41.75
+39.77
+36.91
+40.77
+
+LPIENet (Ours)
+LPIENet-small (Ours)
+cmKAN-light (Ours)
+
+1.74
+2.09
+1.60
+
+1.55
+1.88
+1.30
+
+1.59
+1.92
+1.36
+
+0.99
+1.26
+0.71
+
+2.80
+3.29
+3.02
+
+3.18
+3.73
+3.55
+
+4.54
+5.41
+5.74
+
+14.10
+21.10
+21.19
+
+3.23
+3.57
+2.91
+
+1.53
+1.91
+1.21
+
+2.01
+2.35
+1.71
+
+0.67
+0.88
+0.42
+
+8.70
+9.09
+8.26
+
+10.78
+11.24
+10.33
+
+17.29
+17.56
+16.66
+
+38.49
+38.05
+38.21
+
+GW [49]
+WP [49]
+GGW [49]
+SoG [49]
+GE1 [49]
+GE2 [49]
+Squeezenet-FC4 [26]
+ConvMean [23]
+QU [8]
+QU+ft [8]
+SpectralFC4 [26]
+SpectralConvMean [23]
+
+7.71
+5.04
+6.15
+5.96
+5.50
+5.44
+3.16
+3.54
+6.37
+5.41
+3.19
+3.16
+
+7.06
+4.20
+5.46
+5.32
+4.87
+4.91
+2.75
+2.95
+5.80
+4.79
+2.77
+2.73
+
+7.19
+4.50
+5.61
+5.46
+4.90
+4.97
+2.83
+3.07
+5.87
+4.87
+2.85
+2.82
+
+2.79
+1.95
+2.09
+2.12
+1.88
+2.01
+1.40
+1.44
+2.31
+1.97
+1.39
+1.39
+
+13.49
+9.46
+11.47
+11.06
+10.46
+9.90
+5.63
+6.68
+11.65
+10.04
+5.76
+5.68
+
+15.92
+10.96
+13.43
+13.28
+12.71
+12.35
+6.65
+7.98
+14.29
+11.87
+6.68
+6.43
+
+21.45
+14.84
+19.03
+17.41
+17.95
+14.91
+9.47
+12.29
+19.28
+17.33
+10.29
+10.45
+
+25.87
+18.75
+24.22
+22.50
+21.99
+22.28
+19.76
+21.16
+21.94
+20.87
+19.80
+22.38
+
+9.48
+6.16
+7.57
+7.33
+6.59
+6.50
+4.51
+4.76
+8.10
+7.03
+4.38
+4.35
+
+8.16
+4.76
+6.09
+5.94
+4.98
+5.04
+2.87
+3.05
+6.34
+5.55
+2.76
+2.86
+
+8.35
+5.10
+6.21
+6.01
+5.28
+5.36
+3.29
+3.49
+6.71
+5.80
+3.17
+3.21
+
+2.86
+1.59
+1.94
+1.86
+1.58
+1.55
+0.98
+1.03
+2.09
+1.85
+0.96
+0.98
+
+18.76
+13.02
+15.83
+15.39
+14.36
+13.83
+10.80
+11.40
+17.17
+14.70
+10.53
+10.28
+
+23.31
+15.68
+20.25
+19.45
+17.81
+16.62
+13.63
+14.16
+21.39
+18.53
+13.38
+12.77
+
+33.47
+20.83
+29.29
+27.20
+23.59
+22.29
+18.71
+19.53
+30.17
+28.58
+19.05
+18.76
+
+42.85
+40.11
+41.54
+41.53
+41.85
+42.06
+38.39
+40.20
+42.07
+40.69
+37.70
+40.70
+
+LPIENet (Ours)
+LPIENet-small (Ours)
+cmKAN-light (Ours)
+
+1.66
+1.84
+1.47
+
+1.49
+1.64
+1.19
+
+1.53
+1.68
+1.24
+
+0.94
+1.07
+0.65
+
+2.69
+2.96
+2.79
+
+3.06
+3.37
+3.30
+
+4.38
+5.00
+5.61
+
+12.73
+21.20
+20.78
+
+3.13
+3.28
+2.83
+
+1.52
+1.66
+1.13
+
+1.96
+2.11
+1.62
+
+0.66
+0.75
+0.40
+
+8.38
+8.59
+8.15
+
+10.24
+10.60
+10.25
+
+16.53
+16.68
+16.35
+
+37.70
+37.43
+37.56
+
+Table 2. Results on the misaligned version of the proposed dataset. Aggregation by camera type, metric reporting, and highlighting follow
+the same format as in Table 1. Our proposed models are adapted to the new input by fine-tuning their spectral encoder, while MS-driven
+baselines are completely retrained. RGB-only methods are omitted as they are unaffected by spatial misregistration. Per-camera results are
+provided in the Supplementary Material.
+∆E00 ↓
+Camera
+
+Mirrorless
+Sensors
+
+Mobile
+Sensors
+
+Reproduction Error ↓
+
+Method
+
+Mean
+
+Med.
+
+Tri.
+
+B-25
+
+W-25
+
+95-P
+
+99-P
+
+Max
+
+Mean
+
+Med.
+
+Tri.
+
+B-25
+
+W-25
+
+95-P
+
+99-P
+
+Max
+
+SpectralFC4 [26]
+SpectralConvMean [23]
+
+3.25
+3.18
+
+2.79
+2.78
+
+2.88
+2.86
+
+1.35
+1.34
+
+5.93
+5.72
+
+6.91
+6.61
+
+10.47
+10.00
+
+23.17
+20.13
+
+4.34
+4.26
+
+2.73
+2.71
+
+3.13
+3.05
+
+0.90
+0.89
+
+10.47
+10.30
+
+13.53
+13.21
+
+18.61
+18.24
+
+39.57
+40.76
+
+LPIENet (Ours)
+LPIENet-small (Ours)
+cmKAN-light (Ours)
+
+1.84
+2.34
+1.84
+
+1.65
+2.14
+1.51
+
+1.69
+2.17
+1.58
+
+1.02
+1.40
+0.82
+
+2.99
+3.66
+3.44
+
+3.46
+4.17
+4.07
+
+4.66
+5.78
+6.26
+
+13.41
+19.95
+20.93
+
+3.39
+3.86
+3.20
+
+1.74
+2.21
+1.50
+
+2.22
+2.67
+1.96
+
+0.74
+1.02
+0.50
+
+8.92
+9.56
+8.75
+
+10.81
+11.73
+11.10
+
+17.04
+17.44
+16.99
+
+38.94
+39.42
+39.55
+
+SpectralFC4 [26]
+SpectralConvMean [23]
+
+3.23
+3.12
+
+2.74
+2.69
+
+2.83
+2.78
+
+1.43
+1.37
+
+5.88
+5.59
+
+6.92
+6.45
+
+10.50
+9.95
+
+22.05
+20.87
+
+4.54
+4.31
+
+2.97
+2.82
+
+3.31
+3.15
+
+1.01
+0.97
+
+10.77
+10.21
+
+13.79
+12.94
+
+19.71
+18.33
+
+39.29
+40.69
+
+LPIENet (Ours)
+LPIENet-small (Ours)
+cmKAN-light (Ours)
+
+1.83
+2.25
+1.75
+
+1.62
+2.03
+1.43
+
+1.67
+2.07
+1.50
+
+1.00
+1.31
+0.78
+
+3.01
+3.58
+3.29
+
+3.48
+4.10
+3.88
+
+4.85
+5.81
+6.31
+
+13.06
+20.45
+21.45
+
+3.36
+3.77
+3.14
+
+1.70
+2.12
+1.41
+
+2.18
+2.58
+1.89
+
+0.75
+0.99
+0.50
+
+8.85
+9.39
+8.67
+
+10.74
+11.60
+11.14
+
+17.01
+17.39
+16.88
+
+38.41
+38.41
+37.89
+
+fair comparison in multispectral settings, we adapt the FC4
+and ConvMean architectures to process MS data instead of
+RGB inputs. Since all these baselines address only the first
+stage of the color correction pipeline (i.e., illuminant estimation), we complete the remaining steps following the traditional correction procedure described in Section 2. Quantitative results are summarized in Table 1, where the ∆E00
+
+color distance and the Reproduction Error are presented
+with their statistical distribution over the dataset, including the mean, median, trimean, best-quartile (B-25), worstquartile (W-25), 95th and 99th percentiles, and maximum
+values. Results are aggregated by camera type (mirrorless
+and mobile) by averaging the statistics of individual cameras, while the full per-camera results are reported in the
+
+6
+
+raw RGB
+
+FC4 [26]
+
+SpectralConvMean [23]
+
+LPIENet (Ours)
+
+LPIENet-small (Ours)
+
+cmKAN-light (Ours)
+
+GT
+
+Figure 4. Qualitative results of the best performing methods: FC4 [26], SpectralConvMean [23], and our three proposed models. We show
+results from two mirrorless and two mobile cameras, with ∆E00 map reported in the bottom-right corner and average ∆E00 reported in the
+bottom-left one. For visualization purposes, we gamma correct the raw visualizations (first column) and convert the results (columns two
+to six) to sRGB. More qualitative results are reported in the Supplementary Material.
+
+perturbed inputs without altering the overall color correction mapping. For the MS variants of ConvMean and FC4 ,
+which do not include an explicit spectral encoder, we retrain
+the models from scratch following the same procedure described for the previous experiment. Methods relying solely
+on RGB inputs are unaffected and thus excluded from this
+experiment. Table 2 summarizes the results obtained on the
+misaligned dataset, aggregated by camera type (mirrorless
+and mobile) following the same procedure described for Table 1. Full per-camera results are reported in the Supplementary Material. As shown, our proposed models exhibit
+only a minor decrease in accuracy relative to the aligned
+case, remaining the top-performing methods by a significant
+margin and confirming their adaptability to realistic crosssensor misalignments. As for the multispectral illuminant
+estimation baselines, their performance remains comparable to the results reported in Table 1, since their architectures strongly downsample the input and thus mitigate the
+effect of spatial misregistration.
+
+Supplementary Material. Our framework consistently outperforms both RGB-only and MS-driven baselines across
+camera categories. It is noteworthy that the proposed models achieve an average ∆E00 that is ∼50% lower than that of
+competing methods, whose average performance is comparable to the worst-quartile (W-25) results of our approaches.
+Qualitative comparisons, reported in Figure 4, further corroborate these findings, demonstrating that our framework
+produces visually more accurate and perceptually consistent results across diverse scenes, illumination conditions,
+and cameras.
+Experiments on Misaligned Data We further assess the
+adaptability of our proposed framework under realistic acquisition conditions. To this end, we also conduct an experiment using the misaligned dataset described in Section 4. This experiment simulates the spatial inconsistencies that typically arise in RGB–MS imaging systems due
+to imperfect optical alignment. For our proposed architectures, the models are fine-tuned on the misaligned data
+by keeping all weights frozen except for the spectral encoder branch, which is responsible for extracting features
+from the MS modality. This strategy allows the network to
+adjust its spectral representation to the new, geometrically
+
+Ablation 1: Impact of Multispectral Information To
+assess the contribution of the multispectral information in
+our framework, we conduct an ablation study by training
+all models without their spectral encoder branch. This con7
+
+figuration effectively reduces the input to RGB-only data,
+allowing us to isolate the impact of the multispectral modality on overall performance. The results, summarized in Table 3, highlight that our proposed modifications for integrating multispectral cues are the key factor driving the superior
+performance of these architectures in the color correction
+task, yielding improvements of up to 50% over the RGBonly setup. This confirms that leveraging complementary
+spectral information substantially enhances color correction
+accuracy.
+
+Table 3. Impact of adding multispectral information to the proposed framework. We report mean ∆E00 and Reproduction Error
+obtained with (w/) and without (w/o) MS data, showing the increase of performance when spectral data is used.
+
+Ablation 2: Robustness to Exposure Changes One of
+the key advantages of traditional color correction pipelines
+lies in their inherent exposure invariance, a consequence
+of their linear formulation. Our approach, in contrast, relies on non-linear transformations and therefore does not
+possess this property by design. To evaluate the extent to
+which exposure variations affect performance, we simulate
+different exposure levels by multiplying both the input and
+ground-truth images by a factor α. We consider two reduced
+exposure levels, α = 0.75 and α = 0.5, and report the
+corresponding results in Table 4. For this experiment, we
+focus on Reproduction Error, as ∆E00 decreases at lower
+brightness levels due to the way it is mathematically formulated. As expected, the Reproduction Error slightly increases at lower exposure levels, indicating a modest degradation in performance. Nonetheless, the models maintain
+higher accuracy than all baselines built on the traditional
+color correction pipeline, including the spectral variant of
+ConvMean [23], which represents the strongest baseline.
+
+Mean ∆E00 ↓
+
+Mean Repr. Error ↓
+
+w/o
+MS data
+
+w/
+MS data
+
+w/o
+MS data
+
+w/
+MS data
+
+Camera
+
+Method
+
+Mirrorless
+Sensors
+
+LPIENet
+LPIENet-small
+cmKAN-light
+
+3.23
+3.33
+3.06
+
+1.74
+2.09
+1.60
+
+4.71
+4.85
+4.40
+
+3.23
+3.56
+2.92
+
+Mobile
+Sensors
+
+LPIENet
+LPIENet-small
+cmKAN-light
+
+3.29
+3.48
+3.03
+
+1.66
+1.80
+1.49
+
+4.71
+4.84
+4.38
+
+3.11
+3.27
+2.84
+
+Table 4. Mean Reproduction Error for different exposure levels,
+simulated by scaling both input and ground-truth images by a factor α. Although Reproduction Error slightly increases for lower
+exposures, all models remain robust and outperform the other
+baselines. We report SpectralConvMean [23] as the representative
+baseline, since it is the best-performing one.
+Mean Reproduction Error ↓
+Camera
+Mirrorless
+Sensors
+
+Mobile
+Sensors
+
+Limitations Our method aims at directly providing the
+best final color-corrected estimate given an input noncorrected image. However, the end-to-end nature of our approach does not rely on explicit intermediate estimates such
+as illuminant or reflectance. Consequently, it offers less interpretability than modular pipelines, which can provide diagnostic or reusable intermediate outputs. Nonetheless, in
+applications where the primary goal is achieving the highest
+color accuracy, our end-to-end approach remains advantageous.
+
+Method
+
+α=1
+
+α = 0.75
+
+α = 0.5
+
+SpectralConvMean [23]
+
+4.24
+
+4.25
+
+4.30
+
+LPIENet (Ours)
+LPIENet-small (Ours)
+cmKAN-light (Ours)
+
+3.23
+3.57
+2.91
+
+3.41
+3.70
+2.98
+
+3.84
+4.04
+3.18
+
+SpectralConvMean [23]
+
+4.35
+
+4.35
+
+4.36
+
+LPIENet (Ours)
+LPIENet-small (Ours)
+cmKAN-light (Ours)
+
+3.11
+3.27
+2.84
+
+3.28
+3.38
+2.90
+
+3.73
+3.67
+3.08
+
+our framework by refactoring two state-of-the-art image-toimage architectures to operate within our dual-input setting. Extensive experiments demonstrate that the proposed framework consistently outperforms existing RGBonly and MS-driven approaches across multiple camera
+models. The results confirm that jointly learning illuminant
+estimation, discounting, and color transformation, while exploiting multispectral cues, leads to substantial gains in both
+color accuracy and stability. By considering two distinct
+architectures and performing comprehensive ablations, we
+show that these improvements stem primarily from the proposed framework rather than the specific network design.
+This suggests that the framework is not tied to a specific architecture: any future backbone, if more powerful, can be
+seamlessly integrated within the same formulation to further enhance performance. Furthermore, the proposed architectures maintain strong performance under challenging
+conditions such as exposure variations and spatial misalignments, validating their robustness for practical deployment.
+We anticipate that our framework and dataset will support
+further advancement in color correction research.
+
+6. Conclusion
+We presented a unified framework for end-to-end color
+correction that jointly leverages high-resolution RGB data
+and low-resolution multispectral information. Unlike prior
+works that treat the stages of the color correction pipeline
+independently, our approach integrates them within a single learning-based model. To enable training and evaluation under physically consistent conditions, we generated
+a new dataset by rendering hyperspectral reflectance data
+into realistic RGB and MS images, including a second version with spatial misalignments that replicate real-world acquisition imperfections. We demonstrated the flexibility of
+8
+
+Acknowledgments
+
+[15] Ilaria Erba, Marco Buzzelli, Jean-Baptiste Thomas, Jon Y.
+Hardeberg, and Raimondo Schettini. Improving rgb illuminant estimation exploiting spectral average radiance. JOSA
+A, 41 3:516–526, 2024. 2
+[16] Egor Ershov, Alexey Savchik, Illya Semenkov, Nikola Banić,
+Alexander Belokopytov, Daria Senshina, Karlo Koščević,
+Marko Subašić, and Sven Lončarić. The cube++ illumination
+estimation dataset. IEEE Access, 8:227511–227527, 2020. 4
+[17] Mark D Fairchild. Color appearance models. John Wiley &
+Sons, 2013. 2, 3
+[18] Graham D Finlayson, Mark S Drew, and Brian V Funt. Diagonal transforms suffice for color constancy. In ICCV, 1993.
+3
+[19] Graham D Finlayson, Michal Mackiewicz, and Anya Hurlbert. Color correction using root-polynomial regression.
+IEEE TIP, 24(5):1460–1470, 2015. 3
+[20] Graham D Finlayson, Roshanak Zakizadeh, and Arjan Gijsenij. The reproduction angular error for evaluating the performance of illuminant estimation algorithms. IEEE TPAMI,
+39(7):1482–1488, 2016. 5
+[21] Peter Vincent Gehler, Carsten Rother, Andrew Blake, Tom
+Minka, and Toby Sharp. Bayesian color constancy revisited.
+In CVPR, 2008. 4
+[22] Ortal Glatt, Yotam Ater, Woo-Shik Kim, Shira Werman,
+Oded Berby, Yael Zini, Shay Zelinger, Sangyoon Lee, Heejin Choi, and Evgeny Soloveichik. Beyond rgb: a real
+world dataset for multispectral imaging in mobile devices.
+In WACV, 2024. 2, 4
+[23] Han Gong. Convolutional mean: A simple convolutional
+neural network for illuminant estimation. In BMVC, 2019.
+5, 6, 7, 8
+[24] Guowei Hong, M Ronnier Luo, and Peter A Rhodes. A
+study of digital camera colorimetric characterization based
+on polynomial modeling. Color Research & Application, 26
+(1):76–84, 2001. 3
+[25] Andrew G Howard, Menglong Zhu, Bo Chen, Dmitry
+Kalenichenko, Weijun Wang, Tobias Weyand, Marco Andreetto, and Hartwig Adam. Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv
+preprint arXiv:1704.04861, 2017. 3
+[26] Yuanming Hu, Baoyuan Wang, and Stephen Lin. Fc4: Fully
+convolutional color constancy with confidence-weighted
+pooling. In CVPR, 2017. 1, 2, 5, 6, 7
+[27] Andrey Ignatov, Luc Van Gool, and Radu Timofte. Replacing mobile camera isp with a single deep learning model. In
+CVPR Workshops, 2020. 5
+[28] ISO. 22028-2:2013 photography and graphic technology —
+extended colour encodings for digital image storage, manipulation and interchange-part 2: Reference output medium
+metric rgb colour image encoding (romm rgb). International
+Organization for Standardization, 2013. 1, 3
+[29] Haris Ahmad Khan, Jean-Baptiste Thomas, Jon Yngve Hardeberg, and Olivier Laligant. Illuminant estimation in multispectral imaging. JOSA A, 34(7):1085–1098, 2017. 2
+[30] Diederik P Kingma. Adam: A method for stochastic optimization. In ICLR, 2015. 5
+
+JVC acknowledges Grants PID2021-128178OB-I00 and
+PID2024-162555OB-I00 funded by MCIN/AEI/10.13039/
+501100011033 and by ERDF “A way of making Europe”,
+the Generalitat de Catalunya CERCA Program, and the
+2025 Leonardo Grant for Scientific Research and Cultural
+Creation from the BBVA Foundation. The BBVA Foundation accepts no responsibility for the opinions, statements and contents included in the project and/or the results
+thereof, which are entirely the responsibility of the authors.
+This work was partially supported by the MUR under the
+grant “Dipartimenti di Eccellenza 2023-2027” of the Department of Informatics, Systems and Communication of
+the University of Milano-Bicocca, Italy.
+
+References
+[1] Mahmoud Afifi and Michael S Brown. Deep white-balance
+editing. In CVPR, 2020. 2, 5
+[2] Mahmoud Afifi, Brian Price, Scott Cohen, and Michael S
+Brown. When color constancy goes wrong: Correcting improperly white-balanced images. In CVPR, 2019.
+[3] Mahmoud Afifi, Marcus A Brubaker, and Michael S Brown.
+Auto white-balance correction for mixed-illuminant scenes.
+In WACV, 2022. 2, 5
+[4] Mahmoud Afifi, Luxi Zhao, Abhijith Punnappurath, Mohamed A Abdelsalam, Ran Zhang, and Michael S Brown.
+Time-aware auto white balance in mobile photography. In
+ICCV, 2025. 2
+[5] Kobus Barnard, Lindsay Martin, Brian V. Funt, and Adam
+Coath. A data set for color research. Color Research &
+Application, 27:147–151, 2002. 4
+[6] Jonathan T Barron. Convolutional color constancy. In ICCV,
+2015. 2
+[7] Jonathan T Barron and Yun-Ta Tsai. Fast fourier color constancy. In CVPR, 2017. 2
+[8] Simone Bianco and Claudio Cusano. Quasi-unsupervised
+color constancy. In CVPR, 2019. 2, 5, 6
+[9] Simone Bianco, Claudio Cusano, and Raimondo Schettini.
+Color constancy using cnns. In CVPR, 2015. 2
+[10] Dongliang Cheng, Dilip K Prasad, and Michael S Brown. Illuminant estimation for color constancy: why spatial-domain
+methods work and the role of the color distribution. JOSA A,
+31(5):1049–1058, 2014. 4
+[11] Dongliang Cheng, Brian Price, Scott Cohen, and Michael S
+Brown. Beyond white: Ground truth colors for color constancy correction. In ICCV, 2015. 3
+[12] Marcos V Conde, Florin Vasluianu, Javier Vazquez-Corral,
+and Radu Timofte. Perceptual image enhancement for smartphone real-time applications. In WACV, 2023. 2, 3, 4
+[13] Zhuoran Du, Shaodi You, Cheng Cheng, and Shikui Wei.
+Automatic spectral calibration of hyperspectral images:
+Method, dataset and benchmark. In CVPR, 2025. 4
+[14] Ilaria Erba, Marco Buzzelli, and Raimondo Schettini. Rgb
+color constancy using multispectral pixel information. JOSA
+A, 41(2):185–194, 2024. 2
+
+9
+
+[49] Joost Van De Weijer and Theo Gevers. Color constancy
+based on the grey-edge hypothesis. In ICIP, 2005. 2, 5,
+6
+[50] Sanghyun Woo, Jongchan Park, Joon-Young Lee, and In So
+Kweon. Cbam: Convolutional block attention module. In
+ECCV, 2018. 3
+[51] Kailai Zhou, Lijing Cai, Yibo Wang, Mengya Zhang, Bihan
+Wen, Qiu Shen, and Xun Cao. Joint rgb-spectral decomposition model guided image enhancement in mobile photography. In ECCV, 2024. 2
+
+[31] Samu Koskinen, Erman Acar, and Joni-Kristian Kämäräinen.
+Single pixel spectral color constancy. IJCV, 132(2):287–299,
+2024. 2
+[32] Pierre-Jean Lapray, Xingbo Wang, Jean-Baptiste Thomas,
+and Pierre Gouton. Multispectral filter arrays: Recent
+advances and practical implementation. Sensors, 14(11):
+21626–21659, 2014. 2
+[33] Jiacheng Li, Chang Chen, Xue Hu, Fenglong Song, Youliang
+Yan, and Zhiwei Xiong. Multi-spectral image color reproduction. In WACV, 2025. 2
+[34] Yuqi Li, Qiang Fu, and Wolfgang Heidrich. Multispectral
+illumination estimation using deep unrolling network. In
+ICCV, 2021. 4
+[35] Ziming Liu, Yixuan Wang, Sachin Vaidya, Fabian Ruehle,
+James Halverson, Marin Soljačić, Thomas Y Hou, and Max
+Tegmark. Kan: Kolmogorov-arnold networks. In ICLR,
+2025. 4
+[36] Ilya Loshchilov and Frank Hutter. Sgdr: Stochastic gradient
+descent with warm restarts. In ICLR, 2017. 5
+[37] M Ronnier Luo, Guihua Cui, and Bryan Rigg. The development of the cie 2000 colour-difference formula: Ciede2000.
+Color Research & Application, 26(5):340–350, 2001. 5
+[38] Calvin S McCamy, Harold Marcus, James G Davidson, et al.
+A color-rendition chart. Journal of Applied Photographic
+Engineering, 2(3):95–99, 1976. 3
+[39] Artem Nikonorov, Georgy Perevozchikov, Andrei Korepanov, Nancy Mehta, Mahmoud Afifi, Egor Ershov, and
+Radu Timofte. Color matching using hypernetwork-based
+kolmogorov-arnold networks. In ICCV, 2025. 2, 3, 4
+[40] International Commission on Illumination (CIE). Colourmatching functions of cie 1931 standard colorimetric
+observer.
+https : / / cie . co . at / datatable /
+cie - 1931 - colour - matching - functions - 2 degree-observer, 2019. 1, 3
+[41] Alan R Robertson. The cie 1976 color-difference formulae.
+Color Research & Application, 2(1):7–11, 1977. 5
+[42] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net:
+Convolutional networks for biomedical image segmentation.
+In MICCAI, 2015. 3
+[43] David Serrano-Lozano, Aditya Arora, Luis Herranz, Konstantinos G Derpanis, Michael S Brown, and Javier VazquezCorral. Revisiting image fusion for multi-illuminant whitebalance correction. In ICCV, 2025. 2, 5
+[44] Spectricity — Multispectral Imaging Solutions. https:
+//spectricity.com/. [Accessed 17-11-2025]. 4
+[45] Haonan Su, Cheolkon Jung, and Long Yu. Multi-spectral
+fusion and denoising of color and near-infrared images using
+multi-scale wavelet analysis. Sensors, 21(11):3610, 2021. 2
+[46] Jean-Baptiste Thomas, Pierre-Jean Lapray, and Steven
+Le Moan. Trends in snapshot spectral imaging: systems,
+processing, and quality. Sensors, 25(3):675, 2025. 2
+[47] Shulin Tian, Yufei Wang, Renjie Wan, Wenhan Yang, Alex C
+Kot, and Bihan Wen. Enhancing low-light images using infrared encoded images. In ICIP, 2023. 2
+[48] Fabrizio Vagni. Survey of hyperspectral and multispectral
+imaging technologies (etude sur les technologies d’imagerie
+hyperspectrale et multispectrale). Technical report, 2007. 2
+
+10
+
+

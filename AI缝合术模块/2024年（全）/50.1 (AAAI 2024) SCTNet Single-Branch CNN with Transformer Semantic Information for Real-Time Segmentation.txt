@@ -1,0 +1,2362 @@
+SCTNet: Single-Branch CNN with Transformer Semantic Information for
+Real-Time Segmentation
+Zhengze Xu1 * , Dongyue Wu1 , Changqian Yu2 , Xiangxiang Chu2 , Nong Sang1 , Changxin Gao1†
+National Key Laboratory of Multispectral Information Intelligent Processing Technology, School of Artificial Intelligence
+and Automation, Huazhong University of Science and Technology
+2
+Meituan
+{zhengzexu, dongyue wu nsang, cgao}@hust.edu.cn, y-changqian@outlook.com, cxxgtxy@gmail.com
+Abstract
+Recent real-time semantic segmentation methods usually
+adopt an additional semantic branch to pursue rich long-range
+context. However, the additional branch incurs undesirable
+computational overhead and slows inference speed. To eliminate this dilemma, we propose SCTNet, a single branch CNN
+with transformer semantic information for real-time segmentation. SCTNet enjoys the rich semantic representations of an
+inference-free semantic branch while retaining the high efficiency of lightweight single branch CNN. SCTNet utilizes
+a transformer as the training-only semantic branch considering its superb ability to extract long-range context. With
+the help of the proposed transformer-like CNN block CFBlock and the semantic information alignment module, SCTNet could capture the rich semantic information from the
+transformer branch in training. During the inference, only the
+single branch CNN needs to be deployed. We conduct extensive experiments on Cityscapes, ADE20K, and COCO-Stuff10K, and the results show that our method achieves the new
+state-of-the-art performance. The code and model is available
+at https://github.com/xzz777/SCTNet.
+
+1
+
+Introduction
+
+As a fundamental task in computer vision, semantic segmentation aims to assign a semantic class label to each pixel in
+the input image. It plays a vital role in autonomous driving,
+medical image processing, mobile applications, and many
+other fields. In order to achieve better segmentation performance, recent semantic segmentation methods pursue abundant long-range context. Different methods have been proposed to capture and encode rich contextual information,
+including large receptive fields (Chen et al. 2014, 2017,
+2018), multi-scale feature fusion (Ronneberger, Fischer, and
+Brox 2015; Zhao et al. 2017), self-attention mechanism (Fu
+et al. 2019; Huang et al. 2019; Yuan et al. 2018; Zhao et al.
+2018b; Dosovitskiy et al. 2020), etc. Among them, the selfattention mechanism, as an essential component of transformers, has been proven to have a remarkable ability to
+model long-range context. Although these works improve
+significantly, they usually lead to high computational costs.
+* Work strenthened during an internship at Meituan.
+†
+
+Corresponding author
+Copyright © 2024, Association for the Advancement of Artificial
+Intelligence (www.aaai.org). All rights reserved.
+
+81
+SCTNet-B-100
+PIDNet-M
+SegNext-T-100
+DDRNet23
+RTFormer-B
+SFNet-R18
+AFFormer-B-100
+
+80
+79
+
+Accuracy (mIoU%)
+
+arXiv:2312.17071v2 [cs.CV] 15 Jan 2024
+
+1
+
+78
+
+PIDNet-S
+
+SegNext-T-75
+SeaFormer-B-100
+
+77
+
+DDRNet23Slim
+STDC2-75
+
+AFFormer-B-75
+
+76
+75
+
+SCTNet-B-75
+
+TopFormer-B-100
+RTFormer-S
+
+SCTNet-B-50
+SCTNet-S-75
+
+BiSeNetV2-L
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+80
+90 100 110
+Inference Speed (FPS)
+
+120
+
+130
+
+140
+
+150
+
+Figure 1: The speed-accuracy performance on Cityscapes
+validation set. Our methods are presented in red stars, while
+others are presented in blue dots. Our SCTNet establishes a
+new state-of-the-art speed-accuracy trade-off.
+Note that self-attention-based works even have square computation complexity with respect to image resolution, which
+significantly increases latency in processing high-resolution
+images. These limitations hinder their application in realtime semantic segmentation.
+Many recent real-time works adopt a bilateral architecture
+to extract high-quality semantic information at a fast speed.
+BiSeNet (Yu et al. 2018) proposes a bilateral network to separate the detailed spatial features and ample contextual information at early stages and process them in parallel, which is
+shown in Figure 2(a). Following BiseNet (Yu et al. 2018),
+BiSeNetV2 (Yu et al. 2021) and STDC (Fan et al. 2021)
+make further efforts to strengthen the capability to extract
+rich long-range context or reduce the computational costs of
+the spatial branch. To balance inference speed and accuracy,
+DDRNet (Pan et al. 2022), RTFormer (Wang et al. 2022),
+and SeaFormer (Wan et al. 2023) adopt a feature-sharing architecture that divides spatial and contextual features at the
+deep stages, as shown in Figure 2(b). However, these methods introduce dense fusion modules between two branches
+to boost the semantic information of extracted features. In
+conclusion, all these bilateral methods suffer from limited
+inference speed and high computational costs due to the additional branch and multiple fusion modules.
+
+Input
+
+Input
+
+Input
+
+1/4
+1/4
+
+1/2
+
+1/8
+
+1/4
+
+1/16
+
+1/8
+
+1/32
+
+1/8
+
+1/4
+
+1/4
+
+1/8
+
+1/8
+
+1/16
+
+FM
+
+1/8
+
+1/16
+
+SIAM
+
+1/16
+
+1/32
+
+FM
+
+1/8
+
+1/32
+
+SIAM
+
+1/32
+
+FM
+
+FM
+
+Output
+
+Output
+
+(a)
+
+(b)
+
+tions. Moreover, we propose SIAM(Semantic Information Alignment Module) to align the features in a more
+effective way.
+• Extensive experimental results show that the proposed
+SCTNet outperforms existing state-of-the-art methods for real-time semantic segmentation on Cityscapes,
+ADE20K, and COCO-Stuff-10K. SCTNet provides a
+new view of boosting the speed and improving the performance for real-time semantic segmentation.
+
+Output
+
+(c)
+
+Figure 2: Real-time semantic segmentation paradigms.
+(a) Decoupled bilateral network divides a semantic branch
+and a spatial branch at the early stage. (b) Feature sharing
+bilateral network separates the two branches at the latter
+stage and adopts dense fusion modules. (c) Our SCTNet applies a single hierarchy branch with a semantic extraction
+transformer, free from the extra branch and costly fusion
+module in inference. FM: Fusion Module, SIAM: Semantic
+Information Alignment Module. Dashed arrows and boxes
+denote training-only.
+To eliminate the aforementioned dilemma, we propose
+a single-branch CNN with transformer semantic information for real-time segmentation (SCTNet). It can extract semantic information efficiently without heavy computation
+caused by the bilateral network. Specifically, SCTNet learns
+long-range context from a training-only transformer semantic branch to the CNN branch. To mitigate the semantic gap
+between the transformer and CNN, we elaborately design
+a transformer-like CNN block called CFBlock and utilize a
+shared decoder head before the alignment. With the aligned
+semantic information in training, the single-branch CNN
+can encode the semantic information and spatial details
+jointly. Therefore, SCTNet could align the semantic representation from the large effective receptive field of transformer architecture while maintaining the high efficiency
+of a lightweight single branch CNN architecture in inference. The overall architecture is illustrated in Figure 2(c).
+Extensive experimental results on three challenging datasets
+demonstrate that the proposed SCTNet has a better trade-off
+between accuracy and speed than previous works. Figure 1
+intuitively shows the comparison between SCTNet and other
+real-time segmentation methods on the Cityscapes val set.
+The main contributions of the proposed SCTNet can be
+summarized as the following three aspects:
+• We propose a novel single-branch real-time segmentation
+network called SCTNet. By learning to extract rich semantic information utilizing semantic information alignment from the transformer to CNN, SCTNet enjoys high
+accuracy of the transformer while maintaining fast inference speed of the lightweight single branch CNN.
+• To alleviate the semantic gap between CNN features
+and transformer features, we design the CFBlock (ConvFormer Block), which could capture long-range context
+as a transformer block using only convolution opera-
+
+2
+
+Related Work
+
+Semantic Segmentation. FCN (Long, Shelhamer, and Darrell 2015) leads to the tendency to utilize CNN for semantic segmentation. Following FCN, a series of improved
+CNN-based semantic segmentation methods are proposed.
+DeepLab (Chen et al. 2017) enlarges the receptive field with
+dilated convolution. PSPNet (Zhao et al. 2017), U-Net (Ronneberger, Fischer, and Brox 2015), and RefineNet (Lin et al.
+2017) fuse different level feature representations to capture
+multi-scale context. Some methods (Fu et al. 2019; Huang
+et al. 2019; Yuan et al. 2018; Zhao et al. 2018b)propose
+various attention modules to improve segmentation performance. In recent years, transformer has been adopted
+for semantic segmentation and shows promising performance. SETR (Zheng et al. 2021) directly applies the vision transformer to image segmentation for the first time.
+SegViT (Zhang et al. 2022a) tries to perform semantic segmentation with the plain vision transformer. PVT (Wang
+et al. 2021) introduces the typical hierarchical architecture
+in CNN into the transformer-based semantic segmentation
+model. SegFormer (Xie et al. 2021) proposes an efficient
+multi-scale transformer-based segmentation model.
+Real-time Semantic Segmentation. Early real-time semantic segmentation methods (Paszke et al. 2016; Wu, Shen,
+and Hengel 2017) usually accelerate inference by compressing channels or fast down-sampling. ICNet (Zhao et al.
+2018a) first introduces a multi-resolution image cascade network to accelerate the speed. BiSeNetV1 (Yu et al. 2018)
+and BiSeNetV2 (Yu et al. 2021) adopt two-branch architecture and feature fusion modules to achieve a better tradeoff between speed and accuracy. STDC (Fan et al. 2021)
+rethinks the two-branch network of BiSeNet, removes the
+spatial branch, and adds a detailed guidance module. DDRNets (Pan et al. 2022) achieves a better trade-off by sharing branches in the early stages. Very recently, some efficient transformer methods for real-time segmentation have
+been proposed, but they still have unresolved problems. TopFormer (Zhang et al. 2022b) only uses transformer on 1/64
+scale of the feature maps, leading to low accuracy. RTFormer (Wang et al. 2022) and SeaFormer (Wan et al. 2023)
+need frequent interaction between the two branches. This additional computation slows down the inference speed. There
+are also some single-branch and multi-branch methods. See
+more discussions in appendix D.
+Attention mechanism. Attention mechanism has been
+widely used in computer vision in recent years. Many methods (Chu et al. 2021; Liu et al. 2021; Fang et al. 2022)
+contribute to reducing the computational complexity of at-
+
+CF Block
+
+CF Block
+
+CF Block
+
+Conv Block
+
+Conv Block
+
+Conv Block
+
+Conv Block
+
+Conv Block
+
+Decoder
+Projection
+Decoder
+Decoder
+Semantic Alignment Loss
+
+SIAM
+Backbone Feature
+Alignment
+
+Shared Decoder
+Head Alignment
+
+Transformer
+Block
+
+Transformer
+Block
+
+Transformer
+Block
+
+Transformer
+Block
+
+Decoder
+𝐻𝐻𝑐𝑐 × 𝑊𝑊𝑐𝑐 × 𝐶𝐶𝑐𝑐
+
+BFA
+
+Resize&Projection
+𝐻𝐻 × 𝑊𝑊 × 𝐶𝐶𝑡𝑡
+
+m
+
+Stem
+
+SDHA
+
+Semantic Alignment Loss
+Decoder
+
+Training Only
+
+𝐻𝐻 × 𝑊𝑊 × 𝐶𝐶𝑡𝑡
+Reshape
+…
+
+Stem
+
+𝐻𝐻 𝑊𝑊
+𝐻𝐻 𝑊𝑊
+𝐻𝐻 𝑊𝑊
+𝐻𝐻 𝑊𝑊
+× × 2C
+×
+× 4C
+×
+× 8C
+× ×C
+8 8
+16 16
+32 32
+4 4
+
+Figure 3: The architecture of SCTNet. CFBlock (Conv-Former Block, detailed in Figure 4) takes advantage of the trainingonly Transformer branch (greyed-out in the dashed box) via SIAM (Semantic Information Alignment Module) which is composed of BFA (Backbone Feature Alignment) and SDHA (Shared Decoder Head Alignment).
+tention mechanisms. Although some of them have achieved
+linear complexity, they contain frequent shift or reshape
+operations which bring lots of latency. MSCA (Guo et al.
+2022b) shows a promising performance, but the large kernel
+is not employ-friendly, and the multi-scale design of attention further incurs inference speed. External attention (Guo
+et al. 2022a) has a very simple form. It uses external parameters as the key and value and implements the attention
+mechanism with two linear layers. GFA(GPU-Friendly Attention) (Wang et al. 2022) improves external attention by
+replacing head split in EA with group double norm, which
+is more friendly for GPU devices.
+
+3
+
+Methodology
+
+Motivation
+Removing the semantic branch of bilateral networks can
+significantly speed up the inference. However, this results
+in shallow single-branch networks that lack long-range semantic information, leading to low accuracy. While using
+deep encoders and powerful decoders or complex enhancement modules can recover accuracy, it slows down the inference process. To address this issue, we propose a trainingonly alignment method that enriches semantic information
+without sacrificing inference speed. Specifically, we proposed SCTNet, a single-branch convolution network with a
+training-only semantic extraction transformer, which owns
+high accuracy of transformer and fast inference speed of
+CNN. The overview of SCTNet is presented in Figure 3.
+
+Conv-Former Block
+As different types of networks, the feature representations
+extracted by CNN and transformer significantly differ. Di-
+
+rectly aligning the features between the CNN and the transformer makes the learning process difficult, resulting in limited performance improvement. In order to make the CNN
+branch easily learns how to extract high-quality semantic information from the transformer branch, we design the ConvFormer Block. Conv-Former Block simulates the structure
+of the transformer block as much as possible to learn the semantic information of the transformer branch better. Meanwhile, the Conv-Former Block implements the attention
+function using only efficient convolution operations.
+The structure of the Conv-Former Block is similar to the
+structure of a typical transformer encoder (Vaswani et al.
+2017), as presented in the left of Figure 4. The process can
+be described as follows:
+f = N orm(x + ConvAttention(x)),
+y = N orm(f + F F N (f )),
+
+(1)
+
+where N orm(·) refers to batch normalization (Ioffe and
+Szegedy 2015), and x, f , y denote input, hidden feature and
+output, respectively.
+Convolutional Attention. Attention mechanisms used for
+real-time segmentation should have the property of low latency and powerful semantic extraction ability. As discussed
+in the related work, We believe GFA is a potential candidate.
+Our convolutional attention is derived from GFA.
+There are two main differences between GFA and the proposed convolutional attention. Firstly, we replace the matrix
+multiplication in GFA with pixel-wise convolution operations. Point convolution is equivalent to pixel-to-pixel multiplication but without feature flattening and reshaping operations. These operations are detrimental to maintaining the inherent spatial structure and bring in extra inference latency.
+
+k
+C
+
+𝑲𝒆𝒚𝟏
+
+𝑽𝒂𝒍𝒖𝒆𝟏 N
+
+…
+
+Add & Norm
+
+N
+
+Convolution
+Attention
+
+W
+
+H
+
+H
+
+GDN
+
+Add & Norm
+
+W
+
+C
+
+C
+N
+
+C
+k
+
+…
+
+…
+
+FFN
+
+C
+
+GDN
+
+𝑸𝒖𝒆𝒓𝒚
+
+Semantic Information Alignment Module
+
+k
+
+…
+
+Output
+
+k
+
+N
+
+Input
+
+C
+
+𝑲𝒆𝒚𝟐
+
+𝑽𝒂𝒍𝒖𝒆𝟐
+
+Figure 4: Design of Conv-Former Block (left) and the details of convolutional attention (right). GDN means Grouped
+Double Normalization. ⊗ means convolution operations, ⊕
+stands for addition, and k means the kernel size.
+Moreover, convolution provides a more flexible way to extend external parameters. Then, due to the semantic gap between the transformer and CNN, it is not enough to capture
+rich context that simply calculates the similarity between
+several learnable vectors and each pixel and then enhances
+the pixels according to the similarity map and the learnable vectors. To better align the semantic information of the
+transformer, we enlarge the learnable vectors to learnable
+kernels. On the one hand, this converts the similarity calculation between pixel and learnable vectors to that between
+pixel patches with learnable kernels. On the other hand, the
+convolution operation with learnable kernels retains more
+local spatial information to some extent. The operations of
+convolution attention can be summarized as follows:
+X = θ (X ⊗ K) ⊗ K T ,
+C×H×W
+
+C×N ×k×k
+
+(2)
+T
+
+where X ∈ R
+,K ∈ R
+, K
+∈
+RN ×C×k×k represents input image and learnable query and
+key, respectively. C, H, W denote the channel, height, and
+width of the feature map, respectively. N denotes the number of learnable parameters, and k denotes the kernel size of
+the learnable parameters. θ symbolizes the grouped double
+normalization, which applies softmax on the dimension of
+H × W and grouped L2 Norm on the dimension of N . ⊗
+means convolution operations.
+Taking efficiency into consideration, we implement the
+convolution attention with stripe convolution rather than
+standard convolutions. More specifically, we utilize a 1 × k
+and a k × 1 convolution to approximate a k × k convolution layer. Figure 4 illustrate the implementation details of
+convolution attention.
+Feed Forward Network. Typical FFN plays a vital role in
+providing position encoding and embedding channels. The
+typical FFN (Feed Forward Network) in recent transformer
+models consists of a expand point convolution, a depth-wise
+3×3 convolution, and a squeeze point convolution. Different
+from typical FFN, our FFN is made up of two standard 3 ×
+3 convolution layers. Compared with the typical FFN, our
+FFN is more efficient and provides a larger receptive field.
+
+A simple yet effective alignment module is proposed to conduct the feature learning in the training process, as shown in
+Figure 3. It can be divided into backbone feature alignment
+and shared decoder head alignment.
+Backbone Feature Alignment. Thanks to the transformerlike architecture of the Conv-Former Block, the alignment
+loss can easily align the Conv-Former Block’s features with
+the features of transformers. In short, the backbone feature
+alignment first down-sample or up-sample the feature from
+the transformer and CNN branches for alignment. Then it
+projects the feature of the CNN to the dimension of the transformer. The projection can: 1) unify the number of channels
+and 2) avoid direct alignment of features, which damages
+the supervision of ground truth for the CNN in the training
+process. Finally, a semantic alignment loss is applied to the
+projected features to align the semantic representations.
+Shared Decoder Head Alignment. Transformer decoders
+often use the features of multiple stages for complex decoding, while SCTNet decoder only picks the features of
+stage2&stage4. Considering the significant difference in decoding space between them, direct alignment of the decoding features and output logits can only get limited improvement. Therefore, we propose shared decoder head alignment. Specifically, the concatenation stage2&stage4 features
+of the single-branch CNN are input into a point convolution
+to expand the dimension. Then the high-dimension features
+are passed through the transformer decoder. The transformer
+decoder’s new output features and logits are used to calculate alignment loss with the origin outputs of the transformer
+decoder.
+
+Overall Architecture
+To reduce computational costs while obtain rich semantic
+information, we simplify the popular two-branches architecture to one swift CNN branch for inference and a transformer branch for semantic alignment only for training.
+Backbone. To improve the inference speed, SCTNet adopts
+a typical hierarchical CNN backbone. SCTNet starts from
+a stem block consisting of two sequential 3×3 convolution
+layers. The former two stages consist of stacked residual
+blocks (He et al. 2016), and the latter two stages include
+the proposed transformer-like blocks called Conv-Former
+Blocks (CFBlocks). The CFBlock employs several elaborately designed convolution operations to perform the similar long-range context capturing function of the transformer
+block. We apply a convdown layer consisting of a stridden convolution with batch normal and ReLu activation for
+down-sampling at the beginning of stage 2 ∼ 4, which is
+omitted in Figure 3 for clarity.
+Decoder Head. The decoder head consists of a
+DAPPM (Pan et al. 2022) and a segmentation head.
+To further enrich the context information, we add a DAPPM
+after the output of stage 4. Then we concatenate the output
+with the feature map of Stage 2. Finally, this output feature
+is passed into a segmentation head. Precisely, the segmentation head consists of a 3×3 Conv-BN-ReLU operator
+followed by a 1×1 convolution classifier.
+
+Method
+Reference
+SFNet-ResNet18
+ECCV 2020
+AFFormer-B-Seg100 AAAI 2023
+AFFormer-B-Seg75
+AAAI 2023
+AFFormer-B-Seg50
+AAAI 2023
+SegNext-T-Seg100
+NeurIPS 2022b
+SegNext-T-Seg75
+NeurIPS 2022b
+PIDNet-S
+CVPR 2023
+PIDNet-M
+CVPR 2023
+CNN-based Bilateral Networks
+BiSeNet-ResNet18
+ECCV 2018
+BiSeNetV2-L
+IJCV 2021
+STDC1-Seg75
+CVPR 2021
+STDC2-Seg75
+CVPR 2021
+STDC1-Seg50
+CVPR 2021
+STDC2-Seg50
+CVPR 2021
+DDRNet-23-S
+TIP 2022
+DDRNet-23
+TIP 2022
+Transformer-based Bilateral Networks
+TopFormer-B-Seg100 CVPR 2022b
+TopFormer-B-Seg50 CVPR 2022b
+SeaFormer-B-Seg100 ICLR 2023
+SeaFormer-B-Seg50 ICLR 2023
+RTFormer-S
+NeurIPS 2022
+RTFormer-B
+NeurIPS 2022
+SCTNet-S-Seg50
+Ours
+SCTNet-S-Seg75
+Ours
+SCTNet-B-Seg50
+Ours
+SCTNet-B-Seg75
+Ours
+SCTNet-B-Seg100
+Ours
+
+#Params↓
+12.3M
+3.0M
+3.0M
+3.0M
+4.3M
+4.3M
+7.6M
+34.4M
+
+Resolution
+2048 × 1024
+2048 × 1024
+1536 × 768
+1024 × 512
+2048 × 1024
+1536 × 768
+2048 × 1024
+2048 × 1024
+
+FPS(TRT)↑
+50.5
+58.3
+96.4
+148.4
+46.5
+78.3
+127.1
+90.7
+
+FPS(Torch)↑
+24.0
+28.4
+38.6
+49.5
+28.1
+45.6
+93.2
+39.8
+
+mIoU(%)↑
+79.0
+78.7
+76.5
+73.5
+79.8
+78.0
+78.8
+80.1
+
+49.0M
+14.2M
+22.2M
+14.2M
+22.2M
+5.7M
+20.1M
+
+1536 × 768
+1024 × 512
+1536 × 768
+1536 × 768
+1024 × 512
+1024 × 512
+2048 × 1024
+2048 × 1024
+
+182.9
+102.3
+209.5
+149.2
+397.6
+279.7
+138.9
+101.9
+
+112.3
+67.6
+101.9
+84.3
+146.2
+94.6
+106.7
+56.7
+
+74.8
+75.8
+74.5
+77.0
+72.2
+74.2
+77.8
+79.5
+
+5.1M
+5.1M
+8.6M
+8.6M
+4.8M
+16.8M
+4.6M
+4.6M
+17.4M
+17.4M
+17.4M
+
+2048 × 1024
+1024 × 512
+2048 × 1024
+1024 × 512
+2048 × 1024
+2048 × 1024
+1024 × 512
+1536 × 768
+1024 × 512
+1536 × 768
+2048 × 1024
+
+128.4
+410.9
+103.6
+231.6
+451.2
+233.3
+374.6
+186.6
+105.0
+
+81.4
+95.7
+37.5
+45.2
+89.6
+50.2
+160.3
+149.2
+144.9
+105.2
+62.8
+
+76.3
+70.7
+77.7
+72.2
+76.3
+79.3
+72.8
+76.1
+76.5
+79.8
+80.5
+
+Table 1: Comparisons with other state-of-the-art real-time methods on Cityscapes val set. Seg100, Seg75, Seg50 denote
+the input size of 1024 × 2048, 768 × 1536, 512 × 1024, respectively. #Params refers to the number of parameters.
+Training Phase. It is well known that transformer excels
+at capturing global semantic context. On the other hand,
+CNN has been widely proven to be better at modeling hierarchical locality information than transformers. Motivated by
+the advantages of transformer and CNN, we explore equipping a real-time segmentation network with both merits. We
+propose a single-branch CNN that learns to align its features with those of a powerful transformer, which is illustrated in the blue dotted box in Figure 3. This feature alignment enables the single-branch CNN to extract both rich
+global context and detailed spatial information. Specifically,
+there are two streams in the training phase. SCTNet adopts
+a train-only transformer as the semantic branch to extract
+powerful global semantic context. The semantic information
+alignment module supervises the convolution branch to align
+high-quality global context from the transformer.
+Inference Phase. To avoid the sizeable computation costs
+of two branches, only the CNN branch is deployed in the inference. With the transformer-aligned semantic information,
+the single-branch CNN can generate accurate segmentation
+results without the extra semantic extraction or costly dense
+fusion. Specifically, the input image is fed into a singlebranch hierarchy convolution backbone. Then the decoder
+head picks up the features in the backbone and conducts simple concatenation followed by pixel-wise classification.
+
+Alignment Loss
+For better alignment of semantic information, a alignment
+loss focusing on semantic information rather than spatial information is needed. In the implementation, we use CWD
+Loss (channel-wise distillation loss) (Shu et al. 2021) as the
+alignment loss, which shows better results than other loss
+functions. CWD Loss can be summarized as follows:
+x
+exp( c,i )
+ϕ(xc ) = PW ·H T xc,i ,
+(3)
+i=1 exp( T )
+C H·W
+h ϕ(xc,i ) i
+T2 X X
+T
+ϕ(xc,i
+,
+(4)
+Lcwd =
+T ) · log
+C c=1 i=1
+ϕ(xc,i
+S )
+where c = 1, 2, ..., C indexes the channel, and i =
+1, 2, ..., H · W denotes the spatial location, xT and xS are
+the feature maps of the transformer branch and CNN branch,
+respectively. ϕ converts the feature activation into a channelwise probability distribution, removing the influences of
+scales between the transformer and the compact CNN. To
+c,i
+minimize Lcwd , ϕ(xc,i
+S ) should be large when ϕ(xT ) is
+c,i
+c,i
+large. But when ϕ(xT ) is small, the value of ϕ(xS ) does
+not matter. This force the CNN to learn the distribution of the
+foreground salience, which contains the semantic information. T denotes a hyper-parameter called temperature. And
+the larger T is, the softer the probability distribution is.
+
+For more discussions and detailed ablation studies on the
+choices of alignment loss, please refer to appendix B.
+
+4
+
+Experiments
+
+Datasets and Implementation Details
+We conduct experiments of the SCTNet on three datasets,
+i.e., Cityscapes (Cordts et al. 2016), ADE20K (Zhou et al.
+2017), and COCO-Stuff-10K (Caesar, Uijlings, and Ferrari
+2018) to demonstrate the effectiveness of our method. For a
+fair comparison, we build our base model SCTNet-B with
+a comparable size to RTFormer-B/DDRNet-23/STDC2.
+Furthermore, we also introduce a smaller variant called
+SCTNet-S. We first pre-train our CNN backbones on ImageNet (Deng et al. 2009), then fine-tune it on semantic segmentation datasets. The semantic transformer branch in the
+training phrase can be any hierarchical transformer network.
+In our implementation, we choose SegFormer as the transformer branch for all experiments. We measure the inference speed of all methods on a single NVIDIA RTX 3090.
+All reported FPS results are obtained under the same input
+resolution for fair performance comparison unless specified.
+For Cityscapes, we measure the speed implemented with
+both torch and tensor-RT. More details on model instantiation, metrics, and training settings of specific datasets can
+be found in appendix A.
+
+Comparison with State-of-the-art Methods
+Results on Cityscapes. The corresponding results on
+Cityscapes(Cordts et al. 2016) are shown in Table 1. Our
+SCTNet outperforms other real-time methods by a large
+margin and attains the best speed-accuracy trade-off with
+both tensorRT and Torch implementations. For example,
+our SCTNet-B-Seg100 achieves 80.5% mIoU at 62.8 FPS,
+which is a new state-of-the-art performance for real-time
+segmentation. Our SCTNet-B-Seg75 reaches 79.8% mIoU,
+which is better than the state-of-the-art transformer-based
+bilateral network RTFormer-B and cnn-based bilateral network DDRNet-23 in accuracy but has a two times faster
+speed. Our SCTNet-B is faster at all input resolutions with
+better mIoU results than all other methods. Besides, our
+SCTNet-S also achieves a better trade-off compared with
+STDC2 (Fan et al. 2021), RTFormer-S (Wang et al. 2022),
+SeaFormer-B (Wan et al. 2023) and TopFormer-B (Zhang
+et al. 2022b). The origin speed with specific devices of
+more methods and the comparison of FPS on NVIDIA RTX
+2080Ti GPU can be found in appendix C.
+Results on ADE20K. On ADE20K(Zhou et al. 2017),
+our SCTNet achieves the best accuracy with the fastest
+speed. For instance, our SCTNet-B achieves 43.0% mIoU
+at superior 145.1 FPS, which is about 1.6 times faster
+than RTFormer-B (Wang et al. 2022) with 0.9% higher
+mIoU performance. Our SCTNet-S reaches 37.7% mIoU
+while keeping the highest FPS among all other methods on
+ADE20K (Zhou et al. 2017). Considering the large variety of
+images and various semantic categories in ADE20K (Zhou
+et al. 2017), this outstanding results further also demonstrate
+the generalization capability of our SCTNet.
+
+Method
+FCN(MV2)
+PSPNet(MV2)
+DeepLabV3+(MV2)
+SegFormerB0
+TopFormer-B
+SeaFormer-B
+SegNext-T
+AFFormer-B
+RTFormer-S
+RTFormer-B
+SCTNet-S
+SCTNet-B
+
+#Params↓
+9.8M
+13.7M
+15.4M
+3.8M
+5.1M
+8.6M
+4.3M
+3.0M
+4.8M
+16.8M
+4.7M
+17.4M
+
+FPS↑
+64.4∗
+57.7∗
+43.1∗
+84.4
+96.2
+44.5
+60.3
+49.6
+95.2
+93.4
+158.4
+145.1
+
+mIoU(%)↑
+19.7
+29.6
+34.0
+37.4
+39.2
+41.0
+41.1
+41.8
+36.7
+42.1
+37.7
+43.0
+
+Table 2: Comparisons with other state-of-the-art realtime methods on ADE20K. The FPS is measured at resolution 512 × 512. * means speed from other papers, MV2
+stands for MobileNetV2.
+Method
+#Params↓ FPS↑ mIoU(%)↑
+PSPNet50
+6.6∗
+32.6
+ICNet
+35.7∗
+29.1
+BiSeNetV2-L
+65.1
+28.7
+TopFormer-B
+5.1M
+94.7
+33.4
+SeaFormer-B
+8.6M
+41.9
+34.1
+3.0M
+46.5
+35.1
+AFFormer-B
+DDRNet23
+20.1M
+108.8
+32.1
+RTFormer-B
+16.8M
+90.9
+35.3
+SCTNet-B
+17.4M
+141.5
+35.9
+Table 3: Comparisons with other state-of-the-art realtime methods on COCO-Stuff-10K test set. The FPS is
+measured at resolution 640 × 640.
+Results on COCO-Stuff-10K. The corresponding results
+on COCO-Stuff-10K are shown in Table 3. SCTNet shows
+SOTA performance and maintains the highest inference
+speed on COCO-Stuff-10K in real-time semantic segmentation methods. With the input size 640 × 640, SCTNet-B
+achieves 35.9% mIoU at 141.5 FPS, which is 0.6% higher
+than RTFormer-B, and about 1.6 times faster. The comprehensive accuracy trade-off comparison on ADE20K and
+COCO-Stuff-10K can be found in Figure 6 and 7 (Appendix
+C) respectively.
+
+Ablation Study
+Comparison on Different Types of Blocks. To verify the
+effectiveness of our proposed CFBlock, we replace the CFBlocks with other kinds of convolution blocks and transformer blocks in real-time segmentation. For quick evaluations, all these results in Table 4 are not pre-trained on ImageNet. We select four kinds of blocks for comparison. As
+shown in Table 4, our CFBlock outperforms the typical ResBlock and the lightweight SegFormer Block by a significant
+mIoU margin. Moreover, compared with the state-of-theart GFABlock (Wang et al. 2022) and MSCANBlock from
+SegNext (Guo et al. 2022b), our CFBlock get better speed
+and accuracy trade-off. Our CFBlock has 0.9% higher mIoU
+than GFABlock and maintains the similar performance with
+
+(a) Image
+
+(b) GT
+
+(c) DDRNet-23
+
+(d) RTFormer-B
+
+(e) SCTNet-B
+
+Figure 5: Visualization results on Cityscapes validation set. Compared with DDRNet-23(Pan et al. 2022) and RTFormerB (Wang et al. 2022), SCTNet-B generates masks with finer details as highlighted in the light blue box and more accurate
+large-area predictions, as highlighted in the yellow box.
+Block
+FPS↑ mIoU(%)↑ param
+ResBlock
+66.7
+77.9
+15.3M
+SegFormerBlock 57.3
+77.7
+22.2M
+66.2
+78.5
+16.3M
+GFABlock
+MSCANBlock
+60.5
+79.3
+19.8M
+79.4
+17.4M
+CFBlock (Ours) 62.8
+Table 4: Comparison of different blocks.
+fewer parameters and faster speed than MSCANBlock. This
+also demonstrates that our SCTNet can better mitigate the
+gap of semantic information between CNN and transformer
+while getting rid of the high computation cost.
+Effectiveness of the Semantic Information Alignment
+Module. Although our SIAM(semantic information alignment module) is closely related to the elaborately designed
+SCTNet, it can also improve the performance of other CNN
+and transformer segmentation methods. As presented in Table 5, employing our SIAM attains consistent improvements
+on SegFormer, SegNext, SeaFormer, and DDRNet, which
+proves the effectiveness and generalization capability of our
+proposed SIAM. At the same time, as representatives of the
+bilateral-branch transformer and the bilateral-branch CNN
+network, the improvements of SeaFormer and DDRNet are
+relatively slim. This may be attributed to the fact that their
+bilateral-branch network structure already benefits from the
+additional semantic branch. And this also confirms that the
+cooperation of our SIMA and training-only transformer does
+play the role of the semantic branch in the bilateral-branch
+network, leading to improvements in the accuracy of the
+single-branch network.
+Components Ablation. We explore the effect of the proposed components in Table 6. Take Seg100 as an example,
+simply replacing the Resblock with our CFBlock brings a
+2.1% improvement of mIoU with little speed loss. The BFA
+leads to a 1.2% higher mIoU, and the SDHA further attains
+a 0.8% improvement of mIoU without sacrificing speed.
+
+Block
+SegNext-T
+SegNext-T+SIAM
+SegFormer-B0
+SegFormer-B0+SIAM
+SeaFormer-B
+SeaFormer-B+SIAM
+DDRNet-23
+DDRNet-23+SIAM
+SCTNet-B-SIAM
+SCTNet-B (Ours)
+
+Seg100(%)
+79.8
+80.1(+0.3)
+74.7
+77.3(+2.6)
+77.7
+78.1(+0.4)
+79.5
+79.6(+0.1)
+78.5
+80.5(+2.0)
+
+Seg75(%)
+78.0
+78.2(+0.2)
+74.4
+76.8(+2.4)
+77.5
+79.8(+2.3)
+
+Seg50(%)
+70.7
+72.5(+1.8)
+72.2
+72.5(+0.3)
+75.2
+76.5(+1.3)
+
+Table 5: Comparison of the effect of the SIAM.
+Components
+Baseline
++CFBlock
++BFA∗
++SDHA
+
+Seg100(%)
+76.4
+78.5(+2.1)
+79.7(+1.2)
+80.5(+0.8)
+
+Seg75(%)
+76.0
+77.5(+1.5)
+79.1(+1.6)
+79.8(+0.7)
+
+Seg50(%)
+73.0
+75.2(+2.2)
+75.7(+0.5)
+76.5(+0.8)
+
+FPS(Seg100)
+66.7
+62.8
+62.8
+62.8
+
+Table 6: Ablation studies on the components of SCTNet
+More Ablation Studies. For more detailed ablation studies
+on the design of CFBlock, the discussion of semantic alignment loss, and the choice of semantic transformer branch in
+training phrase, please refer to the appendix B.
+
+Visualization Results
+Figure 5 shows visualization results on Cityscapes (Cordts
+et al. 2016) validation set. Compared with DDRNet and RTFormer, our SCTNet provides not only better results for
+those classes with large areas like roads, sidewalks, and
+big trucks but also more accurate boundaries for small or
+thin objects such as poles, traffic lights, traffic signs, and
+cars. This indicates that SCTNet extracts high-quality longrange context while preserving fine details. More visualization results on Cityscapes and ADE20K can be found in appendix E.
+
+5
+
+Conclusion
+
+In this paper, we propose SCTNet, a novel single-branch
+architecture that can extract high-quality long-range context without extra inference computation cost. Extensive experiments demonstrate that SCTNet achieves new state-ofthe-art results. Moreover, by demonstrating the efficiency of
+SCTNet, we provide a novel insight for the semantic branch
+in the bilateral-branch network and a new way to boost the
+real-time segmentation community by not only adopting the
+structure of the transformer but also unitizing its knowledge.
+
+6
+
+Acknowledgments
+
+This work is supported by Hubei Provincial Natural Science
+Foundation of China No.2022CFA055 and the National Natural Science Foundation of China No.62176097.
+
+References
+Ahn, S.; Hu, S. X.; Damianou, A.; Lawrence, N. D.; and Dai,
+Z. 2019. Variational information distillation for knowledge
+transfer. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, 9163–9171.
+Bo, D.; Pichao, W.; and Wang, F. 2023. AFFormer:
+Head-Free Lightweight Semantic Segmentation with Linear
+Transformer. In Proceedings of the AAAI Conference on Artificial Intelligence.
+Caesar, H.; Uijlings, J.; and Ferrari, V. 2018. Coco-stuff:
+Thing and stuff classes in context. In Proceedings of the
+IEEE conference on computer vision and pattern recognition, 1209–1218.
+Chen, L.-C.; Papandreou, G.; Kokkinos, I.; Murphy, K.; and
+Yuille, A. L. 2014. Semantic image segmentation with deep
+convolutional nets and fully connected crfs. arXiv preprint
+arXiv:1412.7062.
+Chen, L.-C.; Papandreou, G.; Kokkinos, I.; Murphy, K.; and
+Yuille, A. L. 2017. Deeplab: Semantic image segmentation
+with deep convolutional nets, atrous convolution, and fully
+connected crfs. IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 40(4): 834–848.
+Chen, L.-C.; Zhu, Y.; Papandreou, G.; Schroff, F.; and
+Adam, H. 2018. Encoder-decoder with atrous separable
+convolution for semantic image segmentation. In European
+Conference on Computer Vision, 801–818.
+Chu, X.; Tian, Z.; Wang, Y.; Zhang, B.; Ren, H.; Wei, X.;
+Xia, H.; and Shen, C. 2021. Twins: Revisiting the design of
+spatial attention in vision transformers. Advances in Neural
+Information Processing Systems, 34: 9355–9366.
+Cordts, M.; Omran, M.; Ramos, S.; Rehfeld, T.; Enzweiler,
+M.; Benenson, R.; Franke, U.; Roth, S.; and Schiele, B.
+2016. The cityscapes dataset for semantic urban scene understanding. In IEEE Conference on Computer Vision and
+Pattern Recognition, 3213–3223.
+Deng, J.; Dong, W.; Socher, R.; Li, L.-J.; Li, K.; and FeiFei, L. 2009. Imagenet: A large-scale hierarchical image
+database. In IEEE Conference on Computer Vision and Pattern Recognition, 248–255. Ieee.
+
+Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn,
+D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.;
+Heigold, G.; Gelly, S.; et al. 2020. An image is worth 16x16
+words: Transformers for image recognition at scale. arXiv
+preprint arXiv:2010.11929.
+Fan, M.; Lai, S.; Huang, J.; Wei, X.; Chai, Z.; Luo, J.; and
+Wei, X. 2021. Rethinking bisenet for real-time semantic segmentation. In IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, 9716–9725.
+Fang, J.; Xie, L.; Wang, X.; Zhang, X.; Liu, W.; and Tian,
+Q. 2022. Msg-transformer: Exchanging local spatial information by manipulating messenger tokens. In IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+12063–12072.
+Fu, J.; Liu, J.; Tian, H.; Li, Y.; Bao, Y.; Fang, Z.; and Lu,
+H. 2019. Dual attention network for scene segmentation.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 3146–3154.
+Guo, M.-H.; Liu, Z.-N.; Mu, T.-J.; and Hu, S.-M. 2022a. Beyond self-attention: External attention using two linear layers for visual tasks. IEEE Transactions on Pattern Analysis
+and Machine Intelligence.
+Guo, M.-H.; Lu, C.-Z.; Hou, Q.; Liu, Z.; Cheng, M.-M.; and
+Hu, S.-M. 2022b. Segnext: Rethinking convolutional attention design for semantic segmentation. Advances in Neural
+Information Processing Systems, 35: 1140–1156.
+He, K.; Zhang, X.; Ren, S.; and Sun, J. 2016. Deep residual
+learning for image recognition. In IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 770–778.
+Hinton, G.; Vinyals, O.; and Dean, J. 2015. Distilling the knowledge in a neural network. arXiv preprint
+arXiv:1503.02531.
+Huang, Z.; Wang, X.; Huang, L.; Huang, C.; Wei, Y.; and
+Liu, W. 2019. Ccnet: Criss-cross attention for semantic segmentation. In IEEE International Conference on Computer
+Vision, 603–612.
+Ioffe, S.; and Szegedy, C. 2015. Batch normalization: Accelerating deep network training by reducing internal covariate
+shift. In International Conference on Machine Learning,
+448–456. pmlr.
+Li, K.; Yu, R.; Wang, Z.; Yuan, L.; Song, G.; and Chen, J.
+2022a. Locality guidance for improving vision transformers on tiny datasets. In European Conference on Computer
+Vision, 110–127. Springer.
+Li, X.; You, A.; Zhu, Z.; Zhao, H.; Yang, M.; Yang, K.; Tan,
+S.; and Tong, Y. 2020. Semantic flow for fast and accurate
+scene parsing. In European Conference on Computer Vision,
+775–793. Springer.
+Li, X.; Zhang, J.; Yang, Y.; Cheng, G.; Yang, K.; Tong, Y.;
+and Tao, D. 2022b. Sfnet: Faster, accurate, and domain
+agnostic semantic segmentation via semantic flow. arXiv
+preprint arXiv:2207.04415.
+Lin, G.; Milan, A.; Shen, C.; and Reid, I. 2017. Refinenet:
+Multi-path refinement networks for high-resolution semantic segmentation. In IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, 1925–1934.
+
+Liu, Y.; Cao, J.; Li, B.; Hu, W.; Ding, J.; and Li, L. 2022.
+Cross-Architecture Knowledge Distillation. In Asian Conference on Computer Vision, 3396–3411.
+Liu, Z.; Lin, Y.; Cao, Y.; Hu, H.; Wei, Y.; Zhang, Z.; Lin,
+S.; and Guo, B. 2021. Swin transformer: Hierarchical vision
+transformer using shifted windows. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, 10012–
+10022.
+Long, J.; Shelhamer, E.; and Darrell, T. 2015. Fully convolutional networks for semantic segmentation. In IEEE Conference on Computer Vision and Pattern Recognition, 3431–
+3440.
+Loshchilov, I.; and Hutter, F. 2017. Decoupled weight decay
+regularization. arXiv preprint arXiv:1711.05101.
+Milletari, F.; Navab, N.; and Ahmadi, S.-A. 2016. V-Net:
+Fully convolutional neural networks for volumetric medical
+image segmentation. In International Conference on 3D Vision.
+Pan, H.; Hong, Y.; Sun, W.; and Jia, Y. 2022. Deep dualresolution networks for real-time and accurate semantic segmentation of traffic scenes. IEEE Transactions on Intelligent
+Transportation Systems, 24(3): 3448–3460.
+Paszke, A.; Chaurasia, A.; Kim, S.; and Culurciello, E. 2016.
+Enet: A deep neural network architecture for real-time semantic segmentation. arXiv preprint arXiv:1606.02147.
+Ronneberger, O.; Fischer, P.; and Brox, T. 2015. U-net: Convolutional networks for biomedical image segmentation. In
+International Conference on Medical Image Computing and
+Computer-Assisted Intervention, 234–241. Springer.
+Shu, C.; Liu, Y.; Gao, J.; Yan, Z.; and Shen, C. 2021.
+Channel-wise knowledge distillation for dense prediction.
+In IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 5311–5320.
+Touvron, H.; Cord, M.; Douze, M.; Massa, F.; Sablayrolles,
+A.; and Jégou, H. 2021. Training data-efficient image transformers & distillation through attention. In International
+Conference on Machine Learning, 10347–10357. PMLR.
+Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,
+L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. Attention is all you need. Neural Information Processing Systems, 30.
+Wan, Q.; Huang, Z.; Lu, J.; Yu, G.; and Zhang, L.
+2023. SeaFormer: Squeeze-enhanced Axial Transformer
+for Mobile Semantic Segmentation.
+arXiv preprint
+arXiv:2301.13156.
+Wang, J.; Gou, C.; Wu, Q.; Feng, H.; Han, J.; Ding, E.; and
+Wang, J. 2022. RTFormer: Efficient Design for Real-Time
+Semantic Segmentation with Transformer. In Advances in
+Neural Information Processing Systems.
+Wang, W.; Xie, E.; Li, X.; Fan, D.-P.; Song, K.; Liang, D.;
+Lu, T.; Luo, P.; and Shao, L. 2021. Pyramid vision transformer: A versatile backbone for dense prediction without
+convolutions. In IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, 568–578.
+Wu, Z.; Shen, C.; and Hengel, A. v. d. 2017. Real-time
+semantic image segmentation via spatial sparsity. arXiv
+preprint arXiv:1712.00213.
+
+Xie, E.; Wang, W.; Yu, Z.; Anandkumar, A.; Alvarez, J. M.;
+and Luo, P. 2021. SegFormer: Simple and efficient design
+for semantic segmentation with transformers. Advances in
+Neural Information Processing Systems, 34: 12077–12090.
+Xu, J.; Xiong, Z.; and Bhattacharyya, S. P. 2023. PIDNet:
+A Real-Time Semantic Segmentation Network Inspired by
+PID Controllers. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 19529–
+19539.
+Yu, C.; Gao, C.; Wang, J.; Yu, G.; Shen, C.; and Sang, N.
+2021. Bisenet v2: Bilateral network with guided aggregation
+for real-time semantic segmentation. International Journal
+of Computer Vision, 129: 3051–3068.
+Yu, C.; Wang, J.; Peng, C.; Gao, C.; Yu, G.; and Sang, N.
+2018. BiSeNet: Bilateral segmentation network for realtime semantic segmentation. In European Conference on
+Computer Vision, 325–341.
+Yuan, Y.; Huang, L.; Guo, J.; Zhang, C.; Chen, X.; and
+Wang, J. 2018. Ocnet: Object context network for scene
+parsing. arXiv preprint arXiv:1809.00916.
+Zhang, B.; Tian, Z.; Tang, Q.; Chu, X.; Wei, X.; Shen, C.;
+et al. 2022a. Segvit: Semantic segmentation with plain vision transformers. Advances in Neural Information Processing Systems, 35: 4971–4982.
+Zhang, W.; Huang, Z.; Luo, G.; Chen, T.; Wang, X.; Liu,
+W.; Yu, G.; and Shen, C. 2022b. TopFormer: Token pyramid transformer for mobile semantic segmentation. In
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 12083–12093.
+Zhao, H.; Qi, X.; Shen, X.; Shi, J.; and Jia, J. 2018a. Icnet for
+real-time semantic segmentation on high-resolution images.
+In European Conference on Computer Vision, 405–420.
+Zhao, H.; Shi, J.; Qi, X.; Wang, X.; and Jia, J. 2017. Pyramid
+scene parsing network. In IEEE Conference on Computer
+Vision and Pattern Recognition, 2881–2890.
+Zhao, H.; Zhang, Y.; Liu, S.; Shi, J.; Loy, C. C.; Lin, D.; and
+Jia, J. 2018b. Psanet: Point-wise spatial attention network
+for scene parsing. In European Conference on Computer
+Vision, 267–283.
+Zheng, S.; Lu, J.; Zhao, H.; Zhu, X.; Luo, Z.; Wang, Y.; Fu,
+Y.; Feng, J.; Xiang, T.; Torr, P. H.; et al. 2021. Rethinking semantic segmentation from a sequence-to-sequence perspective with transformers. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, 6881–6890.
+Zhou, B.; Zhao, H.; Puig, X.; Fidler, S.; Barriuso, A.; and
+Torralba, A. 2017. Scene parsing through ade20k dataset. In
+IEEE Conference on Computer Vision and Pattern Recognition, 633–641.
+Zhu, J.; Luo, Y.; Zheng, X.; Wang, H.; and Wang, L.
+2023. A Good Student is Cooperative and Reliable: CNNTransformer Collaborative Learning for Semantic Segmentation. arXiv preprint arXiv:2307.12574.
+
+Appendix
+The structure of this supplementary material can be summarized as follows. Section A provides more implementation details. Section B shows more detailed ablation studies on the design of CFBlock, semantic alignment loss, and
+semantic transformer branch in training phrase. Section C
+presents the comparison on NVIDIA RTX 2080Ti and original speed with specific devices of more methods. Section D
+gives some discussions about the proposed SCTNet. Moreover, more visualization results are displayed in Section E.
+
+A
+
+Table 8: Ablation studies on the kernel size of the learnable kernels in CFBlock.
+Kernel Size
+FPS↑ mIoU(%)↑
+1×1
+67.4
+78.4
+1 × 1 + 1 × 1 65.9
+78.7
+1 × 3 + 3 × 1 64.8
+79.0
+1 × 5 + 5 × 1 63.3
+79.1
+1 × 7 + 7 × 1 62.8
+79.4
+1 × 9 + 9 × 1 61.9
+79.3
+7×7
+59.8
+78.8
+
+More Implementation Details
+
+ImageNet Pre-training
+For a fair comparison, the CNN backbone of the proposed
+SCTNet is pre-trained on ImageNet-1K (Deng et al. 2009)
+using 8 GPUs. In the pre-training phase, we build our code
+based on the MMClassification, following the training settings of swin-transformer (Liu et al. 2021) on ImageNet-1K.
+The main details of the pre-training settings are presented in
+Table 7.
+Table 7: Training settings on ImageNet-1K.
+config
+optimizer
+base learning rate
+weight decay
+optimizer momentum
+learning rate schedule
+minimum learning rate
+warmup epochs
+warmup learning rate
+training epochs
+batch size
+augmentation
+random resized crop
+random flip
+mixup
+cutmix
+random erasing
+
+value
+AdamW
+0.001
+0.05
+β1 , β2 =0.9, 0.999
+cosine decay
+1e-5
+20
+1e-6
+300
+1024
+RandAug(9, 0.5)
+224
+0.5
+0.8
+1.0
+0.25
+
+Datasets and Implementation Details
+Cityscapes. Cityscapes (Cordts et al. 2016) is an urban street
+semantic scene parsing dataset from a car’s perspective. It
+contains 5,000 fine annotated images with 19 categories for
+segmentation, which are split into training, validation, and
+test sets, with 2,975, 500, and 1,525 images, respectively.
+For Cityscapes (Cordts et al. 2016), we train all models using AdamW (Loshchilov and Hutter 2017) optimizer with
+the initial learning rate of 0.0004 and the weight decay of
+0.0125. We apply the poly learning policy with the power
+of 0.9 to drop the learning rate and implement the data
+augmentation method, including random cropping, random
+scaling, and random horizontal flipping. For Seg75& Seg50,
+we adopt random cropping into 1024×512 and random scaling in the range of 0.25 to 1.5, while 1024 × 1024 and from
+
+0.5 to 2.0 for Seg100. All models are trained with 160k iterations, a batch size of 16. For the Tensor-RT speed, we apply
+TensorRT v8.2.3 for acceleration.
+ADE20K. ADE20K (Zhou et al. 2017) is a scene parsing
+dataset with 150 fine-grained semantic classes, which is split
+into 20K, 2K, and 3K images for training, validation, and
+testing, respectively. For ADE20K, all models are trained
+with a batch size of 32 for 160k iterations. Except for the
+cropping size of 512 × 512 and the initial learning rate of
+0.0005, all other training settings are identical to the training
+settings of Seg100 for Cityscapes (Cordts et al. 2016).
+COCO-Stuff. COCO-Stuff (Caesar, Uijlings, and Ferrari
+2018) . COCO-Stuff contains 171 semantic classes and
+10K(9K for training and 1K for testing) difficult samples with pixel-level stuff annotations that are collected in
+COCO. We use AdamW optimizer with weight decay of
+0.00006 and an initial learning rate of 0.01. Data augmentation includes random cropping into 640 × 640 and random scaling in the range of 0.5 to 2.0. All other training
+details are the same as the training settings of Seg100 for
+Cityscapes (Cordts et al. 2016).
+Metric. We adopt mIoU (mean intersection over union),
+FPS (Frames Per Second), and parameters as the evaluation
+metrics. mIoU is a widely used evaluation metric in semantic segmentation tasks. It quantifies the degree of overlap
+between the predicted segmentation and the ground truth
+segmentation by computing the ratio of the intersection to
+the union of the two sets of pixels. The mIoU score is obtained by averaging the IoU scores across all classes in the
+dataset. It provides a measure of the overall accuracy of the
+segmentation model. Frames Per Second (FPS) is a measure
+of the number of frames that the network can process per
+second, which is affected by the specific device. FPS can intuitively measure the inference speed of the network. Parameters refers to the total number of parameters that must be
+trained during model training. This metric is commonly used
+to measure the size of a model. On resource-constrained
+edge devices, the parameter volume is a critical factor to
+consider. FLOPs is not chosen as one of the evaluation metrics because it can not directly estimate the inference speed.
+
+Model Instantiation
+We build our base model SCTNet-B with a comparable
+size to that of RTFormer-B/DDRNet-23/STDC2. Furthermore, we also introduce a smaller variant called SCTNet-S.
+The network architecture hyper-parameters of the two model
+
+Table 9: Ablations on the semantic alignment loss, including types, locations and weight.
+(a) Ablation on different types of loss.
+
+(b) Ablation on the location of alignment loss.
+
+(c) Ablation on the weight of alignment loss.
+
+Loss Type Seg100 Seg75 Seg50
+Baseline
+78.5
+77.5 75.2
+L2 loss
+77.8
+76.8 73.0
+KL loss
+78.6
+77.6 75.2
+MI loss
+79.7
+79.0 75.7
+79.1 75.7
+CWD loss 79.7
+
+logits decoder stage4 stage3 mIoU(%)↑
+78.2
+✓
+78.8(+0.6)
+✓
+✓
+79.1(+0.9)
+✓
+✓
+✓
+79.3(+1.1)
+✓
+✓
+✓
+✓
+79.7(+1.5)
+
+Loss Weight Seg100 Seg75 Seg50
+0,0,0,0
+78.5
+77.5 75.2
+3,0,0,0
+78.8
+78.5 75.3
+3,10,10,10
+79.5
+78.9 75.5
+79.7
+79.1 75.7
+3,15,15,15
+3,20,20,20
+79.1
+78.6 75.0
+
+variants are as follows:
+• SCTNet-B: C = {64, 128, 256, 512}, layer numbers =
+{2, 2, 3, 2}, N = 64, k = 7.
+• SCTNet-S: C = {32, 64, 128, 256}, layer numbers =
+{2, 2, 3, 2}, N = 64, k = 7.
+where C denotes the channel number of each stage, N is the
+number of key/value in Conv-Former blocks, and k denotes
+the kernel size of learnable kernels in Conv-Former blocks.
+The two model variants utilize the same loss setting. We
+use CE loss (Milletari, Navab, and Ahmadi 2016) and CWD
+loss (Shu et al. 2021) as our overall training loss, which can
+be formulated as follows:
+Lall = λmain Lce + λaux Lce +
+
+3
+X
+
+λicwd Licwd
+
+(5)
+
+i=0
+
+where λmain and λaux denote the loss weights of the decoder head and auxiliary head in stage 2, respectively. λcwd
+denotes the loss weight of the context guidance head. We
+set the hyper-parameters to λmain = 1.0, λaux = 0.4, and
+λcwd = [3, 15, 15, 15] for output logits, features of decoder,
+stage 4 and stage 3, respectively. Follow (Shu et al. 2021),
+we set temperature T = 4 .
+As for the semantic transformer branch in the training
+phrase, it can be any hierarchical transformer. In our implementation, we choose SegFormer (Xie et al. 2021) as
+the transformer teacher for all experiments. Specifically, we
+choose SegFormer-B3 for SCTNet-B and SegFormer-B2 for
+SCTNet-S.
+
+B
+
+More Ablation Experiments
+
+Ablation Studies on the design of CFBlock
+To further clarify the structure of our Conv-Former Block,
+we conduct some ablation studies on the details of the
+proposed convolutional attention module. Taking efficiency
+into consideration, we implement the convolutional attention module with stripe convolution rather than standard
+convolutions. More specifically, we utilize a 1×7 and a 7×1
+convolution to approximate a 7×7 convolution layer. Table 8
+shows the ablation studies on the kernel size of the learnable
+kernels. As shown in Table 8, when kernel size is set to 7,
+i.e., using a 1×7 and a 7×1 stripe convolutions, the SCTNet
+reaches the highest mIoU, 1.0% higher than a single 1 × 1
+convolution, while the FPS only decreases by 4.6. When the
+kernel size is larger than 7, the mIoU stops to improve, but
+the computational cost still increases. Therefore, we set the
+
+hyper-parameter kernel size to 7 in all experiments. Note
+that although the 7 × 7 standard convolution owns the slowest speed, it gets a lower mIoU compared with a 1 × 7 and
+a 7 × 1 stripe convolutions. All experiments in Table 8 are
+without pre-training.
+
+Ablation Studies on Semantic Alignment Loss
+We conduct extensive experiments on the types, locations,
+and weights of the alignment loss.
+The proposed semantic information alignment module
+aims at instructing the CNN to learn the long-range semantic information from the transformer. Therefore, the loss
+which can supervise the learning of context information is
+more suitable for our alignment loss. According to the results in Table 9(a), CWD loss has positive effects on the
+performance, while L2 loss decreases the accuracy compared with the baseline. At the same time, KL loss shows almost the same performance before the alignment. This phenomenon could be attributed to the fact that CWD loss converts the feature activation into channel-wise probability distribution so that it focuses on the overall information alignment in each channel, which may contain rich global context. While L2 loss and KL loss directly align feature maps
+in an element-wise manner without regarding feature maps
+as an ensemble. Compared with KL loss, L2 loss adopts
+harder alignment, leading to worse performance. MI loss
+refers to mutual information loss, which is a measure of mutual dependence between two random variables. We use the
+technique of variational estimation in VID (Ahn et al. 2019)
+to estimate the mutual information of the distribution of each
+channel and achieve similar performance to CWD loss. Both
+MI and CWD losses are applied to the channel-wise distribution. Therefore, what matters in our SCTNet is the alignment
+of the distribution between channels rather than the specific
+form of the similarity measurement. This is because SCTNet
+aims to align the long-range context of the semantic branch,
+which is contained in the overall channel distribution rather
+than in each pixel or local area. Considering that the form
+of CWD loss is simpler and easier for readers to understand,
+we ultimately adopted CWD loss.
+Table 9(b) shows the influence of the alignment loss location. More long-range semantic information may exist in
+deep stages of hierarchy CNN, and the results also indicate
+that applying semantic alignment on stage3&4, decoder, and
+output logits is the best setting for the mIoU performance.
+Note that the location of alignment loss does not make any
+difference in the inference FPS.
+
+36
+
+Table 10: Ablation Studies on Semantic Branch in Training Phrase.
+Accuracy (mIoU%)
+
+SCTNet-B
+
+Semantic Branch Seg100 Seg75 Seg50
+OCRNet
+80.0
+79.2 76.4
+InternImage
+80.5
+79.6 76.5
+SwinTransformer 79.8
+79.1 76.0
+SegFormer
+80.5
+79.8 76.5
+
+35
+
+RTFormer-B
+
+AFFormer-B
+
+SeaFormer-B
+
+34
+
+TopFormer-B
+
+33
+
+DDRNet23
+
+44
+
+32
+40
+
+50
+
+60
+
+70
+
+80
+
+Accuracy (mIoU%)
+
+90
+
+100
+
+110
+
+120
+
+130
+
+140
+
+150
+
+Inference Speed (FPS)
+
+SCTNet-B
+42
+
+RTFormer-B
+
+AFFormer-B
+
+SegNext-T
+
+SeaFormer-B
+
+Figure 7: The speed-accuracy performance on COCOStuff-10K test set.
+
+40
+
+TopFormer-B
+
+81
+
+SCTNet-B-100
+
+38
+
+SCTNet-S
+
+80
+
+SegFormerB0
+
+SCTNet-B-75
+
+79
+
+RTFormer-B
+
+DDRNet-23
+
+RTFormer-S
+40
+
+50
+
+60
+
+70
+
+80
+
+90
+
+100
+
+110
+
+120
+
+Inference Speed (FPS)
+
+130
+
+140
+
+150
+
+Figure 6: The speed-accuracy performance on ADE20K
+validation set.
+At last, we explore the weight of alignment loss in Table 9(c). For output logits, 3 is the best choice following (Shu
+et al. 2021). For features, we find that 15 is the most suitable.
+Smaller weights can not fully exploit the high-quality semantic information of the transformer, while larger weights
+compete with the CE loss. Moreover, we observe that when
+the weights are too large, such as 50, the value of training
+loss fluctuates dramatically, leading to low accuracy. Note
+that all of these ablation studies are conducted without the
+shared decoder head alignment.
+
+Ablation Studies on Semantic Branch in Training
+Phrase
+We also conduct ablation experiments on different trainingonly semantic branches to screen the appropriate ones. Table 10 presents the influence of four types of semantic
+branches: OCRNet, InternImage, Swin, and SegFormer. We
+adopt these types of branches with similar accuracy, and the
+training settings are the same. The consistent improvement
+observed in the experiments demonstrates the effectiveness
+of the proposed SIAM. Among the candidate branches, SegFormer and InternImage showed the most promising improvement. However, SegFormer requires less training time
+and memory compared to others. Therefore, we selected
+SegFormer as the final semantic branch for the training
+phase.
+
+C
+
+78
+
+160
+
+Comparison with More Methods
+
+Trade-off on ADE20K and COCO-Stuff-10K
+Most CNN-based real-time segmentation methods mainly
+focus on Cityscapes (Cordts et al. 2016), while hardly taking ADE20K (Zhou et al. 2017) and COCO-Stuff-10K (Caesar, Uijlings, and Ferrari 2018) into consideration. These
+
+Accuracy (mIoU%)
+
+36
+
+DDRNet-23-S
+
+SeaFormer-B-100
+
+STDC2-75
+
+77
+
+TopFormer-B-100
+
+76
+
+RTFormer-S
+
+SCTNet-B-50
+SCTNet-S-75
+
+BiSeNetV2-L
+75
+
+BiSeNet-ResNet18 STDC1-75
+
+74
+
+STDC2-50
+SCTNet-S-50
+
+73
+72
+
+SeaFormer-B-50
+
+STDC1-50
+
+71
+
+TopFormer-B-50
+70
+0
+
+25
+
+50
+
+75
+
+100
+
+125
+
+150
+
+175
+
+200
+
+Inference Speed (FPS)
+
+225
+
+250
+
+275
+
+300
+
+325
+
+350
+
+Figure 8: Speed(TRT)-Accuracy performance on
+Cityscapes validation set using a single NVIDIA RTX
+2080Ti. Our methods are presented in red starts, while
+others are presented in blue dots. Our SCTNet establishes a
+new state-of-the-art speed-accuracy trade-off.
+
+datasets contain numerous images with over 150 classes,
+making them challenging for lightweight CNN-based models. However, recently some transformer-based real-time
+segmentation methods have shown promising improvement
+on ADE20K and COCO-Stuff-10K. Although our SCTNet
+is a CNN-based network, it aligns the semantic information
+with the transformer in the training phase. Therefore, the
+SCTNet also shows competitive performance on ADE20K
+and COCO-Stuff-10K. As present in Figure 6 and Figure 7,
+our SCTNet outperforms other transformer-based and CNNbased methods in real-time segmentation by a significant
+margin.
+
+Trade-off on RTX 2080Ti
+To further demonstrate the high efficiency of our SCTNet on
+different devices, we also measure the inference speed of our
+SCTNet and the mentioned bilateral methods using a single
+NVIDIA RTX 2080Ti. The results are presented in Table 11.
+To clearly show the efficiency of our proposed SCTNet, we
+also present the accuracy-speed comparison in Figure 8. Us-
+
+Table 11: Comparisons with bilateral real-time methods on Cityscapes val set. All the speed is measured on a single RTX
+2080Ti.
+Method
+Reference
+CNN-based Bilateral Networks
+BiSeNet-ResNet18
+ECCV 2018
+BiSeNetV2-L
+IJCV 2021
+STDC1-Seg75
+CVPR 2021
+STDC2-Seg75
+CVPR 2021
+STDC1-Seg50
+CVPR 2021
+STDC2-Seg50
+CVPR 2021
+DDRNet-23-S
+TIP 2022
+DDRNet-23
+TIP 2022
+Transformer-based Bilateral Networks
+TopFormer-B-Seg100 CVPR 2022b
+TopFormer-B-Seg50 CVPR 2022b
+SeaFormer-B-Seg100 ICLR 2023
+SeaFormer-B-Seg50 ICLR 2023
+RTFormer-S
+NeurIPS 2022
+RTFormer-B
+NeurIPS 2022
+SCTNet-S-Seg50
+Ours
+SCTNet-S-Seg75
+Ours
+SCTNet-B-Seg50
+Ours
+SCTNet-B-Seg75
+Ours
+SCTNet-B-Seg100
+Ours
+
+#Params↓
+
+Resolution
+
+FPS(TRT)↑
+
+FPS(Torch)↑
+
+mIoU(%)↑
+
+49.0M
+14.2M
+22.2M
+14.2M
+22.2M
+5.7M
+20.1M
+
+1536 × 768
+1024 × 512
+1536 × 768
+1536 × 768
+1024 × 512
+1024 × 512
+2048 × 1024
+2048 × 1024
+
+112.3
+70.3
+140.9
+104.1
+290.7
+236.1
+93.2
+70.2
+
+72.4
+35.2
+72.2
+57.2
+143.6
+89.8
+85.5
+36.7
+
+74.8
+75.8
+74.5
+77.0
+72.2
+74.2
+77.8
+79.5
+
+5.1M
+5.1M
+8.6M
+8.6M
+4.8M
+16.8M
+4.6M
+4.6M
+17.4M
+17.4M
+17.4M
+
+2048 × 1024
+1024 × 512
+2048 × 1024
+1024 × 512
+2048 × 1024
+2048 × 1024
+1024 × 512
+1536 × 768
+1024 × 512
+1536 × 768
+2048 × 1024
+
+85.3
+310.2
+77.6
+223.5
+327.5
+156.6
+244.4
+115.2
+76.7
+
+64.2
+90.8
+36.7
+43.9
+70.9
+30.8
+225.1
+147.9
+136.9
+65.7
+42.0
+
+76.3
+70.7
+77.7
+72.2
+76.3
+79.3
+72.8
+76.1
+76.5
+79.8
+80.5
+
+ing the same NVIDIA RTX 2080Ti, our SCTNet-B also outperforms existing bilateral real-time semantic segmentation
+networks by a large margin. At the same time, our SCTNetS keeps a competitive trade-off of speed and accuracy with
+these methods. Note that, TensorRT does not support some
+operations used in the RTFormer (Wang et al. 2022), but the
+acceleration details of RTFormer are not available. So we
+report the speed from its original paper in Figure 8, which is
+also deployed on RTX 2080Ti.
+
+More Methods with Specific Devices
+In the main paper, we measured all speeds on a single RTX
+3090 for fair comparison. And because of space limitations,
+we only compare recent state-of-the-art works. Therefore,
+we perform a more comprehensive comparison in Table 12.
+Note that all speeds mentioned here are obtained from the
+original paper with corresponding devices.
+
+D
+
+Disscussions
+
+Other Kinds of Real-time Semantic Segmentation
+Methods.
+Our motivation is accelerating and improving the bilateralbranch networks for real-time semantic segmentation. So we
+focus on introducing the development of the bilateral-branch
+real-time semantic segmentation networks in related work,
+helping readers to understand our work in a limited space
+quickly. However, there are some other types of methods in
+that field. In order to avoid omissions, we discuss more comprehensive related work here.
+Single-branch Networks. There are some works focusing
+on single-branch real-time segmentation networks. How-
+
+ever, lightweight single-branch networks usually lack longrange semantic information, leading to low accuracy. To
+capture high-quality semantic information and achieve high
+performance, AFFormer (Bo, Pichao, and Wang 2023) use
+complex encoder blocks, SegNext (Guo et al. 2022b) stacks
+lots of multi-scale convolution layers, SFNet (Li et al.
+2022b) refers to a heavy decoder. All these results in larger
+inference latency, weakening the speed advantage of the
+original lightweight single-branch network.
+Multi-branch Networks. Multi-branch networks extend
+bilateral networks to more branches. For instance, PIDNet (Xu, Xiong, and Bhattacharyya 2023) adopts a hierarchical main branch along with a detailed branch and a semantic branch. While multi-branch designs can enhance performance, they also come with higher computational costs,
+resulting in slower inference speeds compared to two-branch
+methods.
+
+Difference from MSCA.
+There is also a convolutional attention in SegNext (Guo
+et al. 2022b), called MSCA(Multi-Scale Convolutional Attention). Although both the MSCA and the convolutional attention in our proposed CFBlock consist of several convolutions, there are very different. MSCA utilizes multi-scale
+stripe convolutions to capture multi-scale context, and then
+the extracted context feature map serves as the weight map
+to reweigh the origin feature map. Our convolutional attention utilizes external kernels as key and value, calculates
+the similarity between the external kernels and the feature
+map, and uses the value of external kernels to enhance the
+feature map. MSCA contains multi-scale convolution layers and larger kernels(like kernel size=21), resulting in more
+
+Table 12: More comprehensive accuracy and speed performance comparison on Cityscapes val set. All the speed in this
+table is from the original paper with corresponding devices. ∗ means it uses some acceleration methods, not the original torch
+speed.
+Method
+ERFNet
+Fast-SCNN
+CAS
+GAS
+FaPN-R34
+AFFormer-B
+FasterSeg
+SwiftNetRN-18
+PP-LiteSeg-T2
+PP-LiteSeg-B2
+DF2-Seg1
+DF2-Seg2
+BiSeNet-ResNet18
+BiSeNetV2-L
+STDC1-Seg75
+STDC2-Seg75
+STDC1-Seg50
+STDC2-Seg50
+DDRNet-23-S
+DDRNet-23
+RTFormer-S
+RTFormer-B
+SFNet-ResNet18
+PIDNet-S
+PIDNet-M
+SCTNet-S-Seg50
+SCTNet-S-Seg75
+SCTNet-B-Seg50
+SCTNet-B-Seg75
+SCTNet-B-Seg100
+
+GPU
+TitanX M
+TitanXp
+TitanXp
+TitanXp
+Titan RTX
+V100
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+GTX1080Ti
+RTX 2080Ti
+RTX 2080Ti
+RTX 2080Ti
+RTX 2080Ti
+RTX 3090
+RTX 3090
+RTX 3090
+RTX 3090
+RTX 3090
+RTX 3090
+RTX 3090
+RTX 3090
+
+#Params↓
+20M
+1.1M
+3.0M
+4.4M
+11.8M
+49.0M
+14.2M
+22.2M
+14.2M
+22.2M
+5.7M
+20.1M
+4.8M
+16.8M
+12.3M
+7.6M
+34.4M
+4.6M
+4.6M
+17.4M
+17.4M
+17.4M
+
+Resolution
+2048 × 1024
+2048 × 1024
+1536 × 768
+1536 × 768
+2048 × 1024
+2048 × 1024
+2048 × 1024
+2048 × 1024
+1536 × 768
+1536 × 768
+1536 × 768
+1536 × 768
+1536 × 768
+1024 × 512
+1536 × 768
+1536 × 768
+1024 × 512
+1024 × 512
+2048 × 1024
+2048 × 1024
+2048 × 1024
+2048 × 1024
+2048 × 1024
+2048 × 1024
+2048 × 1024
+1024 × 512
+1536 × 768
+1024 × 512
+1536 × 768
+2048 × 1024
+
+FPS(TRT)↑
+163.9
+143.6
+102.6
+67.2
+56.3
+47.3
+126.7
+97.0
+250.4
+188.6
+50.5
+451.2
+233.3
+374.6
+186.6
+105.0
+
+FPS(Torch)↑
+41.7
+123.5
+108
+108.4
+30.2
+22
+104.0
+65.5
+101.6
+37.1
+110.0∗
+39.1∗
+24.0
+93.2
+39.8
+160.3
+149.2
+144.9
+105.2
+62.8
+
+mIoU(%)↑
+70.0
+68.6
+71.6
+72.4
+78.5
+78.7
+73.1
+75.5
+76.0
+78.2
+75.9
+76.9
+74.8
+75.8
+74.5
+77.0
+72.2
+74.2
+77.8
+79.5
+76.3
+79.3
+79.0
+78.8
+80.1
+72.8
+76.1
+76.5
+79.8
+80.5
+
+computational costs. As shown in Table 4(main paper), our
+CFBlock shows similar performance with fewer parameters
+and faster speed than MSCAN.
+
+segmentation, the promising performance of our combined
+use of SIMA and CFBlock also provides insights for heterogeneous distillation from transformer to CNN.
+
+Knowledge Distillation for Isomeric Models.
+
+Limitations and Future work
+
+Knowledge distillation was first proposed by Hinton et al.
+(Hinton, Vinyals, and Dean 2015). Most distillation methods consider only homologous structures of teacher and student. Recently, some methods (Touvron et al. 2021; Li et al.
+2022a) conduct distillation between CNN teacher and transformer student to tackle the problem of missing local information on small datasets for the transformer. Liu et al. (Liu
+et al. 2022) studies distillation between transformer teacher
+and CNN student in classification. In the field of semantic
+segmentation, Zhu et al. (Zhu et al. 2023) introduced a collaborative learning process that improves the performance
+of CNN and transformer models. In contrast, our approach
+focuses on leveraging the high-quality semantic information
+of the transformer as a semantic branch to assist the learning
+of a single-branch CNN. As a result, we do not require joint
+training and have a smaller training cost. While our primary
+goal is to use the transformer to boost real-time semantic
+
+We demonstrate the effectiveness of our SCTNet on various GPU devices and datasets, both on torch and Tensor-RT
+models. However, we do not report CPU latency on mobile
+devices. Building a consistent benchmark for CPU latency
+and evaluating so many methods is beyond the scope of this
+paper. Additionally, the design of SCTNet does not include
+special modifications for CPU, such as replacing convolution operations with depth separable convolution or using
+ReLU6 instead of ReLU. We plan to modify SCTNet for
+CPU usage in future work.
+While we have achieved a new state-of-the-art trade-off
+between accuracy and speed on various datasets, there is
+potential to further improve performance by scaling up our
+SCTNet to SCTNet-L. This is because our SCTNet-B exceeds the real-time standard(30FPS) by 32.8 FPS. We will
+explore this in future work and update our results in subsequent versions of this paper.
+
+(a) Image
+(b) GT
+(c) SegFormer-B0
+(d) RTFormer-B
+(e) TopFormer-B
+(f) SeaFormer-B
+(g) SCTNet-B
+Figure 9: Visualization results on ADE20K validation set. Compared with SegFormer-B0 (Xie et al. 2021), RTFormerB (Wang et al. 2022), TopFormer-B (Zhang et al. 2022b) and SeaFormer-B(Wan et al. 2023), SCTNet-B generates masks with
+finer details as highlighted in the dark blue box and more accurate large-area predictions, as highlighted in the yellow box.
+
+(a) Image
+
+(b) GT
+
+(c) SeaFormer-B
+
+(d) STDC2
+
+(e) SCTNet-B
+
+Figure 10: Visualization results on Cityscapes validation set. Compared with SeaFormer-B(Wan et al. 2023) and STDC2 (Fan
+et al. 2021), SCTNet-B generates masks with finer details as highlighted in the light blue box and more accurate large-area
+predictions, as highlighted in the yellow box.
+
+E
+
+More Visualization Results
+
+In this section, we show more visualization results on
+ADE20K (Zhou et al. 2017) and Cityscapes (Cordts et al.
+2016) to demonstrate the effectiveness of the SCTNet intuitively.
+For ADE20K (Zhou et al. 2017), Figure 9 presents the
+visualization results of all the mentioned transformer-based
+real-time segmentation methods and our SCTNet-B. In the
+first column, our SCTNet segments the buildings with better internal consistency and has a better mask for the tree. In
+the second column, our SCTNet has smooth boundaries of
+the curtain and the cushion like the GT masks. In the third
+column, our SCTNet generates better segmentation of the
+armchair and has fewer wrong masks for the painting. In
+the fourth column, our SCTNet generates better masks for
+fences and poles. These visualized results show that SCTNet
+has better capability to distinguish different classes when
+compared with SegFormer-B0 (Xie et al. 2021), RTFormerB (Wang et al. 2022), TopFormer-B (Zhang et al. 2022b) and
+SeaFormer-B(Wan et al. 2023).
+Moreover, we provide more visualization results on
+Cityscapes (Cordts et al. 2016) in Figure 10, which are
+not present in the paper text because of the page limitation. Compared with SeaFormer (Wan et al. 2023) and
+STDC (Fan et al. 2021), our SCTNet provides not only better
+results for those classes with large areas like road and sidewalk, but also more accurate boundaries for small or thin
+objects such as poles, traffic lights, traffic signs, and cars.
+This indicates that SCTNet extracts high-quality long-range
+context while preserving fine details.
+
+

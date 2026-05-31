@@ -1,0 +1,984 @@
+LP-DETR: Layer-wise Progressive Relations for
+Object Detection
+Zhengjian Kang1,∗ B , Ye Zhang2,∗ , Xiaoyu Deng3 , Xintao Li4 and Yongzhe Zhang5
+1
+
+New York University, NY 10012, USA
+University of Pittsburgh, PA 15213, USA
+3
+Fordham University, NY 10458, USA
+4
+Georgia Institute of Technology, GA 30332, USA
+5
+California Institute of Technology, CA 91125, USA
+1
+2
+zk299@nyu.edu, yez12@pitt.edu, 3 xdeng24@fordham.edu, 4 xli3204@gatech.edu, 5 yongzhe@caltech.edu
+
+arXiv:2502.05147v2 [cs.CV] 11 Feb 2025
+
+2
+
+Abstract—This paper presents LP-DETR (Layer-wise Progressive DETR), a novel approach that enhances DETR-based object
+detection through multi-scale relation modeling. Our method
+introduces learnable spatial relationships between object queries
+through a relation-aware self-attention mechanism, which adaptively learns to balance different scales of relations (local, medium
+and global) across decoder layers. This progressive design enables
+the model to effectively capture evolving spatial dependencies
+throughout the detection pipeline. Extensive experiments on
+COCO 2017 dataset demonstrate that our method improves both
+convergence speed and detection accuracy compared to standard
+self-attention module. The proposed method achieves competitive
+results, reaching 52.3% AP with 12 epochs and 52.5% AP with
+24 epochs using ResNet-50 backbone, and further improving to
+58.0% AP with Swin-L backbone. Furthermore, our analysis
+reveals an interesting pattern: the model naturally learns to
+prioritize local spatial relations in early decoder layers while
+gradually shifting attention to broader contexts in deeper layers,
+providing valuable insights for future research in object detection.
+Index Terms—object detection, detection transformer, relation
+network, self-attention
+
+I. I NTRODUCTION
+DEtection Transformers (DETRs) [1] have achieved great
+progress by proposing an end-to-end architecture for object
+detection. However, their low training efficacy remains a
+critical challenge. The root cause is the imbalanced supervision
+during training - DETR employs Hungarian algorithm to
+assign only one positive prediction to each ground-truth box,
+leaving the majority of predictions as negative samples. This
+insufficient positive supervision leads to slow and unstable
+convergence. While various approaches have been proposed to
+address this issue through different technical routes like multiscale feature learning [2], denoising training [3], [4], hybrid
+matching strategies [5], [6] and loss alignment [7], [8], they
+primarily focus on local feature enhancement or query learning
+optimization, leaving the potential of relation modeling in selfattention not been fully explored.
+In the vision community, modeling inter-object relationships
+has proven beneficial for detection performance. Previous approaches mainly focus on two aspects: co-occurrence patterns
+of object categories [9]–[12] and spatial relations using various
+∗ Equal contribution to this work, B Corresponding author.
+
+criteria [13]–[15]. These methods have demonstrated that incorporating relation information can effectively enhance detection accuracy by capturing contextual dependencies between
+objects. However, in DETR field, few works have investigated
+the learnable relation between object queries in the selfattention, a key component in DETR decoders. Hao et al. [12]
+attempt to model class correlations using a learnable relation
+matrix in the decoder’s self-attention, but their approach does
+not consider spatial information and requires mapping classto-class relations back to query-to-query interactions. More
+recently, Relation-DETR [16] introduces explicit position relations between bounding boxes with cross-layer refinement.
+Motivated by their work but different from these approaches,
+we directly incorporate geometric relation weights into queries
+within each layer and propose layer-specific relation modeling
+to capture evolving spatial dependencies.
+In this paper, we present LP-DETR (Layer-wise Progressive
+DETR), which enhances object detection through explicit
+modeling of multi-scale spatial relations across decoder layers.
+Our key insight is that object relations naturally evolve from
+local to global contexts through the detection pipeline, and
+different scales of spatial relations may play varying roles
+at different stages of the detection process. Based on this
+observation, we propose a progressive relation-aware selfattention module that adaptively learns to balance different
+scales of spatial relations at different decoder layers. This
+design allows the model to capture fine-grained local relationships in early layers while gradually incorporating broader
+relation information in deeper layers. The main contributions
+of our work are threefold:
+We introduce a relation-aware self-attention mechanism
+that explicitly models multi-scale spatial relationships
+between object queries.
+• We propose a progressive refinement strategy that allows
+the model to adaptively adjust relation weights across
+decoder layers.
+• We discover and validate an interesting pattern where
+spatial relations naturally progress from local to global
+contexts through decoder layers, providing valuable insights for future research.
+•
+
+Finally, we conduct extensive experiments on COCO 2017
+dataset to demonstrate the effectiveness of our approach. LPDETR achieves competitive results with 52.3% AP under 12epoch training and 52.5% AP under 24-epoch training using
+ResNet-50 backbone. With Swin-L backbone, our method
+further improves to 58.0% AP. More importantly, our analysis
+reveals that the proposed progressive relation modeling contributes to both improved convergence and detection accuracy.
+These results validate our hypothesis about the importance of
+layer-wise relation modeling and suggest promising directions
+for future research in object detection.
+II. R ELATED W ORK
+A. Transformer for Object Detection
+DEtection TRansformer (DETR) [1] establishes a new
+paradigm for end-to-end object detection by eliminating handcrafted post-processing steps such as Non-maximum Suppression (NMS). Its transformer-based architecture consists of
+two main components: an encoder that transforms flattened
+image features into enriched memory representations, and a
+decoder that converts a set of learnable object queries into final
+detection results. The decoder operates through two attention
+mechanisms: self-attention for modeling interactions among
+object queries, and cross-attention for capturing relationships
+between queries and encoded memory features.
+However, DETR suffers from slow convergence during
+training, and various approaches have been proposed to address this issue from different methodological perspectives:
+(1) Enhanced Feature Learning: Deformable DETR [2] explores multi-scale features through deformable attention with
+sparse reference points, while Focus-DETR [17] and SalienceDETR [18] improve feature selection through salient token
+identification in the encoder. (2) Query Enhancement: DABDETR [19] decouples object queries into 4D anchor box
+coordinates for iterative refinement, while DN-DETR [3] and
+DINO [4] accelerate training through auxiliary denoising
+task and contrastive learning. (3) Better Supervision: Hybrid
+DETR [5] and Group DETR [6] adopt one-to-many matching to increase supervision signals, while Stable-DINO [7]
+and Align-DETR [8] propose specialized loss functions to
+align classification and localization. (4) Attention Mechanism: Recent works focus on improving attention mechanisms,
+where Cascade-DETR [20] enhances query-feature interactions through cross-attention, and Relation-DETR [16] learns
+explicit relation modeling between queries in self-attention.
+B. Relation Network
+Relation networks have emerged as a powerful approach for
+modeling inter-object relationships at instance level, which can
+be broadly categorized into two main directions: co-occurrence
+modeling and spatial relation modeling.
+Co-occurrence approaches focus on capturing statistical
+dependencies between object categories. Some methods [9],
+[10] directly learn from category distribution patterns in large
+datasets, while others [11], [12] adaptively learn class relationships from annotations. However, these approaches either
+
+rely on fixed statistical priors or encounter with challenges in
+mapping between instances and categories [10].
+Spatial relation approaches construct graph structures where
+object features serve as nodes and their spatial relationships
+as edges. Pioneering works like Relation Network [13] introduces geometric weights in attention modules to model spatial
+relations. Recent methods determine relation weights through
+various metrics, such as position-aware distance [21], [22],
+attention mechanisms [14], [15] or appearance similarity [23].
+While these learnable relations offer greater flexibility compared to fixed priors, they typically require larger datasets and
+longer training time to effectively learn the relations from data.
+III. M ETHODOLOGY
+A. DETR Preliminaries
+A DETR-style detector consists of a backbone network
+(e.g., ResNet [24], Swin Transformer [25]) and a transformer
+architecture with encoder and decoder modules. Given an
+input image, the backbone first extracts image features, which
+are then split into patch tokens. The transformer encoder
+processes these tokens through self-attention mechanisms and
+outputs enhanced feature representations, denoted as memories
+Z = {z1 , ..., zm }.
+The transformer decoder takes a set of learnable object
+queries Q = {q1 , ..., qn } as input. Recent works [4], [19]
+propose to decouple these queries into content queries Qc
+for label embedding and position queries Qp for bounding
+box prediction, enabling better relation alignment. The decoder
+consists of L stacked blocks, where each block contains three
+sequential components: a self-attention layer, a cross-attention
+layer, and a feed-forward network (FFN).
+The self-attention layer enables communication between
+object queries, allowing each query to refine its prediction
+by considering other queries’ predictions. The cross-attention
+layer facilitates interaction between object queries Q and
+encoded memories Z, aggregating features for object localization and classification. Finally, the FFN transforms the query
+embeddings for prediction through parallel classification and
+regression heads.
+B. Layer-wise Progressive Relation-Aware Attention
+The high-level architecture of our proposed progressive
+relation-aware DETR model is presented in Fig. 1. Our proposed attention is applied into the self-attention in the decoder
+component. Let’s consider object queries Q consists of content
+embedding queries Qc , reference box position queries Qp
+(represented by (x, y, w, h)), and relation queries Qr . Given a
+N
+set of N object queries, qi = {qic , qip , qir }i=1 , the i-th relation
+query qir with respect to all the object queries can be calculated
+as the weighted sum of all the queries:
+qir =
+
+N
+X
+j=1
+
+r
+wij
+· (WV · qjc ).
+
+(1)
+
+class
+
+Encoder memory
+
+box
+
+Transformer Decoder
+Add & Norm & FFN
+
+MLP
+
+Transformer Encoder
+
+Layer i
+
+Cross-Attention
+
+Sinusoidal
+learnable relation scale
+
+tokenize
+
+Add & Norm
+
+Backbone
+Relation-aware
+Self-Attention
+Layer i
+
+Input image
+
+learnable object queries
+
+global relation
+medium relation
+local relation
+
+reference boxes
+
+Fig. 1. DETR with layer-wise progressive relation pipeline. A learnable relation-aware self-attention mechanism that augments object queries with multi-scale
+spatial relations, which adaptively evolve from local to global contexts across decoder layers for progressive detection refinement.
+
+r
+The relation weight wij
+captures both geometric and content
+attention based relationships between queries, which is computed as:
+p
+c
+wij
+· exp (wij
+)
+r
+wij = PN
+,
+(2)
+p
+c
+k=1 wik · exp (wik )
+c
+wij
+=
+
+(WQ · qic ) · (WK · qjc )
+√
+,
+dk
+
+(3)
+
+where WQ , WK and WV are learnable projection matrices
+for query, key and value in self-attention, dk denotes the
+c
+embedding size of WQ · qic . The attention scores wij
+are
+p
+normalized by geometric weights wij
+to obtain the final
+r
+relation weights wij
+.
+p
+The geometric weight wij
+incorporates spatial relationships
+through:
+
+
+p
+wij
+= WG · E R(qip , qjp ) ,
+(4)
+
+
+|xi − xj |
+|yi − yj |
+), log(
+),
+wi
+hi
+
+wi
+hi
+log( ), log( ), giou(qip , qjp ) ,
+wj
+hj
+
+(5)
+
+Fig. 2. Relation-aware self-attention module architecture. The module takes
+object queries and geometric weights as inputs and produces relationallyenhanced object queries through weighted self-attention mechanism.
+
+where the relation metric R captures spatial transformations in
+distances, scales and gIoU. The embedding function E maps
+these 5-D features to high-dimensional space using sinusoidal
+encoding [15], followed by a learnable projection WG implemented as MLP with ReLU activation. Then the overall object
+query integrates information from multiple attention heads:
+
+qic = qic + MLP Concat(qir1 , ..., qirK ) ,
+(6)
+
+where K denotes the number of relation-aware attention heads.
+The Concat operator aggregates the relation queries, and
+MLP enhances the object queries with learnable query-toquery relation weights, making them more sensitive to spatial
+relations during training. The details of relation-aware selfattention module is presented in Fig. 2.
+To investigate how different scales of relations evolve across
+decoder layers, we propose three types of relation metrics:
+
+R(qip , qjp ) =
+
+log(
+
+local, medium and global relations. The local relation Rl uses
+the original metric in Eq. 5, emphasizing relative distances and
+scale variations. The medium relation Rm applies a scaling
+factor of (1 + 2 × l/L), where l is l-th decoder layer, to reduce
+the steepness of the log function. The global relation Rg uses
+constant weights 1.0. Thus the geometric weight at the l-th
+decoder layer is formulated as:
+
+
+p
+wij
+= WG · Λl · E Rl (qip , qjp ); Rm (qip , qjp ); Rg (qip , qjp ) , (7)
+where Λ = [λl ; λm ; λg ]L×3 represents learnable weights that
+adaptively adjust the importance of different relation scales
+across decoder layers.
+IV. E XPERIMENTS
+A. Experiment Settings
+1) Dataset and backbone: We evaluate our Progressive
+Relation-Aware DETR on COCO 2017 [26], which contains
+118k training images and 5k validation images across 80 object categories. The performance is evaluated on the validation
+set using standard COCO metrics: average precision (AP) at
+different IoU thresholds (IoU=0.5, 0.75, 0.5:0.95) and scales
+(small, medium, large). We implement our method with two
+backbone networks: ResNet50 [24] pretrained on ImageNet1k and Swin-Large [25] pretrained on ImageNet-22k [27].
+Both backbones are finetuned with an initial learning rate of
+1 × 10−5 , which is decreased by a factor of 0.1 at later stages.
+2) Implementation details: All experiments are conducted
+on NVIDIA RTX 3090 GPUs using AdamW optimizer [28]
+with a weight decay of 1 × 10−4 and a total batch size of 16.
+For the relation embedding module, we set the temperature
+T = 10000, scale s = 100, and position embedding dimension
+dpos = 16 in the sinusoidal encoding. The position relations
+are constructed at three scales (local, medium and global)
+with equal initial weights 0.33 across all 6 decoder layers.
+Following standard practice in DETR-based methods, we
+apply common data augmentations including random resize,
+crop and flip during training. We report results under both 1x
+(12 epochs) and 2x (24 epochs) training schedules.
+B. Experiment Results
+We evaluate our model on COCO 2017 validation dataset
+using both ResNet-50 [24] and Swin-L [25] backbones. The
+results are summarized in Tables I and II. Using ResNet50 backbone with 12-epoch training, our model achieves
+competitive results of 52.3% AP, 69.6% AP50 and 56.8%
+AP75 . When compared to Relation-DETR [16], we observe
+consistent improvements across all metrics (+0.6% AP, +0.5%
+AP50 and +0.5% AP75 ). Analysis on objects of different
+scales shows that our method achieves 35.8% APS , 55.9%
+APM and 66.6% APL , with notable gains on medium (+0.3%
+APM ) and large objects (+0.5% APL ) while maintaining
+competitive performance on small objects (-0.3% APS ). These
+improvements become more evident with 24-epoch training,
+where our method further surpasses Relation-DETR by 0.4%
+AP, 0.3% AP50 and 0.6% AP75 .
+
+Furthermore, our approach demonstrates strong scalability
+to larger backbones. With Swin-L backbone under 12-epoch
+training, we achieve state-of-the-art performance of 58.0% AP,
+76.4% AP50 and 63.2% AP75 , improving upon the previous
+best results from Relation-DETR by 0.2% AP, 0.3% AP50 and
+0.3% AP75 .
+C. Ablation study
+Analysis of the number of relation heads. We examine
+how the number of relation heads affects model performance
+in our relation-aware self-attention module. Table III shows
+the results with varying numbers of relation heads while
+maintaining a total of 8 attention heads. Using no relation head
+(0 head) serves as our baseline, where the module functions as
+standard self-attention, achieving 51.1% AP, 68.6% AP50 and
+55.8% AP75 . The performance consistently improves as we
+increase the number of relation heads. With all 8 heads dedicated to relation-aware attention, our model achieves the best
+performance of 52.3% AP, showing an improvement of 1.2%
+AP over the baseline. Comparable gains are also observed in
+AP50 (+1.0%) and AP75 (+1.0%). These results demonstrate
+the benefit of incorporating relation-aware attention in the selfattention mechanism.
+Analysis of different modules. We evaluate the effectiveness of progressive refinement (PR) in combination with our
+relation-aware self-attention module. In Table IV, the relationaware self-attention module alone improves the detection
+performance by 0.9% AP, 0.6% AP50 and 0.7% AP75 compared to the baseline. Adding progressive refinement brings
+additional gains of 0.3% AP, 0.4% AP50 and 0.3% AP75 . The
+improvements are also consistent across different object scales.
+
+D. Progressive Refinement Analysis
+To understand how different scales of position relations
+(local, medium and global) evolve through decoder layers,
+we visualize the learned relation weights across layers in
+Fig. 3. Our analysis reveals an interesting pattern in how the
+model balances different spatial relations. In the first layer,
+the weights among three scales remain relatively comparable,
+suggesting initial uncertainty in relation scale selection. From
+layer 2, the model develops a strong preference for local
+relations, with weights exceeding 0.9, indicating that early
+decoder layers focus primarily on establishing local relationships between queries. Moving to deeper layers, we observe
+a gradual transition in attention distribution: local relation
+weights decrease to 0.24, while medium and global relation
+weights steadily increase to around 0.4. By the final layer, the
+weights for medium and global relations surpass that of local
+relations. This progressive transition from local to broader
+spatial contexts aligns with the intuitive understanding that
+object detection requires hierarchical processing - from local
+to global query interactions. These findings suggest promising
+directions for future research in relation modeling, as the clear
+layer-wise progression from local to global relations indicates
+
+TABLE I
+E VALUATION ON COCO V A L 2017 WITH STATE - OF - THE - ART METHODS USING R ES N ET-50 BACKBONE .
+Method
+Def-DETR [2]
+DAB-DETR [19]
+DN-Def-DETR [3]
+DINO [4]
+H-Def-DETR [29]
+Cascade-DETR [20]
+Co-Def-DETR [5]
+Align-DETR [8]
+Stable-DINO [7]
+DAC-DETR [30]
+Rank-DETR [31]
+MS-DETR [32]
+Relation-DETR [16]
+LP-DETR (ours)
+H-Def-DETR [29]
+DINO [4]
+DINO [4]
+DDQ-DETR [33]
+Relation-DETR [16]
+LP-DETR (ours)
+
+Backbone
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+ResNet-50
+
+Epochs
+50
+50
+12
+12
+12
+12
+12
+12
+12
+12
+12
+12
+12
+12
+36
+36
+24
+24
+24
+24
+
+AP
+46.2
+42.6
+46.0
+49.7
+48.7
+49.7
+49.5
+50.2
+50.4
+50.0
+50.4
+50.3
+51.7
+52.3
+50.0
+51.2
+50.4
+52.0
+52.1
+52.5
+
+AP50
+65.2
+63.2
+63.8
+67.0
+66.4
+67.1
+67.6
+67.8
+67.4
+67.6
+67.9
+67.4
+69.1
+69.6
+68.3
+69.0
+68.3
+69.5
+69.7
+70.0
+
+AP75
+50.0
+45.6
+49.9
+54.4
+52.9
+54.1
+54.3
+54.4
+55.0
+54.7
+55.2
+55.1
+56.3
+56.8
+54.4
+55.8
+54.8
+57.2
+56.6
+57.2
+
+APS
+28.8
+21.8
+27.7
+31.4
+31.2
+32.4
+32.4
+32.9
+32.9
+32.9
+33.6
+32.7
+36.1
+35.8
+32.9
+35.0
+33.3
+35.2
+36.1
+36.2
+
+APM
+49.2
+46.2
+49.1
+52.9
+51.5
+53.5
+52.7
+53.3
+54.0
+53.1
+53.8
+54.0
+55.6
+55.9
+52.7
+54.3
+53.7
+54.9
+56.0
+56.3
+
+APL
+61.7
+61.1
+62.3
+63.6
+63.5
+65.1
+63.7
+65.0
+65.5
+64.4
+64.2
+64.6
+66.1
+66.6
+65.3
+65.3
+64.8
+65.9
+66.5
+67.1
+
+TABLE II
+E VALUATION ON COCO V A L 2017 WITH STATE - OF - THE - ART METHODS USING S WIN -L BACKBONE .
+Method
+DINO [4]
+H-Def-DETR [29]
+Rank-DETR [31]
+Relation-DETR [16]
+LP-DETR (ours)
+
+Backbone
+Swin-L
+Swin-L
+Swin-L
+Swin-L
+Swin-L
+
+Epochs
+12
+12
+12
+12
+12
+
+TABLE III
+P ERFORMANCE COMPARISON OF DIFFERENT NUMBER OF RELATION
+HEADS IN R ELATION -AWARE SELF - ATTENTION MODULE
+# of heads
+0
+2
+4
+8
+
+AP
+51.1
+51.4
+51.8
+52.3
+
+AP50
+68.6
+69.0
+69.4
+69.6
+
+AP75
+55.8
+56.2
+56.4
+56.8
+
+APS
+35.1
+35.2
+35.4
+35.8
+
+1.0
+
+APL
+66.0
+66.1
+66.1
+66.6
+
+Local Relation
+Medium Relation
+Global Relation
+
+0.8
+Relation Weight
+
+APM
+55.2
+55.6
+56.2
+55.9
+
+0.6
+
+AP50
+75.4
+75.2
+75.9
+76.1
+76.4
+
+AP75
+62.3
+61.0
+62.9
+62.9
+63.2
+
+APS
+41.1
+39.1
+40.8
+41.2
+41.0
+
+APM
+60.6
+59.9
+61.3
+62.1
+62.2
+
+APL
+73.5
+72.2
+73.2
+74.4
+74.7
+
+E. Convergence comparison
+Fig. 4 plots the convergence curves of different state-ofthe-art methods with ResNet-50 backbone. Our model shows
+improved convergence behavior, benefiting from the learned
+layer-dependent multi-scale spatial relations between object
+queries. Although the absolute AP gain over Relation-DETR
+is moderate (+0.6% AP), our method consistently outperforms
+the baselines (DINO and Deformable-DETR) throughout the
+training process. This demonstrates that introducing layerdependent multi-scale spatial relations can effectively refine
+the original relation modeling for object detection.
+V. C ONCLUSION
+
+0.4
+0.2
+0.0
+
+AP
+56.8
+55.9
+57.3
+57.8
+58.0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+Decoder Layer
+
+Fig. 3. Relation weight under local, medium and global relations in different
+decoder layers.
+
+potential for more efficient architectures that explicitly leverage this hierarchical pattern.
+
+In this paper, we present a progressive relation-aware selfattention module that enhances DETR detector by incorporating learnable multi-scale spatial relationships between object
+queries. Our method adaptively adjusts relation weights across
+different scales and decoder layers, achieving competitive
+performance on standard benchmarks. Through extensive experiments, we demonstrate that our module improves both convergence speed and detection accuracy compared to standard
+self-attention. Our analysis reveals a pattern in how spatial
+relations evolve through the network: local relations dominate
+in early decoder layers, while global relations become increasingly important in deeper layers. Our findings open several
+promising directions for future research.
+
+TABLE IV
+P ERFORMANCE COMPARISON ON DIFFERENT COMPONENTS USED IN THE DETECTOR .
+Component
+Relation
+Relation+PR
+
+AP
+51.1
+52.0(↑0.9)
+52.3(↑0.3)
+
+AP50
+68.6
+69.2(↑0.6)
+69.6(↑0.4)
+
+AP75
+55.8
+56.5(↑0.7)
+56.8(↑0.3)
+
+50
+45
+
+AP
+
+40
+35
+
+Ours
+Relation-DETR
+DINO
+Deformable-DETR
+
+30
+25
+
+0
+
+2
+
+4
+
+6
+
+8
+
+10
+
+12
+
+Epoch
+
+Fig. 4. Convergence comparison under different state-of-the-art methods with
+ResNet-50 backbone.
+
+R EFERENCES
+[1] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier,
+Alexander Kirillov, and Sergey Zagoruyko, “End-to-end object detection
+with transformers,” in European Conference on Computer Vision
+(ECCV). 2020, pp. 213–229, Springer.
+[2] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, and
+Jifeng Dai, “Deformable DETR: Deformable transformers for endto-end object detection,” in International Conference on Learning
+Representations (ICLR), 2020.
+[3] Feng Li, Hao Zhang, Shilong Liu, Jian Guo, Lionel M Ni, and Lei
+Zhang, “DN-DETR: Accelerate DETR training by introducing query
+denoising,” in IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), 2022, pp. 13619–13627.
+[4] Hao Zhang, Feng Li, Shilong Liu, Lei Zhang, Hang Su, Jun Zhu,
+Lionel M Ni, and Heung-Yeung Shum, “DINO: DETR with improved
+denoising anchor boxes for end-to-end object detection,” in International
+Conference on Learning Representations (ICLR), 2022.
+[5] Zykuang Zong, Guanglu Song, and Yu Liu, “DETRs with collaborative
+hybrid assignments training,” in International Conference on Computer
+Vision (ICCV), 2023, pp. 6748–6758.
+[6] Qiang Chen, Xiaokang Chen, Jian Wang, Shu Zhang, Kun Yao,
+Haocheng Feng, Junyu Han, Eric Ding, Gang Zeng, and Jingdong
+Wang, “Group DETR: Fast DETR training with group-wise one-tomany assignment,” in International Conference on Computer Vision
+(ICCV), 2023, pp. 6633–6642.
+[7] Shilong Liu, Tianhe Ren, Jinheng Chen, Zhengqiu Zeng, Hao Zhang,
+Feng Li, Hongyang Li, Jing Huang, Hang Su, Jun Zhu, et al., “Detection
+transformer with stable matching,” arXiv preprint arXiv:2304.04742,
+2023.
+[8] Zhuokun Cai, Shilong Liu, Guanglu Wang, Zhirong Ge, Xinggang
+Zhang, and Dongjie Huang, “Align-DETR: Improving DETR with
+simple IoU-aware BCE loss,” arXiv preprint arXiv:2304.07527, 2023.
+[9] Ranjay Krishna, Yuke Zhu, Oliver Groth, Justin Johnson, Kenji Hata,
+Joshua Kravitz, Stephanie Chen, Yannis Kalantidis, Li-Jia Li, David A
+Shamma, et al., “Visual genome: Connecting language and vision
+using crowdsourced dense image annotations,” International Journal
+of Computer Vision, vol. 123, pp. 32–73, 2017.
+[10] Hang Xu, Chenhan Jiang, Xiaodan Liang, Liang Lin, and Zhenguo Li,
+“Reasoning-RCNN: Unifying adaptive global reasoning into large-scale
+object detection,” in IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), 2019, pp. 6419–6428.
+
+APS
+35.1
+35.6(↑0.5)
+35.8(↑0.2)
+
+APM
+55.2
+55.5(↑0.3)
+55.9(↑0.4)
+
+APL
+66.0
+66.4(↑0.4)
+66.6(↑0.2)
+
+[11] Xinlei Chen, Li-Jia Li, Li Fei-Fei, and Abhinav Gupta, “Iterative visual
+reasoning beyond convolutions,” in IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR), 2018, pp. 7239–7248.
+[12] Xin Hao, Dongjie Huang, Jimmy Lin, and Chin-Yew Lin, “Relationenhanced DETR for component detection in graphic design reverse
+engineering,” in International Joint Conference on Artificial Intelligence
+(IJCAI), 2023, pp. 4785–4793.
+[13] Han Hu, Jiayuan Gu, Zheng Zhang, Jifeng Dai, and Yichen Wei,
+“Relation networks for object detection,” in IEEE Conference on
+Computer Vision and Pattern Recognition (CVPR), 2018, pp. 3588–
+3597.
+[14] Jiawei Zhao, Ke Yan, Yifan Zhao, Xiaowei Guo, Feiyue Huang, and
+Jia Li, “Transformer-based dual relation graph for multi-label image
+recognition,” in Proceedings of the IEEE/CVF International Conference
+on Computer Vision (ICCV), 2021, pp. 163–172.
+[15] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion
+Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin, “Attention
+is all you need,” Advances in Neural Information Processing Systems,
+vol. 30, 2017.
+[16] Xiuquan Hou, Meiqin Liu, Senlin Zhang, Ping Wei, Badong Chen,
+and Xuguang Lan, “Relation detr: Exploring explicit position relation
+prior for object detection,” in European conference on computer vision.
+Springer, 2024.
+[17] Dehua Zheng, Wenhui Dong, Hailin Hu, Xinghao Chen, and Yunhe
+Wang, “Less is more: Focus attention for efficient detr,” in 2023
+IEEE/CVF International Conference on Computer Vision (ICCV), 2023,
+pp. 6651–6660.
+[18] Xin Hou, Ming Liu, Shiming Zhang, Pengchao Wei, and Biao Chen,
+“Salience detr: Enhancing detection transformer with hierarchical
+salience filtering refinement,” in IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), 2024, pp. 17574–17583.
+[19] Shilong Liu, Feng Li, Hao Zhang, Xiao Yang, Xiaogang Qi, Hang Su,
+Jun Zhu, and Lei Zhang, “DAB-DETR: Dynamic anchor boxes are
+better queries for DETR,” in International Conference on Learning
+Representations (ICLR), 2021.
+[20] Ming Ye, Lei Ke, Siyuan Li, Yu-Wing Tai, Chi-Keung Tang, Martin
+Danelljan, and Fisher Yu, “Cascade-DETR: Delving into high-quality
+universal object detection,” in International Conference on Computer
+Vision (ICCV), 2023, pp. 6704–6714.
+[21] Hengyue Bi, Canhui Xu, Cao Shi, Guozhu Liu, Yuteng Li, Honghong
+Zhang, and Jing Qu, “Srrv: A novel document object detector based on
+spatial-related relation and vision,” IEEE Transactions on Multimedia,
+vol. 25, pp. 3788–3798, 2023.
+[22] Jin Lin, Yanxiang Pan, Rong Lai, Xiaoqing Yang, Hongyang Chao, and
+Tao Yao, “Core-Text: Improving scene text detection with contrastive
+relational reasoning,” in International Conference on Multimedia and
+Expo (ICME). IEEE, 2021, pp. 1–6.
+[23] Zhichao Li, Xiangyu Du, and Yang Cao, “Gar: Graph assisted reasoning for object detection,” in Proceedings of the IEEE/CVF Winter
+Conference on Applications of Computer Vision, 2020, pp. 1295–1304.
+[24] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, “Deep
+residual learning for image recognition,” in IEEE Conference on
+Computer Vision and Pattern Recognition (CVPR), 2016, pp. 770–778.
+[25] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang,
+Stephen Lin, and Baining Guo, “Swin transformer: Hierarchical vision
+transformer using shifted windows,” in International Conference on
+Computer Vision (ICCV), 2021, pp. 10012–10022.
+[26] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and C Lawrence Zitnick, “Microsoft
+COCO: Common objects in context,” in European Conference on
+Computer Vision (ECCV). Springer, 2014, pp. 740–755.
+[27] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li FeiFei, “ImageNet: A large-scale hierarchical image database,” in IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR). IEEE,
+2009, pp. 248–255.
+
+[28] Diederik P. Kingma and Jimmy Ba, “Adam: A method for stochastic
+optimization,” 2017.
+[29] Di Jia, Yuhui Yuan, Haodi He, Xiaokang Wu, Haojun Yu, Weihong Lin,
+Lei Sun, Chao Zhang, and Han Hu, “DETRs with hybrid matching,” in
+IEEE Conference on Computer Vision and Pattern Recognition (CVPR),
+2023, pp. 19702–19712.
+[30] Zhenghao Hu, Yueming Sun, Jiacheng Wang, and Yueming Yang,
+“DAC-DETR: Divide the attention layers and conquer,” Advances in
+Neural Information Processing Systems, vol. 36, 2024.
+[31] Yanjie Pu, Weicong Liang, Yanwei Hao, Yuhui Yuan, Yi Yang, Chao
+Zhang, Han Hu, and Gao Huang, “Rank-DETR for high quality object
+detection,” Advances in Neural Information Processing Systems, vol.
+36, 2024.
+[32] Chuyang Zhao, Yueming Sun, Wenhan Wang, Qiang Chen, Eric Ding,
+Yueming Yang, and Jingdong Wang, “Ms-detr: Efficient detr training
+with mixed supervision,” in IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), 2024, pp. 17027–17036.
+[33] Shihua Zhang, Xinggang Wang, Jian Wang, Jiangmiao Pang, Chen Lyu,
+Wenyu Zhang, Ping Luo, and Kai Chen, “Dense distinct query for endto-end object detection,” in IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), 2023, pp. 7329–7338.
+
+

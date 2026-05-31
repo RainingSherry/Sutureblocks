@@ -1,0 +1,1923 @@
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+Tanzhe Li 1 2 * Caoshuo Li 1 2 * Jiayi Lyu 3 Hongjuan Pei 3 Baochang Zhang 4 Taisong Jin 1 2 † Rongrong Ji 1 2
+
+Abstract
+
+arXiv:2502.12627v1 [cs.CV] 18 Feb 2025
+
+State space models (SSMs) have recently garnered significant attention in computer vision.
+However, due to the unique characteristics of
+image data, adapting SSMs from natural language processing to computer vision has not outperformed the state-of-the-art convolutional neural networks (CNNs) and Vision Transformers
+(ViTs). Existing vision SSMs primarily leverage manually designed scans to flatten image
+patches into sequences locally or globally. This
+approach disrupts the original semantic spatial
+adjacency of the image and lacks flexibility, making it difficult to capture complex image structures. To address this limitation, we propose
+Dynamic Adaptive Scan (DAS), a data-driven
+method that adaptively allocates scanning orders
+and regions. This enables more flexible modeling capabilities while maintaining linear computational complexity and global modeling capacity.
+Based on DAS, we further propose the vision
+backbone DAMamba, which significantly outperforms current state-of-the-art vision Mamba models in vision tasks such as image classification,
+object detection, instance segmentation, and semantic segmentation. Notably, it surpasses some
+of the latest state-of-the-art CNNs and ViTs. Code
+will be available at https://github.com/
+ltzovo/DAMamba.
+
+Figure 1. The trade-off between ImageNet-1K top-1 accuracy
+and inference throughput. All the models are trained under
+the DeiT training hyperparameters. The inference throughput
+is measured on an NVIDIA RTX 3090 GPU with a batch size
+128. It can be seen that under the same inference throughput or
+accuracy, the accuracy or inference throughput of the proposed
+DAMamba significantly outperforms the SSMs, ViTs and CNNs,
+indicating that the proposed DAMamba achieves state-of-the-art
+performance and efficiency.
+
+et al., 2017) have been introduced into computer vision,
+achieving state-of-the-art performance in image classification task. However, the self-attention mechanism within
+Transformer, due to its quadratic computational complexity, faces limitations when applied to high-resolution vision
+downstream tasks such as object detection and image segmentation. To address this issue, researchers have proposed
+various sparse attention mechanisms (Wang et al., 2021;
+2022; Xia et al., 2022; Dong et al., 2022; Zhu et al., 2023;
+Jiao et al., 2023; Zhang et al., 2024; Shi, 2024). These
+mechanisms reduce complexity by introducing sparsity into
+attention computations, but this usually comes at the expense of the model’s global modeling capability, limiting
+their performance in real applications.
+
+1. Introduction
+In recent years, to tackle the limitations of traditional convolutional neural networks (CNNs) (LeCun et al., 1998) in
+modeling long-range dependencies, Transformer (Vaswani
+*
+
+Equal contribution † Corresponding author 1 Key Laboratory
+of Multimedia Trusted Perception and Effcient Computing, Ministry of Education of China, Xiamen University, China. 2 School
+of Informatics, Xiamen University, China. 3 School of Engineering Science, University of Chinese Academy of Sciences, China.
+4
+School of Artificial Intelligence, Beihang University, China. Correspondence to: Taisong Jin <jintaisong@xmu.edu.cn>.
+
+State space models (SSMs) (Gu et al., 2021), represented
+by Mamba (Gu & Dao, 2023), have recently garnered significant attention from researchers. The core module, the
+S6 block, selectively retains or discards information based
+on the relevance of each element in a sequence. By incor1
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+(a) Sweeping Scan
+
+(b) Continuous Scan
+
+(c) Local Scan
+
+(d) Dynamic Adaptive Scan
+
+Figure 2. Illustration of different scanning methods in vision state space models. As showed in Figure (a), (b), and (c): previous methods
+such as Vim (Zhu et al., 2024), VMamba (Liu et al., 2024), PlainMamba (Yang et al., 2024), and LocalMamba (Huang et al., 2024) relies
+on manually designed global or local scanning methods. These fixed processing approaches lack flexibility and struggle to capture complex
+image structures. In the Figure (d), we propose a novel scanning method that adaptively allocates scanning order and regions through
+a data-driven approach. This not only achieves more flexible modeling capabilities but also maintains Mamba’s linear computational
+complexity and global modeling capacity.
+
+porating a selective mechanism for parallel computation
+alongside hardware-aware optimization, the S6 block not
+only offers a comprehensive global receptive field but also
+attains a computational complexity that scales linearly with
+the sequence length. This characteristic enables Mamba
+to outperform popular Transformer models in natural language processing tasks. Inspired by Mamba, some research
+efforts, such as Vim (Zhu et al., 2024) and VMamba (Liu
+et al., 2024), have extended its application to computer
+vision. These approaches divide 2D images into patches
+and adopt specific scanning strategies to flatten the images
+into multiple 1D sequences from different directions. This
+successfully integrates the Mamba model into vision tasks,
+achieving promising performance and showcasing the potential of SSMs in computer vision.
+
+Although the aforementioned methods have proven effective
+in practice, they rely on manually designed scanning patterns that are independent of the input data, which may not
+be optimal. For instance, sweeping and continuous scan can
+cause spatially close patches to become distant in SSM computations, resulting in a loss of local information. On the
+other hand, local scan can capture local spatial relationships,
+limiting the model’s ability to capture long-range dependencies. Clearly, there is a need for a more flexible scanning
+strategy that can dynamically adjust the scanning regions
+based on the characteristics of each input data instance. For
+example, in the case of an image of a dog, an ideal scan
+strategy should adaptively focus on the dog’s body while
+filtering out irrelevant background information. However,
+such dynamic adjustment is beyond the capabilities of existing manually designed scanning approaches.
+
+Unlike one-dimensional sequential language data, visual
+data typically exhibits two-dimensional spatial structure.
+One of the core challenges in adapting the Mamba model for
+vision tasks lies in designing an appropriate scanning strategy for an image. Scanning strategy enables SSMs, which
+are designed for 1D sequence processing, to effectively accommodate the 2D spatial structure of images. Currently,
+scanning strategies for vision SSMs can be broadly categorized into three types: sweeping scan, continuous scan,
+and local scan. Vim and VMamba adopt the sweeping scan
+strategy, simulating a row-by-row scan from left to right and
+top to bottom, allowing Mamba to adapt to the 2D spatial
+structure of images. However, PlainMamba (Yang et al.,
+2024) argues that sweeping scan overlooks the importance
+of spatial continuity within images and thus introduces the
+continuous scan strategy to ensure the correlation between
+adjacent patches. Meanwhile, LocalMamba (Huang et al.,
+2024) proposes the local scan strategy, aiming to capture
+the local spatial relationships within images.
+
+To address the aforementioned issues, we propose a flexible
+and efficient scanning strategy, named Dynamic Adaptive
+Scan (DAS). Unlike traditional manually designed scanning
+methods, DAS dynamically learns and adjusts scanning regions and their sequences during training, enabling smarter
+and more precise feature extraction. Specifically, DAS starts
+by defining a set of learnable positions, with initial values
+corresponding to the original locations of each patch. Then,
+through a learnable offset prediction network (OPN), a set
+of offset values is generated for each patch. By combining these offset values with the original patch positions, the
+predicted patch positions are computed. Using bilinear interpolation, these predicted positions are gradient-linked to the
+feature map, allowing the offsets to be adaptively optimized
+during training. The predicted patches are arranged from top
+to bottom and left to right based on their original positions,
+dynamically forming a new sequence order according to the
+input data. Through this mechanism, DAS focuses on more
+2
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+critical regions, capturing important features and complex
+spatial structures with greater flexibility.
+
+ularity in the NLP. By the end of 2020, Vision Transformer (Dosovitskiy et al., 2021) (ViT) successfully extended the Transformer model to large-scale image classification tasks, achieving state-of-the-art performance. Subsequently, DeiT (Touvron et al., 2021) improved ViT by
+introducing knowledge distillation (Hinton et al., 2015) and
+more efficient training strategies, enabling effective training even on relatively small datasets such as ImageNet1K (Russakovsky et al., 2015). Following this development trajectory, researchers proposed numerous hierarchical
+Transformer models that reduce computational complexity
+for high-resolution images through various sparse attention
+mechanisms. Notable examples include the Swin Transformer (Liu et al., 2021) and PVT (Wang et al., 2021; 2022).
+Subsequent research (Wang et al., 2021; 2022; Xia et al.,
+2022; Dong et al., 2022; Zhu et al., 2023; Jiao et al., 2023;
+Zhang et al., 2024; Shi, 2024) introduced various sparse
+attention mechanisms to strike a balance between global
+modeling capability and computational complexity. However, the global modeling capabilities of these improved
+sparse attention mechanisms still fall short of the standard
+self-attention mechanism.
+
+Based on the proposed DAS, we develop a powerful vision
+Mamba model, termed DAMamba. DAMamba can serve
+as a versatile vision backbone for various vision tasks. For
+instance, our DAMamba-T achieves an image classification accuracy of 83.8%, 48.5 APb in object detection, 43.4
+APm in instance segmentation, and 50.3 mIoU in semantic
+segmentation. These results surpass the previous state-ofthe-art Vision Mamba, VMamba, by 1.2% in classification accuracy, 1.2 APb , 0.7 APm , and 2.3 mIoU. Moreover,
+DAMamba also outperforms some recent state-of-the-art
+ViTs and CNNs in these vision tasks, demonstrating its
+superior performance and various applicability.
+
+2. Related Work
+2.1. Vision State Space Models
+Although the Transformer (Vaswani et al., 2017) has
+achieved remarkable success in natural language processing, its quadratic complexity poses challenges when handling long sequence structures. To address this issue, statespace models (Gu et al., 2021) (SSMs), represented by
+Mamba (Gu & Dao, 2023), have gradually emerged as an
+alternative to Transformers. In visual tasks, the quadratic
+complexity of the standard self-attention mechanism similarly presents challenges for processing high-resolution
+images. Thus, the Vim (Zhu et al., 2024) and VMamba (Liu
+et al., 2024) attempt to incorporate Mamba into computer
+vision tasks. However, inputting images into SSM models
+remains a critical challenge. Vim and VMamba address this
+by employing bidirectional and four-directional scanning
+strategies to transform image patches into one-dimensional
+sequences. Building on this, subsequent research introduced continuous scanning (Yang et al., 2024) and local
+four-directional scan (Huang et al., 2024) to better align
+with the two-dimensional structure of images. Despite the
+significant achievements of Mamba models in computer vision, existing scanning methods heavily rely on manual design, making it difficult to dynamically and flexibly adapt to
+input variations. This limitation hinders the model’s ability
+to capture complex two-dimensional structures. Therefore,
+our goal is to propose a vision Mamba model capable of
+adaptively and flexibly adjusting scanning paths based on
+input image, further enhancing its performance in vision
+tasks.
+
+2.3. Convolutional Neural Networks
+Convolutional Neural Network (CNN) (LeCun et al., 1998)
+was initially proposed for handwritten digit recognition,
+but it wasn’t until the introduction of AlexNet (Krizhevsky
+et al., 2012) in 2012, which triggered the ”ImageNet moment,” that the full potential of CNNs was realized. This
+breakthrough led to a rapid development in computer vision, driven by the resurgence of neural networks, with
+CNNs becoming the standard architecture for computer vision tasks. During this period, many representative CNN
+models emerged, such as VGG (Simonyan & Zisserman,
+2014), GoogLeNet (Szegedy et al., 2015), ResNet (He et al.,
+2016), DenseNet (Huang et al., 2017), DCN (Zhang et al.,
+2019; Wang et al., 2023), and EfficientNet (Tan & Le, 2019).
+These models focused on different aspects, including accuracy, efficiency, and scalability, while promoting valuable
+design principles. In recent years, inspired by ViTs, some
+CNNs (Liu et al., 2022; Woo et al., 2023; Ding et al., 2022;
+Liu et al., 2023) have incorporated large kernel convolutions
+to capture long-range dependencies, achieving performance
+competitive with ViT. At the same time, CNNs have been
+widely integrated into various ViTs and vision Mambas to
+enhance local modeling capabilities, creating a complementary synergy between the two approaches. These advancements have driven the diversification and convergence of
+model design in vision tasks.
+
+2.2. Vision Transformers
+The Transformer (Vaswani et al., 2017) model was first introduced in 2017 for natural language processing (NLP)
+tasks. With its powerful global modeling capabilities and
+excellent parallelism, the Transformer quickly gained pop3
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+Linear
+Bilinear
+Interpolation
+
+GELU
+
+Scaned Feature
+
+LN
+Reference Point
+
+Reference Point
+Predicted Point
+Offset Adding
+Scan Path
+
+OPN
+
+DWConv
+
+SSM
+
+(b) Offset Prediction Network
+(OPN)
+
+(a) Dynamic Adaptive Scan
+
+Figure 3. Illustration of the proposed Dynamic Adaptive Scan (DAS). For clarity, only four reference points are shown. Left: each initial
+reference point represents the original position of a patch, with its offsets learned by an Offset Prediction Network (OPN). Features of
+important regions are sampled based on the predicted 2D coordinates using bilinear interpolation. Right the detailed structure of the
+OPN is revealed. The query feature map is first transformed through depthwise convolution (Howard et al., 2017; Chollet, 2017) to
+integrate local information. Then, another linear layer, after layer normalization (Ba et al., 2016) and GELU (Hendrycks & Gimpel, 2016)
+activation, converts the feature map into offset values.
+
+where K ∈ RL is the SSM kernel, and ∗ denotes the convolution operation. This parallelization significantly enhances
+computational efficiency and scalability.
+
+3. Methodology
+3.1. Preliminaries
+State Space Models (SSMs) (Gu et al., 2021; Gu & Dao,
+2023) are a class of sequence modeling methods commonly
+used in deep learning, capable of representing dynamic
+systems through an intermediate latent state h(t) ∈ RN .
+Their core equations are as follows:
+h′ (t) = Ah(t) + Bx(t),
+
+Although traditional SSMs (such as S4 (Gu et al., 2021))
+achieve linear time complexity, their static parameterization limits their ability to capture the sequence context. To
+overcome this limitation, the Mamba (Gu & Dao, 2023)
+introduces a dynamic and input-dependent parameterization
+mechanism. Unlike traditional models that use constant
+transition parameters A, B, the Mamba model dynamically
+computes the parameters B ∈ RB×L×N , C ∈ RB×L×N ,
+and ∆ ∈ RB×L×D from the input sequence x ∈ RB×L×D .
+This allows for richer and more sequence-aware dynamic
+modeling.
+
+y(t) = Ch(t),
+
+where the system matrices A ∈ RN ×N , B ∈ RN ×1 , and
+C ∈ R1×N govern the dynamic evolution and output mapping.
+To implement continuous-time models in practice, discretization techniques are required. The commonly used
+Zero-Order Hold (ZOH) method keeps the input constant
+within each time interval, transforming the continuous-time
+parameters (A, B) into their discrete forms as follows:
+∆A
+
+A=e
+
+,
+
+−1
+
+B = (∆A)
+
+(e
+
+∆A
+
+In Mamba, continuous-time parameters are adaptively adjusted to input-dependent parameters through selective functions based on the input sequence xt :
+∆t = s∆ (xt ),
+
+− I)∆B,
+
+ht = At ht−1 + Bt xt ,
+
+yt = Cht .
+
+K = (CB, CAB, . . . , CA
+
+L−1
+
+yt = Ct ht .
+
+The dynamic parameterization of the Mamba model not only
+improves sequence modeling performance but also demonstrates strong competitiveness in language modeling and
+vision tasks. For instance: Vim (Zhu et al., 2024) combines
+bidirectional Mamba blocks to replace traditional Transformer blocks for visual modeling. VMamba (Liu et al.,
+
+This method not only supports efficient parallel computation but also directly generates sequence outputs through
+convolution operations:
+y = x ∗ K,
+
+Ct = sC (xt ),
+
+and the input-dependent discrete parameters At and Bt can
+be calculated accordingly. The discrete state transition and
+observation equations are as follows:
+
+where ∆ represents the sampling time scale. The resulting
+discretized model can then be expressed as:
+ht = Aht−1 + Bxt ,
+
+Bt = sB (xt ),
+
+B),
+4
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+ConvFFN
+
+DAMamba
+Block
+
+Downsample
+
+DAMamba
+Block
+
+Downsample
+
+DAMamba
+Block
+
+Downsample
+
+DAMamba
+Block
+
+Stem
+
+BN
+DAS & SSM
+
+CLS
+DET
+SEG
+
+LN
+DWConv 3×3
+
+Input
+
+Stage 1
+
+Stage 2
+
+Stage 4
+
+Stage 3
+
+Output
+
+DAMamba Block
+
+Figure 4. Left: The overall architecture of the proposed DAMamba, refer to Table 1 for configurations. Right: Details of an DAMamba
+Block.
+
+2024) constructs a hierarchical structure by introducing 2D
+selective scanning, akin to the design of the Swin Transformer (Liu et al., 2021). These advancements expand the
+application potential of SSMs in foundational vision tasks,
+further driving the development of SSM models.
+
+establishing a relationship between the image patch features
+and the offsets, the proposed OPN can adaptively learn.
+X ′ [h, w] = ϕ(p′ [h, w], X),
+X
+
+ϕ(a, b) =
+3.2. Dynamic Adaptive Scan
+
+(3)
+
+g(ax , rx , ay , ry )b[ry , rx , :],
+
+(4)
+
+(rx ,ry )
+
+As shown in Figure 3, we propose Dynamic Adaptive Scan
+(DAS), which effectively models the relationships between
+image patches under the guidance of important regions in
+the feature map. These focused regions are determined by
+multiple sets of learnable sampling points, which are learned
+by an offset prediction network (OPN) from the input image
+feature map. After obtaining the two-dimensional coordinates predicted by the OPN, we use bilinear interpolation
+to sample features from the feature map, and then input
+the sampled features into the SSM for feature aggregation.
+Furthermore, the positions of DAS provide stronger relative
+positional biases to facilitate the learning of the SSM.
+
+g(c, d, e, f ) = max(0, 1 − |c − d|) × max(0, 1 − |e − f |),
+(5)
+where g(c, d, e, f ) represents the bi-linear sampling weight
+function, ax = p′ [h, w, 0], ay = p′ [h, w, 1], and (rx , ry )
+indexes all locations on X ∈ RH×W ×C . g takes a nonzero
+value only at the four lattice points closest to the input
+location.
+
+Specifically, we first input the feature map into an OPN
+to predict the two-dimensional coordinate offsets ∆p ∈
+RH×W ×2 of the interested patches relative to the original
+patches:
+
+3.3. Architecture Design of DAMamba
+
+∆p = OP N ([x1 , x2 , · · · , xN ]),
+
+After obtaining the sampled feature vectors of interest, X ′ ,
+we arrange them in the order of their original patches from
+top to bottom and left to right, and then input them into
+SSM for feature extraction.
+
+Table 1. Configurations for different DAMamba variants.
+Models
+
+(1)
+
+Then, these offsets are added to the positions of the original
+patches to determine the sampling locations of the interested
+patches:
+p′ [h, w, :] = p[h, w, :] + ∆p[h, w, :],
+
+(2)
+
+Channels
+
+Blocks
+
+DAMamba-T
+
+[80, 160, 320, 512]
+
+[3, 4, 12, 5]
+
+DAMamba-S
+
+[96, 192, 384, 512]
+
+[4, 8, 20, 6]
+
+DAMamba-B
+
+[112, 224, 448, 640]
+
+[4, 8, 25, 8]
+
+As shown in Figure 4, we propose a novel vision backbone named DAMamba base on DAS, and develop model
+variants at three scales: DAMamba-T, DAMamba-S and
+DAMamba-B. First, the input image x ∈ RH×W ×3 is processed through a stem module, consisting of 4 overlapping
+3 × 3 convolutions, to generate a 2D feature map of size
+H
+W
+4 × 4 ×C. These features are then processed through four
+stages of continuous operations, forming a multi-scale hierW H
+W
+archical representation with resolutions of H
+8 × 8 , 16 × 16 ,
+H
+W
+and 32 × 32 , respectively. Each stage is composed of
+
+where p′ and p represent the sets of two-dimensional coordinates of the original patch and the interested patch on the
+feature map, respectively. p′ and p take values between -1
+and 1, (-1,-1) denotes the upper left corner, and (1,1) denotes
+the lower right corner. h and w denote the coordinates of
+the image patch in the height and width directions.
+Next, we leverage position p′ for feature sampling, which
+is performed through a bilinear interpolation function. By
+5
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+multiple stacked DAMamba blocks, with resolution progressively downsampled by a factor of 2 and the feature
+dimension increased. Additionally, the DAMamba architecture integrates convolutional positional encoding (Chu et al.,
+2023; Islam et al., 2020; Li et al., 2021) and convolutional
+FFN (ConvFFN) (Wang et al., 2022), further enhancing the
+ability to extract local features. Throughout the architecture, DAMamba blocks are flexibly stacked across different
+stages to adapt to various downstream tasks. Finally, the
+model’s output undergoes batch normalization, global average pooling, and a linear classification head to produce the
+final image classification task feature representation. The
+configurations for different model scales are provided in
+Table 1.
+
+Table 2. Results of DAMamba and the current state-of-the-art backbones on ImageNet-1K. All the models are trained and tested at
+224 × 224 resolution.
+
+4. Experiments
+4.1. Image Classification on ImageNet-1K
+Experimental settings: We conducted image classification experiments based on the ImageNet-1K dataset (Russakovsky et al., 2015), which consists of 1,281,167 training
+images and 50,000 validation images spanning 1,000 categories. The implementation of our experimental methods relied on the PyTorch (Paszke et al., 2019) and Timm (Wightman et al., 2019) libraries. To ensure a fair comparison, we
+adopted the commonly used experimental settings from
+DeiT (Touvron et al., 2021). The optimizer used was
+AdamW (Loshchilov & Hutter, 2017), with a cosine decay
+learning rate schedule and linear warm-up over the first 20
+epochs. The models were trained for 300 epochs on images
+with a resolution of 2242 . For data augmentation and regularization, we employed techniques such as RandAugmentation (Cubuk et al., 2020), Repeated Augmentation (Hoffer
+et al., 2020), Mixup (Zhang et al., 2017), CutMix (Yun et al.,
+2019), Random Erasing (Zhong et al., 2020), weight decay, label smoothing (Szegedy et al., 2016), and stochastic
+depth (Huang et al., 2016). During testing, center cropping was applied to the validation images to generate input
+images with a resolution of 2242 . The experiments were
+conducted on 16 RTX 3090 GPUs. Notably, exponential
+moving average (EMA) (Polyak & Juditsky, 1992) did not
+significantly improve the final model performance and was
+therefore not used in the experiments.
+
+Model
+
+Type Params (M) FLOPs (G) Top-1 (%)
+
+SLaK-T (Liu et al., 2023)
+ConvNeXt-T (Liu et al., 2022)
+InceptionNeXt-T (Yu et al., 2024)
+MambaOut-Tiny (Yu & Wang, 2024)
+UniRepLKNet-T (Ding et al., 2024)
+Swin-T (Liu et al., 2021)
+CSwin-T (Dong et al., 2022)
+Agent-Swin-T (Han et al., 2024)
+DAT-T (Xia et al., 2022)
+PVTv2-B2 (Wang et al., 2022)
+ClusterFormer-Tiny (Liang et al., 2023)
+Slide-PVT-S (Pan et al., 2023)
+NAT-T (Hassani et al., 2023)
+QFormerh -T (Zhang et al., 2024)
+PartialFormer-B3 (Vo et al., 2024)
+StructViT-S-8-1 (Kim et al., 2024)
+Vim-S (Zhu et al., 2024)
+VMamba-T (Liu et al., 2024)
+LocalVMamba-T (Huang et al., 2024)
+DAMamba-T (ours)
+
+CNNs
+CNNs
+CNNs
+CNNs
+CNNs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+SSMs
+SSMs
+SSMs
+SSMs
+
+30
+29
+28
+27
+31
+29
+23
+29
+29
+26
+28
+23
+28
+29
+36
+24
+26
+22
+26
+26
+
+5.0
+4.5
+4.2
+4.5
+4.9
+4.5
+4.3
+4.5
+4.6
+4.0
+4.0
+4.3
+4.6
+3.4
+5.4
+5.1
+5.6
+5.7
+4.8
+
+82.5
+82.1
+82.3
+82.7
+83.2
+81.3
+82.7
+82.6
+82.0
+82.0
+81.5
+81.7
+83.2
+82.5
+83.0
+83.3
+80.5
+82.6
+82.7
+83.8
+
+ConvNeXt-S (Liu et al., 2022)
+CNNs
+SLaK-S (Liu et al., 2023)
+CNNs
+InceptionNeXt-S (Yu et al., 2024)
+CNNs
+CNNs
+MambaOut-Small (Yu & Wang, 2024)
+CNNs
+UniRepLKNet-S (Ding et al., 2024)
+Swin-S (Liu et al., 2021)
+ViTs
+ViTs
+Agent-Swin-S (Han et al., 2024)
+ViTs
+NAT-S (Hassani et al., 2023)
+PVTv2-B4 (Wang et al., 2022)
+ViTs
+DAT-S (Xia et al., 2022)
+ViTs
+ClusterFormer-Small (Liang et al., 2023) ViTs
+ViTs
+QFormerh -S (Zhang et al., 2024)
+BiFormer-B (Zhu et al., 2023)
+ViTs
+PartialFormer-B4 (Vo et al., 2024)
+ViTs
+StructViT-B-8-1 (Kim et al., 2024)
+ViTs
+ViTs
+TransNeXt-Small (Shi, 2024)
+VMamba-S (Liu et al., 2024)
+SSMs
+LocalVMamba-S (Huang et al., 2024)
+SSMs
+DAMamba-S (ours)
+SSMs
+
+50
+55
+49
+48
+56
+50
+50
+51
+63
+50
+49
+51
+57
+64
+52
+50
+44
+50
+45
+
+8.7
+9.8
+8.4
+9.0
+9.1
+8.7
+8.7
+7.8
+10.1
+9.0
+8.9
+9.8
+6.8
+12.0
+10.3
+11.2
+11.4
+10.3
+
+83.1
+83.8
+83.5
+84.1
+83.9
+83.0
+83.7
+83.7
+83.6
+83.7
+83.4
+84.0
+84.3
+83.9
+84.3
+84.7
+83.6
+83.7
+84.8
+
+ConvNeXt-B (Liu et al., 2022)
+SLaK-B (Liu et al., 2023)
+InceptionNeXt-B (Yu et al., 2024)
+MambaOut-Base (Yu & Wang, 2024)
+Swin-B (Liu et al., 2021)
+CSwin-B (Dong et al., 2022)
+Agent-Swin-B (Han et al., 2024)
+NAT-B (Hassani et al., 2023)
+PVTv2-B5 (Wang et al., 2022)
+FLatten-Swin-B (Han et al., 2023)
+DAT-B (Xia et al., 2022)
+QFormerh -B (Zhang et al., 2024)
+TransNeXt-Base (Shi, 2024)
+VMamba-B (Liu et al., 2024)
+DAMamba-B (ours)
+
+89
+95
+87
+85
+88
+78
+88
+90
+82
+89
+88
+90
+90
+75
+86
+
+15.4
+17.1
+14.9
+15.8
+15.4
+15.0
+15.4
+13.7
+11.8
+15.4
+15.8
+15.7
+18.4
+18.0
+16.3
+
+83.8
+84.0
+84.0
+84.2
+83.5
+84.2
+84.0
+84.3
+83.8
+83.8
+84.0
+84.1
+84.8
+83.9
+85.2
+
+CNNs
+CNNs
+CNNs
+CNNs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+ViTs
+SSMs
+SSMs
+
+accuracies of 83.8% and 84.8%, maintaining its excellent
+performance.
+4.2. Object Detection and Instance Segmentation on
+COCO2017
+
+Results: As shown in Table 2, we compare the proposed
+DAMamba with several state-of-the-art models. The proposed DAMamba consistently outperforms ViT, CNN, and
+SSM models. Specifically, DAMamba-B achieves an accuracy of 85.2%, which is 1.3% higher than the current
+state-of-the-art SSM model (VMamba-B). Compared to the
+state-of-the-art CNN (ConvNeXt V2) and ViT (TransNext),
+the proposed DAMamba-T shows a significant improvement in accuracy. Even when the model is scaled to approximately 50M and 30M parameters, DAMamba achieves top-1
+
+Experimental settings: We conducted object detection
+and instance segmentation experiments on the COCO 2017
+dataset. The COCO 2017 dataset (Lin et al., 2014) consists
+of approximately 118K training images and 5K validation
+images and serves as a commonly used benchmark for object
+detection and instance segmentation tasks. To evaluate the
+performance of the proposed model on downstream vision
+tasks, we selected DAMamba as the backbone network and
+6
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+embedded it into a detector to extract object and instance
+features from images.DAMamba was integrated into the
+classic Mask R-CNN (He et al., 2017) detector and initialized with weights pre-trained on the ImageNet-1K dataset
+for 300 epochs. For the object detection and instance segmentation tasks, we trained the model for 12 epochs (1×)
+and 36 epochs (3×). All experiments were conducted using
+the MMDetection (Chen et al., 2019) framework.
+
+Table 3. Comparison of object detection and instance segmentation performance on COCO with Mask R-CNN detector. FLOPs
+are calculated with input resolution of 1280 × 800.
+Mask R-CNN 1× schedule
+
+Results: The object detection and instance segmentation results of DAMamba on the COCO2017 dataset are
+shown in Table 3. In terms of bounding box and mask
+average precision (APb and APm ), DAMamba demonstrates outstanding performance. Using a (1×) finetuning schedule, DAMamba-T/S/B achieves object detection mAPs of 48.5/49.8/50.6, outperforming VMambaT/S/B by 1.2/1.1/1.4 mAP, Swin-T/S/B by 5.8/5.0/3.7
+mAP, and ConvNeXt-T/S/B by 4.3/4.4/3.6 mAP. Under
+the same configuration, the instance segmentation mAP
+of DAMamba-T/S/B also significant outperform VMambaT/S/B, Swin-T/S/B and ConvNeXt-T/S/B. When using a
+3× training configuration, DAMamba still maintains large
+performance improvements. These results indicate that
+DAMamba has the potential to achieve state-of-the-art performance in dense prediction downstream tasks.
+4.3. Semantic Segmentation on ADE20K
+Experimental settings: We conducted semantic segmentation experiments using the ADE20K dataset and performed
+a comparative analysis of DAMamba and other models
+within the UperNet (Xiao et al., 2018) framework. In the
+UperNet framework, the backbone network was initialized
+with weights pre-trained on the ImageNet-1K dataset, while
+the remaining parts were randomly initialized. The model
+optimization employed the AdamW optimizer with a batch
+size of 16. To ensure a fair comparison, all models were
+trained for 160k iterations within the UperNet framework.
+All experiments were conducted using the MMSegmentation (Contributors, 2020) framework.
+
+Backbone
+
+APb
+
+APb50
+
+APb75
+
+APm
+
+APm
+50
+
+APm
+75
+
+Swin-T
+DAT-T
+CSWin-T
+ConvNeXt-T
+PVTv2-B2
+QFormerh -T
+PartialFormer-B3
+BiFormer-S
+MambaOut-T
+VMamba-T
+LocalVMamba-T
+DAMamba-T
+
+42.7
+44.4
+46.7
+44.2
+45.3
+45.9
+45.0
+47.8
+45.1
+47.3
+46.7
+48.5
+
+65.2
+67.6
+68.6
+66.6
+66.1
+68.5
+69.8
+67.3
+69.3
+68.7
+70.3
+
+46.8
+48.5
+51.3
+48.3
+49.6
+50.3
+52.3
+49.6
+52.0
+50.8
+53.3
+
+39.3
+42.4
+42.2
+40.1
+41.2
+41.5
+40.9
+43.2
+41.0
+42.7
+42.2
+43.4
+
+62.2
+66.1
+65.6
+63.3
+64.2
+65.2
+66.8
+64.1
+66.4
+65.7
+67.2
+
+42.2
+45.5
+45.4
+42.8
+44.4
+44.6
+46.5
+44.1
+45.9
+45.5
+46.7
+
+48M
+48M
+42M
+48M
+45M
+49M
+54M
+43M
+50M
+45M
+45M
+
+267G
+272G
+279G
+262G
+309G
+248G
+262G
+271G
+291G
+284G
+
+Swin-S
+Agent-Swin-S
+DAT-S
+CSWin-S
+ConvNeXt-S
+PVTv2-B3
+BiFormer-B
+MambaOut-S
+VMamba-S
+LocalVMamba-S
+DAMamba-S
+
+44.8
+47.2
+47.1
+47.9
+45.4
+47.0
+48.6
+47.4
+48.7
+48.4
+49.8
+
+68.6
+69.6
+69.9
+70.1
+67.9
+68.1
+70.5
+69.1
+70.0
+69.9
+71.2
+
+49.4
+52.3
+51.5
+52.6
+50.0
+51.7
+53.8
+52.4
+53.4
+52.7
+54.7
+
+40.9
+42.7
+42.5
+43.2
+41.8
+42.5
+43.7
+42.7
+43.7
+43.2
+44.5
+
+65.3
+66.6
+66.7
+67.1
+65.2
+65.2
+67.6
+66.1
+67.3
+66.7
+68.4
+
+44.2
+45.8
+45.4
+46.2
+45.1
+45.7
+47.1
+46.2
+47.0
+46.5
+48.2
+
+69M
+69M
+54M
+70M
+63M
+65M
+70M
+69M
+65M
+
+354G
+364G
+378G
+342G
+348G
+397G
+354G
+349G
+414G
+395G
+
+Swin-B
+CSwin-B
+ConvNeXt-B
+PVTv2-B5
+ViT-Adapter-B
+MambaOut-B
+VMamba-B
+DAMamba-B
+
+46.9
+48.7
+47.0
+47.4
+47.0
+47.4
+49.2
+50.6
+
+69.2
+70.4
+69.4
+68.6
+68.2
+69.3
+71.4
+71.9
+
+51.6
+53.9
+51.7
+51.9
+51.4
+52.2
+54.0
+55.5
+
+42.3
+43.9
+42.7
+42.5
+41.8
+43.0
+44.1
+44.9
+
+66.0
+67.8
+66.3
+65.7
+65.1
+66.4
+68.3
+68.9
+
+45.5
+47.3
+46.0
+46.0
+44.9
+46.3
+47.7
+48.7
+
+88M
+88M
+107M
+102M
+102M
+100M
+108M
+105M
+
+496G
+496G
+486G
+557G
+557G
+495G
+485G
+520G
+
+Backbone
+
+APb
+
+APb50
+
+APb75
+
+APm
+
+APm
+50
+
+APm
+75
+
+Swin-T
+PVTv2-B2
+ConvNeXt-T
+NAT-T
+QFormerh -T
+VMamba-T
+LocalVMamba-T
+DAMamba-T
+
+46.0
+47.8
+46.2
+47.7
+47.5
+48.8
+48.7
+50.4
+
+68.1
+69.7
+67.9
+69.0
+69.6
+70.4
+70.1
+71.4
+
+50.3
+52.6
+50.8
+52.6
+52.1
+53.5
+53.0
+55.5
+
+41.6
+43.1
+41.7
+42.6
+42.7
+43.7
+43.4
+44.8
+
+65.1
+66.8
+65.0
+66.1
+66.4
+67.4
+67.0
+68.6
+
+44.9
+46.7
+44.9
+45.9
+46.1
+47.0
+46.4
+48.6
+
+48M
+45M
+48M
+48M
+49M
+50M
+45M
+45M
+
+267G
+309G
+262G
+258G
+271G
+291G
+284G
+
+Swin-S
+PVTv2-B3
+ConvNeXt-S
+NAT-S
+QFormerh -S
+VMamba-S
+LocalVMamba-S
+DAMamba-S
+
+48.2
+48.4
+47.9
+48.4
+49.5
+49.9
+49.9
+51.2
+
+69.8
+69.8
+70.0
+69.8
+71.2
+70.9
+70.5
+72.1
+
+52.8
+53.3
+52.7
+53.2
+54.2
+54.7
+54.4
+56.1
+
+43.2
+43.2
+42.9
+43.2
+44.2
+44.2
+44.1
+45.1
+
+67.0
+66.9
+66.9
+66.9
+68.3
+68.2
+67.8
+69.2
+
+46.1
+46.7
+46.2
+46.5
+47.6
+47.7
+47.4
+49.1
+
+69M
+65M
+70M
+70M
+70M
+70M
+69M
+65M
+
+354G
+397G
+348G
+330G
+-G
+349G
+414G
+395G
+
+ConvNeXt-B
+Swin-B
+PVTv2-B5
+DAMamba-B
+
+48.5
+48.6
+48.4
+51.4
+
+70.1
+70.0
+69.2
+72.3
+
+53.3
+53.4
+52.9
+56.4
+
+43.5
+43.3
+42.9
+45.3
+
+67.1
+67.1
+66.6
+69.5
+
+46.7
+46.7
+46.2
+48.9
+
+108M
+107M
+102M
+105M
+
+486G
+496G
+557G
+520G
+
+#Param. FLOPs
+
+Mask R-CNN 3× MS schedule
+
+Results: Table 4 presents the semantic segmentation results of DAMamba under the UperNet (Xiao et al., 2018)
+framework. The experiments show that DAMamba-T/S/B
+achieves mIoU scores of 50.3%, 51.2%, and 51.9%, respectively, significantly outperforming other types of models.
+The performance improvement of our DAMamaba is also
+evident when using multi-scale tests. These results further validate the exceptional generalization capability of
+DAMamba in downstream tasks.
+
+#Param. FLOPs
+
+model with Sweeping Scan, our proposed Dynamic Adaptive Scan (DAS) improves the top-1 accuracy by 0.4% while
+consuming only a small amount of additional FLOPs and
+parameter overhead. Furthermore, for the vision SSMs,
+which excels at global modeling, we observe that using convolutional positional encoding (Convpos) (Chu et al., 2023;
+Islam et al., 2020; Li et al., 2021) and ConvFFN (Wang
+et al., 2022) for local modeling can improve accuracy by
+
+4.4. Ablation Study
+To validate the effectiveness of our method, we conducted
+image classification ablation experiments on ImageNet-1k
+using DAMamba-T in Table 5. Compared to the baseline
+7
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+Table 4. Comparison of semantic segmentation on ADE20K with
+UPerNet segmentor. FLOPs are calculated with input resolution of
+512 × 2048. ‘SS’ and ‘MS’ represent single-scale and multi-scale
+testing, respectively.
+Method
+
+mIoU (SS) mIoU (MS)
+
+#Param. FLOPs
+
+UniRepLKNet-T
+ConvNeXt-T
+Swin-T
+Agent-Swin-T
+NAT-T
+QFormerh -T
+PartialFormer-B3
+BiFormer-S
+MambaOut-T
+VMamba-T
+LocalVMamba-T
+DAMamba-T
+
+48.6
+46.0
+44.4
+46.7
+47.1
+46.9
+47.0
+49.8
+47.4
+48.0
+47.9
+50.3
+
+49.1
+46.7
+45.8
+48.4
+48.1
+50.8
+48.6
+48.8
+49.1
+51.2
+
+61M
+60M
+60M
+61M
+58M
+61M
+65M
+54M
+62M
+57M
+55M
+
+946G
+939G
+945G
+954G
+934G
+923G
+938G
+949G
+970G
+937G
+
+UniRepLKNet-S
+Swin-S
+Agent-Swin-S
+ConvNeXt-S
+NAT-S
+QFormerh -S
+PartialFormer-B3
+BiFormer-B
+MambaOut-S
+VMamba-S
+LocalVMamba-S
+DAMamba-S
+
+50.5
+47.6
+48.1
+48.7
+48.0
+48.9
+48.3
+51.0
+49.5
+50.6
+50.0
+51.2
+
+51.0
+49.5
+49.6
+49.5
+50.3
+51.7
+50.6
+51.2
+51.0
+52.0
+
+86M
+81M
+81M
+82M
+82M
+82M
+95M
+76M
+82M
+81M
+75M
+
+1036G
+1039G
+1043G
+1027G
+1010G
+1005G
+1032G
+1028G
+1095G
+1050G
+
+Swin-B
+Agent-Swin-B
+ConvNeXt-B
+NAT-B
+QFormerh -B
+MambaOut-B
+VMamba-B
+DAMamba-B
+
+48.1
+48.7
+49.1
+48.5
+49.5
+49.6
+51.0
+51.9
+
+49.7
+49.9
+49.7
+50.6
+51.0
+51.6
+52.3
+
+121M
+121M
+122M
+123M
+123M
+112M
+122M
+117M
+
+1188G
+1196G
+1170G
+1137G
+1178G
+1170G
+1178G
+
+(a) Input image.
+Table 5. Ablation studies on DAMamba-T for module designs.
+
+Figure 5. Visualization of the Dynamic Adaptive Scan, where the
+blue pentagram represents the start of the scan and the blue circle
+represents the end of the scan.
+
+Module design #Param. (M) FLOPs (G) Top-1 acc (%).
+Baseline
++ DAScan
++ Convpos
++ ConvFFN
+
+24.7M
+25.1M
+25.2M
+25.5M
+
+4.66G
+4.73G
+4.75G
+4.82G
+
+(b) Scan Path.
+
+80.8
+81.2
+81.4
+81.8
+
+5. Conclusion
+In this paper, we have proposed a novel vision state space
+model, termed DAMamba. DAMamba significantly enhances the flexibility of modeling in vision SSMs and improves the ability to capture complex image structures, while
+maintaining both local and global contextual understanding. Specifically, a Dynamic Adaptive Scan mechanism is
+proposed to adaptively allocate scanning order and regions
+based on the input image. Extensive experiments on various datasets and popular vision tasks demonstrate that the
+proposed DAMamba significantly and consistently outperforms the state-of-the-art vision SSMs as well as popular
+ViT and CNN architectures, establishing new benchmarks
+for image classification, object detection, instance segmentation, and semantic segmentation. Our findings underscore
+the importance of the scanning mechanism in vision SSMs
+and highlight the tremendous potential of SSMs as vision
+backbone.
+
+0.2% and 0.4%, respectively.
+4.5. Visualization
+As shown in Figure 5, we visualize the scanning results of
+DAMamba on ImageNet-1K images to verify the effectiveness of the proposed dynamic adaptive scanning method.
+For ease of visualization, we selected the final stage with
+fewer patches and removed prediction points outside the
+region of interest. For 2D positions of floating-point type,
+we visualize them by mapping each position to the nearest
+patch. We present three examples from the ImageNet-1K
+dataset. We observe that the proposed dynamic adaptive
+scanning primarily focuses on target objects, adapting to
+the input image by dynamically focusing on the foreground
+regions of interest. Additionally, the scanning areas can be
+adaptively adjusted.
+8
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+References
+
+Han, D., Ye, T., Han, Y., Xia, Z., Pan, S., Wan, P., Song,
+S., and Huang, G. Agent attention: On the integration
+of softmax and linear attention. In ECCV, pp. 124–140.
+Springer, 2024.
+
+Ba, J., Kiros, J., and Hinton, G. Layer normalization, Jul
+2016.
+Chen, K., Wang, J., Pang, J., Cao, Y., Xiong, Y., Li, X., Sun,
+S., Feng, W., Liu, Z., Xu, J., et al. Mmdetection: Open
+mmlab detection toolbox and benchmark. arXiv preprint
+arXiv:1906.07155, 2019.
+
+Hassani, A., Walton, S., Li, J., Li, S., and Shi, H. Neighborhood attention transformer. In CVPR, pp. 6185–6194,
+2023.
+He, K., Zhang, X., Ren, S., and Sun, J. Deep residual
+learning for image recognition. In CVPR, pp. 770–778,
+2016.
+
+Chollet, F. Xception: Deep learning with depthwise separable convolutions. In CVPR, pp. 1251–1258, 2017.
+
+He, K., Gkioxari, G., Dollár, P., and Girshick, R. Mask
+r-cnn. In ICCV, pp. 2961–2969, 2017.
+
+Chu, X., Tian, Z., Zhang, B., Wang, X., and Shen, C.
+Conditional positional encodings for vision transformers. In ICLR, 2023. URL https://openreview.
+net/forum?id=3KWnuT-R1bh.
+
+Hendrycks, D. and Gimpel, K. Gaussian error linear units
+(gelus). arXiv preprint arXiv:1606.08415, 2016.
+Hinton, G., Vinyals, O., and Dean, J.
+Distilling
+the knowledge in a neural network. arXiv preprint
+arXiv:1503.02531, 2015.
+
+Contributors, M. Mmsegmentation: Openmmlab semantic
+segmentation toolbox and benchmark, 2020.
+Cubuk, E. D., Zoph, B., Shlens, J., and Le, Q. V. Randaugment: Practical automated data augmentation with a
+reduced search space. In CVPRW, pp. 702–703, 2020.
+
+Hoffer, E., Ben-Nun, T., Hubara, I., Giladi, N., Hoefler,
+T., and Soudry, D. Augment your batch: Improving
+generalization through instance repetition. In CVPR, pp.
+8129–8138, 2020.
+
+Ding, X., Zhang, X., Han, J., and Ding, G. Scaling up your
+kernels to 31x31: Revisiting large kernel design in cnns.
+In CVPR, pp. 11963–11975, 2022.
+
+Howard, A. G., Zhu, M., Chen, B., Kalenichenko, D., Wang,
+W., Weyand, T., Andreetto, M., and Adam, H. Mobilenets:
+Efficient convolutional neural networks for mobile vision
+applications. arXiv preprint arXiv:1704.04861, 2017.
+
+Ding, X., Zhang, Y., Ge, Y., Zhao, S., Song, L., Yue, X.,
+and Shan, Y. Unireplknet: A universal perception largekernel convnet for audio video point cloud time-series
+and image recognition. In CVPR, pp. 5513–5524, 2024.
+
+Huang, G., Sun, Y., Liu, Z., Sedra, D., and Weinberger,
+K. Q. Deep networks with stochastic depth. In ECCV,
+pp. 646–661. Springer, 2016.
+
+Dong, X., Bao, J., Chen, D., Zhang, W., Yu, N., Yuan, L.,
+Chen, D., and Guo, B. Cswin transformer: A general
+vision transformer backbone with cross-shaped windows.
+In CVPR, pp. 12124–12134, 2022.
+
+Huang, G., Liu, Z., Van Der Maaten, L., and Weinberger,
+K. Q. Densely connected convolutional networks. In
+CVPR, pp. 4700–4708, 2017.
+Huang, T., Pei, X., You, S., Wang, F., Qian, C., and Xu, C.
+Localmamba: Visual state space model with windowed
+selective scan. arXiv preprint arXiv:2403.09338, 2024.
+
+Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn,
+D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer, M.,
+Heigold, G., Gelly, S., et al. An image is worth 16x16
+words: Transformers for image recognition at scale. In
+ICLR, 2021.
+
+Islam, A., Jia, S., and Bruce, N. D. B. How much position
+information do convolutional neural networks encode.
+arXiv preprint arXiv:2001.08248, 2020.
+
+Gu, A. and Dao, T. Mamba: Linear-time sequence
+modeling with selective state spaces. arXiv preprint
+arXiv:2312.00752, 2023.
+
+Jiao, J., Tang, Y.-M., Lin, K.-Y., Gao, Y., Ma, J., Wang,
+Y., and Zheng, W.-S. Dilateformer: Multi-scale dilated
+transformer for visual recognition. TMM, 2023.
+
+Gu, A., Goel, K., and Ré, C. Efficiently modeling long
+sequences with structured state spaces. arXiv preprint
+arXiv:2111.00396, 2021.
+
+Kim, M., Seo, P. H., Schmid, C., and Cho, M. Learning
+correlation structures for vision transformers. In CVPR,
+pp. 18941–18951, 2024.
+
+Han, D., Pan, X., Han, Y., Song, S., and Huang, G. Flatten transformer: Vision transformer using focused linear
+attention. In ICCV, pp. 5961–5971, 2023.
+
+Krizhevsky, A., Sutskever, I., and Hinton, G. E. Imagenet
+classification with deep convolutional neural networks.
+In NeurIPS, pp. 1097–1105, 2012.
+9
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+LeCun, Y., Bottou, L., Bengio, Y., and Haffner, P. Gradientbased learning applied to document recognition. Proceedings of the IEEE, 86(11):2278–2324, 1998.
+
+Simonyan, K. and Zisserman, A. Very deep convolutional networks for large-scale image recognition. arXiv
+preprint arXiv:1409.1556, 2014.
+
+Li, Y., Zhang, K., Cao, J., Timofte, R., and Gool, L. V.
+Localvit: Bringing locality to vision transformers. arXiv
+preprint arXiv:2104.05707, 2021.
+
+Szegedy, C., Liu, W., Jia, Y., Sermanet, P., Reed, S.,
+Anguelov, D., Erhan, D., Vanhoucke, V., and Rabinovich,
+A. Going deeper with convolutions. In CVPR, pp. 1–9,
+2015.
+
+Liang, J. C., Cui, Y., Wang, Q., Geng, T., Wang, W., and
+Liu, D. Clusterformer: Clustering as a universal visual
+learner. NeurIPS, 2023.
+
+Szegedy, C., Vanhoucke, V., Ioffe, S., Shlens, J., and Wojna,
+Z. Rethinking the inception architecture for computer
+vision. In CVPR, pp. 2818–2826, 2016.
+
+Lin, T.-Y., Maire, M., Belongie, S., Hays, J., Perona, P.,
+Ramanan, D., Dollár, P., and Zitnick, C. L. Microsoft
+coco: Common objects in context. In ECCV, pp. 740–755.
+Springer, 2014.
+
+Tan, M. and Le, Q. Efficientnet: Rethinking model scaling
+for convolutional neural networks. In ICML, pp. 6105–
+6114. PMLR, 2019.
+
+Liu, S., Chen, T., Chen, X., Chen, X., Xiao, Q., Wu, B.,
+Kärkkainen, T., Pechenizkiy, M., Mocanu, D. C., and
+Wang, Z. More convnets in the 2020s: Scaling up kernels
+beyond 51x51 using sparsity. In ICLR, 2023.
+
+Touvron, H., Cord, M., Douze, M., Massa, F., Sablayrolles,
+A., and Jégou, H. Training data-efficient image transformers & distillation through attention. In ICML, pp.
+10347–10357. PMLR, 2021.
+
+Liu, Y., Tian, Y., Zhao, Y., Yu, H., Xie, L., Wang, Y., Ye,
+Q., and Liu, Y. Vmamba: Visual state space model. In
+NeurIPS, 2024.
+
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones,
+L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. Attention
+is all you need. NeurIPS, 30, 2017.
+Vo, X.-T., Nguyen, D.-L., Priadana, A., and Jo, K.-H. Efficient vision transformers with partial attention. In ECCV,
+pp. 298–317. Springer, 2024.
+
+Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin,
+S., and Guo, B. Swin transformer: Hierarchical vision
+transformer using shifted windows. In ICCV, pp. 10012–
+10022, 2021.
+
+Wang, W., Xie, E., Li, X., Fan, D.-P., Song, K., Liang, D.,
+Lu, T., Luo, P., and Shao, L. Pyramid vision transformer:
+A versatile backbone for dense prediction without convolutions. In ICCV, pp. 568–578, 2021.
+
+Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell,
+T., and Xie, S. A convnet for the 2020s. In CVPR, pp.
+11976–11986, 2022.
+
+Wang, W., Xie, E., Li, X., Fan, D.-P., Song, K., Liang, D.,
+Lu, T., Luo, P., and Shao, L. Pvt v2: Improved baselines
+with pyramid vision transformer. CVM, 8(3):415–424,
+2022.
+
+Loshchilov, I. and Hutter, F. Decoupled weight decay regularization. arXiv preprint arXiv:1711.05101, 2017.
+Pan, X., Ye, T., Xia, Z., Song, S., and Huang, G. Slidetransformer: Hierarchical vision transformer with local
+self-attention. In CVPR, pp. 2082–2091, 2023.
+
+Wang, W., Dai, J., Chen, Z., Huang, Z., Li, Z., Zhu, X., Hu,
+X., Lu, T., Lu, L., Li, H., et al. Internimage: Exploring
+large-scale vision foundation models with deformable
+convolutions. In CVPR, pp. 14408–14419, 2023.
+
+Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J.,
+Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga,
+L., et al. Pytorch: An imperative style, high-performance
+deep learning library. NeurIPS, 32, 2019.
+
+Wightman, R. et al. Pytorch image models, 2019.
+Woo, S., Debnath, S., Hu, R., Chen, X., Liu, Z., Kweon,
+I. S., and Xie, S. Convnext v2: Co-designing and scaling
+convnets with masked autoencoders. In CVPR, pp. 16133–
+16142, 2023.
+
+Polyak, B. T. and Juditsky, A. B. Acceleration of stochastic
+approximation by averaging. SIAM Journal on Control
+and Optimization, 30(4):838–855, 1992.
+Russakovsky, O., Deng, J., Su, H., Krause, J., Satheesh,
+S., Ma, S., Huang, Z., Karpathy, A., Khosla, A., Bernstein, M., et al. Imagenet large scale visual recognition
+challenge. IJCV, 115:211–252, 2015.
+
+Xia, Z., Pan, X., Song, S., Li, L. E., and Huang, G. Vision
+transformer with deformable attention. In CVPR, pp.
+4794–4803, 2022.
+Xiao, T., Liu, Y., Zhou, B., Jiang, Y., and Sun, J. Unified
+perceptual parsing for scene understanding. In ECCV, pp.
+418–434, 2018.
+
+Shi, D. Transnext: Robust foveal visual perception for
+vision transformers. In CVPR, pp. 17773–17783, 2024.
+10
+
+DAMamba: Vision State Space Model with Dynamic Adaptive Scan
+
+Yang, C., Chen, Z., Espinosa, M., Ericsson, L., Wang, Z.,
+Liu, J., and Crowley, E. J. Plainmamba: Improving nonhierarchical mamba in visual recognition. arXiv preprint
+arXiv:2403.17695, 2024.
+Yu, W. and Wang, X. Mambaout: Do we really need mamba
+for vision? arXiv preprint arXiv:2405.07992, 2024.
+Yu, W., Zhou, P., Yan, S., and Wang, X. Inceptionnext:
+When inception meets convnext. In CVPR, pp. 5672–
+5683, 2024.
+Yun, S., Han, D., Oh, S. J., Chun, S., Choe, J., and Yoo, Y.
+Cutmix: Regularization strategy to train strong classifiers
+with localizable features. In ICCV, pp. 6023–6032, 2019.
+Zhang, H., Cisse, M., Dauphin, Y. N., and Lopez-Paz,
+D. mixup: Beyond empirical risk minimization. arXiv
+preprint arXiv:1710.09412, 2017.
+Zhang, L., Li, X., Arnab, A., Yang, K., Tong, Y., and Torr,
+P. H. Dual graph convolutional network for semantic
+segmentation. arXiv preprint arXiv:1909.06121, 2019.
+Zhang, Q., Zhang, J., Xu, Y., and Tao, D. Vision transformer
+with quadrangle attention. TPAMI, 2024.
+Zhong, Z., Zheng, L., Kang, G., Li, S., and Yang, Y. Random erasing data augmentation. In AAAI, pp. 13001–
+13008, 2020.
+Zhu, L., Wang, X., Ke, Z., Zhang, W., and Lau, R. W. Biformer: Vision transformer with bi-level routing attention.
+In CVPR, pp. 10323–10333, 2023.
+Zhu, L., Liao, B., Zhang, Q., Wang, X., Liu, W., and Wang,
+X. Vision mamba: Efficient visual representation learning
+with bidirectional state space model. In ICML, 2024.
+
+11
+
+

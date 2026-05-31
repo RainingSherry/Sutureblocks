@@ -1,0 +1,3247 @@
+1
+
+DSwinIR: Rethinking Window-based Attention for
+Image Restoration
+
+arXiv:2504.04869v3 [cs.CV] 28 Dec 2025
+
+Gang Wu, Student Member, IEEE, Junjun Jiang, Senior Member, IEEE, Kui Jiang, Member, IEEE,
+Xianming Liu, Member, IEEE, and Liqiang Nie, Senior Member, IEEE
+
+Abstract—Image restoration has witnessed significant advancements with the development of deep learning models.
+Transformer-based models, particularly those using windowbased self-attention, have become a dominant force. However,
+their performance is constrained by the rigid, non-overlapping
+window partitioning scheme, which leads to insufficient feature
+interaction across windows and limited receptive fields. This highlights the need for more adaptive and flexible attention mechanisms. In this paper, we propose the Deformable Sliding Window
+Transformer for Image Restoration (DSwinIR), a new attention
+mechanism: the Deformable Sliding Window (DSwin) Attention. This mechanism introduces a token-centric and contentaware paradigm that moves beyond the grid and fixed window
+partition. It comprises two complementary components. First,
+it replaces the rigid partitioning with a token-centric sliding
+window paradigm, making it effective at eliminating boundary
+artifacts. Second, it incorporates a content-aware deformable
+sampling strategy, which allows the attention mechanism to
+learn data-dependent offsets and actively shape its receptive
+field to focus on the most informative image regions. Extensive
+experiments show that DSwinIR achieves strong results, including
+state-of-the-art performance on several evaluated benchmarks.
+For instance, in all-in-one image restoration, our DSwinIR
+surpasses the most recent backbone GridFormer by 0.53 dB
+on the three-task benchmark and 0.87 dB on the five-task
+benchmark. The code and pre-trained models are available at
+https://github.com/Aitical/DSwinIR.
+Index Terms—All-in-One Image Restoration, Image Deraining, Image Dehazing, Image Denoising, Vision Transformer,
+Deformable Attention
+
+I. I NTRODUCTION
+
+I
+
+MAGE restoration aims to recover high-quality images
+from inputs degraded by noise, rain, haze, blur, low light,
+and other factors [1]–[5]. Deep learning has led to substantial
+progress, initially with CNNs [6], [7] and more recently,
+with Vision Transformers (ViTs) [8] that model long-range
+dependencies.
+The practical use of vanilla Transformers for image restoration is impeded by the quadratic cost of global self-attention
+with respect to input resolution. Window-based self-attention
+The research was supported by the National Natural Science Foundation
+of China (U23B2009, 62471158) and the Natural Science Foundation of
+Heilongjiang Province of China for Excellent Youth Project (YQ2024F006).
+G. Wu, J. Jiang, K. Jiang, and X. Liu are with the School
+of Computer Science and Technology, Harbin Institute of Technology,
+Harbin 150001, China. E-mail: {gwu@hit.edu.cn, jiangjunjun@hit.edu.cn,
+jiangkui@hit.edu.cn, csxm@hit.edu.cn}. Corresponding author: Junjun Jiang.
+L. Nie is with the School of Computer Science and Technology, Harbin
+Institute of Technology (Shenzhen), Shenzhen 518055, China. E-mail:
+{nieliqiang@gmail.com}.
+
+Query Token
+
+Kernel Weight
+
+Attention Weight
+
+Receptive Field
+
+(a) Convolution
+
+(b) Deformable Convolution
+
+Cross-Interaction:
+Dynamic Modeling:
+Adaptive Reception:
+
+Cross-Interaction:
+Dynamic Modeling:
+Adaptive Reception:
+
+(c) Window Attention
+Cross-Interaction:
+Dynamic Modeling:
+Adaptive Reception:
+
+(d) Ours
+Cross-Interaction:
+Dynamic Modeling:
+Adaptive Reception:
+
+Fig. 1. Comparative analysis of feature extraction mechanisms with an anchor
+token (marked by ⋆) as the reference point. (a) Vanilla convolution applies
+a fixed sampling pattern, leveraging neighborhood features. (b) Deformable
+convolution introduces adaptive sampling locations based on content, enabling
+more effective feature integration from relevant regions. (c) Window attention suffers from boundary constraints where anchor tokens near window
+edges (especially corners) have limited receptive fields. (d) The proposed
+Deformable Sliding Window (DSwin) attention extends window attention with
+a token-centric paradigm and the content-aware sampling, bringing robust
+feature aggregation for anchor tokens.
+
+[9], adopted in SwinIR [10] and Uformer [11], has therefore
+become the de facto choice, striking a favorable trade-off
+between fidelity and efficiency by restricting computation
+to local, non-overlapping windows. It introduces two salient
+limitations: 1) Boundary Context Truncation. Consider a token
+at a window corner: its receptive field is clipped precisely
+where informative context often lies across the boundary. As
+a result, its representation collapses toward its nearest inwindow neighbors rather than the true cross-window structure
+it belongs to, producing suboptimal, biased features. 2) In-
+
+2
+
+All-in-One Image Restoration
+Composite Degradation
+
+AllWeather
+
+Three Tasks
+
+Five Tasks
+30.20
+
+Single-Task Image Restoration
+SOTS
+
+Rain100L
+
+SPA
+
+Fig. 2. Quantitative comparison of the proposed DSwinIR against existing methods across diverse image restoration tasks, achieving consistent superior
+performance. All metrics are reported in PSNR (dB).
+
+flexible Receptive Fields: The fixed, square-shaped attention
+pattern is applied uniformly across the image, failing to
+adapt to the diverse and anisotropic nature of image content
+and degradation patterns. Subsequent efforts introduce handcrafted interaction patterns, such as cross-shaped windows
+[12], axial stripes [13], and sparse token sampling [14]. While
+effective, these essentially replace one fixed interaction pattern
+with another, leaving the core limitation unresolved. They
+fall short of addressing the core, underlying principle: the
+shape and scope of an attention field should be dynamically
+determined by the image content itself, not by a predefined,
+static template.
+In this work, we move beyond such predefined, static
+patterns and advocate that an effective attention mechanism
+for image restoration is both token-centric and content-aware.
+Motivated by this view, we introduce Deformable Sliding
+Window (DSwin) Attention, a redesign of windowed attention (Figure 1). First, to strengthen cross-window interaction,
+we embrace a token-centric sliding window paradigm: every
+token attends within its own centered neighborhood, creating overlaps that reduce boundary effects. Second, to tackle
+the inflexible receptive field, we introduce a content-aware
+deformable mechanism: learned offsets adapt the sampling
+pattern to image structure (e.g., diagonal rain streaks or object
+contours). Building upon core components, we present the Deformable Sliding Window Transformer for Image Restoration
+(DSwinIR). It integrates the DSwin attention module, offering
+a flexible and robust backbone for diverse image restoration
+tasks.
+In recent years, the development of all-in-one image restoration models, handling multiple types of degradation within a
+unified framework, has gained increasing attention [5]. We
+evaluate DSwinIR in the all-in-one setting. Strengthening the
+backbone architecture offers an underexplored alternative to
+prompt-based approaches [15], [16]. Empirically, DSwinIR
+matches or exceeds several prompt-based methods on our
+benchmarks. We conduct extensive evaluations across diverse
+image restoration tasks, spanning both all-in-one multiple
+
+degradation scenarios and specialized single-task settings. As
+illustrated in Figure 2, DSwinIR delivers substantial improvements across diverse benchmarks.
+The main contributions of this work are summarized as
+follows:
+We propose a novel Deformable Sliding Window
+(DSwin) Attention mechanism. It adopts a token-centric,
+content-aware design that addresses boundary truncation
+and inflexible receptive fields in window-based attention.
+• We develop DSwinIR, a new and general backbone
+architecture for image restoration built upon the DSwin
+attention module. The architecture cohesively integrates
+multi-scale feature extraction in both the attention and
+feed-forward network modules, further enhancing its representation capacity.
+• Through extensive experiments on a diverse array of
+benchmarks, including all-in-one and single-task restoration scenarios, we demonstrate that DSwinIR consistently
+achieves competitive or superior performance compared
+to existing methods on the evaluated datasets.
+•
+
+The remainder of this paper is organized as follows. Section II provides a comprehensive review of the image restoration literature. Section III elaborates on our proposed method.
+Section IV presents extensive experimental validation on a
+wide array of benchmarks. Finally, Section V concludes the
+paper by summarizing our key contributions and their broader
+significance for the field.
+II. R ELATED W ORK
+Image restoration, a classic and long-standing challenge
+in computer vision, has seen decades of research [17]. It
+has a wide-ranging impact on various downstream tasks,
+from enhancing visual data for autonomous driving [18] and
+improving the robustness of person re-identification [19] to
+enabling one-click image correction for cellular segmentation
+in bioinformatics [20]. Nowadays, the advent of deep learning
+has dramatically accelerated progress in this field [21], leading
+
+3
+
+to remarkable breakthroughs in specialized tasks like denoising [1], dehazing [2], and deraining [3]. More recently, the
+field’s focus has evolved from single-task models to highly
+versatile all-in-one frameworks [5], which are more practical
+for real-world scenarios involving complex, mixed degradations. In this section, we chart this evolution to contextualize
+our contribution.
+A. Single-Task Image Restoration
+Deep learning, particularly with the rise of Convolutional
+Neural Networks (CNNs), has long been the cornerstone of
+image restoration. Leveraging a data-driven paradigm, CNNs
+have proven highly effective compared to classical approaches
+[17], establishing strong foundations in tasks such as image
+super-resolution [22], image denoising [6], image deraining
+[23], and image dehazing [24]. Subsequently, numerous more
+sophisticated studies emerged, as well as those incorporating
+residual or dense connections [25], [26], as well as those
+exploring channel attention [27] and non-local attention mechanisms [28]. Within specific domains, landmark contributions
+have guided the field; for instance, in image deraining, Jiang
+et al. proposed MSPFN [29], which introduced a progressive
+learning paradigm that inspired a series of subsequent works
+[30]–[32]. Image dehazing has also seen many representative
+studies, such as FFANet [33], and more recent explorations
+with novel network designs [34], [35]. Similarly, Feijoo et
+al. [36] exploit a light-weight yet powerful model for low-light
+image enhancement in the proposed DarkIR. In parallel, researchers have also focused on developing general restoration
+architectures applicable to multiple tasks, including MPRNet
+[37], NAFNet [38], FSNet [39], IRNeXT [40], ConvIR [41],
+and MB-TaylorFormer [42]. However, these powerful models
+still typically require separate training for each individual task.
+Concurrently, to better model the complex, non-local dependencies often present in degradations, Vision Transformers (ViTs) [8] have garnered significant attention for their
+powerful dynamic modeling capabilities. While early models
+like IPT [43] were computationally intensive, the windowbased local attention of the Swin Transformer [9] provided
+an efficient and effective foundation. This spawned a new
+generation of influential backbones, including SwinIR [10]
+and Uformer [11]. These advancements were also channeled
+into powerful task-specific transformers like IDT [44] for
+image deraining and Dehazeformer [45] for image dehazing.
+A significant thread of subsequent research has focused extensively on refining the window-based mechanism. For example,
+HAT [46] enlarged window sizes and used overlaps to enhance cross-window communication, while ELAN [47] and
+SRFormer [48] addressed computational redundancy. More
+sophisticated attention patterns were also developed, such as
+the sparse attention in DRSFormer [14], the strip attention in
+StripFormer [13], the transposed self-attention in Restormer
+[49], the integration of an adaptive token dictionary [50],
+and progressive focused attention [51]. Furthermore, hybrid
+models like GRL [52] and X-Restormer [53] have explored
+the fruitful combination of convolutional and attention-based
+feature extraction.
+
+Alongside these core architectural advancements, several
+complementary research lines have gained traction. Emerging
+paradigms like state-space models, exemplified by MambaIR
+[54], [55], offer a practical solution for image restoration tasks.
+Meanwhile, Shi et al. [56] introduce the VmambaIR by the
+proposed omni-scan, and Li et al. [57] propose the MaIR with
+the local S-shape scanning and sequential shuffle attention.
+Besides, Wang et al. [58] exploited the vision autoregressive
+model for all-in-one image restoration. Moreover, researchers
+are exploring other critical facets of image restoration, such
+as estimating model uncertainty [59]–[62] and leveraging selfsupervised pre-training with contrastive learning to derive
+robust image priors without paired data [63]–[66]. These
+diverse efforts collectively enrich the field and provide a strong
+foundation for tackling more complex restoration scenarios.
+B. All-in-One Image Restoration: The Quest for a Unified
+Model
+Addressing the challenges of all-in-one image restoration,
+where a single model must gracefully handle diverse degradations, has inspired a variety of innovative strategies [5].
+A significant body of work has focused on developing sophisticated prompting mechanisms to guide general-purpose
+backbones, adapting their behavior to specific tasks. This
+approach often involves learning adaptive prompts directly
+from the data. Influential works like AirNet [67] and PromptIR
+[15] demonstrated how a learned degradation representation
+can effectively modulate a restoration network. To enhance
+the discriminability of these prompts, subsequent methods
+introduced explicit regularization, such as the orthogonality
+constraints in IDR [68] and the frequency-domain regularization in AdaIR [16]. Rajagopalan et al. [69] exploit the task
+prompt representation with the in-context learning paradigm.
+Others have explored more expressive prompt representations,
+for instance, by modeling the prompt as a learned distribution
+as in DPPD [70]. A parallel thread in prompt-based learning
+injects richer semantic knowledge from large, pre-trained multimodal models. Zheng et al. [71] propose the deep unfolding
+model with pretrained multimodal prior. Methods like DACLIP [72], TextualDegRemoval [73], Perceive-IR [74], and
+OmniFuse [75] leverage models like CLIP [76] to provide
+textual or multimodal guidance. More recently, architectures
+leveraging Mixture-of-Experts (MoE), such as MoCE-IR [77],
+have been exploited to select specialized parameters for different restoration tasks.
+Complementing the work on prompt-based guidance, another significant research direction investigates generative diffusion models [78], [79]. For instance, Özdenizci et al. [78]
+proposed the first diffusion-based deweathering model. Following this, Ye et al. [79] enhanced the diffusion framework
+with task-aware adapters to better address multiple degradation
+tasks. Besides, some research investigates the optimization
+challenges inherent in training a single model on diverse data.
+From a multi-task learning perspective, methods like [80] have
+explored techniques to mitigate task conflicts, while others
+like [81] focus on correcting for data and task bias during
+joint training. Similarly, contrastive learning has been adapted
+
+4
+
+Output
+
+𝐻 𝑊
+×
+× 4𝐶
+4
+4
+
+𝐻 𝑊
+×
+× 8𝐶
+8
+8
+
+𝐻 𝑊
+×
+× 2𝐶
+2
+2
+
+3×3
+
+𝐻 𝑊
+×
+× 4𝐶
+4
+4
+
+DSTB
+
+DSTB
+
+DSTB
+
+DSTB
+
+𝐻 𝑊
+×
+× 2𝐶
+2
+2
+
+DSTB
+
+𝐻×𝑊×𝐶
+
+DSTB
+
+LayerNorm
+
+×𝑁
+
+MS-DSA
+
+LayerNorm
+
+3×3
+
+DSTB
+
+MSG-FFN
+
+Input
+
+𝐻×𝑊×𝐶
+
+Split
+
+𝑄
+(a) Deformable Sliding Window Attention
+
+𝐾
+
+Conv 3x3
+Conv 3x3, d2
+
+Linear
+
+𝑲𝟑
+Deformable Sliding
+𝑲𝟐
+Window Attention 𝑲𝟏
+
+Linear
+
+Linear
+Concat
+
+𝑉
+(b) MS-DSwin Attention
+
+(c) MSG-FFN
+
+Fig. 3. Overview of the proposed DSwinIR architecture. The model is built upon a U-shaped backbone where the core component is the DSwin Transformer
+Block (DSTB). The key modules include: (a) Deformable Sliding Window Attention (DSwin), which adaptively samples features by learning content-dependent
+offsets; (b) Multi-Scale Deformable Sliding Window (MS-DSwin) Attention, which integrates multi-scale DSwin attention across multiple attention heads;
+and (c) Multi-Scale Gated Feed-Forward Network (MSG-FFN), which leverages parallel convolutional branches to enhance feature representation.
+
+to the all-in-one setting to help the model better decouple
+degradation-specific features from content-invariant features
+[82], [83].
+C. Positioning Our Contribution
+The power of content-adaptive receptive fields has been
+clearly established, first bringing significant gains to convolutional networks [84]. This principle was subsequently
+adapted for Transformer architectures, such as in the multiscale deformable attention proposed by Zhu et al. [85] and
+the deformable attention mechanisms developed by Xia et al.
+[86]. Drawing inspiration from this clear line of progress, we
+introduce the Deformable Sliding Window (DSwin) Attention,
+a new paradigm that is both token-centric and content-aware. It
+directly addresses the core architectural flaws of prior windowbased models by eliminating boundary artifacts and enabling
+content-adaptive receptive fields. By focusing on evolving
+the foundational architecture, our DSwinIR demonstrates that
+a sufficiently intelligent and adaptive backbone can achieve
+state-of-the-art performance, even surpassing prompt-based
+methods. Our work does not preclude the use of prompts;
+rather, it provides a significantly more powerful and robust
+foundation upon which future, more effective prompting strategies can be built.
+III. M ETHOD
+In this section, we introduce DSwinIR. We first outline
+the overall architecture, then describe the progression from
+standard window attention to the proposed DSwin attention,
+including the motivation and formulation. Finally, we present
+the DSwin Transformer Block and a practical multi-scale
+design.
+A. Overall Architecture
+We adopt a U-shaped encoder–decoder architecture with
+hierarchical feature processing (Fig. 3). The core of this
+
+architecture is our novel DSwin Transformer Block, which we
+will detail in subsequent sections. The entire network is trained
+end-to-end, optimized with the L1 pixel-wise loss function,
+which encourages sharp and accurate predictions by penalizing
+the absolute difference between the restored output and the
+ground-truth image.
+B. From Window Attention to Deformable Sliding Window
+Attention
+We revisit window-based attention and develop the Deformable Sliding Window (DSwin) attention from this perspective. In the following subsections, we outline the formulation and design choices.
+1) Preliminaries: Revisiting Window-based Self-Attention:
+We first review standard window-based self-attention as depicted in Figure 1(c). A query token near the center may enjoy
+a full set of neighbors, but one at the edge—and especially
+a corner—is starved of context, blind to potentially crucial
+information just across the arbitrary window boundary. We
+refer to this as boundary blindness and aim to mitigate it. We
+briefly formalize its operation here to precisely identify the
+source of these inherent architectural flaws.
+Given a 2D input feature map X ∈ RH×W ×C , standard window-based self-attention first partitions X into a
+set of non-overlapping windows {Xw }, where each window
+Xw ∈ RM ×M ×C and M is the window size. Within each
+window, query (Qw ), key (Kw ), and value (Vw ) projections
+are computed. The self-attention is then calculated as:
+
+
+Qw KTw
+√
++ B Vw ,
+Attention(Qw , Kw , Vw ) = Softmax
+d
+(1)
+where d is the head dimension and B is a learnable relative
+position bias. As discussed in the introduction, this formulation, while efficient, inherently suffers from insufficient crosswindow interaction.
+
+5
+
+2) Token-Centric Sliding Window: Boundary artifacts
+largely stem from non-overlapping partitions. We replace
+window-centric partitioning with a token-centric sliding window, inspired by sliding convolution.
+For a given query token at position (i, j), we define its local
+neighborhood of size k × k. This operation extracts a feature
+patch Nk (i, j) ∈ Rk×k×C centered at each position (i, j). It
+effectively transforms the feature map X into a sequence of
+patches, where each patch contains the keys and values for a
+corresponding query token. The attention for the query token
+qi,j is then computed over the keys Ki,j and values Vi,j
+extracted from its neighborhood Nk (i, j):
+slide
+Yi,j
+=
+
+
+
+X
+
+Softmaxuv
+
+(u,v)∈Nk
+
+qi,j · ki+u,j+v
+√
+d
+
+
+vi+u,j+v ,
+
+(2)
+where (u, v) are the relative coordinates within the k × k
+neighborhood. Unlike non-overlapping windows, this sliding
+mechanism reduces the information bottleneck at boundaries
+and facilitates communication across spatial locations.
+3) Content-Aware Deformable Sampling: Sliding windows
+alleviate boundary issues but still rely on a fixed, rectangular
+sampling grid. This fixed partitioning is misaligned with the
+arbitrary geometry of natural image structures and degradation
+patterns, such as the fine, diagonal lines of rain streaks or
+the amorphous, non-uniform nature of haze. Such a mismatch compromises the model’s ability to efficiently aggregate
+contextually relevant features, pointing to a critical need for
+a more flexible mechanism that can dynamically shape its
+receptive field in a content-aware manner.
+a) Offset Prediction and Differentiable Sampling: For
+each query token qi,j , we predict a set of 2D spatial offsets
+(u,v)
+{∆pi,j } for all k × k sampling points in its neighborhood.
+These offsets are generated by a lightweight offset prediction
+network fθ that takes the query features as input:
+(u,v)
+
+{∆pi,j } = fθ (qi,j ).
+
+(3)
+
+The network fθ is implemented as a lightweight module
+consisting of a depth-wise separable convolution, followed by
+a GELU activation function, and a final linear projection. No
+explicit offset regularization was required in our experiments;
+offsets are learned end-to-end via the restoration loss. The
+deformed key and value features are then sampled from
+the original feature map at the new coordinates (i + u +
+(u,v)
+(u,v)
+∆ui,j , j + v + ∆vi,j ). Since the offsets are fractional, we
+use differentiable bilinear interpolation to sample the features,
+ensuring the entire process is end-to-end trainable. A value at
+a fractional location (x, y) is computed as:
+F(x, y) =
+
+X
+
+w(i′ , j ′ ) · X(⌊x⌋ + i′ , ⌊y⌋ + j ′ ),
+
+(4)
+
+i′ ,j ′
+
+where (i′ , j ′ ) ∈ {(0, 0), (0, 1), (1, 0), (1, 1)} are the four integer grid neighbors, and w(i′ , j ′ ) are the bilinear interpolation
+weights, which are proportional to the distance from (x, y) to
+the opposite corner.
+
+Anchor
+
+Original Position
+
+(a) Input Image
+
+Biased Position
+
+(b) Local Sampling
+
+Deformable Offset
+
+Sample Grid
+
+(c) Deformable Magnitude Analysis
+
+Fig. 4. Visualization of the content-aware sampling mechanism in DSwinIR.
+The figure presents a qualitative analysis of our proposed DSwin Attention.
+(a) The input image, with a red dot indicating the anchor location for local
+analysis. (b) The corresponding local sampling pattern, showing the reference
+grid, the adaptively sampled points, and the learned offsets. (c) p
+The Deformation Magnitude Map, which visualizes the offset distance (d = dx2 + dy 2 )
+as a heatmap, where brighter intensity signifies a larger offset.
+
+b) Deformable Sliding Window Attention: By combining
+these elements, the final Deformable Sliding Window (DSwin)
+Attention output for a token at position (i, j) is formulated as:
+X
+(u,v)
+(u,v)
+(u,v)
+Yi,j =
+αi,j ·vinterp (i+u+∆ui,j , j +v+∆vi,j ),
+(u,v)∈Nk
+
+(5)
+(u,v)
+where αi,j represents the attention weights computed using
+
+the deformed keys, and vinterp denotes the value sampled
+via bilinear interpolation. This formulation combines sliding
+and deformable sampling: sliding provides overlapping local
+context; deformable offsets adapt sampling to content, as
+illustrated in Figure 1(d).
+C. DSwin Transformer Block
+The DSwin Transformer Block integrates DSwin attention
+and a feed-forward network with a complementary multi-scale
+strategy to strengthen feature extraction.
+1) Multi-Scale DSwin (MS-DSwin) Attention: Image content and degradations manifest across a spectrum of scales. The
+standard multi-head attention framework provides a natural
+and computationally efficient vehicle for capturing such multiscale information. Instead of treating all attention heads identically, we leverage this structure to explicitly assign different
+spatial extents to different groups of heads, as depicted in
+Figure 3(b). Specifically, for a model with N heads, we
+partition them into groups, with each group h being assigned
+a unique sliding window kernel size kh . This allows the model
+to simultaneously aggregate features from both compact local
+neighborhoods and broader contextual regions within a single
+MS-DSwin module. Outputs from all heads are concatenated
+and projected to fuse multi-scale information at a small
+additional cost.
+2) Multi-Scale Gated Feed-Forward Network (MSG-FFN):
+A standard feed-forward network (FFN) processes tokens
+independently via point-wise linear layers, without explicit
+spatial context. To keep a multi-scale design throughout the
+block, we introduce a Multi-Scale Gated FFN (MSG-FFN):
+after channel expansion, features split into parallel depth-wise
+
+6
+
+TABLE I
+C OMPREHENSIVE OVERVIEW OF THE EXPERIMENTAL SETTINGS USED TO EVALUATE DS WIN IR. E ACH SETTING IS DEFINED BY ITS RESTORATION TASKS ,
+DEGRADATION TYPES , AND CORRESPONDING DATASETS FOR TRAINING AND TESTING .
+Experiment Settings
+
+Tasks
+
+Three-Task Restoration
+
+3
+
+Degradation Types
+
+Datasets
+
+Denoising, Dehazing, Deraining
+Adds Motion Deblurring & Low-Light
+Enhancement to the three-task setup
+
+BSD400 [87], WED [88], RESIDE (SOTS) [89], Rain100L [90], BSD68 [91]
+
+Five-Task Restoration
+
+5
+
+Synthetic Deweathering
+
+3
+
+Snow, Raindrop, Outdoor Rain
+
+Snow100K [94], Raindrop [95], Outdoor-Rain [96]
+
+Real-World Deweathering
+
+3
+
+Real Rain, Real Snow, Real Haze
+
+SPA-Data [97], RealSnow [98], REVIDE [99]
+
+Real-World Deweathering
+
+3
+
+WeatherBench [100]
+
+Composite Degradation
+
+11
+
+All-Time Adverse Weather Types
+Low-Light, Haze, Rain, Snow,
+and their combinations
+
+convolution branches with different kernel sizes or dilations,
+followed by gating and projection. As shown in Figure 3(c),
+after an initial channel expansion layer, the MSG-FFN splits
+the features into parallel branches. Each branch employs a
+depth-wise convolution with a different kernel size or dilation
+rate, explicitly re-introducing spatial reasoning at multiple
+scales.
+
+Adds GoPro [92] and LOLv1 [93] to the three-task training set
+
+DIV2K [101] with corresponding degradations
+
+datasets, evaluation protocols, and implementation specifics.
+We then present extensive quantitative and qualitative comparisons against state-of-the-art methods across a wide range of
+image restoration tasks. Finally, we provide in-depth ablation
+studies to dissect the contribution of each component of our
+model and analyze its underlying mechanisms.
+A. Experimental Setup
+
+D. Remarks
+It is crucial to position our contribution not as another
+incremental improvement, but as a complementary perspective
+in designing attention mechanisms for dense prediction tasks.
+Previous works typically resort to hand-crafted patterns. Our
+DSwin Attention, in contrast, introduces the token-centric and
+content-aware paradigm. This addresses the core issues of
+cross-window interaction and inflexible receptive fields directly
+and adaptively.
+Content-Aware Property: To provide intuition for the dynamic behavior of our proposed DSwin Attention, we present
+a visual analysis of its learned offsets in Figure 4. This
+visualization highlights two key properties of our module.
+First, at a micro-level (middle column), the learned offsets
+enable the sampling points to break free from the rigid
+reference grid, allowing the module to adaptively fetch features
+from more informative, non-adjacent locations. Second, at
+a macro-level (right column), the module exhibits a strong
+content-aware
+capability. We visualize the offset magnitude
+p
+(d = dx2 + dy 2 ) as a heatmap and observe a clear correlation with input complexity. The module learns significantly
+larger offsets for challenging regions (e.g., complex textures
+or heavy degradation), indicating an active search for relevant
+information over a wider area. Conversely, it reverts to a local
+operation (minimal offsets) in simple, uniform regions. This
+behavior validates that our DSwin Attention operates as a
+dynamic, content-aware operator rather than a static receptive
+field expander. We provide a more quantitative analysis of the
+resulting receptive field in our ablation study.
+IV. E XPERIMENTS
+In this section, we conduct a comprehensive set of experiments to rigorously evaluate the performance of our proposed
+DSwinIR. We first detail the experimental setup, including
+
+To comprehensively validate the capabilities of DSwinIR,
+we have designed a multi-faceted evaluation protocol spanning
+a wide range of restoration scenarios, from standard multitask benchmarks to complex and composite degradations.
+This section details the benchmarks, competing methods, and
+implementation specifics of our experiments.
+1) Evaluation Benchmarks and Metrics: Our evaluation
+is structured across four distinct experimental settings, each
+designed to probe a specific aspect of our model’s performance. For all quantitative evaluations, we employ the widelyrecognized Peak Signal-to-Noise Ratio (PSNR) and Structural
+Similarity Index Measure (SSIM). Higher values in both
+metrics indicate superior restoration quality.
+a) Multi-Task All-in-One Image Restoration: This setting
+assesses the ability of a single model to serve as a versatile,
+general-purpose restorer. Following established conventions,
+we evaluate on two standard benchmarks. The three-task
+benchmark [15], [67] comprises Gaussian denoising, deraining, and dehazing. The more challenging five-task benchmark
+[16] extends this by incorporating motion deblurring and lowlight enhancement, demanding greater generalization from a
+single set of model weights. The specific datasets for training
+and testing are detailed in Table I.
+b) Adverse Weather Removal: This setting focuses on
+the practical and challenging domain of deweathering. We test
+DSwinIR’s robustness on both synthetic and real-world data.
+For the synthetic evaluation, we use the “AllWeather” collection [96], which includes images corrupted by snow, raindrops,
+and heavy rain, allowing for a controlled assessment across
+varied weather phenomena. To validate real-world efficacy, we
+employ a challenging benchmark [98] composed of datasets
+with authentic rain (SPA-Data [97]), snow (RealSnow [98]),
+and haze (REVIDE [99]), which feature complex, non-uniform
+artifacts that are the true test of a model’s generalization power.
+
+7
+
+TABLE II
+Q UANTITATIVE COMPARISONS FOR Setting 1: three distinct degradation tasks. * DENOTES RESULTS REPORTED BY PRIOR WORK [15], [74].
+
+Method
+
+Venue
+
+MPRNet [7]
+Uformer [11]
+Restormer [49]
+NAFNet [38]
+FSNet* [39]
+DRSformer* [14]
+MambaIR* [54]
+VmambaIR [56]
+MaIR [57]
+DL [102]
+AirNet [67]
+IDR* [68]
+PromptIR [15]
+Gridformer* [103]
+NDR [104]
+InstructIR [105]
+TextualDegRemoval [73]
+AdaIR [16]
+Perceive-IR [74]
+PoolNet [106]
+VLU-Net [71]
+DSwinIR (Ours)
+
+CVPR’21
+CVPR’22
+CVPR’22
+ECCV’22
+TPAMI’23
+CVPR’23
+ECCV’24
+TCSVT’25
+CVPR’25
+TPAMI’19
+CVPR’22
+CVPR’23
+NeurIPS’23
+IJCV’24
+TIP’24
+ECCV’24
+CVPR’24
+ICLR’25
+TIP’25
+TIP’25
+CVPR’25
+2025
+
+Denoising (CBSD68 [91])
+σ = 15
+σ = 25
+σ = 50
+33.27/0.920 30.76/0.871 27.29/0.761
+33.55/0.922 30.71/0.859 27.63/0.786
+33.72/0.930 30.67/0.865 27.63/0.792
+33.03/0.918 30.47/0.865 27.12/0.754
+33.81/0.930 30.84/0.872 27.69/0.792
+33.28/0.921 30.55/0.862 27.58/0.786
+33.88/0.931 30.95/0.874 27.74/0.793
+33.75/0.927 31.10/0.879 27.81/0.782
+33.60/0.925 30.98/0.876 27.69/0.779
+33.05/0.914 30.41/0.861 26.90/0.740
+33.92/0.932 31.26/0.888 28.00/0.797
+33.89/0.931 31.32/0.884 28.04/0.798
+33.98/0.933 31.31/0.888 28.06/0.799
+33.93/0.931 31.37/0.887 28.11/0.801
+34.01/0.932 31.36/0.887 28.10/0.798
+34.15/0.933 31.52/0.890 28.30/0.804
+34.01/0.933 31.39/0.890 28.18/0.802
+34.12/0.935 31.45/0.892 28.19/0.802
+34.13/0.934 31.53/0.890 28.31/0.804
+34.10/0.935 31.45/0.892 28.18/0.803
+34.13/0.935 31.48/0.892
+28.23/0.804
+34.12/0.933 31.59/0.890 28.31/0.803
+
+Dehazing
+SOTS [89]
+28.00/0.958
+27.13/0.953
+27.78/0.958
+24.11/0.928
+29.14/0.968
+29.02/0.968
+29.57/0.970
+29.75/0.970
+28.94/0.965
+26.92/0.391
+27.94/0.962
+29.87/0.970
+30.58/0.974
+30.37/0.970
+28.64/0.962
+30.22/0.959
+31.63/0.980
+31.06/0.980
+30.87/0.975
+30.94/0.980
+30.71/0.980
+31.86/0.980
+
+Deraining
+Rain100L [90]
+33.86/0.958
+34.28/0.961
+33.78/0.958
+33.64/0.956
+35.61/0.969
+35.89/0.970
+35.42/0.969
+35.63/0.970
+34.52/0.964
+32.62/0.931
+34.90/0.967
+36.03/0.971
+36.37/0.972
+37.15/0.972
+35.42/0.969
+37.98/0.978
+37.58/0.979
+38.64/0.983
+38.29/0.980
+38.54/0.983
+38.93/0.984
+37.73/0.983
+
+Average
+30.63/0.894
+30.66/0.896
+30.75/0.901
+29.67/0.844
+31.42/0.906
+31.26/0.902
+31.51/0.907
+31.61/0.906
+31.15/0.902
+29.98/0.875
+31.20/0.910
+31.83/0.911
+32.06/0.913
+32.19/0.912
+31.51/0.910
+32.43/0.913
+32.63/0.917
+32.69/0.918
+32.63/0.917
+32.64/0.919
+32.70/0.919
+32.72/0.917
+
+Haze
+
+Noise
+
+Rain
+
+All-in-One
+
+General
+
+Type
+
+Input
+
+PromptIR
+
+NDR
+
+AdaIR
+
+Ours
+
+GT
+
+Fig. 5. Visual comparison of restoration results across three degradation tasks: noise removal (top row), rain streak removal (middle row), and dehazing
+(bottom row). Zoom-in regions (shown in colored boxes) demonstrate that our method achieves superior detail preservation and degradation removal.
+
+To further validate our method, we also conduct evaluations
+on the recent WeatherBench [100] dataset. This large-scale,
+real-world benchmark provides 41,402 training and 600 testing
+
+pairs. It presents a significant challenge by incorporating a
+diverse array of adverse weather conditions, including foggy,
+raining, and snowing scenarios captured during both daytime
+
+8
+
+TABLE III
+Q UANTITATIVE COMPARISONS FOR Setting 2: five distinct degradation tasks. * INDICATES NUMBERS REPORTED BY PRIOR WORK [15], [74].
+
+All-in-One
+
+General
+
+Type
+
+Method
+
+Venue
+
+SwinIR [10]
+Uformer [11]
+MIRNet-v2 [107]
+Restormer [49]
+NAFNet [38]
+DRSformer* [14]
+Retinexformer* [108]
+FSNet* [39]
+MambaIR* [54]
+VMambaIR [56]
+MaIR [57]
+DL [102]
+TAPE [109]
+Transweather [110]
+AirNet [67]
+IDR [68]
+PromptIR* [15]
+Gridformer* [103]
+InstructIR [105]
+AdaIR [16]
+Perceive-IR [74]
+PoolNet [106]
+VLU-Net [71]
+DSwinIR (Ours)
+
+ICCVW’21
+CVPR’22
+TPAMI’22
+CVPR’22
+ECCV’22
+CVPR’23
+ICCV’23
+TPAMI’23
+ECCV’24
+TCSVT’25
+CVPR’25
+TPAMI’19
+ECCV’22
+CVPR’22
+CVPR’22
+CVPR’23
+NeurIPS’23
+IJCV’24
+ECCV’24
+ICLR’25
+TIP’25
+TIP’25
+CVPR’25
+2025
+
+Denoising
+CBSD68 [91]
+30.59/0.868
+30.49/0.883
+30.97/0.881
+31.49/0.884
+31.02/0.883
+30.97/0.881
+30.84/0.880
+31.33/0.883
+31.41/0.884
+30.81/0.879
+30.98/0.882
+23.09/0.745
+30.18/0.855
+29.00/0.841
+30.91/0.882
+31.60/0.887
+31.47/0.886
+31.45/0.885
+31.40/0.887
+31.35/0.889
+31.44/0.887
+31.24/0.887
+31.43/0.891
+31.34/0.885
+
+Dehazing
+SOTS [89]
+21.50/0.891
+23.40/0.919
+24.03/0.927
+24.09/0.927
+25.23/0.939
+24.66/0.931
+24.81/0.933
+25.53/0.943
+25.81/0.944
+27.65/0.949
+27.72/0.950
+20.54/0.826
+22.16/0.861
+21.32/0.885
+21.04/0.884
+25.24/0.943
+26.54/0.949
+26.79/0.951
+27.10/0.956
+30.53/0.978
+28.19/0.964
+30.25/0.977
+30.84/0.980
+30.09/0.975
+
+and nighttime.
+c) Composite Degradation: To push the boundaries of
+evaluation, we evaluate a composite degradation benchmark
+introduced in [111] to assess the model’s performance in more
+realistic and complex scenarios where multiple corruptions
+coexist. This benchmark is crucial for testing a model’s
+ability to disentangle and simultaneously mitigate interacting
+artifacts. We adopt a challenging test set by combining four
+degradation types: low-light (l), haze (h), rain (r), and snow
+(s). The evaluation protocol includes all single degradations,
+all six dual-degradation combinations (e.g., l+h, h+r), and two
+triple-degradation combinations (l+h+r, l+h+s). Success in this
+setting signals a higher level of architectural intelligence and
+robustness.
+d) Single-Task Specialization: While all-in-one models
+demonstrate versatility, a truly superior architecture must also
+excel when specialized. This experimental setting investigates
+the “specialization power” of DSwinIR by training it exclusively for a single task. We conduct focused evaluations
+on image deraining (Rain100L and the real-world SPA-Data)
+and dehazing (SOTS). In addition, we employ further lowlight evaluation benchmarks, including the real-world LOLv2
+dataset. We also evaluate DSwinIR on a mixed task involving
+both low-light enhancement and deblurring on the LowBlur
+dataset, following the protocol from [36]. Outperforming stateof-the-art specialist models in this context provides evidence
+of our architecture’s significant strength.
+
+Deraining
+Rain100L [90]
+30.78/0.923
+33.32/0.962
+33.89/0.954
+34.81/0.962
+35.56/0.967
+33.45/0.953
+32.68/0.940
+36.07/0.968
+36.55/0.971
+34.26/0.960
+34.04/0.946
+21.96/0.762
+29.67/0.904
+29.43/0.905
+32.98/0.951
+35.63/0.965
+36.37/0.970
+36.61/0.971
+36.84/0.973
+38.02/0.981
+37.25/0.977
+37.85/0.981
+38.54/0.982
+37.77/0.982
+
+Deblurring
+GoPro [92]
+24.52/0.773
+26.26/0.807
+26.30/0.799
+27.22/0.829
+26.53/0.808
+25.56/0.780
+25.09/0.779
+28.32/0.869
+28.61/0.875
+26.02/0.799
+25.68/0.791
+19.86/0.672
+24.47/0.763
+25.12/0.757
+24.35/0.781
+27.87/0.846
+28.71/0.881
+29.22/0.884
+29.40/0.886
+28.12/0.858
+29.46/0.886
+27.66/0.844
+27.46/0.840
+29.17/0.879
+
+Low-Light
+LOL [93]
+17.81/0.723
+21.16/0.817
+21.52/0.815
+20.41/0.806
+20.49/0.809
+21.77/0.821
+22.76/0.834
+22.29/0.829
+22.49/0.832
+22.38/0.827
+22.17/0.821
+19.83/0.712
+18.97/0.621
+21.21/0.792
+18.18/0.735
+21.34/0.826
+22.68/0.832
+22.59/0.831
+23.00/0.836
+23.00/0.845
+22.88/0.833
+22.66/0.841
+22.29/0.833
+22.64/0.843
+
+Average
+25.04/0.835
+26.93/0.877
+27.34/0.875
+27.60/0.881
+27.76/0.881
+27.28/0.873
+27.24/0.873
+28.71/0.898
+28.97/0.901
+28.22/0.883
+28.11/0.876
+21.05/0.743
+25.09/0.801
+25.22/0.836
+25.49/0.846
+28.34/0.893
+29.15/0.904
+29.33/0.904
+29.55/0.907
+30.20/0.910
+29.84/0.909
+29.93/0.906
+30.11/0.905
+30.20/0.913
+
+2) Compared Methods: To comprehensively position
+DSwinIR within the literature, we conduct extensive comparisons against a spectrum of state-of-the-art models. This
+includes foundational, backbone-centric architectures such as
+Uformer [11], Restormer [49], DRSformer [14], GridFormer
+[103], MambaIR [54], VmambaIR [56], and MaIR [57] allowing for a direct benchmark of the architectural efficacy of
+our proposed DSwin attention. Furthermore, we contrast our
+model with cutting-edge prompt-based and instruction-guided
+all-in-one methods, including AirNet [67], PromptIR [15], InstructIR [105], AdaIR [16], PoolNet [106], and VLUNet [71].
+Demonstrating superiority over this class of models highlights
+that our DSwinIR provides a more powerful and efficient
+solution than methods reliant on external semantic guidance
+or task-specific modules.
+3) Implementation Details: DSwinIR is trained end-to-end
+using the AdamW optimizer with an initial learning rate of
+2×10−4 , which is decayed using a cosine annealing schedule.
+Our model employs a four-level U-shaped architecture, with
+the number of DSwin Transformer blocks in the encoder stages
+set to [4, 6, 6, 8] from shallow to deep. We use a batch size
+of 8 and train on randomly cropped 128 × 128 patches from
+the respective training images. All experiments are conducted
+using PyTorch on 2 NVIDIA 3090 GPUs.
+B. Results and Analysis
+In this section, we present a detailed analysis of DSwinIR’s
+performance across a hierarchy of benchmarks, ranging from
+
+9
+
+TABLE IV
+Q UANTITATIVE COMPARISONS FOR ADVERSE WEATHER REMOVAL INCLUDING RAIN , HAZE , AND SNOW. M ISSING VALUES ARE DENOTED BY ‘—’.
+
+Type Methods
+
+Snow100K-S [94] Snow100K-L [94] Outdoor-Rain [96] RainDrop [95]
+
+Average
+
+SSIM
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+PSNR
+
+SSIM
+
+SPANet [97]
+DesnowNet [94]
+HRGAN [112]
+MPRNet [7]
+AttentiveGAN [95]
+IDT [44]
+NAFNet [38]
+Restormer [49]
+
+CVPR’19
+TIP’18
+CVPR’19
+CVPR’21
+CVPR’18
+TIP’22
+ECCV’22
+CVPR’22
+
+29.92
+32.33
+–
+–
+–
+–
+34.79
+36.01
+
+0.8260
+0.9500
+–
+–
+–
+–
+0.9497
+0.9579
+
+23.70
+27.17
+–
+–
+–
+–
+30.06
+30.36
+
+0.7930
+0.8983
+–
+–
+–
+–
+0.9017
+0.9068
+
+–
+–
+21.56
+28.03
+–
+–
+29.59
+30.03
+
+–
+–
+0.8550
+0.9192
+–
+–
+0.9027
+0.9215
+
+–
+–
+–
+–
+31.59
+31.87
+–
+32.18
+
+–
+–
+–
+–
+0.9170
+0.9313
+–
+0.9408
+
+–
+–
+–
+–
+–
+–
+–
+–
+
+–
+–
+–
+–
+–
+–
+–
+–
+
+All-in-One [113]
+TransWeather [110]
+Chen et al. [114]
+WGWSNet [115]
+WeatherDiff64 [78]
+WeatherDiff128 [78]
+AWRCP [116]
+GridFormer [103]
+MPerceiver [117]
+DTPM [79]
+Histoformer [118]
+DSwinIR (Ours)
+
+CVPR’20
+CVPR’22
+CVPR’22
+CVPR’22
+TPAMI’23
+TPAMI‘23
+ICCV’23
+IJCV’24
+CVPR’24
+CVPR’24
+ECCV’24
+2025
+
+–
+32.51
+34.42
+34.31
+35.83
+35.02
+36.92
+37.46
+36.23
+37.01
+37.41
+38.11
+
+–
+0.9341
+0.9469
+0.9460
+0.9566
+0.9516
+0.9652
+0.9640
+0.9571
+0.9663
+0.9656
+0.9683
+
+28.33
+29.31
+30.22
+30.16
+30.09
+29.58
+31.92
+31.71
+31.02
+30.92
+32.16
+32.58
+
+0.8820
+0.8879
+0.9071
+0.9007
+0.9041
+0.8941
+0.9341
+0.9231
+0.9164
+0.9174
+0.9261
+0.9312
+
+24.71
+28.83
+29.27
+29.32
+29.64
+29.72
+31.39
+31.87
+31.25
+30.99
+32.08
+32.76
+
+0.8980
+0.9000
+0.9147
+0.9207
+0.9312
+0.9216
+0.9329
+0.9335
+0.9246
+0.9340
+0.9389
+0.9502
+
+31.12
+30.17
+31.81
+32.38
+30.71
+29.66
+31.93
+32.39
+33.21
+32.72
+33.06
+32.88
+
+0.9268
+0.9157
+0.9309
+0.9378
+0.9312
+0.9225
+0.9314
+0.9362
+0.9294
+0.9440
+0.9441
+0.9474
+
+28.05
+30.20
+31.43
+31.54
+31.57
+31.00
+33.04
+33.36
+32.93
+32.91
+33.68
+34.08
+
+0.9023
+0.9094
+0.9249
+0.9263
+0.9308
+0.9225
+0.9409
+0.9392
+0.9319
+0.9404
+0.9437
+0.9493
+
+Snow
+
+RainDrop
+
+Test1
+
+Task-Specific
+
+PSNR
+
+All-in-One
+
+Venue
+
+Input
+
+TransWeather
+
+WGWS-Net
+
+WeatherDiff
+
+Histoformer
+
+DSwinIR
+
+GT
+
+Fig. 6. Visual results on the AllWeather datasets; from top to bottom are samples for outdoor-rain, raindrop and snow test data. Our DSwinIR achieves better
+clarity even when compared to the diffusion-based approaches.
+
+10
+
+complex multi-degradation scenarios to specialized single-task
+settings. Our aim is not only to establish the state-of-theart performance of our model but also to provide insights
+into the architectural and mechanistic factors that contribute
+to its effectiveness. In the following result tables, Best and
+second-best results are highlighted.
+1) Results on All-in-One Image Restoration: The most
+challenging test for any restoration model is the all-in-one
+setting, where a single network must handle a diverse array
+of degradations. We evaluate DSwinIR on the standard threetask and five-task benchmarks to demonstrate its capacity as
+a powerful universal backbone.
+a) Performance on Three Degradation Tasks: Following
+the classic benchmark setup [15], [67], we first evaluate on
+denoising, deraining, and dehazing. The quantitative results are
+presented in Table II. DSwinIR achieves an average PSNR of
+32.72 dB. This result demonstrates improvements over other
+foundational architectures like GridFormer (32.19 dB) and
+validates the efficacy of our DSwin attention. Furthermore,
+DSwinIR remains highly competitive even when compared
+to the latest prompt-based (e.g., AdaIR, 32.69 dB) and multimodal (e.g., VLUNet, 32.70 dB) methods. The ability of
+our vision-only backbone to perform at this level suggests its
+strong intrinsic representation power. The qualitative results
+in Figure 5 are consistent with these quantitative findings,
+showing that DSwinIR effectively restores fine textures and
+removes complex artifacts.
+b) Performance on Five Degradation Tasks: To further
+probe the model’s generalization, we adopt the five-task benchmark, which introduces deblurring and low-light enhancement
+tasks. As detailed in Table III, DSwinIR achieves an average
+PSNR of 30.20 dB. This result is highly competitive with
+the top-performing methods, such as the prompt-based AdaIR
+(30.20 dB). The model’s performance is notably strong in tasks
+requiring significant spatial transformation, such as deraining
+(e.g., +0.93 dB over InstructIR) and dehazing (e.g., +2.99 dB
+over InstructIR). While its performance on low-light enhancement is competitive rather than leading, its overall strength
+across the other tasks secures this high average. This highlights
+the DSwinIR architecture’s ability to jointly learn from a
+diverse set of degradations within a single set of weights.
+2) Results on Deweathering Datasets: Beyond general
+restoration, we investigate DSwinIR’s performance in the
+practical domain of deweathering, which requires handling
+complex, real-world atmospheric phenomena.
+a) Synthetic Deweathering Benchmarks: On the comprehensive AllWeather dataset collection, which includes snow,
+raindrops, and outdoor rain, DSwinIR demonstrates clear
+superiority. As presented in Table IV, our model achieves
+an average PSNR of 34.08 dB, surpassing the previous best,
+Histoformer [118], by a convincing margin of 0.4 dB. The
+visual results in Figure 6 are consistent with the quantitative
+results. Compared to prior works, including diffusion-based
+models, DSwinIR consistently produces images with better
+clarity, more vibrant colors, and sharper details, effectively
+removing weather artifacts without introducing secondary distortions.
+
+TABLE V
+C OMPARISON ON DE - WEATHERING TASKS ON REAL - WORLD DATASETS
+FOLLOWING [98]
+
+Datasets
+
+SPA+
+
+RealSnow
+
+REVIDE
+
+Average
+
+Methods
+Chen et al. [114]
+TransWeather [110]
+WGWSNet [98]
+DSwinIR (Ours)
+Chen et al. [114]
+TransWeather [110]
+WGWSNet [98]
+DSwinIR (Ours)
+Chen et al. [114]
+TransWeather [110]
+WGWSNet [98]
+DSwinIR (Ours)
+Chen et al. [114]
+TransWeather [110]
+WGWSNet [98]
+DSwinIR (Ours)
+
+PSNR ↑
+37.32
+33.64
+38.94
+40.60
+29.37
+29.16
+29.46
+30.14
+20.10
+17.33
+20.44
+20.80
+28.93
+26.71
+29.61
+30.51
+
+SSIM ↑
+0.97
+0.93
+0.98
+0.98
+0.88
+0.82
+0.85
+0.89
+0.85
+0.82
+0.87
+0.89
+0.90
+0.86
+0.90
+0.92
+
+b) Real-World Deweathering Benchmarks: On a challenging benchmark composed of real-world rain, snow, and
+haze datasets [98], DSwinIR again performs well. As shown
+in Table V, our model achieves an average PSNR of 30.51
+dB, significantly outperforming the previous state-of-the-art
+WGWSNet [98] by 0.9 dB.
+Moreover, we conduct evaluations on the recent, largescale real-world WeatherBench dataset [100], with results
+presented in Table VI. Our method, DSwinIR, achieves competitive overall performance. Notably, DSwinIR performs well
+in the Dehaze and Desnow tasks, outperforming the nextbest method (MWFormer) by 0.73 dB in Dehaze PSNR and
+0.14 dB in Desnow PSNR. While WGWS-Net shows strong
+performance in Derain, our model achieves a close secondbest result. This performance across all categories results in a
+high overall average, indicating a good balance and robustness
+across diverse weather conditions. As illustrated in Figure 7,
+the qualitative results are consistent with these quantitative
+findings. DSwinIR effectively removes complex weather artifacts (e.g., dense fog, heavy snow) while preserving finegrained details and avoiding color casts.
+3) Results on Composite Degradations: We evaluate
+DSwinIR on the challenging composite degradation benchmark (CDD-11) [111], which features 11 combinations of lowlight, haze, rain, and snow. As presented in Table VII, our
+DSwinIR achieves an average PSNR of 29.43 dB, which is
+0.96 dB higher than the next-best method, OneRestore [111].
+The proposed DSwinIR can learn to adapt its receptive field to
+different degradation structures (e.g., thin rain streaks or broad
+haze), and our model achieves the advanced performance
+across all 11 individual and combined degradation settings,
+demonstrating the architecture’s robustness in handling complex, interacting artifacts. The qualitative results in Figure 8
+are consistent with these quantitative findings, showing that
+DSwinIR effectively removes interacting artifacts while preserving image detail.
+
+11
+
+Method
+
+Venue
+
+Dehaze
+Derain
+Desnow
+Average
+PSNR↑ SSIM↑ LPIPS↓ PSNR↑ SSIM↑ LPIPS↓ PSNR↑ SSIM↑ LPIPS↓ PSNR↑ SSIM↑ LPIPS↓
+
+General
+
+DehazeFormer [119]
+DCMPNet [120]
+DRSformer [14]
+NeRD-Rain [121]
+SnowFormer [122]
+MPRNet [37]
+Restormer [49]
+
+TIP’23
+CVPR’24
+CVPR’23
+CVPR’24
+arXiv’22
+CVPR’21
+CVPR’22
+
+24.12
+21.18
+19.95
+21.52
+22.71
+23.27
+19.30
+
+0.745
+0.506
+0.694
+0.718
+0.736
+0.739
+0.687
+
+0.345
+0.491
+0.404
+0.386
+0.305
+0.355
+0.412
+
+36.05
+32.04
+33.98
+35.74
+35.18
+36.14
+34.49
+
+0.954
+0.876
+0.943
+0.950
+0.951
+0.954
+0.945
+
+0.181
+0.282
+0.209
+0.182
+0.155
+0.171
+0.197
+
+28.88
+24.81
+28.00
+28.87
+29.30
+29.18
+27.95
+
+0.849
+0.614
+0.836
+0.851
+0.868
+0.860
+0.836
+
+0.178
+0.546
+0.197
+0.182
+0.143
+0.177
+0.197
+
+29.68
+26.01
+27.31
+28.71
+29.06
+29.53
+27.25
+
+0.849
+0.665
+0.824
+0.840
+0.852
+0.851
+0.823
+
+0.235
+0.440
+0.270
+0.250
+0.201
+0.234
+0.269
+
+AirNet [67]
+CVPR’22
+TransWeather [110] CVPR’22
+WGWS-Net [98]
+CVPR’23
+PromptIR [15]
+NeurIPS’23
+DiffUIR [123]
+CVPR’24
+MWFormer [124]
+TIP’24
+Histoformer [118]
+ECCV’24
+AdaIR [16]
+ICLR’25
+DSwinIR (Ours)
+2025
+
+20.94
+19.79
+13.79
+21.11
+22.74
+24.42
+17.69
+23.08
+25.15
+
+0.705
+0.680
+0.603
+0.713
+0.744
+0.746
+0.669
+0.731
+0.766
+
+0.383
+0.397
+0.535
+0.375
+0.355
+0.284
+0.437
+0.351
+0.329
+
+33.59
+29.34
+37.08
+34.54
+35.93
+35.15
+30.70
+34.87
+37.17
+
+0.942
+0.903
+0.961
+0.944
+0.955
+0.951
+0.916
+0.946
+0.961
+
+0.224
+0.294
+0.117
+0.198
+0.172
+0.153
+0.279
+0.192
+0.173
+
+22.06
+24.96
+20.81
+27.93
+29.50
+29.98
+25.39
+28.44
+30.12
+
+0.780
+0.796
+0.780
+0.836
+0.870
+0.872
+0.808
+0.837
+0.873
+
+0.291
+0.231
+0.248
+0.195
+0.162
+0.133
+0.225
+0.179
+0.170
+
+25.53
+24.70
+23.89
+27.86
+29.39
+29.85
+24.59
+28.80
+30.81
+
+0.809
+0.793
+0.781
+0.831
+0.856
+0.856
+0.798
+0.838
+0.867
+
+0.299
+0.307
+0.300
+0.256
+0.230
+0.190
+0.314
+0.240
+0.224
+
+Haze
+
+Snow
+
+Rain
+
+Type
+
+All-in-One
+
+TABLE VI
+Q UANTITATIVE COMPARISON ON THE REAL - WORLD W EATHER B ENCH DATASET.
+
+Input
+
+PromptIR
+
+Histoformer
+
+AdaIR
+
+DiffUIR
+
+Ours
+
+GT
+
+Fig. 7. Visual results on the real-world WeatherBench dataset.
+
+4) Results on Single-Task Settings: To complement the allin-one results, we also investigate the performance of DSwinIR
+on single-task benchmarks. These experiments are designed
+to assess the model’s effectiveness when its architecture is
+optimized for a single task, and to benchmark its performance
+against models developed specifically for these applications.
+a) Deraining on Rain100L: We first evaluate the model’s
+performance on the standard Rain100L benchmark. As shown
+in Table VIII, this is a highly competitive field. When
+trained solely for this task, DSwinIR demonstrates strong
+performance. The gain over other backbone architectures
+like PromptIR (+1.98 dB) suggests the architectural progress
+provided by our DSwin attention. Moreover, DSwinIR also
+achieves a 0.12 dB improvement over the recent AdaIR model.
+
+b) Dehazing on SOTS Outdoor: The task of singleimage dehazing presents a different challenge, often requiring
+a nuanced understanding of both global atmospheric light
+and local object details. As detailed in Table IX, DSwinIR
+achieves a PSNR of 32.89 dB. This result represents a 1.09
+dB gain over the next-best method, AdaIR. We posit that the
+deformable mechanism’s ability to adapt its receptive field is
+well-suited to the non-homogeneous nature of haze, while the
+sliding mechanism’s capacity to preserve fine structural details
+ensures object clarity.
+c) Real-World Deraining on SPA-Data: We also test
+DSwinIR on the real-world SPA-Data benchmark. The results,
+summarized in Table XII, show DSwinIR achieves a PSNR
+of 49.19 dB. This represents a 0.66 dB gain over the strong
+
+12
+
+TABLE VII
+Q UANTITATIVE RESULTS ON THE C OMPOSITE D EGRADATION S ETTING .
+
+Method
+
+Venue
+
+l
+
+h
+
+r
+
+s
+
+l+h
+
+l+r
+
+l+s
+
+h+r
+
+h+s
+
+l+h+r
+
+l+h+s
+
+Avg.
+
+Restormer [49]
+NAFNet [38]
+AirNet [67]
+PromptIR [15]
+TransWeather [110]
+WeatherDiff [98]
+WGWSNet [98]
+InstructIR [105]
+OneRestore [111]
+
+CVPR’22
+ECCV’22
+CVPR’22
+NeurIPS’23
+CVPR’22
+TPAMI’23
+CVPR’23
+ECCV’24
+ECCV’24
+
+26.29
+24.50
+24.83
+26.32
+23.39
+23.58
+24.39
+26.70
+26.55
+
+28.35
+25.34
+24.21
+26.10
+23.95
+21.99
+27.90
+32.61
+32.71
+
+33.10
+29.24
+26.55
+31.56
+26.69
+24.85
+33.15
+33.51
+33.48
+
+33.43
+29.54
+26.79
+31.53
+25.74
+24.80
+34.43
+34.45
+34.50
+
+24.80
+21.91
+23.23
+24.49
+22.24
+21.83
+24.27
+24.36
+26.15
+
+25.28
+22.75
+22.82
+25.05
+22.62
+22.69
+25.06
+25.41
+25.83
+
+24.99
+22.79
+23.29
+24.51
+21.80
+22.12
+24.60
+25.63
+25.56
+
+26.80
+23.67
+22.21
+24.54
+23.10
+21.25
+27.23
+28.80
+30.27
+
+26.15
+23.86
+23.29
+23.70
+22.34
+21.99
+27.65
+29.64
+30.46
+
+23.90
+21.03
+21.80
+23.74
+21.55
+21.23
+23.90
+24.84
+25.18
+
+23.82
+20.82
+22.24
+23.33
+21.01
+21.04
+23.97
+24.32
+25.28
+
+26.99
+24.13
+23.75
+25.90
+23.13
+22.49
+26.96
+28.21
+28.47
+
+DSwinIR (Ours)
+
+2025
+
+27.38
+
+33.72
+
+34.95
+
+35.44
+
+26.56
+
+26.54
+
+26.24
+
+30.94
+
+30.54
+
+25.70
+
+25.70
+
+29.43
+
+h+s
+
+l+h
+
+l+s
+
+l+r
+
+l+h+r
+
+l+h+s
+
+GT
+
+Ours
+
+OneRestore PromptIR
+
+Restormer
+
+Input
+
+h+r
+
+Fig. 8. Visual results on the composite degradation tasks, showcasing performance on mixed degradations. Our method more effectively mitigates multiple
+interacting degradations, restoring clearer images with improved color fidelity and detail.
+
+DRSformer model. It suggests that the DSwin attention’s
+ability to learn adaptive, data-driven receptive fields provides
+a practical advantage for tackling such complex, non-uniform
+degradations.
+d) Low-Light Image Enhancement: We first evaluate
+DSwinIR on the widely-used low-light enhancement benchmark, LOLv2, which includes both real-world (LOLv2-Real)
+and synthetic (LOLv2-Syn) test sets. As presented in Table X,
+our model achieves state-of-the-art performance on both subsets. Furthermore, to assess the model’s capability in handling
+
+complex, compound degradations, we evaluate DSwinIR on
+the mixed task of joint low-light enhancement and deblurring. Following the experimental setup of DarkIR [36] on
+the LowBlur dataset, our model again demonstrates superior
+performance, as detailed in Table XI. DSwinIR achieves the
+highest scores with 27.33 dB in PSNR and 0.909 in SSIM.
+These results underscore the strong generalization capability
+of our model for the dedicated low-light enhancement task.
+
+13
+
+TABLE VIII
+S INGLE - TASK DERAINING RESULTS ON THE R AIN 100L DATASET.
+Method
+
+DIDMDN [125]
+
+UMR [126]
+
+SIRR [127]
+
+MSPFN [29]
+
+LPNet [128]
+
+AirNet [67]
+
+Restormer [49]
+
+PromptIR [15]
+
+AdaIR [16]
+
+DSwinIR (Ours)
+
+PSNR
+SSIM
+
+23.79
+0.773
+
+32.39
+0.921
+
+32.37
+0.926
+
+33.50
+0.948
+
+33.61
+0.958
+
+34.90
+0.977
+
+36.74
+0.978
+
+37.04
+0.979
+
+38.90
+0.985
+
+39.02
+0.986
+
+TABLE IX
+S INGLE - TASK DEHAZING RESULTS ON THE SOTS OUTDOOR TEST SET.
+Method
+
+DehazeNet [24]
+
+MSCNN [129]
+
+AODNet [130]
+
+EPDN [131]
+
+FDGAN [132]
+
+AirNet [67]
+
+Restormer [49]
+
+PromptIR [15]
+
+AdaIR [16]
+
+DSwinIR (Ours)
+
+PSNR
+SSIM
+
+22.46
+0.851
+
+22.06
+0.908
+
+20.29
+0.877
+
+22.57
+0.863
+
+23.15
+0.921
+
+23.18
+0.900
+
+30.87
+0.969
+
+31.31
+0.973
+
+31.80
+0.981
+
+32.89
+0.984
+
+RetinexNet [134]
+UFormer [11]
+FIDE [135]
+DRBN [136]
+KinD [137]
+Restormer [49]
+MIRNet [138]
+SNR-Net [139]
+FourLLIE [140]
+Retinexformer [108]
+
+15.47
+18.82
+16.85
+20.29
+14.74
+19.94
+20.02
+21.48
+21.60
+22.80
+
+0.567
+0.771
+0.678
+0.831
+0.641
+0.827
+0.820
+0.849
+0.847
+0.840
+
+17.13
+19.66
+15.20
+23.22
+13.29
+21.41
+21.94
+24.14
+24.17
+25.67
+
+0.798
+0.871
+0.612
+0.927
+0.578
+0.830
+0.876
+0.928
+0.917
+0.930
+
+DSwinIR (Ours)
+
+23.17
+
+0.851
+
+25.74
+
+0.934
+
+C. Ablation Study
+To validate our design choices and rigorously quantify the
+contribution of each proposed component, we conduct a series
+of in-depth ablation studies. We use the challenging three-task
+all-in-one setting as our testbed and present the comprehensive
+results in Figure 9.
+a) Efficacy of the Core DSwin Mechanisms: To validate our design, we incrementally introduce our components
+starting from established baselines. The Uformer [11] and
+DRSformer [14] models provide benchmarks at 30.66 dB
+and 31.26 dB, respectively. Our first experiment, isolating
+the sliding window mechanism, yields 31.79 dB, confirming
+the effectiveness of the token-centric paradigm. In parallel,
+isolating the deformable window mechanism achieves 32.11
+dB, a result that already outperforms the prompt-based PromptIR baseline (32.06 dB). When these two components are
+combined, the resulting DSwin module (K=7) achieves 32.53
+dB. This performance gain is greater than the sum of the
+individual component improvements, demonstrating a clear
+synergistic effect.
+b) Effective Receptive Field and Efficiency: The visualizations of the receptive field in Figure 10 offer profound
+qualitative insights into why DSwinIR is so effective. Its receptive field is demonstrably both global in reach and local in
+precision. This is the direct result of our design principles: the
+sliding mechanism ensures a connected, expansive base, while
+the deformable mechanism learns to dynamically concentrate
+attention on areas like object contours and textures.
+
+DSwin
+
+LOLv2-Syn
+PSNR ↑ SSIM
+
+Attention Mechanism
+
+LOLv2-Real
+PSNR
+SSIM ↑
+
+FFN
+Module
+
+Method
+
+Baseline
+Methods
+
+TABLE X
+Q UANTITATIVE COMPARISON ON THE LOLV 2 DATASET [133] FOR
+LOW- LIGHT ENHANCEMENT.
+
+Different
+Kernels
+
++MSG (Ours)
+
+Fig. 9. Ablation studies demonstrating the effectiveness of our key components. We evaluate (1) different attention mechanisms, showing improvements
+from sliding window (31.79 dB) and Deformable Window (32.11 dB) over
+baselines; (2) DSwin configurations with various kernel sizes (K=5, 7, 9)
+and multi-scale enhancement (32.69 dB); and (3) FFN module with MSG
+enhancement, achieving the best performance (32.72 dB). All experiments
+report the average PSNR of three distinct degradation tasks.
+
+Moreover, DSwinIR also exhibits computational efficiency,
+as detailed in Table XIII. It is crucial to note that DSwinIR
+achieves its superior performance without substantially increasing computational cost. Compared to its top-performing
+competitors, DSwinIR is significantly more economical. For
+instance, it requires 15% fewer FLOPs and is 22% faster
+than PromptIR, while delivering a substantially higher PSNR.
+The advantage is even more dramatic when compared to
+DRSformer, against which DSwinIR uses about 40% fewer
+FLOPs.
+c) Impact of Kernel Size and Multi-Scale Strategy:
+Having validated the DSwin concept, we next investigate its
+optimal configuration. We first analyze the impact of a fixed
+
+14
+
+TABLE XI
+Q UANTITATIVE COMPARISON FOR THE MIXED TASK ( LOW- LIGHT ENHANCEMENT AND DEBLURRING ) ON THE L OW B LUR DATASET [141].
+Method
+
+KinD++ [137]
+
+PSNR
+SSIM
+
+21.26
+0.753
+
+DRBN [136] DeblurGAN-v2 [142]
+21.78
+0.768
+
+MIMO [143]
+
+NAFNet [38]
+
+LEDNet [144]
+
+RetinexFormer [108]
+
+Restormer [49]
+
+22.41
+0.835
+
+25.36
+0.882
+
+25.74
+0.850
+
+26.02
+0.887
+
+26.72
+0.902
+
+22.30
+0.745
+
+DarkIR [36] DSwinIR (Ours)
+27.30
+0.898
+
+27.33
+0.909
+
+TABLE XII
+S INGLE - TASK DERAINING RESULTS ON THE REAL - WORLD SPA-DATA DATASET.
+Method
+
+MSPFN [29]
+
+MPRNet [37]
+
+DualGCN [145]
+
+SPDNet [146]
+
+Uformer [11]
+
+Restormer [49]
+
+IDT [44]
+
+DRSformer [14]
+
+DSwinIR (Ours)
+
+PSNR
+SSIM
+
+43.43
+0.9843
+
+43.64
+0.9844
+
+44.18
+0.9902
+
+43.20
+0.9871
+
+46.13
+0.9913
+
+47.98
+0.9921
+
+47.35
+0.9930
+
+48.53
+0.9924
+
+49.19
+0.9938
+
+TABLE XIII
+E FFICIENCY EVALUATION OF DIFFERENT METHODS WITH 256×256 INPUT.
+Methods
+AirNet [67]
+Uformer [11]
+Restormer [49]
+PromptIR [15]
+DRSformer [14]
+DSwinIR (Ours)
+
+Core Operation
+
+Params.
+
+FLOPs
+
+Latency
+
+PSNR
+
+Deformable Conv
+Window Attention
+Transposed Self-Attention
+Trans. SA + Prompts
+Sparse Window Attention
+DSwin Attention
+
+9M
+20M
+26M
+36M
+33M
+24M
+
+301G
+41G
+155G
+173G
+243G
+147G
+
+0.57s
+0.45s
+0.67s
+0.71s
+0.82s
+0.55s
+
+31.20
+30.66
+30.75
+32.06
+31.26
+32.72
+
+d) Contribution of the Multi-Scale Gated FFN: Finally,
+we analyze the feed-forward network. Incorporating our proposed multi-scale gated FFN (+MSG) yields the model’s peak
+performance at 32.72 dB. While this incremental gain is
+modest, it confirms the benefit of maintaining a holistic multiscale philosophy across the entire Transformer block.
+D. Discussion and Limitation
+
+larger receptive field
+
+larger receptive field
+
+AirNet
+
+Uformer
+
+Deformable Conv
+
+Window Attention
+
+PromptIR
+
+Transposed SA
+
+Ours
+DSwin Attention
+
+Fig. 10. Visualization of receptive fields of multiple backbones by LAM
+[147].
+
+kernel size, testing K=5, K=7, and K=9. The results show
+a clear trend: performance improves from 32.02 dB (K=5)
+to 32.53 dB (K=7), and then begins to plateau at 32.61 dB
+(K=9). This suggests a trade-off, where a larger receptive
+field is beneficial, but excessively large kernels may not
+provide proportionally greater returns for their computational
+cost. This observation motivates our multi-scale strategy. By
+employing multi-scale kernels within a single attention module
+(+Multi-Scale K), we reach a PSNR of 32.69 dB. This result
+is superior to even the best-performing single-kernel model
+(K=9), providing clear evidence that empowering the model
+to simultaneously perceive features at multiple scales is more
+effective than relying on a single, large-but-fixed receptive
+field.
+
+The extensive experiment results support the view that
+redesigning window attention with sliding and deformable
+sampling is effective across various benchmarks. Despite its
+demonstrated strengths, our work also illuminates several
+promising avenues for future research. First, while our architecture excels at restoring spatial structure, its performance on
+tasks dominated by extreme photometric adjustments, such as
+low-light enhancement, is competitive rather than leading. A
+promising future direction is to integrate explicit global photometric modeling, for instance, by combining our powerful
+backbone with lightweight techniques like 3D Look-Up Tables
+(3D-LUTs) or by incorporating a learnable codebook prior.
+Second, our focus on architectural innovation means adapting
+DSwinIR to new tasks requires full retraining. A compelling
+direction is to integrate our backbone with parameter-efficient
+fine-tuning (PEFT) techniques, creating systems that are both
+powerful and highly adaptable. Finally, we believe the core
+principles of token-centric, content-adaptive attention hold
+significant potential beyond restoration, offering a promising
+new building block for other dense prediction tasks like
+semantic segmentation and object detection, where the ability
+to dynamically model features is paramount.
+V. C ONCLUSION
+In this paper, we revisit window-based self-attention for image restoration and propose the Deformable Sliding Window
+(DSwin) attention and the DSwinIR backbone. The tokencentric sliding window reduces boundary effects by centering
+each token within its local context, while deformable sampling adapts the receptive field to image content. Extensive
+evaluations on all-in-one and single-task benchmarks show
+consistent improvements, including state-of-the-art results on
+several datasets. We hope DSwin will serve as a useful
+building block for future image restoration architectures and
+related dense prediction tasks.
+
+15
+
+R EFERENCES
+[1] M. Elad, B. Kawar, and G. Vaksman, “Image denoising: The deep
+learning revolution and beyond - A survey paper,” SIAM J. Imaging
+Sci., vol. 16, no. 3, pp. 1594–1654, 2023.
+[2] J. Gui, X. Cong, Y. Cao, W. Ren, J. Zhang, J. Zhang, J. Cao, and D. Tao,
+“A comprehensive survey and taxonomy on single image dehazing
+based on deep learning,” ACM Comput. Surv., vol. 55, no. 13s, 2023.
+[3] X. Chen, J. Pan, J. Dong, and J. Tang, “Towards unified deep image
+deraining: A survey and a new benchmark,” IEEE Trans. Pattern Anal.
+Mach. Intell., vol. 47, no. 7, pp. 5414–5433, 2025.
+[4] K. Zhang, W. Ren, W. Luo, W. Lai, B. Stenger, M. Yang, and H. Li,
+“Deep image deblurring: A survey,” Int. J. Comput. Vis., vol. 130, no. 9,
+pp. 2103–2130, 2022.
+[5] J. Jiang, Z. Zuo, G. Wu, K. Jiang, and X. Liu, “A survey on all-inone image restoration: Taxonomy, evaluation and future trends,” IEEE
+Trans. Pattern Anal. Mach. Intell., vol. 47, no. 12, pp. 11 892–11 911,
+2025.
+[6] K. Zhang, W. Zuo, Y. Chen, D. Meng, and L. Zhang, “Beyond a
+gaussian denoiser: Residual learning of deep cnn for image denoising,”
+IEEE Trans. Image Process., vol. 26, no. 7, pp. 3142–3155, 2017.
+[7] S. W. Zamir, A. Arora, S. H. Khan, M. Hayat, F. S. Khan, M.-H.
+Yang, and L. Shao, “Multi-stage progressive image restoration,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2021, pp. 14 821–14 831.
+[8] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly,
+J. Uszkoreit, and N. Houlsby, “An image is worth 16x16 words:
+Transformers for image recognition at scale,” in Int. Conf. Learn.
+Represent., 2021.
+[9] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and
+B. Guo, “Swin transformer: Hierarchical vision transformer using
+shifted windows,” in Int. Conf. Comput. Vis., 2021, pp. 9992–10 002.
+[10] J. Liang, J. Cao, G. Sun, K. Zhang, L. V. Gool, and R. Timofte,
+“SwinIR: Image restoration using swin transformer,” in Int. Conf.
+Comput. Vis. Workshops, 2021, pp. 1833–1844.
+[11] Z. Wang, X. Cun, J. Bao, W. Zhou, J. Liu, and H. Li, “Uformer: A
+general u-shaped transformer for image restoration,” in IEEE Conf.
+Comput. Vis. Pattern Recog., 2022, pp. 17 662–17 672.
+[12] Z. Chen, Y. Zhang, J. Gu, Y. Zhang, L. Kong, and X. Yuan, “Cross
+aggregation transformer for image restoration,” in Adv. Neural Inform.
+Process. Syst., 2022.
+[13] F. Tsai, Y. Peng, Y. Lin, C. Tsai, and C. Lin, “Stripformer: Strip
+transformer for fast image deblurring,” in Eur. Conf. Comput. Vis., vol.
+13679, 2022, pp. 146–162.
+[14] X. Chen, H. Li, M. Li, and J. Pan, “Learning a sparse transformer
+network for effective image deraining,” in IEEE Conf. Comput. Vis.
+Pattern Recog., 2023, pp. 5896–5905.
+[15] V. Potlapalli, S. W. Zamir, S. H. Khan, and F. S. Khan, “Promptir:
+Prompting for all-in-one image restoration,” in Adv. Neural Inform.
+Process. Syst., 2023.
+[16] Y. Cui, S. W. Zamir, S. H. Khan, A. Knoll, M. Shah, and F. S. Khan,
+“Adair: Adaptive all-in-one image restoration via frequency mining and
+modulation,” in Int. Conf. Learn. Represent., 2025.
+[17] M. Banham and A. Katsaggelos, “Digital image restoration,” IEEE
+Signal Processing Magazine, vol. 14, no. 2, pp. 24–41, 1997.
+[18] Y. Almalioglu, M. Turan, N. Trigoni, and A. Markham, “Deep learningbased robust positioning for all-weather autonomous driving,” Nature
+Machine Intelligence, vol. 4, pp. 749–760, 2022.
+[19] X. Xu, X. Yuan, Z. Wang, K. Zhang, and R. Hu, “Rank-in-rank loss
+for person re-identification,” ACM Trans. Multim. Comput. Commun.
+Appl., vol. 18, pp. 1–21, 2022.
+[20] C. Stringer and M. Pachitariu, “Cellpose3: one-click image restoration
+for improved cellular segmentation,” Nature Methods, vol. 22, pp. 592–
+599, 2025.
+[21] A. M. Ali, B. Benjdira, A. Koubaa, W. El-Shafai, Z. Khan, and
+W. Boulila, “Vision transformers in image restoration: A survey,”
+Sensors, vol. 23, no. 5, 2023.
+[22] C. Dong, C. C. Loy, K. He, and X. Tang, “Image super-resolution using
+deep convolutional networks,” IEEE Trans. Pattern Anal. Mach. Intell.,
+vol. 38, no. 2, pp. 295–307, 2016.
+[23] X. Fu, J. Huang, X. Ding, Y. Liao, and J. W. Paisley, “Clearing the
+skies: A deep network architecture for single-image rain removal,”
+IEEE Trans. Image Process., vol. 26, no. 6, pp. 2944–2956, 2017.
+[24] B. Cai, X. Xu, K. Jia, C. Qing, and D. Tao, “Dehazenet: An end-to-end
+system for single image haze removal,” IEEE Trans. Image Process.,
+vol. 25, no. 11, pp. 5187–5198, 2016.
+
+[25] B. Lim, S. Son, H. Kim, S. Nah, and K. M. Lee, “Enhanced deep
+residual networks for single image super-resolution,” in IEEE Conf.
+Comput. Vis. Pattern Recog. Workshops, 2017, pp. 1132–1140.
+[26] Y. Zhang, Y. Tian, Y. Kong, B. Zhong, and Y. Fu, “Residual dense
+network for image super-resolution,” in IEEE Conf. Comput. Vis.
+Pattern Recog., June 2018, pp. 2472–2481.
+[27] Y. Zhang, K. Li, K. Li, L. Wang, B. Zhong, and Y. Fu, “Image superresolution using very deep residual channel attention networks,” in Eur.
+Conf. Comput. Vis., 2018, pp. 294–310.
+[28] Y. Mei, Y. Fan, and Y. Zhou, “Image super-resolution with non-local
+sparse attention,” in IEEE Conf. Comput. Vis. Pattern Recog., 2021,
+pp. 3517–3526.
+[29] K. Jiang, Z. Wang, P. Yi, C. Chen, B. Huang, Y. Luo, J. Ma, and
+J. Jiang, “Multi-scale progressive fusion network for single image
+deraining,” in IEEE Conf. Comput. Vis. Pattern Recog., 2020, pp. 8346–
+8355.
+[30] S. Ni, X. Cao, T. Yue, and X. Hu, “Controlling the rain: From removal
+to rendering,” in IEEE Conf. Comput. Vis. Pattern Recog., 2021, pp.
+6328–6337.
+[31] M. Zhou, J. Xiao, Y. Chang, X. Fu, A. Liu, J. Pan, and Z. Zha, “Image
+de-raining via continual learning,” in IEEE Conf. Comput. Vis. Pattern
+Recog., 2021, pp. 4907–4916.
+[32] X. Chen, J. Pan, and J. Dong, “Bidirectional multi-scale implicit
+neural representations for image deraining,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2024, pp. 25 627–25 636.
+[33] X. Qin, Z. Wang, Y. Bai, X. Xie, and H. Jia, “Ffa-net: Feature fusion
+attention network for single image dehazing,” in AAAI Conf. Artif.
+Intell., 2020, pp. 11 908–11 915.
+[34] Y. Cui, W. Ren, X. Cao, and A. Knoll, “Focal network for image
+restoration,” in Int. Conf. Comput. Vis., 2023, pp. 12 955–12 965.
+[35] B. Li, Y. Gou, W. Wang, P. Hu, W. Zuo, and X. Peng, “Relationship
+quantification of image degradations,” IEEE Trans. Pattern Anal. Mach.
+Intell., pp. 1–12, 2025.
+[36] D. Feijoo, J. C. Benito, Á. Garcı́a, and M. V. Conde, “Darkir: Robust
+low-light image restoration,” in IEEE Conf. Comput. Vis. Pattern
+Recog., 2025, pp. 10 879–10 889.
+[37] S. W. Zamir, A. Arora, S. H. Khan, M. Hayat, F. S. Khan, M. Yang, and
+L. Shao, “Multi-stage progressive image restoration,” in IEEE Conf.
+Comput. Vis. Pattern Recog., 2021, pp. 14 821–14 831.
+[38] L. Chen, X. Chu, X. Zhang, and J. Sun, “Simple baselines for image
+restoration,” in Eur. Conf. Comput. Vis., vol. 13667, 2022, pp. 17–33.
+[39] Y. Cui, W. Ren, X. Cao, and A. Knoll, “Image restoration via frequency
+selection,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 46, no. 2, pp.
+1093–1108, 2024.
+[40] Y. Cui, W. Ren, S. Yang, X. Cao, and A. Knoll, “IRNeXt: Rethinking
+convolutional network design for image restoration,” in Int. Conf.
+Mach. Learn., vol. 202, 2023, pp. 6545–6564.
+[41] Y. Cui, W. Ren, X. Cao, and A. Knoll, “Revitalizing convolutional
+network for image restoration,” IEEE Trans. Pattern Anal. Mach.
+Intell., vol. 46, no. 12, pp. 9423–9438, 2024.
+[42] Z. Jin, Y. Qiu, K. Zhang, H. Li, and W. Luo, “Mb-taylorformer v2:
+Improved multi-branch linear transformer expanded by taylor formula
+for image restoration,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 47,
+no. 7, pp. 5990–6005, 2025.
+[43] H. Chen, Y. Wang, T. Guo, C. Xu, Y. Deng, Z. Liu, S. Ma, C. Xu,
+C. Xu, and W. Gao, “Pre-trained image processing transformer,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2021, pp. 12 299–12 310.
+[44] J. Xiao, X. Fu, A. Liu, F. Wu, and Z. Zha, “Image de-raining
+transformer,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 45, no. 11,
+pp. 12 978–12 995, 2023.
+[45] Y. Song, Z. He, H. Qian, and X. Du, “Vision transformers for single
+image dehazing,” IEEE Trans. Image Process., vol. 32, pp. 1927–1941,
+2023.
+[46] X. Chen, X. Wang, J. Zhou, Y. Qiao, and C. Dong, “Activating more
+pixels in image super-resolution transformer,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2023, pp. 22 367–22 377.
+[47] X. Zhang, H. Zeng, S. Guo, and L. Zhang, “Efficient long-range
+attention network for image super-resolution,” in Eur. Conf. Comput.
+Vis., vol. 13677, 2022, pp. 649–667.
+[48] Y. Zhou, Z. Li, C. Guo, S. Bai, M. Cheng, and Q. Hou, “Srformer:
+Permuted self-attention for single image super-resolution,” in Int. Conf.
+Comput. Vis., 2023, pp. 12 734–12 745.
+[49] S. W. Zamir, A. Arora, S. Khan, M. Hayat, F. S. Khan, and M.H. Yang, “Restormer: Efficient transformer for high-resolution image
+restoration,” in IEEE Conf. Comput. Vis. Pattern Recog., 2022, pp.
+5718–5729.
+
+16
+
+[50] L. Zhang, Y. Li, X. Zhou, X. Zhao, and S. Gu, “Transcending the limit
+of local window: Advanced super-resolution transformer with adaptive
+token dictionary,” in IEEE Conf. Comput. Vis. Pattern Recog., 2024,
+pp. 2856–2865.
+[51] W. Long, X. Zhou, L. Zhang, and S. Gu, “Progressive focused
+transformer for single image super-resolution,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2025.
+[52] Y. Li, Y. Fan, X. Xiang, D. Demandolx, R. Ranjan, R. Timofte, and
+L. V. Gool, “Efficient and explicit modelling of image hierarchies for
+image restoration,” in IEEE Conf. Comput. Vis. Pattern Recog., 2023,
+pp. 18 278–18 289.
+[53] X. Chen, Z. Li, Y. Pu, Y. Liu, J. Zhou, Y. Qiao, and C. Dong, “A
+comparative study of image restoration networks for general backbone
+network design,” in Eur. Conf. Comput. Vis., vol. 15129, 2024, pp.
+74–91.
+[54] H. Guo, J. Li, T. Dai, Z. Ouyang, X. Ren, and S.-T. Xia, “Mambair:
+A simple baseline for image restoration with state-space model,” in
+ECCV, 2024, pp. 222–241.
+[55] H. Guo, Y. Guo, Y. Zha, Y. Zhang, W. Li, T. Dai, S. Xia, and Y. Li,
+“Mambairv2: Attentive state space restoration,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2025.
+[56] Y. Shi, B. Xia, X. Jin, X. Wang, T. Zhao, X. Xia, X. Xiao, and W. Yang,
+“Vmambair: Visual state space model for image restoration,” IEEE
+Trans. Circuit Syst. Video Technol., vol. 35, no. 6, pp. 5560–5574,
+2025.
+[57] B. Li, H. Zhao, W. Wang, P. Hu, Y. Gou, and X. Peng, “Mair: A
+locality- and continuity-preserving mamba for image restoration,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2025, pp. 7491–7501.
+[58] S. Wang and F. Zhao, “Navigating image restoration with var’s distribution alignment prior,” in IEEE Conf. Comput. Vis. Pattern Recog.,
+2025.
+[59] Q. Ning, W. Dong, X. Li, J. Wu, and G. Shi, “Uncertainty-driven loss
+for single image super-resolution,” in Adv. Neural Inform. Process.
+Syst., 2021, pp. 16 398–16 409.
+[60] M. Hong, J. Liu, C. Li, and Y. Qu, “Uncertainty-driven dehazing
+network,” in AAAI Conf. Artif. Intell., 2022, pp. 906–913.
+[61] H. Huang, M. Luo, and R. He, “Memory uncertainty learning for realworld single image deraining,” IEEE Trans. Pattern Anal. Mach. Intell.,
+vol. 45, no. 3, pp. 3446–3460, 2023.
+[62] Y. Qiao, M. Shao, X. Tan, and L. Meng, “Uncertainty-aware diffusion
+model for real-world image dehazing,” in Int. Conf. Mach. Learn.,
+2024, pp. 65–70.
+[63] H. Wu, Y. Qu, S. Lin, J. Zhou, R. Qiao, Z. Zhang, Y. Xie, and L. Ma,
+“Contrastive learning for compact single image dehazing,” in IEEE
+Conf. Comput. Vis. Pattern Recog., 2021, pp. 10 551–10 560.
+[64] Y. Zheng, J. Zhan, S. He, J. Dong, and Y. Du, “Curricular contrastive
+regularization for physics-aware single image dehazing,” in IEEE Conf.
+Comput. Vis. Pattern Recog., 2023, pp. 5785–5794.
+[65] X. Chen, J. Pan, K. Jiang, Y. Li, Y. Huang, C. Kong, L. Dai, and Z. Fan,
+“Unpaired deep image deraining using dual contrastive learning,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2022, pp. 2007–2016.
+[66] G. Wu, J. Jiang, K. Jiang, and X. Liu, “Learning from history: Taskagnostic model contrastive learning for image restoration,” in AAAI
+Conf. Artif. Intell., 2024, pp. 5976–5984.
+[67] B. Li, X. Liu, P. Hu, Z. Wu, J. Lv, and X. Peng, “All-in-one image
+restoration for unknown corruption,” in IEEE Conf. Comput. Vis.
+Pattern Recog., 2022, pp. 17 431–17 441.
+[68] J. Zhang, J. Huang, M. Yao, Z. Yang, H. Yu, M. Zhou, and F. Zhao,
+“Ingredient-oriented multi-degradation learning for image restoration,”
+in IEEE Conf. Comput. Vis. Pattern Recog., 2023, pp. 5825–5835.
+[69] S. Rajagopalan and V. M. Patel, “Awracle: All-weather image restoration using visual in-context learning,” in AAAI Conf. Artif. Intell., 2025,
+pp. 6675–6683.
+[70] G. Wu, J. Jiang, K. Jiang, X. Liu, and L. Nie, “Learning dynamic
+prompts for all-in-one image restoration,” IEEE Trans. Image Process.,
+vol. 34, pp. 3997–4010, 2025.
+[71] H. Zeng, X. Wang, Y. Chen, J. Su, and J. Liu, “Vision-language
+gradient descent-driven all-in-one deep unfolding networks,” in IEEE
+Conf. Comput. Vis. Pattern Recog., 2025, pp. 7524–7533.
+[72] Z. Luo, F. K. Gustafsson, Z. Zhao, J. Sjölund, and T. B. Schön,
+“Controlling vision-language models for multi-task image restoration,”
+in Int. Conf. Learn. Represent., 2024.
+[73] T. Ye, S. Chen, W. Chai, Z. Xing, J. Qin, G. Lin, and L. Zhu, “Learning
+diffusion texture priors for image restoration,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2024, pp. 2524–2534.
+
+[74] X. Zhang, J. Ma, G. Wang, Q. Zhang, H. Zhang, and L. Zhang,
+“Perceive-ir: Learning to perceive degradation better for all-in-one
+image restoration,” 2025.
+[75] H. Zhang, L. Cao, X. Zuo, Z. Shao, and J. Ma, “Omnifuse: Composite degradation-robust image fusion with language-driven semantics,”
+IEEE Trans. Pattern Anal. Mach. Intell., pp. 1–18, 2025.
+[76] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal,
+G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever,
+“Learning transferable visual models from natural language supervision,” in Int. Conf. Mach. Learn., vol. 139, 2021, pp. 8748–8763.
+[77] E. Zamfir, Z. Wu, N. Mehta, Y. Tan, D. P. Paudel, Y. Zhang, and
+R. Timofte, “Complexity experts are task-discriminative learners for
+any image restoration,” in IEEE Conf. Comput. Vis. Pattern Recog.,
+2025.
+[78] O. Özdenizci and R. Legenstein, “Restoring vision in adverse weather
+conditions with patch-based denoising diffusion models,” IEEE Trans.
+Pattern Anal. Mach. Intell., vol. 45, no. 8, pp. 10 346–10 357, 2023.
+[79] T. Ye, S. Chen, W. Chai, Z. Xing, J. Qin, G. Lin, and L. Zhu, “Learning
+diffusion texture priors for image restoration,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2024, pp. 2524–2534.
+[80] G. Wu, J. Jiang, K. Jiang, and X. Liu, “Harmony in diversity: Improving
+all-in-one image restoration via multi-task collaboration,” in ACM Int.
+Conf. Multimedia, 2024, pp. 6015–6023.
+[81] G. Wu, J. Jiang, Y. Wang, K. Jiang, and X. Liu, “Debiased all-in-one
+image restoration with task uncertainty regularization,” in AAAI Conf.
+Artif. Intell., 2025, pp. 8386–8394.
+[82] X. Tang, X. Gu, X. He, X. Hu, and J. Sun, “Degradation-aware residualconditioned optimal transport for unified image restoration,” IEEE
+Trans. Pattern Anal. Mach. Intell., pp. 1–16, 2025.
+[83] G. Wu, J. Jiang, K. Jiang, X. Liu, and L. Nie, “Beyond degradation
+redundancy: Contrastive prompt learning for all-in-one image restoration,” CoRR, vol. abs/2504.09973, 2025.
+[84] J. Dai, H. Qi, Y. Xiong, Y. Li, G. Zhang, H. Hu, and Y. Wei,
+“Deformable convolutional networks,” in Int. Conf. Comput. Vis. IEEE
+Computer Society, 2017, pp. 764–773.
+[85] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai, “Deformable DETR:
+deformable transformers for end-to-end object detection,” in Int. Conf.
+Learn. Represent., 2021.
+[86] Z. Xia, X. Pan, S. Song, L. E. Li, and G. Huang, “Vision transformer
+with deformable attention,” in IEEE Conf. Comput. Vis. Pattern Recog.,
+2022, pp. 4784–4793.
+[87] P. Arbelaez, M. Maire, C. Fowlkes, and J. Malik, “Contour detection
+and hierarchical image segmentation,” IEEE Trans. Pattern Anal. Mach.
+Intell., vol. 33, no. 5, pp. 898–916, 2011-05.
+[88] K. Ma, Z. Duanmu, Q. Wu, Z. Wang, H. Yong, H. Li, and L. Zhang,
+“Waterloo exploration database: New challenges for image quality
+assessment models,” IEEE Trans. Image Process., vol. 26, no. 2, pp.
+1004–1016, 2017-02.
+[89] B. Li, W. Ren, D. Fu, D. Tao, D. Feng, W. Zeng, and Z. Wang,
+“Benchmarking single-image dehazing and beyond,” IEEE Trans. Image Process., vol. 28, no. 1, pp. 492–505, 2019.
+[90] W. Yang, R. T. Tan, J. Feng, J. Liu, Z. Guo, and S. Yan, “Deep joint rain
+detection and removal from a single image,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2017, pp. 1685–1694.
+[91] D. R. Martin, C. C. Fowlkes, D. Tal, and J. Malik, “A database of
+human segmented natural images and its application to evaluating
+segmentation algorithms and measuring ecological statistics,” in Int.
+Conf. Comput. Vis., vol. 2, 2001, pp. 416–423.
+[92] S. Nah, T. H. Kim, and K. M. Lee, “Deep multi-scale convolutional
+neural network for dynamic scene deblurring,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2017, pp. 257–265.
+[93] C. Wei, W. Wang, W. Yang, and J. Liu, “Deep retinex decomposition
+for low-light enhancement,” in Brit. Mach. Vis. Conf., 2018, p. 155.
+[94] Y. Liu, D. Jaw, S. Huang, and J. Hwang, “Desnownet: Context-aware
+deep network for snow removal,” IEEE Trans. Image Process., vol. 27,
+no. 6, pp. 3064–3073, 2018.
+[95] R. Qian, R. T. Tan, W. Yang, J. Su, and J. Liu, “Attentive generative
+adversarial network for raindrop removal from a single image,” in IEEE
+Conf. Comput. Vis. Pattern Recog., 2018, pp. 2482–2491.
+[96] R. Li, L. Cheong, and R. T. Tan, “Heavy rain image restoration:
+Integrating physics model and conditional adversarial learning,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2019, pp. 1633–1642.
+[97] T. Wang, X. Yang, K. Xu, S. Chen, Q. Zhang, and R. W. H. Lau,
+“Spatial attentive single-image deraining with a high quality real rain
+dataset,” in IEEE Conf. Comput. Vis. Pattern Recog., 2019, pp. 12 270–
+12 279.
+
+17
+
+[98] Y. Zhu, T. Wang, X. Fu, X. Yang, X. Guo, J. Dai, Y. Qiao, and
+X. Hu, “Learning weather-general and weather-specific features for
+image restoration under multiple adverse weather conditions,” in IEEE
+Conf. Comput. Vis. Pattern Recog., 2023, pp. 21 747–21 758.
+[99] X. Zhang, H. Dong, J. Pan, C. Zhu, Y. Tai, C. Wang, J. Li, F. Huang,
+and F. Wang, “Learning to restore hazy video: A new real-world dataset
+and a new method,” in IEEE Conf. Comput. Vis. Pattern Recog., 2021,
+pp. 9239–9248.
+[100] Q. Guan, Q. Yang, X. Chen, T. Song, G. Jin, and J. Jin, “Weatherbench:
+A real-world benchmark dataset for all-in-one adverse weather image
+restoration,” ACM Int. Conf. Multimedia, 2025.
+[101] E. Agustsson and R. Timofte, “Ntire 2017 challenge on single image
+super-resolution: Dataset and study,” in IEEE Conf. Comput. Vis.
+Pattern Recog. Workshops, 2017.
+[102] Q. Fan, D. Chen, L. Yuan, G. Hua, N. Yu, and B. Chen, “A general
+decoupled learning framework for parameterized image operators,”
+IEEE Trans. Pattern Anal. Mach. Intell., vol. 43, no. 1, pp. 33–47,
+2021.
+[103] G. R. dense transformer with grid structure for image restoration in
+adverse weather conditions, “Gridformer: Residual dense transformer
+with grid structure for image restoration in adverse weather conditions,”
+Int. J. Comput. Vis., pp. 1–23, 2024.
+[104] M. Yao, R. Xu, Y. Guan, J. Huang, and Z. Xiong, “Neural degradation
+representation learning for all-in-one image restoration,” IEEE Trans.
+Image Process., vol. 33, pp. 5408–5423, 2024.
+[105] M. V. Conde, G. Geigle, and R. Timofte, “High-quality image restoration following human instructions,” in Eur. Conf. Comput. Vis., 2024,
+pp. 1–12.
+[106] Y. Cui, W. Ren, and A. Knoll, “Exploring the potential of pooling techniques for universal image restoration,” IEEE Trans. Image Process.,
+vol. 34, pp. 3403–3416, 2025.
+[107] S. W. Zamir, A. Arora, S. Khan, M. Hayat, F. S. Khan, M.-H. Yang,
+and L. Shao, “Learning enriched features for fast image restoration and
+enhancement,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 45, no. 2,
+pp. 1934–1948, 2022.
+[108] Y. Cai, H. Bian, J. Lin, H. Wang, R. Timofte, and Y. Zhang, “Retinexformer: One-stage retinex-based transformer for low-light image enhancement,” in Int. Conf. Comput. Vis., 2023, pp. 12 470–12 479.
+[109] L. Liu, L. Xie, X. Zhang, S. Yuan, X. Chen, W. Zhou, H. Li, and
+Q. Tian, “TAPE: task-agnostic prior embedding for image restoration,”
+in Eur. Conf. Comput. Vis., vol. 13678, 2022, pp. 447–464.
+[110] J. M. J. Valanarasu, R. Yasarla, and V. M. Patel, “Transweather:
+Transformer-based restoration of images degraded by adverse weather
+conditions,” in IEEE Conf. Comput. Vis. Pattern Recog., 2022, pp.
+2343–2353.
+[111] Y. Guo, Y. Gao, Y. Lu, R. W. Liu, and S. He, “Onerestore: A
+universal restoration framework for composite degradation,” in Eur.
+Conf. Comput. Vis., 2024, pp. 255–272.
+[112] R. Li, L.-F. Cheong, and R. T. Tan, “Heavy rain image restoration:
+Integrating physics model and conditional adversarial learning,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2019, pp. 1633–1642.
+[113] R. Li, R. T. Tan, and L.-F. Cheong, “All in one bad weather removal
+using architectural search,” in IEEE Conf. Comput. Vis. Pattern Recog.,
+2020, pp. 3175–3185.
+[114] W. Chen, Z. Huang, C. Tsai, H. Yang, J. Ding, and S. Kuo, “Learning
+multiple adverse weather removal via two-stage knowledge learning
+and multi-contrastive regularization: Toward a unified model,” in IEEE
+Conf. Comput. Vis. Pattern Recog., 2022, pp. 17 632–17 641.
+[115] Y. Zhu, T. Wang, X. Fu, X. Yang, X. Guo, J. Dai, Y. Qiao, and
+X. Hu, “Learning weather-general and weather-specific features for
+image restoration under multiple adverse weather conditions,” in IEEE
+Conf. Comput. Vis. Pattern Recog., 2023, pp. 21 747–21 758.
+[116] T. Ye, S. Chen, J. Bai, J. Shi, C. Xue, J. Jiang, J. Yin, E. Chen, and
+Y. Liu, “Adverse weather removal with codebook priors,” in Int. Conf.
+Comput. Vis., 2023, pp. 12 619–12 630.
+[117] Y. Ai, H. Huang, X. Zhou, J. Wang, and R. He, “Multimodal prompt
+perceiver: Empower adaptiveness, generalizability and fidelity for allin-one image restoration,” in IEEE Conf. Comput. Vis. Pattern Recog.,
+2024, pp. 25 432–25 444.
+[118] S. Sun, W. Ren, X. Gao, R. Wang, and X. Cao, “Restoring images in
+adverse weather conditions via histogram transformer,” in Eur. Conf.
+Comput. Vis., vol. 15080, 2024, pp. 111–129.
+[119] Y. Song, Z. He, H. Qian, and X. Du, “Vision transformers for single
+image dehazing,” IEEE Trans. Image Process., vol. 32, pp. 1927–1941,
+2023.
+
+[120] Y. Zhang, S. Zhou, and H. Li, “Depth information assisted collaborative
+mutual promotion network for single image dehazing,” in IEEE Conf.
+Comput. Vis. Pattern Recog., 2024, pp. 2846–2855.
+[121] X. Chen, J. Pan, and J. Dong, “Bidirectional multi-scale implicit
+neural representations for image deraining,” in IEEE Conf. Comput.
+Vis. Pattern Recog., 2024, pp. 25 627–25 636.
+[122] S. Chen, T. Ye, Y. Liu, E. Chen, J. Shi, and J. Zhou, “Snowformer: Scale-aware transformer via context interaction for single
+image desnowing,” CoRR, vol. abs/2208.09703, 2022.
+[123] D. Zheng, X. Wu, S. Yang, J. Zhang, J. Hu, and W. Zheng, “Selective
+hourglass mapping for universal image restoration based on diffusion
+model,” in IEEE Conf. Comput. Vis. Pattern Recog., 2024, pp. 25 445–
+25 455.
+[124] R. Zhu, Z. Tu, J. Liu, A. C. Bovik, and Y. Fan, “Mwformer: Multiweather image restoration using degradation-aware transformers,” IEEE
+Trans. Image Process., vol. 33, pp. 6790–6805, 2024.
+[125] H. Zhang and V. M. Patel, “Density-aware single image de-raining
+using a multi-stream dense network,” in IEEE Conf. Comput. Vis.
+Pattern Recog., 2018, pp. 695–704.
+[126] R. Yasarla and V. M. Patel, “Uncertainty guided multi-scale residual
+learning-using a cycle spinning cnn for single image de-raining,” in
+IEEE Conf. Comput. Vis. Pattern Recog., 2019, pp. 8405–8414.
+[127] W. Wei, D. Meng, Q. Zhao, Z. Xu, and Y. Wu, “Semi-supervised
+transfer learning for image rain removal,” in IEEE Conf. Comput. Vis.
+Pattern Recog., 2019, pp. 3877–3886.
+[128] H. Gao, X. Tao, X. Shen, and J. Jia, “Dynamic scene deblurring with
+parameter selective sharing and nested skip connections,” in IEEE Conf.
+Comput. Vis. Pattern Recog., 2019, pp. 3848–3856.
+[129] W. Ren, S. Liu, H. Zhang, J. Pan, X. Cao, and M.-H. Yang, “Single
+image dehazing via multi-scale convolutional neural networks,” in Eur.
+Conf. Comput. Vis., 2016, pp. 154–169.
+[130] B. Li, X. Peng, Z. Wang, J. Xu, and D. Feng, “Aod-net: All-in-one
+dehazing network,” in Int. Conf. Comput. Vis., 2017, pp. 4770–4778.
+[131] Y. Qu, Y. Chen, J. Huang, and Y. Xie, “Enhanced pix2pix dehazing
+network,” in IEEE Conf. Comput. Vis. Pattern Recog., 2019, pp. 8160–
+8168.
+[132] Y. Dong, Y. Liu, H. Zhang, S. Chen, and Y. Qiao, “Fd-gan: Generative adversarial networks with fusion-discriminator for single image
+dehazing,” in AAAI Conf. Artif. Intell., 2020, pp. 10 729–10 736.
+[133] W. Yang, W. Wang, H. Huang, S. Wang, and J. Liu, “Sparse gradient
+regularized deep retinex network for robust low-light image enhancement,” IEEE Trans. Image Process., vol. 30, pp. 2072–2086, 2021.
+[134] C. Wei, W. Wang, W. Yang, and J. Liu, “Deep retinex decomposition
+for low-light enhancement,” in Brit. Mach. Vis. Conf., 2018, p. 155.
+[135] K. Xu, X. Yang, B. Yin, and R. W. H. Lau, “Learning to restore
+low-light images via decomposition-and-enhancement,” in IEEE Conf.
+Comput. Vis. Pattern Recog., 2020, pp. 2278–2287.
+[136] W. Yang, S. Wang, Y. Fang, Y. Wang, and J. Liu, “From fidelity to
+perceptual quality: A semi-supervised approach for low-light image
+enhancement,” in IEEE Conf. Comput. Vis. Pattern Recog., 2020, pp.
+3060–3069.
+[137] Y. Zhang, X. Guo, J. Ma, W. Liu, and J. Zhang, “Beyond brightening
+low-light images,” Int. J. Comput. Vis., vol. 129, no. 4, pp. 1013–1037,
+2021.
+[138] S. W. Zamir, A. Arora, S. H. Khan, M. Hayat, F. S. Khan, M. Yang,
+and L. Shao, “Learning enriched features for real image restoration
+and enhancement,” in Eur. Conf. Comput. Vis., vol. 12370, 2020, pp.
+492–511.
+[139] X. Xu, R. Wang, C. Fu, and J. Jia, “Snr-aware low-light image
+enhancement,” in IEEE Conf. Comput. Vis. Pattern Recog., 2022, pp.
+17 693–17 703.
+[140] C. Wang, H. Wu, and Z. Jin, “Fourllie: Boosting low-light image
+enhancement by fourier frequency information,” in ACM Int. Conf.
+Multimedia, 2023, pp. 7459–7469.
+[141] S. Zhou, C. Li, and C. C. Loy, “Lednet: Joint low-light enhancement
+and deblurring in the dark,” in Eur. Conf. Comput. Vis., 2022.
+[142] O. Kupyn, T. Martyniuk, J. Wu, and Z. Wang, “Deblurgan-v2: Deblurring (orders-of-magnitude) faster and better,” in Int. Conf. Comput.
+Vis., 2019, pp. 8877–8886.
+[143] S. Cho, S. Ji, J. Hong, S. Jung, and S. Ko, “Rethinking coarse-to-fine
+approach in single image deblurring,” in Int. Conf. Comput. Vis., 2021,
+pp. 4621–4630.
+[144] S. Zhou, C. Li, and C. C. Loy, “Lednet: Joint low-light enhancement
+and deblurring in the dark,” in Eur. Conf. Comput. Vis., vol. 13666,
+2022, pp. 573–589.
+
+18
+
+[145] R. Li, H. Chen, F. Feng, Z. Ma, X. Wang, and E. Hovy, “Dual graph
+convolutional networks for aspect-based sentiment analysis,” in Annu.
+Meeting Assoc. Comput. Linguist., 2021, pp. 6319–6329.
+[146] Z. Huang and L. Van Gool, “A riemannian network for spd matrix
+learning,” in AAAI Conf. Artif. Intell., 2017.
+[147] J. Gu and C. Dong, “Interpreting super-resolution networks with local
+attribution maps,” in IEEE Conf. Comput. Vis. Pattern Recog., 2021,
+pp. 9199–9208.
+
+Gang Wu received the B.E. degree in the School of
+Computer Science and Technology from Soochow
+University, Jiangsu, China, in 2020. He is currently
+pursuing the Ph.D. degree in Faculty of Computing at Harbin Institute of Technology. His research
+interests include image restoration, representation
+learning, and self-supervised learning.
+
+Junjun Jiang received the B.S. degree in Mathematics from the Huaqiao University, Quanzhou, China,
+in 2009, and the Ph.D. degree in Computer Science
+from the Wuhan University, Wuhan, China, in 2014.
+From 2015 to 2018, he was an Associate Professor
+with the School of Computer Science, China University of Geosciences, Wuhan. From 2016 to 2018, he
+was a Project Researcher with the National Institute
+of Informatics (NII), Tokyo, Japan. He is currently a
+Professor with the School of Computer Science and
+Technology, Harbin Institute of Technology, Harbin,
+China. His research interests include image processing and computer vision.
+
+Kui Jiang received the M.E. and Ph.D. degrees from
+the School of Computer Science, Wuhan University,
+Wuhan, China, in 2019 and 2022, respectively. Before July 2023, he was a Research Scientist with
+the Cloud BU, Huawei. He is currently an Associate
+Professor with the School of Computer Science and
+Technology, Harbin Institute of Technology. He received the 2022 ACM Wuhan Doctoral Dissertation
+Award. His research interests include image/video
+processing and computer vision.
+
+Xianming Liu received the B.S., M.S., and Ph.D.
+degrees in computer science from the Harbin Institute of Technology (HIT), Harbin, China, in 2006,
+2008, and 2012, respectively. In 2011, he spent half
+a year at the Department of Electrical and Computer
+Engineering, McMaster University, Canada, as a Visiting Student, where he was a Post-Doctoral Fellow
+from 2012 to 2013. He was a Project Researcher
+with the National Institute of Informatics (NII),
+Tokyo, Japan, from 2014 to 2017. He is currently a
+Professor with the School of Computer Science and
+Technology, HIT. His research interests include trustworthy AI, 3D signal
+processing and biomedical signal processing.
+
+Liqiang Nie received the B.Eng. and Ph.D. degree
+from Xi’an Jiaotong University and National University of Singapore (NUS), respectively. After Ph.D.,
+he continued his research in NUS as a research
+fellow for three years. He is currently the dean
+of the Department of Computer Science and Technology, Harbin Institute of Technology (Shenzhen).
+His research interests lie primarily in multimedia
+computing and information retrieval. He is an AE of
+IEEE TIP, IEEE TKDE, IEEE TMM, IEEE TCSVT,
+ACM ToMM, and Information Science. Meanwhile,
+he serves as the chair of ICMR 2025, ICME 2025, and ACM MM 2027. He
+is a member of ICME steering committee. He has received many awards over
+the past four years, like SIGMM rising star in 2020, MIT TR35 China 2020,
+SIGIR best student paper in 2021, IEEE AI’s 10 to Watch in 2022, ACM MM
+Best paper award in 2022, and the National Youth Science and Technology
+Award in 2024.
+
+

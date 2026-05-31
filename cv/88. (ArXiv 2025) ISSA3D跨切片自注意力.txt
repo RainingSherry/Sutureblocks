@@ -1,0 +1,1005 @@
+HCMA-UNet: A Hybrid CNN-Mamba UNet with
+Inter-Slice Self-Attention for Efficient Breast
+Cancer Segmentation
+Haoxuan Li1,† , Wei Song3,† , Peiwu Qin1,2,* , Xi Yuan1,2,* , Zhenglin Chen1,2,*
+
+arXiv:2501.00751v1 [eess.IV] 1 Jan 2025
+
+1
+
+Institute of Biopharmaceutical and Health Engineering, Shenzhen International Graduate School, Tsinghua University,
+Shenzhen, Guangdong, China
+2
+Zhejiang Key Laboratory of Imaging and Interventional Medicine, Zhejiang Engineering Research Center
+of Interventional Medicine Engineering and Biotechnology, The Fifth Affiliated Hospital of Wenzhou Medical University,
+Lishui 323000, China
+3
+School of Automation, Guangdong University of Technology, Guangzhou, Guangdong, China
+†
+These authors contributed equally to this work.
+*
+Corresponding author: pwqin@sz.tsinghua.edu.cn; yuanx20@mails.tsinghua.edu.cn; chenzlin1992@163.com
+
+Abstract—Breast cancer lesion segmentation in DCE-MRI
+remains challenging due to heterogeneous tumor morphology
+and indistinct boundaries. To address these challenges, this
+study proposes a novel hybrid segmentation network, HCMAUNet, for lesion segmentation of breast cancer. Our network
+consists of a lightweight CNN backbone and a Multi-view InterSlice Self-Attention Mamba (MISM) module. The MISM module
+integrates Visual State Space Block (VSSB) and Inter-Slice SelfAttention (ISSA) mechanism, effectively reducing parameters
+through Asymmetric Split Channel (ASC) strategy to achieve
+efficient tri-directional feature extraction. Our lightweight model
+achieves superior performance with 2.87M parameters and
+126.44 GFLOPs. A Feature-guided Region-aware loss function
+(FRLoss) is proposed to enhance segmentation accuracy. Extensive experiments on one private and two public DCE-MRI breast
+cancer datasets demonstrate that our approach achieves state-ofthe-art performance while maintaining computational efficiency.
+FRLoss also exhibits good cross-architecture generalization capabilities. The source code and dataset is available on this link .
+Index Terms—Medical Image Segmentation,
+Mamba, Inter-Slice Self-Attention, FRLoss
+
+DCE-MRI,
+
+I. I NTRODUCTION
+Breast cancer is one of the most common cancers affecting
+women worldwide, with high morbidity and mortality rates,
+posing a major threat to women’s health [1]. Accurate lesion
+segmentation, as a cornerstone of early diagnosis and evaluation, plays a vital role in improving patient prognosis and
+facilitating personalized treatment plans [2]. Among diverse
+medical imaging modalities, DCE-MRI has become a key
+tool for the diagnosis and evaluation of breast cancer because
+of its excellent soft-tissue contrast and absence of ionizing
+radiation. However, breast cancer lesions exhibit significant
+heterogeneity and unclear boundaries with the surrocunding
+tissues, making precise segmentation challenging. Currently,
+clinical practice still relies mainly on time-consuming manual
+segmentation, which is labor-intensive and susceptible to subjective factors. Therefore, developing robust and generalizable
+
+automatic segmentation algorithms is crucial for improving
+clinical efficiency and diagnostic accuracy.
+Convolutional Neural Networks particularly U-Net [3] have
+revolutionized medical image segmentation. Through its innovative symmetric U-shaped architecture, U-Net elegantly
+integrates encoder downsampling and decoder upsampling
+to achieve coarse-to-fine feature extraction and reconstruction. However, CNNs have limitations in capturing longrange dependencies and global context, which can affect
+their performance in segmenting breast tumors with irregular
+morphologies and varying sizes.
+Transformer-based architectures have demonstrated superior
+performance in medical image segmentation by overcoming CNNs’ receptive field limitations through self-attention
+mechanisms. However, transformer models inherently lack the
+ability to efficiently extract local features that are crucial for
+detailed medical image analysis. The hybrid CNN-Transformer
+architectures effectively address this limitation by incorporating CNNs’ strong capacity for local feature extraction while
+maintaining transformer’s global context modeling ability. Numerous successful works have demonstrated the effectiveness
+of this hybrid approach in medical image segmentation, such
+as SwinUNETR [4], UNETR++ [5].
+Existing 3D breast cancer segmentation networks are primarily based on CNNs or Transformer architectures [6]–
+[8]. However, both face trade-offs between computational
+efficiency and the ability to capture local and global features
+necessary for accurate segmentation. To overcome CNNs’
+local receptive field limitation of CNNs and the computational
+complexity of transformers, Mamba [9] is a novel architecture designed to achieve long sequence modeling with linear
+computational complexity by combining Gated Multi-Layer
+Perceptron (Gated MLP) with the H3 State Space Model.
+Recently, Mamba has demonstrated promising potential for
+3D medical image segmentation through architectures such
+as U-Mamba [10], LKM-UNet [11], and MambaClinix [12].
+
+Input
+
+Prediction
+DHW2
+
+DHW1
+
+Dropout
+Label
+
+Dense Block
+
+Output Block
+
+Res Block
+
+(b) Output Block
+
+Hybrid Block
+
+Dense Block
+
+ConvTranspose
+
+(a) Loss calculation
+
+ConvTranspose
+InsNorm&LeakyRelu
+
+HCMA-Up
+
+InsNorm&LeakyRelu
+
+Dropout
+
+InsNorm&LeakyRelu
+
+C
+
+ConvTranspose
+DHW8C
+8 8 8
+
+Hybrid Block
+
+AvgPool
+
+Conv3d,EC,C
+111,Stride=1
+
+DHW8C
+8 8 8
+
+Res Block
+
+Conv3d,2C,4C
+111,Stride=1
+
+DWConv3d,EC,EC
+333,Stride=2
+DHW4C
+8 8 8
+
+Hybrid Block
+
+C
+
+InsNorm&LeakyRelu
+
+HCMA-Up
+
+DHW4C
+4 4 4
+
+Res Block
+
+InsNorm&LeakyRelu
+
+Dropout
+
+Conv3d,C,EC
+111,Stride=1
+
+ConvTranspose
+DHW2C
+4 4 4
+
+Hybrid Block
+
+DWConv3d,C,C
+333,Stride=1
+
+HCMA-Up
+
+DHW2C
+2 2 2
+
+Res Block
+
+FRLoss
+
+DHWC
+
+DHWC
+2 2 2
+
+MISM
+
+Conv3d,32,2
+111,Stride=1
+
+DHW1
+
+Feature
+DHWC
+
+Dice+Ce
+Loss
+
+HCMA-Up
+
+Conv3d,6C,2C
+111,Stride=1
+
+DHW16C
+8 8 8
+
+(c) Res Block
+
+(d) Dense Block
+
+Fig. 1. Overview of HCMA-UNet. (a) Loss computation module, which integrates the conventional Dice and CE loss with our proposed Loss (FRLoss). (b)
+Output Block, which performs final classification based on the features from the last decoder layer. (c) Res Block for downsampling operations. (d) Dense
+Block for channel expansion.
+
+However, current models process 3D medical images by flattening volumetric data into sequential inputs face significant
+challenges, primarily because Mamba is originally designed
+for sequence processing tasks. When processing flattened 3D
+volumes as sequences, each element can only interact with
+previously scanned pixels through a compressed hidden state.
+This sequential processing mechanism imposes strict onedirectional dependencies. However, such a constraint fundamentally conflicts with the non-causal nature of 3D medical
+data, where each voxel inherently maintains simultaneous
+correlations with its neighbors in all spatial directions. When
+such volumetric data are forcefully flattened into sequences,
+spatially adjacent voxels may become distant in the sequence
+representation, preventing the network from effectively learning their natural spatial relationships. This artificial sequential
+arrangement imposes an unnatural directionality on inherently
+omnidirectional spatial features, limiting the model’s 3D structure learning capability.
+To address the limitation of unidirectional modeling in 2D
+image segmentation, VMamba [13] employs bidirectional state
+space models and positional embedding mechanisms. Building
+upon this design principle, we propose the Multi-view InterSlice Self-Attention Mamba (MISM) module to overcome
+the inherent limitations of existing 3D Mamba architectures.
+This module processes slices along three anatomical planes
+(sagittal, coronal, and axial) and models slice features using
+the Visual State Space Block (VSSB) from VMamba. Based
+on the intra-slice features extracted by VSSB, the module incorporates an Inter-Slice Self-Attention mechanism to enhance
+
+inter-slice feature correlations, achieving effective integration
+of both intra-slice and inter-slice information. By embedding
+this module into a lightweight convolutional network, we combine the local feature extraction capabilities of convolutions
+with the global modeling advantages of Mamba, enhancing
+feature learning capability while maintaining computational
+efficiency. The main contributions of our work are summarized
+as follows:
+We propose a Hybrid CNN-Mamba with Inter-Slice SelfAttention UNet (HCMA-UNet), which integrates CNN’s
+local feature perception with Mamba’s superior sequential
+modeling capability for efficient 3D breast cancer segmentation in DCE-MRI.
+• We design a Feature-guided Region-aware Loss (FRLoss)
+to address the challenge of high similarity between positive and negative pixels in breast cancer images, improving the model’s ability to distinguish subtle differences
+and enhance segmentation accuracy.
+• HCMA-UNet achieves state-of-the-art performance with
+reduced computational complexity on three datasets.
+Moreover, the proposed FRLoss demonstrates superior
+segmentation accuracy and robust cross-architecture generalization performance.
+•
+
+II. M ETHODS
+The proposed HCMA-UNet network architecture is illustrated in Fig. 1. It follows an encoder-decoder structure, where
+the encoder integrates Res Block and Hybrid Block (consisting
+
+(𝐵, 𝐶, 𝐿1 , 𝐿2 , 𝐿3 )
+
+(𝐵𝑊, 𝐷, 𝐻, 0.25C )
+Reshape
+
+ISSA
+
+VSSB
+
+Reshape
+
+Layer Norm & Linear
+
+(𝐵𝐿1 𝐿2 , 𝐿3 , 𝐿3 )
+
+0.25C
+
+(𝐵𝐿1 𝐿2 , 𝐿3 , 𝐶)
+
+SoftMax
+
+(𝐵𝐷, 𝐻, 𝑊, 0.5𝐶)
+
+0.5C
+
+C
+
+ISSA
+
+VSSB
+
+Reshape
+
+(𝐵𝐿1 𝐿2 , 𝐿3 , 𝐶)
+
+(𝐵𝐿1 𝐿2 , 𝐶, 𝐿3 )
+
+Reshape
+
+Reshape
+
+Reshape
+
+Conv3d,C,C
+111,Stride=1
+
+Conv3d,C,C
+111,Stride=1
+
+Conv3d,C,C
+111,Stride=1
+
+Layer Norm & Linear
+
+Fusion
+
+W
+D
+
+SS2D
+
+H
+
+SiLU
+
+0.25C
+(𝐵𝐻, 𝐷, 𝑊, 0.25C )
+ISSA
+
+VSSB
+
+Reshape
+
+Layer Norm & Linear
+
+(𝐵, 𝐶, 𝐿1 , 𝐿2 , 𝐿3 )
+
+MISM
+
+DWConv2d,C,C
+11x11,Stride=1
+
+ISSA
+
+VSSB
+
+Fig. 2. Overview of MISM and its sub-modules: ISSA and VSSB.
+
+1
+
+2
+
+3
+
+4
+
+1
+
+2
+
+3
+
+4
+
+5
+
+…
+
+15
+
+16
+
+5
+
+6
+
+7
+
+8
+
+1
+
+5
+
+9
+
+13
+
+2
+
+…
+
+12
+
+16
+
+9
+
+10
+
+11
+
+12
+
+16
+
+15
+
+14
+
+13
+
+12
+
+…
+
+2
+
+1
+
+13
+
+14
+
+15
+
+16
+
+15
+
+…
+
+5
+
+1
+
+16
+
+12
+
+8
+
+4
+
+Fig. 3. Cross-Scan Mechanism.
+
+of MISM and Dense Block). The decoder combines HCMAUp (single convolution block) with transpose convolutions, and
+its final output is used to calculate FRLoss with the labels.
+A. Res Block
+We propose a lightweight residual block that builds upon
+MobileNetV2 [14] and ResNet-D [15] for downsampling. We
+adapted the ResNet-D architecture by replacing the feature extraction path with depthwise convolutions from MobileNetV2
+and removing the pointwise convolution in the residual path,
+resulting in substantial parameter reduction while maintaining
+model effectiveness.
+B. MISM
+To enhance Mamba’s performance in 3D medical image
+segmentation, we propose the MISM. Our approach reslices
+3D volumes into three orthogonal sets of 2D slices (axial,
+coronal, and sagittal), enabling comprehensive spatial correlation capture through multi-view analysis. The structure
+of MISM as illustrated in Fig. 2. MISM incorporates three
+synergistic components:(1) VSSB, which performs efficient
+bidirectional scanning operations along both the height and
+width dimensions of each 2D slice, effectively capturing the
+intra-slice features. (2) The ISSA mechanism models interslice dependencies by learning relationships between slices
+to preserve critical anatomical correlations across different
+layers. (3) The ASC strategy is proposed to address the
+computational redundancy of processing identical feature maps
+in three directions. Given that the axial plane simultaneously
+displays the complete structure and symmetrical features, we
+allocate 50% of the channels to axial plane learning, while
+equally distributing the remaining channels (25% each) to
+coronal and sagittal planes.
+
+1) VSSB: VMamba [13] achieves breakthroughs in 2D visual representation learning by introducing the VSSB (combining the SS2D module with the S6 block). The SS2D employs
+a Cross-Scan Mechanism (CSM) (Fig. 3), which performs
+bidirectional scanning along both the horizontal and vertical
+dimensions, thereby enabling each pixel to aggregate features
+through forward and backward paths for comprehensive spatial
+context modeling.
+2) ISSA: To effectively capture the spatial dependencies
+between slices in medical volumes, we propose ISSA, a
+one-dimensional Self-Attention mechanism. Operating along
+the direction orthogonal to the VSSB scanning plane, ISSA
+achieves linear computational complexity. The query (Q), key
+(K), and value (V) features are generated through pointwise
+convolution from the input tensor x ∈ RB×C×L1 ×L2 ×L3 ,
+where B and C denote batch size and number of channels
+respectively, and L1 , L2 , L3 are the spatial dimensions. To
+capture inter-slice relation, we reshape these features along
+the L3 direction (similar operations can be applied to the L1
+or L2 direction) into the following dimensions:
+Q′ = reshape (Q) ∈ R(B·L1 ·L2 )×L3 ×C
+K ′ = reshape (K) ∈ R(B·L1 ·L2 )×C×L3
+′
+
+V = reshape (V ) ∈ R
+
+(1)
+
+(B·L1 ·L2 )×L3 ×C
+
+Then, we compute the attention result using scaled dotproduct attention:
+ ′ ′
+QK
+Result = sof tmax √
+V′
+(2)
+C
+C. Dense Block
+Inspired by the memory-efficient dense connectivity design
+of RDNet [16], we propose a densely connected convolution
+module that enhances feature representations through progressive feature aggregation. Given an input feature x, the
+module first applies a 3×3×3 depthwise convolution to obtain
+the transformed feature x1 . The original feature x and the
+transformed feature x1 are then concatenated along the channel
+dimension, followed by a pointwise convolution to generates
+x2 . Finally, x, x1 , x2 are concatenated and processed by a
+pointwise convolution to produce the final output with the
+
+desired channel dimensions. This dense connectivity pattern
+enables effective feature reuse while maintaining computational efficiency through the use of depthwise and pointwise
+convolutions.
+D. FRLoss
+To address the challenges of feature discrimination in
+medical image segmentation, we propose a Feature-guided
+Region-aware Loss (FRLoss) that operates on the feature
+maps F ∈ RB×C×D×H×W before the Out Block, with its
+calculation process illustrated in the Loss Calculation region
+of Fig. 1 . This loss function guides feature learning through
+three complementary components: Positive Compactness Loss,
+Boundary Aware Loss and Hard Negative Pixels Mining Loss.
+1) Foreground Center: We compute the Foreground Center
+fp by averaging the features of all foreground pixels. It is
+calculated as follows:
+Npos
+1 X
+fi
+fp =
+Npos i=1
+
+(3)
+
+Where Npos denotes the total number of positive pixels, and
+fi ∈ RC represents the feature vector of the i-th foreground
+pixel extracted from feature maps before Output Block.
+2) Positive Compactness Loss: To enhance the feature
+compactness of breast lesions, we propose a Feature-guided
+Positive Compactness Loss that leverages the mean lesion
+feature to guide individual lesion features in the feature maps,
+formulated as:
+Npos
+1 X
+Lpos =
+(1 − sim (fi , fp ))
+Npos i=1
+
+(4)
+
+S = {si = sim (fi , fp ) | i ∈ Ωneg }
+
+(6)
+
+The negative pixels with high similarity scores to positive
+pixels often correspond to confounding anatomical structures
+that share similar visual characteristics with the target organ.
+For the top-N negative pixels with the highest similarity
+scores, we apply dilation operations T2 times and calculate
+their intersection with N to identify these challenging regions,
+formulated as:
+N = dilateT2 (topN (S)) ∩ Ωneg
+
+(7)
+
+Based on the obtained negative pixel set N , we construct the
+loss function by computing the cosine similarity between the
+features of each pixel in the set and those of the Foreground
+Center, formulated as:
+1 X
+σr (sim (fi , fp ))
+(8)
+Lneg =
+|N |
+i∈N
+
+5) Overall Loss Function: FRLoss is employed in combination with conventional Dice Loss and Cross Entropy Loss,
+and the overall loss function can be formulated as follows:
+Ltotal = LCe + LDice + λLFR
+LFR = Lpos + Lboundary + Lneg
+
+(9)
+
+Where λ denotes the weight of FRLoss.
+III. E XPERIMENTS AND R ESULTS
+A. Private Dataset
+
+Where sim (·) represents the computation of cosine similarity.
+3) Boundary Aware Loss: To enhance boundary segmentation accuracy, we propose a Boundary Aware Loss. The
+computation process consists of the following key steps: First,
+we obtain the potential boundary confusion region M by
+performing T1 times dilation with a 3×3×3 kernel on positive
+pixel set and intersecting with negative pixel regions; Then,
+we calculate the cosine similarity between the features in this
+region and the Foreground Center, formulated as:
+M = dilateT1 (Ωpos ) ∩ Ωneg
+1 X
+Lboundary =
+σr (sim (fi , fp ))
+|M|
+
+we select N negative pixels that are most similar to the positive
+pixels. We first compute the cosine similarity between each
+negative pixel and Foreground Center, formulated as
+
+(5)
+
+i∈M
+
+Where Ωneg and Ωpos denote negative and positive pixel sets
+respectively. σr (·) is the ReLU function.
+4) Hard Negative Pixels Mining Loss: We propose a Hard
+Negative Pixels Mining Loss to address challenging negative
+regions where breast tissues and other organs often exhibit
+similar appearances to breast tumors. These confusing regions
+frequently lead to false positive predictions, thus significantly
+reducing the model’s precision during the segmentation process. By penalizing negative regions with high feature similarity to positive pixels, this loss reduces the likelihood of
+false positive predictions. To reduce the computational cost,
+
+Our main research dataset (Dataset I) consists of 907
+patient imaging data collected from two medical centers. The
+lesion segmentation annotations are validated by experienced
+physicians through a double-checking process. We randomly
+split the dataset into training and test sets with 725 and 182
+samples respectively.
+B. Public Dataset
+MAMA-MIA (Dataset II) [21] dataset contains 1506 breast
+cancer DCE-MRI cases with expert-annotated tumor segmentations. We use the first post-contrast images and split them
+into 1204 training and 302 test samples.
+The second external dataset (Dataset III) is a publicly available DCE-MRI dataset [22] from Yunnan Cancer Hospital.
+The post-contrast enhanced images are selected and randomly
+partitioned into 75 training and 25 test samples.
+C. Implementation Details
+All experiments are conducted using PyTorch on an
+NVIDIA RTX 3090 GPU. Data preprocessing and augmentation follow the nnUNet framework. During training, we use
+patches of 1283 with batch size 2. Two loss configurations are
+employed: (1) a weighted combination of Dice and CE loss;
+(2) the proposed FRLoss (T1 = 10, T2 = 10, N = 250,
+λ = 5) added to configuration 1. The network is trained
+
+TABLE I
+Q UANTITATIVE COMPARISON OF DIFFERENT METHODS ON BREAST CANCER SEGMENTATION TASKS , WHERE HCMA-UN ET AND FRL OSS ARE OUR
+PROPOSED NETWORK AND LOSS FUNCTION , RESPECTIVELY. R ESULTS ARE EVALUATED ON ONE PRIVATE DATASET (DATASET I) AND TWO PUBLIC
+DATASETS (DATASET II AND III).
+Models
+
+Loss
+
+Dataset I
+Dice Prec Rec IoU
+
+VS
+
+Dataset II
+Dice Prec Rec IoU
+
+VS
+
+Dataset III
+Dice Prec Rec IoU
+
+VS
+
+MParams GFLOPs
+
+Attention Unet [17]
+
+w/o FRLoss 75.42 78.54 77.33 66.45 82.37 72.20 73.90 79.86 61.13 81.57 68.93 73.92 70.88 60.27 75.73
+w/ FRLoss 77.46 78.99 80.27 68.51 84.95 75.36 79.80 78.96 64.97 82.52 72.84 78.63 72.44 63.55 81.85
+
+16.66
+
+1148.28
+
+nnU-Net [18]
+
+w/o FRLoss 76.85 78.58 80.06 67.34 84.82 73.84 75.32 80.26 62.79 82.27 70.43 74.34 75.08 61.42 80.46
+w/ FRLoss 77.85 79.88 80.65 68.52 85.24 75.42 77.94 80.50 64.92 82.93 72.14 80.62 74.23 63.09 78.37
+
+30.45
+
+2610.66
+
+MedNeXt [19]
+
+w/o FRLoss 76.25 77.44 79.50 67.09 83.14 73.11 73.64 80.88 61.97 81.90 71.39 77.85 74.34 61.96 78.61
+w/ FRLoss 78.22 77.83 83.02 68.95 85.45 75.20 77.54 79.93 64.90 83.12 74.19 76.51 77.59 64.35 81.79
+
+17.60
+
+525.70
+
+UX-Net [20]
+
+w/o FRLoss 75.30 78.36 79.30 65.86 81.90 69.14 68.24 79.58 57.20 79.61 70.73 74.08 72.47 60.31 80.41
+w/ FRLoss 75.76 78.77 79.79 66.24 82.40 72.66 72.91 80.48 61.08 82.02 70.86 73.60 72.57 61.22 81.12
+
+34.71
+
+1349.14
+
+UNETR++ [5]
+
+w/o FRLoss 76.15 76.98 80.51 66.67 82.36 68.82 69.25 78.49 57.30 79.15 72.72 77.48 72.90 62.75 84.88
+w/ FRLoss 76.88 79.38 80.67 67.32 83.89 69.59 70.13 79.37 58.08 78.71 73.10 78.90 72.53 63.32 81.42
+
+42.64
+
+272.48
+
+SwinUNETR [4]
+
+w/o FRLoss 75.57 77.64 78.64 66.12 83.19 64.58 62.66 79.78 52.70 74.50 68.06 68.20 79.40 57.48 75.84
+w/ FRLoss 76.84 79.13 79.30 67.16 84.08 71.53 72.25 79.82 60.22 80.55 70.73 70.62 74.85 61.22 86.89
+
+15.64
+
+394.96
+
+LKM-UNet [11]
+
+w/o FRLoss 76.31 77.19 81.33 66.82 83.37 72.08 72.61 80.27 60.77 81.11 67.83 76.74 68.88 58.98 75.74
+w/ FRLoss 76.69 77.21 81.21 66.94 84.39 73.58 74.41 80.22 62.63 82.17 68.75 76.85 71.59 60.26 75.67
+
+102.19
+
+4938.70
+
+UMamba [10]
+
+w/o FRLoss 76.67 76.97 81.39 67.26 84.91 69.83 69.77 80.74 58.18 79.14 70.07 71.55 74.15 61.67 79.17
+w/ FRLoss 77.83 79.02 81.46 68.15 84.56 75.36 77.28 80.27 64.90 82.77 74.80 79.40 76.90 64.50 82.50
+
+69.37
+
+13447.52
+
+MambaClinix [12]
+
+w/o FRLoss 78.01 78.78 83.08 68.09 85.32 69.06 68.20 81.75 57.54 77.68 72.06 75.07 75.55 62.85 80.30
+w/ FRLoss 78.43 78.93 83.75 68.95 85.16 69.70 68.03 81.91 58.22 78.65 75.53 80.83 77.32 65.76 75.53
+
+108.33
+
+13960.54
+
+HCMA-UNet(Ours)
+
+w/o FRLoss 79.27 79.20 84.70 69.04 86.54 74.41 75.64 80.43 63.23 83.43 77.92 80.34 76.61 68.15 86.75
+w/ FRLoss 80.28 80.23 85.37 70.16 87.49 76.14 77.84 81.39 65.46 84.04 78.05 80.87 76.65 68.52 86.25
+
+2.87
+
+126.44
+
+for 500 epochs using AdamW optimizer with a learning rate
+of 1e-4. Performance is evaluated using Dice, IoU, Precision
+(Prec), Recall (Rec), and Volumetric Similarity (VS) metrics,
+along with model efficiency metrics including the number
+of parameters (in millions) and computational complexity (in
+GFLOPs).
+
+Fig. 4. Visual comparison of segmentation results across ten different methods
+on a representative axial slice from our private dataset. Models marked with
+FR indicate training with FRLoss.
+
+D. Result Comparison
+As shown in Table I, we comprehensively evaluate our proposed HCMA-UNet against nine mainstream medical image
+
+segmentation models, using a hybrid Dice and CE Loss as the
+baseline. The experimental results demonstrate that HCMAUNet achieves superior performance with significant improvements in multiple evaluation metrics, reaching Dice scores
+of 80.28%, 76.14%, and 78.05% on Datasets I, II, and III
+respectively. The proposed FRLoss consistently enhances the
+performance of various network architectures, demonstrating
+its strong generalization capability. Furthermore, HCMA-UNet
+shows remarkable computational efficiency with only 2.87M
+parameters and 126.44 GFLOPs, which is substantially lower
+than UMamba (69.37M parameters, 13447.52 GFLOPs) and
+nnU-Net (30.45M parameters, 2610.66 GFLOPs), significantly
+reducing the computational resources required for medical image segmentation while maintaining high segmentation quality.
+Fig. 4 illustrates the segmentation results on a challenging
+case with ambiguous boundaries. On this challenging slice, our
+proposed HCMA-UNet achieves a Dice coefficient of 82.35%,
+demonstrating a substantial improvement of 10.81% over
+the best-performing existing method, UMamba. Furthermore,
+by incorporating FRLoss as the loss function, HCMA-UNet
+further enhances its segmentation performance to 91.10%,
+accurately delineating the complete lesion region.
+E. Ablation experiment of MISM
+To evaluate the performance of the HCMA-UNet network
+and the effectiveness of MISM comprehensively, we design
+six ablation experiments. The experiments primarily focus on
+three core components of MISM: VSSB, ASC strategy, and
+ISSA. The experimental results are listed in Table II. First,
+
+TABLE II
+A BLATION S TUDY OF MISM ON DATASET I
+VSSB ASC ISSA Mamba3d Dice Prec
+✓
+✓
+✓
+✓
+-
+
+✓
+✓
+-
+
+✓
+✓
+-
+
+✓
+
+Rec
+
+IoU
+
+VS
+
+MParams
+
+77.87 79.10 81.11 68.24 85.66
+78.52 78.58 84.68 68.67 85.75
+78.66 79.12 83.02 68.50 86.31
+79.16 78.86 84.90 69.34 86.40
+79.27 79.20 84.70 69.04 86.54
+78.09 78.19 82.07 68.09 86.02
+
+2.58
+3.19
+2.76
+4.01
+2.87
+3.22
+
+we construct a baseline network containing only convolutional
+layers. The experimental results demonstrate that as various
+components are gradually introduced, the network’s performance metrics exhibit a continuous upward trend. Among
+them, the complete HCMA-UNet architecture exhibits optimal performance. To compare with the direct application of
+bidirectional Mamba, we replace MISM with a 3DMamba
+block. Our method outperforms 3DMamba with improvements
+of 1.18%, 1.01%, and 2.63% in Dice, Precision, and Recall,
+respectively. These improvements demonstrate MISM’s effectiveness in medical images.
+TABLE III
+A BLATION S TUDY OF L OSS F UNCTION ON DATASET I
+Loss
+
+Lpos Lboundary Lneg Dice Prec Rec
+
+Dice+CE
+Lpos
+Lboundary
+Lneg
+Lpos +Lboundary
+Lpos +Lneg
+Lboundary +Lneg
+Lpos +Lboundary +Lneg
+
+✓
+✓
+✓
+✓
+
+✓
+✓
+✓
+✓
+
+✓
+✓
+✓
+✓
+
+IoU
+
+VS
+
+79.27 79.20 84.70 69.04 86.54
+79.58 79.49 84.73 69.67 86.67
+79.74 79.61 84.78 69.64 87.12
+79.64 80.07 84.61 69.48 86.31
+79.96 79.89 85.15 69.75 86.99
+80.09 80.05 84.98 70.09 87.08
+79.86 79.73 84.83 69.76 87.31
+80.28 80.23 85.37 70.16 87.49
+
+F. Ablation experiment of FRLoss
+To evaluate the contribution of each component in FRLoss,
+we conduct ablation experiments on our three proposed loss
+terms. As presented in Table III, the Positive Compactness
+Loss improves IoU by 0.63%, validating its effectiveness
+in enhancing the spatial cohesion of positive pixels. The
+Boundary Aware Loss achieves a Dice of 79.74%, demonstrating its capability in precise boundary delineation. The Hard
+Negative Pixels Mining Loss elevates the Precision to 80.07%,
+significantly improving the model’s ability to distinguish highsimilarity negative pixels in complex regions. When integrating all components, the complete FRLoss architecture demonstrates substantial improvements over the baseline model,
+with gains of 1.01%, 1.03%, 0.67%, and 1.12% in Dice,
+Precision, Recall, and IoU metrics, respectively, confirming
+the complementary effectiveness of our proposed loss design.
+IV. C ONCLUSION
+In this work, we propose HCMA-UNet for breast cancer
+lesion segmentation in DCE-MRI, which integrates our MISM
+module with a lightweight CNN backbone for efficient local
+and long-range feature modeling. We also introduce FRLoss,
+a composite loss function designed to enhance feature consistency, boundary delineation, and reduce false positives.
+
+Experiments demonstrate that HCMA-UNet achieves state-ofthe-art performance across multiple datasets while maintaining
+lower computational costs. Extensive experiments of FRLoss
+on various network architectures and datasets demonstrate its
+strong generalization ability.
+R EFERENCES
+[1] Kara L Britt, Jack Cuzick, and Kelly-Anne Phillips, “Key steps for
+effective breast cancer prevention,” Nature Reviews Cancer, vol. 20, no.
+8, pp. 417–436, 2020.
+[2] Marina Milosevic, Dragan Jankovic, Aleksandar Milenkovic, and Dragan Stojanov, “Early diagnosis and detection of breast cancer,” Technology and Health Care, vol. 26, no. 4, pp. 729–759, 2018.
+[3] Olaf Ronneberger, Philipp Fischer, and Thomas Brox, “U-net: Convolutional networks for biomedical image segmentation,” in Medical
+image computing and computer-assisted intervention–MICCAI 2015:
+18th international conference, Munich, Germany, October 5-9, 2015,
+proceedings, part III 18. Springer, 2015, pp. 234–241.
+[4] Ali Hatamizadeh, Vishwesh Nath, Yucheng Tang, Dong Yang, Holger R
+Roth, and Daguang Xu, “Swin unetr: Swin transformers for semantic
+segmentation of brain tumors in mri images,” in International MICCAI
+brainlesion workshop. Springer, 2021, pp. 272–284.
+[5] Abdelrahman M Shaker, Muhammad Maaz, Hanoona Rasheed, Salman
+Khan, Ming-Hsuan Yang, and Fahad Shahbaz Khan, “Unetr++: delving
+into efficient and accurate 3d medical image segmentation,” IEEE
+Transactions on Medical Imaging, 2024.
+[6] Zhihe Zhao, Siyao Du, Zeyan Xu, Zhi Yin, Xiaomei Huang, Xin Huang,
+Chinting Wong, Yanting Liang, Jing Shen, Jianlin Wu, et al., “Swinhr:
+Hemodynamic-powered hierarchical vision transformer for breast tumor
+segmentation,” Computers in biology and medicine, vol. 169, pp.
+107939, 2024.
+[7] Chang Yan Xu, Zi Jiang Sang, and Ye Qin Shao, “Msa-vnet: Multiscale attention-based v-net for dce-mri lesion segmentation,” in 2022
+International Conference on Image Processing, Computer Vision and
+Machine Learning (ICICML). IEEE, 2022, pp. 309–312.
+[8] Lei Zhou, Yuzhong Zhang, Jiadong Zhang, Xuejun Qian, Chen Gong,
+Kun Sun, Zhongxiang Ding, Xing Wang, Zhenhui Li, Zaiyi Liu, et al.,
+“Prototype learning guided hybrid network for breast tumor segmentation in dce-mri,” IEEE Transactions on Medical Imaging, 2024.
+[9] Albert Gu and Tri Dao, “Mamba: Linear-time sequence modeling with
+selective state spaces,” arXiv preprint arXiv:2312.00752, 2023.
+[10] J Ma, F Li, and B Wang, “U-mamba: Enhancing long-range dependency for biomedical image segmentation. arxiv 2024,” arXiv preprint
+arXiv:2401.04722.
+[11] Jinhong Wang, Jintai Chen, Danny Chen, and Jian Wu, “Lkm-unet:
+Large kernel vision mamba unet for medical image segmentation,” in
+International Conference on Medical Image Computing and ComputerAssisted Intervention. Springer, 2024, pp. 360–370.
+[12] Chenyuan Bian, Nan Xia, Xia Yang, Feifei Wang, Fengjiao Wang, Bin
+Wei, and Qian Dong, “Mambaclinix: Hierarchical gated convolution
+and mamba-based u-net for enhanced 3d medical image segmentation,”
+arXiv preprint arXiv:2409.12533, 2024.
+[13] Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi Xie, Yaowei
+Wang, Qixiang Ye, Jianbin Jiao, and Yunfan Liu, “Vmamba: Visual
+state space model,” in The Thirty-eighth Annual Conference on Neural
+Information Processing Systems, 2024.
+[14] Mark Sandler, Andrew Howard, Menglong Zhu, Andrey Zhmoginov,
+and Liang-Chieh Chen, “Mobilenetv2: Inverted residuals and linear
+bottlenecks,” in Proceedings of the IEEE conference on computer vision
+and pattern recognition, 2018, pp. 4510–4520.
+[15] Tong He, Zhi Zhang, Hang Zhang, Zhongyue Zhang, Junyuan Xie, and
+Mu Li, “Bag of tricks for image classification with convolutional neural
+networks,” in Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, 2019, pp. 558–567.
+[16] Donghyun Kim, Byeongho Heo, and Dongyoon Han, “Densenets
+reloaded: paradigm shift beyond resnets and vits,” in European Conference on Computer Vision. Springer, 2025, pp. 395–415.
+[17] Jo Schlemper, Ozan Oktay, Michiel Schaap, Mattias Heinrich, Bernhard
+Kainz, Ben Glocker, and Daniel Rueckert, “Attention gated networks:
+Learning to leverage salient regions in medical images,” Medical Image
+Analysis, vol. 53, pp. 197–207, 2019.
+
+[18] Fabian Isensee, Paul F Jaeger, Simon AA Kohl, Jens Petersen, and
+Klaus H Maier-Hein, “nnu-net: a self-configuring method for deep
+learning-based biomedical image segmentation,” Nature methods, vol.
+18, no. 2, pp. 203–211, 2021.
+[19] Saikat Roy, Gregor Koehler, Constantin Ulrich, Michael Baumgartner,
+Jens Petersen, Fabian Isensee, Paul F Jaeger, and Klaus H MaierHein, “Mednext: transformer-driven scaling of convnets for medical
+image segmentation,” in International Conference on Medical Image
+Computing and Computer-Assisted Intervention. Springer, 2023, pp.
+405–415.
+[20] Ho Hin Lee, Shunxing Bao, Yuankai Huo, and Bennett A Landman,
+“3d ux-net: A large kernel volumetric convnet modernizing hierarchical transformer for medical image segmentation,” arXiv preprint
+arXiv:2209.15076, 2022.
+[21] Lidia Garrucho, Claire-Anne Reidel, Kaisar Kushibar, Smriti Joshi,
+Richard Osuala, Apostolia Tsirikoglou, Maciej Bobowicz, Javier del
+Riego, Alessandro Catanese, Katarzyna Gwoździewicz, et al., “Mamamia: A large-scale multi-center breast cancer dce-mri benchmark dataset
+with expert segmentations,” arXiv preprint arXiv:2406.13844, 2024.
+[22] Jiadong Zhang, Zhiming Cui, Zhenwei Shi, Yingjia Jiang, Zhiliang
+Zhang, Xiaoting Dai, Zhenlu Yang, Yuning Gu, Lei Zhou, Chu Han,
+et al., “A robust and efficient ai assistant for breast tumor segmentation
+from dce-mri via a spatial-temporal framework,” Patterns, vol. 4, no. 9,
+2023.
+
+

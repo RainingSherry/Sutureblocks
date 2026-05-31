@@ -1,0 +1,2281 @@
+MatchED: Crisp Edge Detection Using End-to-End, Matching-based Supervision
+Bedrettin Çetinkaya Sinan Kalkan* Emre Akbaş∗
+Dept. of Computer Engineering and METU ROMER Robotics Center
+Ankara, Turkey
+
+arXiv:2602.20689v1 [cs.CV] 24 Feb 2026
+
+{bckaya, skalkan, eakbas}@metu.edu.tr
+
+Abstract
+
+Edge
+Detector
+
+Generating crisp, i.e., one-pixel-wide, edge maps remains
+one of the fundamental challenges in edge detection, affecting both traditional and learning-based methods. To
+obtain crisp edges, most existing approaches rely on two
+hand-crafted post-processing algorithms, Non-Maximum
+Suppression (NMS) and skeleton-based thinning, which
+are non-differentiable and hinder end-to-end optimization.
+Moreover, all existing crisp edge detection methods still depend on such post-processing to achieve satisfactory results. To address this limitation, we propose M ATCH ED,
+a lightweight, only ∼21K additional parameters, and plugand-play matching-based supervision module that can be
+appended to any edge detection model for joint end-toend learning of crisp edges. At each training iteration,
+M ATCH ED performs one-to-one matching between predicted and ground-truth edges based on spatial distance
+and confidence, ensuring consistency between training and
+testing protocols. Extensive experiments on four popular
+datasets demonstrate that integrating M ATCH ED substantially improves the performance of existing edge detection
+models. In particular, M ATCH ED increases the Average
+Crispness (AC) metric by up to 2–4× compared to baseline
+models. Under the crispness-emphasized evaluation (CEval), M ATCH ED further boosts baseline performance by up
+to 20–35% in ODS and achieves similar gains in OIS and
+AP, achieving SOTA performance that matches or surpasses
+standard post-processing for the first time. Code is available at https://cvpr26-matched.github.io.
+
+Postprocessing
+(NMS & Thinning)
+(Hand-crafted)
+
+(a) Existing approaches with rule-based postprocessing
+Edge
+Detector
+
+MatchED
+
+(b) Our novel end-to-end approach using MatchED
+Trainable
+
+Weights fixed
+
+(c) DiffusionEdge
+
+Weights updated
+
+Rule-based
+
+(d) MatchED
+
+Figure 1. (a) Existing edge detectors require the use of a handcrafted post-processing stage (e.g., NMS and thinning). (b) With
+M ATCH ED, we generate a one-pixel-wide edge map in an end-toend trainable manner. The recent DiffusionEdge’s results [45] (c)
+improve when integrated with M ATCH ED (d).
+
+features. Most research in edge detection focuses on detecting edges without explicitly accounting for their thickness. These studies [2, 3, 5, 7, 9, 10, 14, 18, 19, 21–
+23, 27, 28, 32, 37, 41, 49, 50] employ post-processing
+techniques such as non-maximum suppression (NMS) and
+skeleton-based thinning to produce one-pixel-wide edge
+maps after training (Figure 1(a)). Despite these efforts, producing crisp edge maps remains a challenging task.
+Crispness of edge maps is crucial especially when they
+are used as auxiliary inputs for downstream tasks. Blurred
+or thick edge predictions introduce spatial uncertainty,
+which degrades boundary localization, ultimately worsening task performance. Precise structural cues provided by
+crisp edges enable models to better align semantic and geometric representations, thereby improving both the visual
+quality and quantitative metrics for edge-guided tasks such
+as image inpainting [26], 3D instance segmentation [31],
+and semantic segmentation [46].
+Generating crisp edges requires exact spatial matching
+
+1. Introduction
+Edge detection is a fundamental problem in computer vision that supports tasks such as depth estimation [11], segmentation [6, 38, 51], and image generation [40, 47, 48] by
+identifying significant transitions in pixel intensity, which
+typically indicate object boundaries, textures, and structural
+* Equal senior authorship
+
+1
+
+2. Related Work
+
+between prediction and ground-truth [44]. Few studies
+[7, 12, 20, 39, 45] have attempted to generate crisp edges
+directly; however, their performance lags behind the common “detect and then post-process” approach, and still
+benefits from post-processing techniques. Producing crisp
+edges requires a precise spatial match between predictions
+and ground truth, yet imprecise labeling often causes mismatches, leading to thicker edges. Only one study [44] addresses this issue by refining labels using fixed Canny-based
+guidance before training, which cannot adapt to the evolving predictions during optimization and thus limits the quality of the match.
+
+Edge Detection. Traditional edge detection methods, such
+as Roberts [30], Canny [3], and Sobel [16], rely on image
+gradients to identify edge pixels. These methods can easily yield false positive edges for pixels with high-intensity
+differences from neighboring regions. With advancements
+in deep learning, modern edge detectors [2, 5, 7, 9, 10, 14,
+18, 19, 21–23, 27, 28, 32, 37, 41, 45, 49, 50] learn the complex features of the scene and produce semantically better
+results. Earlier CNN-based methods [9, 21, 41] use multiscale features supervised by auxiliary outputs. Later, lightweight CNN architectures [34, 37] are proposed for efficient edge detection. Some recent studies [5, 49, 50] leverage label uncertainty, arising from inconsistencies among
+annotators, to enhance the performance of edge detectors.
+Additionally, SAM (Segment Anything [15]) -based models [22, 43] use features of the pre-trained SAM and give
+superior performances on diverse edge detection datasets.
+SSM (state-space models)-based models [10, 18] successfully adopt SSM architectures for edge detection task.
+
+In this paper, we address the challenge of generating
+crisp edge maps with a novel solution, M ATCH ED (Figure
+1), which employs matching-based supervision to establish
+bipartite correspondences between predictions and ground
+truth based on distance and confidence scores at each training iteration. M ATCH ED is a lightweight, plug-and-play,
+learnable module that can be appended to any edge detection model for joint end-to-end training. To demonstrate
+its generality, we use M ATCH ED for the end-to-end training of diverse edge detectors, PiDiNet (CNN-based) [37],
+RankED (transformer-based) [5], DiffusionEdge (diffusionbased) [45], and SAUGE (transformer-based) [22]. It
+demonstrates consistent improvements under the crispnessemphasized evaluation (CEval), boosting state-of-the-art
+methods such as PiDiNet, RankED, and SAUGE by up to
+20–35% in ODS and similarly in OIS and AP. Furthermore,
+M ATCH ED enhances the crispness of the SOTA crisp-edgedetection model DiffusionEdge [45] (see Figure 1(c–d) for
+visual results).
+
+Standard Post-Processing in Edge Detection. All existing edge detection algorithms, including simple [3, 13, 16,
+24, 30] and modern ones [2, 5, 7, 9, 10, 14, 18, 19, 21–
+23, 27, 28, 32, 37, 41, 45, 49, 50] require post-processing
+to thin their raw outputs. This post-processing consists
+of two hand-crafted algorithms, applied sequentially: (i)
+Non-Maximum Suppression (NMS) and (ii) skeleton-based
+thinning [8, 17]. NMS preserves the strongest edge responses along the gradient direction by suppressing nonmaximum pixels. However, miscalculated gradients due to
+noise can easily yield edges thicker than one pixel. Therefore, skeleton-based thinning iteratively refines such cases
+while preserving edge connectivity.
+
+Contributions. Our main contributions are as follows:
+• We introduce a one-to-one edge matching formulation
+that integrates confidence scores and the evaluation distance threshold, thereby ensuring consistency between
+training and testing protocols.
+• M ATCH ED as a novel, trainable, plug-and-play alternative to traditional post-processing methods for producing
+one-pixel-wide edges. Leveraging matching-based supervision, it achieves precise edge localization and can be
+integrated into diverse edge detection models in an endto-end trainable manner.
+• Extensive experiments on four popular datasets demonstrate that M ATCH ED improves the Average Crispness
+(AC) metric up to 2-4× compared to the original model
+while also surpassing standard post-processing methods
+in ODS, OIS, and AP across various datasets and models.
+• We consistently outperform the SOTA models on ODS,
+OIS, AP, and AC using CEval on different datasets. It
+is the first method to match or even surpass conventional
+post-processing techniques (NMS + thinning) across multiple models and benchmarks.
+
+Crisp Edge Detection. One of the most challenging problems in edge detection is generating a crisp edge map. Deng
+et al. [7] propose a new loss function, which combines
+cross-entropy and dice losses. Their loss function produces
+crisper edges compared to standard cross-entropy loss by
+considering the image-level similarity between prediction
+and ground truth. Wang et al. [39] present a refinement
+module to localize edge pixels precisely. Later, Huan et
+al. [12] propose a tracing loss function with context-aware
+fusion blocks. This loss function enables feature unmixing for improved auxiliary edge learning, while a contextaware fusion block aggregates complementary features to
+address side mixing. Rella et al. [29] introduce a novel
+vector-transform representation where each pixel predicts
+a unit vector pointing toward its nearest boundary. This
+approach mitigates the class imbalance caused by thick
+boundary labels and enables direct training of crisp, well2
+
+defined boundaries, particularly effective when using annotations derived from segmentation masks. Ye et al. [44]
+propose a Canny-guided label refinement algorithm to align
+ground-truth edges with RGB edges. Additionally, DiffusionEdge [45] employs a diffusion probabilistic model
+(DPM) in latent space by filtering latent features with a
+Fourier filter, achieving superior performance on various
+edge detection datasets based on crispness edge detection
+metrics. Also, CPD [20] presents a new architecture for efficient crisp edge detection using both edge prior and multiscale information. Although all of these studies aim to predict crisp edge maps, they still benefit from post-processing
+methods (NMS + skeleton-based thinning) used in standard
+edge detection evaluation (SEval), unlike our work.
+
+ground-truth edges during training. The module is trained
+end-to-end using a novel supervision signal derived from
+matching the predicted and ground-truth edges at each training iteration.
+
+3.1. Problem Definition and Notation
+Edge detection is the problem of finding pixels in an W ×H
+image I ∈ RW ×H×3 that belong to semantically relevant
+intensity changes as an edge map E ∈ RW ×H . A common challenge in edge detection is the thickness of the estimated edges, which is often addressed by using a handcrafted post-processing stage.
+Our goal in this study is to design a differentiable module, M ATCH ED, that can be integrated into any edge detection model producing a raw edge map Er ∈ RW ×H , to
+generate a crisp edge map Ec ∈ RW ×H in an end-to-end
+trainable manner.
+
+Table 1. Comparative summary of crisp edge detection methods.
+Integrable to
+any model?
+
+Post-process
+Free?
+
+LPCB [7]
+CED [39]
+CATS [12]
+GLR [44]
+DiffusionEdge [45]
+CPD [20]
+
+✓
+✗
+✓
+✓
+✗
+✗
+
+✗
+✗
+✗
+✗
+✗
+✗
+
+M ATCH ED (Ours)
+
+✓
+
+✓
+
+Method
+
+3.2. Integrating M ATCH ED into Existing Detectors
+Edge detection model f parametrized by θr takes an RGB
+image I as an input and produces a raw edge map Er :
+Er = f (I; θr ).
+
+(1)
+
+To combine M ATCH ED with f , we append it to the last
+stage of f ; i.e. the output of f is the input of M ATCH ED:
+Ec = M ATCH ED (Er ; θc ) ,
+
+Comparative Summary. As summarized in Table 1, all
+prior methods show performance gains when hand-crafted
+post-processing is applied to their outputs, indicating that
+their raw predictions lack crispness. Moreover, only a few
+existing studies can be integrated with any edge detection
+model. M ATCH ED, in contrast, is a plug-and-play method
+that provides post-processing-free crisp edges across a diverse set of edge detectors.
+
+(2)
+
+where θc represents the parameters of M ATCH ED.
+
+3.3. Alignment & Matching with Ground Truth
+Spatial Alignment Cost. In edge detection datasets, positions of edges in ground truth (G) may not perfectly align
+with the estimated edges in Ec due to crude manual labeling. In the edge detection literature [5, 22, 37, 49], such localization errors are tolerated during evaluation by applying
+a dataset-specific distance threshold. To maintain consistency between training and evaluation, we introduce a oneto-one matching formulation between the ground-truth edge
+map G and the predicted crisp edge map Ec , which jointly
+considers edge confidence scores and spatial distance constraints to quantify their alignment through a confidenceweighted matching cost.
+For each pixel in the predicted map Ec , denoted as pc ,
+and each pixel in the ground truth G, denoted as pg , we
+compute the cost matrix C as follows:
+
+3. Methodology: M ATCH ED
+We introduce M ATCH ED (Figure 2), a light-weight plugand-play module that can be integrated into any deep edge
+detection model to generate crisp edge maps. Achieving such crispness requires precise spatial alignment between the predicted and ground-truth edges, which is often hindered by annotation noise and inherent localization
+ambiguities. We provide a more detailed analysis of this
+thickness in the supplementary material. Prior works typically tolerate these misalignments through hand-crafted
+post-processing or spatially relaxed supervision strategies,
+which often result in thick edge predictions to compensate
+for non-aligned annotations, or by refining labels before
+training [44], which cannot achieve optimal alignment between the model predictions and the ground truth due to
+a fixed Canny guidance. To overcome these limitations,
+M ATCH ED is trained end-to-end with a novel matchingbased supervision signal that explicitly aligns predicted and
+
+C(pc , pg ) =
+
+
+
+
+
+d(p , p ) − αEc (p ),
+c
+
+
+
+
+
+
+∞,
+
+g
+
+c
+
+
+
+Ec (pc ) ≥ τc ,
+
+
+if  G(pg ) = 1,
+
+d(pc , pg ) < τd
+otherwise.
+
+
+
+
+(3)
+
+Here, pc and pg represent 2D coordinates of pixels in Ec
+and G, respectively. The term d(pc , pg ) denotes the Manhattan distance between these pixels, which captures their
+3
+
+Input (𝐼 )
+
+Raw edge map (
+
+Output (
+
+)
+
+Only During
+Training
+
+Binary
+Cross-Entropy
+Loss
+
+Lightweight
+CNN
+
+Edge
+Detector
+
+Backpropagation
+
+)
+
+Edge Detector’s
+Loss
+Function(s)
+
+One-to-One
+Matching
+Matching-based GT ( ෡ )
+
+Ground Truth ( )
+
+Figure 2. An overview of M ATCH ED, which can be easily integrated into any edge detector pipeline. A lightweight CNN consists of five
+blocks, each containing Conv2D, ReLU, and normalization layers, followed by a final Conv2D layer with a sigmoid activation. Therefore,
+M ATCH ED adds only approximately 21K parameters.
+
+which perfectly matches pixels in Ec with edge pixels in G,
+that satisfy conditions specified in Eq. 3. However, some
+edge pixels in G may remain unmatched due to the distance
+threshold τd , i.e., when no predicted response exists within
+τd of an edge pixel pg in G. To recover these pixels, we
+directly assign them to Ĝ as:
+
+spatial distance. Ec (pc ) indicates the confidence score of
+pixel pc , and α is a weighting factor that balances the effect
+of this confidence in the overall matching cost.
+The first condition, (Ec (pc ) ≥ τc ), filters out lowconfidence predictions in Ec using a confidence threshold
+τc . The second condition, (G(pg ) = 1), ensures that only
+ground-truth edge pixels are considered as valid matches.
+The final condition, (d(pc , pg ) < τd ), limits the matching
+process to a local neighborhood around each predicted edge
+pixel, controlled by the distance threshold τd .
+By integrating these conditions into a single formulation,
+the cost matrix C effectively encodes both spatial and confidence relations. A higher-confidence prediction Ec (pc ) reduces the corresponding matching cost, encouraging alignment with nearby ground-truth edge pixels. Conversely,
+pixels that do not satisfy the above conditions are assigned
+an infinite cost, preventing invalid or distant matches. This
+confidence-weighted and locality-aware formulation allows
+our method to establish pixel-level correspondences between predicted and ground-truth edge maps.
+Optimal 1-to-1 Matching with Ground Truth. To produce crisp edges, edges in Ec should perfectly align with
+edges in G. Otherwise, the edge detection model generates
+responses not only for a single pixel but also for its neighboring regions, leading to thicker edges. To alleviate this
+problem, each response should be uniquely assigned to a
+ground-truth edge. To achieve this, we formulate the problem as an optimal bipartite matching between Ec and G:
+σ ∗ = arg min
+σ∈Sn
+
+n
+X
+
+Ĝ(pg ) = 1,
+
+if pg is unmatched and G(pg ) = 1.
+
+This strategy ensures that regions around unmatched
+ground-truth pixels remain active, enabling their potential
+inclusion in the matching in subsequent iterations. Details
+on the time complexity of our matching algorithm are presented in the supplementary material.
+
+3.4. Training Objective
+The parameters θr and θc are jointly optimized. θr is optimized using ground-truth G and the loss functions of f ,
+which depend on the corresponding model f and can include any loss function, such as weighted binary crossentropy loss [21, 41].
+We use binary cross-entropy loss between Ec and Ĝ to
+learn θc :
+LM ATCH ED = −
+
+N h
+X
+i=1
+
+i
+Ĝi log(Ec ) + (1 − Ĝi ) log(1 − Ec ) ,
+
+(8)
+
+where β controls the contribution of M ATCH ED.
+Model. We model M ATCH ED (Eq. (2)) using a lightweight
+CNN with only ∼21K parameters, consisting of five standard convolution blocks. Model details can be found in the
+supplementary material.
+
+(4)
+
+i
+
+where n = W × H; Sn is the set of all permutations;
+C(i, σ(i)) represents the cost of assigning row i to column σ(i); and, σ ∗ (from Equation 3) is the optimal assignment. We compute σ ∗ using linear sum assignment following prior work in object detection [4, 36]. Using σ ∗ , we get
+a matching-based ground-truth label Ĝ:
+Ĝ(i) = G(σ ∗ (i)),
+
+(7)
+
+where N is the number of different ground truth annotations. Hence, our total loss is the weighted combination of
+loss of M ATCH ED and model f :
+Ltotal = βLM ATCH ED + Lf ,
+
+C(i, σ(i)),
+
+(6)
+
+4. Experiments
+4.1. Experimental Setup and Details
+Datasets. We used the following four popular edge detection datasets to evaluate our method:
+
+(5)
+4
+
+architectures. This trick is not used for other base models.
+Performance Measures. To evaluate the performance of
+edge detection models, we use four metrics: (i) Optimal
+Dataset Scale (ODS), which measures the best F-score using a single threshold applied across the entire dataset; (ii)
+Optimal Image Scale (OIS), which computes the best Fscore for each image individually and then averages them;
+(iii) Average Precision (AP), which represents the area under the precision-recall curve, reflecting overall detection
+quality across thresholds; and (iv) Average Crispness (AC)
+[44], which quantifies crispness of raw predicted edges.
+Moreover, we report these metrics under two evaluation protocols following previous works [12, 44, 45]: (i)
+Standard Evaluation (SEval), which applies Non-Maximum
+Suppression (NMS) and skeleton-based thinning to produce
+a one-pixel-wide edge map, and (ii) Crispness-Emphasized
+Evaluation (CEval), which uses the raw predicted edge map
+without post-processing.
+
+BSDS500 [1] is a standard benchmark for contour and
+edge detection, containing 500 natural images (481×321
+pixels) split into 200 training, 100 validation, and 200 test
+images. Each image has multiple human-annotated groundtruth edge maps.
+NYUD-v2 [33] contains 1,449 indoor scenes with RGB
+and depth images (576×448). Edge detection ground-truth
+is derived from object segmentation masks, using object
+boundaries as edge annotations. The dataset is split into
+381 training, 414 validation, and 654 test images.
+BIPED [35] is an edge detection dataset of 250 outdoor
+images (1280×720), with 200 training and 50 test images.
+Each image has a single ground-truth label annotated by
+computer vision professionals. We used the updated official version of the dataset.
+Multi-cue [25] consists of 100 images (1280×720 resolution), each annotated with six edge labels and five boundary labels. Due to the absence of an official split, we used
+the proposed allocation for the training and test sets for each
+integrated model.
+Base Models. To demonstrate the generalization capability of M ATCH ED, we select four SOTA models with different architectures and loss functions, on top of which we
+integrate our M ATCH ED: (i) PiDiNet [37], a CNN-based
+model optimized with weighted binary cross-entropy, (ii)
+RankED [5], a transformer-based model optimized with
+ranking-based losses, (iii) DiffusionEdge [45], a diffusionbased model optimized with a combination of multiple loss
+functions, and (iv) SAUGE [22], a SAM-based model optimized with a combination of multiple losses.
+Implementation and Training Details. For each base
+model, we used the officially published code and its original
+settings; we did not perform any hyperparameter (learning
+rate, batch size, optimizer, etc.) tuning.
+We train only the base edge detector f during the first
+N/2 epochs, then jointly train f and M ATCH ED for the
+remaining N/2 epochs, where N is the total number of
+epochs for f in its official paper. This training strategy
+is adopted because M ATCH ED can generate accurate and
+crisp edges only if f produces reliable raw edge maps.
+Hyperparameter settings for each integrated model and
+dataset are provided in the supplementary material. Additionally, we use a distance threshold parameter τd , which
+represents the maximum allowable distance between predicted and ground-truth edge maps during the matching cost
+calculation in Eq. 3. The values of τd are set to 8, 4, 11,
+and 11 for the NYUD-v2, BSDS, Multi-Cue, and BIPED
+datasets, respectively, and are applied consistently across
+all base models. These values align with the evaluation protocol used in standard edge detection benchmarks. Additionally, we apply a 5 × 5 box blur kernel to the outputs of
+RankED [5] and SAUGE [22] to reduce grid-like artifacts
+[42] in the raw edge maps due to their transformer-based
+
+4.2. Exp 1: Comparison w/ Crisp Edge Detectors
+First, we evaluate the crispness of M ATCH ED and compare
+its performance with other crisp edge detectors, LPCB [7],
+CATS [12], GLT [44], and DiffusionEdge [45]. As shown
+in Table 2, our method produces significantly crisper edges
+than other approaches across all datasets. It outperforms
+the second-best method (DiffusionEdge [45]) by +0.454,
++0.348, and +0.092 on the BSDS, Multi-Cue, and BIPED
+datasets, respectively.
+To the best of our knowledge, existing crisp edge detection methods fall short of matching the performance of standard post-processing techniques. In contrast, our method
+achieves comparable results, and in some cases even outperforms them as will be shown in Section 4.3, without relying
+on such post-processing.
+Main Result
+Experiment 1 shows that M ATCH ED consistently outperforms SOTA crisp edge detection models by a large margin. In terms of the AC metric, M ATCH ED provides up
+to 1.7–4× gains on diverse datasets.
+
+4.3. Exp 2: Comparison w/ All Edge Detectors
+This section compares M ATCH ED with the state-of-theart (SOTA) methods on NYUD-v2, BSDS, and BIPED-v2
+datasets using both crispness-emphasized evaluation (CEval) and standard evaluation (SEval). Also, results on MultiCue dataset can be found in the supplementary material.
+BSDS. Table 3 presents comparison with SOTA approaches using CEval and SEval protocols. Integrating M ATCH ED into PiDiNet [37] yields gains of +0.222,
++0.224, and +0.717 in ODS, OIS, and AC, respectively.
+For RankED [5], improvements are +0.188 (ODS), +0.192
+5
+
+Table 3. Exp 2: Comparison of SOTA results under Standard (SEval) and Crispness-emphasized (CEval) evaluations on the BSDS
+dataset. The best and second-best results are shown in bold and
+underlined, respectively. +Green highlights improvements compared to the base model.
+
+Table 2. Exp 1: Comparison of SOTA crisp edge detection methods and ours in terms of Average Crispness (AC) metric. Bold
+and underlined numbers indicate the best and second-best results,
+respectively. Results are taken from [45]. D: Dice Loss [7], T:
+Tracing-Loss [12], R: Refined Label [44].
+Method
+PiDiNet + D [7]
+PiDiNet + T [12]
+PiDiNet + R [44]
+DiffEdge [45]
+
+BSDS
+(ECCV18)
+(PAMI22)
+(TIP23)
+(AAAI24)
+
+PiDiNet + M ATCH ED
+
+Multi-cue
+
+CEval
+
+BIPED
+
+.306
+.333
+.424
+.476
+
+.208
+.217
+.424
+.462
+
+.340
+.296
+.512
+.849
+
+.930
+
+.810
+
+.941
+
+Method
+HED [41]
+RCF [21]
+LPCB [7]
+BDCN [9]
+PiDiNet [37]
+EDTER [28]
+UAED [49]
+MuGE [50]
+DiffEdge [45]
+RankED [5]
+EdgeSAM [43]
+EDMB [18]
+SAUGE [22]
+
+(OIS), +0.179 (AP), and +0.438 (AC), while integration
+into SAUGE [22] gives +0.156 (ODS), +0.154 (OIS),
++0.144 (AP), and +0.631 (AC). Also, DiffusionEdge-based
+M ATCH ED yields +0.084 (ODS), +0.094 (OIS), +0.144
+(AP), and +0.474 (AC).
+To further demonstrate the efficiency of M ATCH ED, we
+compare its CEval results with the SEval performance of
+SOTA methods. PiDiNet + M ATCH ED adds +0.011 (ODS)
+and +0.008 (OIS), and SAUGE gains +0.008 (ODS), +0.002
+(OIS), and +0.013 (AP). RankED shows slight reductions (0.011 ODS, -0.005 OIS, -0.03 AP) due to down-sampled
+predictions: its edge maps are produced at 0.25× scale and
+upsampled to input resolution before computing the loss, introducing interpolation artifacts that slightly affect its performance. Note that SAUGE + M ATCH ED achieves the
+best performance across all metrics among SOTA methods
+that rely on post-processing.
+NYUD-v2. We integrate M ATCH ED into three models: (i)
+PiDiNet [37], (ii) RankED [5], and (iii) DiffusionEdge [45],
+and compare their performance with SOTA methods (Table 4). M ATCH ED significantly boosts performance across
+all base models under CEval. For example, it improves
+RankED by +0.298, +0.289, +0.22, and +0.74 percentage
+points in ODS, OIS, AP, and AC, respectively, and PiDiNet
+by +0.337, +0.325, and +0.757 in ODS, OIS, and AC. Even
+DiffusionEdge, which already produces crisp edges, gains
++0.023, +0.025, and +0.091 in ODS, OIS, and AC, confirming M ATCH ED ’s generalizability and effectiveness.
+Applying standard post-processing to M ATCH ED outputs does not improve performance and can reduce performance (e.g., DiffusionEdge-based ODS, OIS, AP in SEval),
+indicating the crispness of the predicted edge maps. SEval results show M ATCH ED performs comparably to standard post-processing, with increases for PiDiNet (+0.003
+ODS, +0.002 OIS) and slight decreases for RankED (-0.005
+ODS, -0.009 OIS, -0.02 AP) and the officially published results of DiffusionEdge (-0.002 ODS, -0.004 OIS). However,
+compared to our training of DiffusionEdge, M ATCH ED improves ODS by +0.003 while AP drops by -0.02; OIS remains unchanged.
+
+(ICCV15)
+(CVPR17)
+(CVPR18)
+(CVPR19)
+(ICCV21)
+(CVPR22)
+(CVPR23)
+(CVPR24)
+(AAAI24)
+(CVPR24)
+(TII24)
+(WACV25)
+(AAAI25)
+
+PiDiNet + M ATCH ED
+DiffEdge + M ATCH ED
+RankED + M ATCH ED
+SAUGE + M ATCH ED
+
+SEval
+
+ODS
+
+OIS
+
+AP
+
+AC
+
+ODS OIS AP
+
+.588
+.585
+.693
+.636
+.578
+.698
+.722
+.720
+.749
+.631
+–
+–
+.700
+
+.608
+.604
+.700
+.650
+.587
+.706
+.731
+.728
+.754
+.637
+–
+–
+.714
+
+–
+–
+–
+.643
+–
+–
+–
+.800
+–
+.686
+–
+–
+.768
+
+.215
+.189
+–
+.233
+.202
+.288
+.227
+.299
+.476
+.213
+–
+–
+.215
+
+.788 .808 –
+.798 .815 –
+.800 .816 –
+.817 .833 .883
+.789 .803 –
+.824 .841 .880
+.829 .847 .892
+.831 .847 .886
+.834 .848 –
+.824 .840 .895
+.838 .852 .893
+.837 .851 –
+.847 .868 .898
+
+.800+.2 .811+.2 .866 .919+.7 .798 .800 .859
+.833+.1 .848+.1 .895 .950+.5 .833 848 .885
+.819+.2 .829+.2 .865+.2 .651+.4 .812 .830 .862
+.854+.2 .870+.2 .912+.1 .852+.6 .846 .864 .891
+
+We also evaluate the zero-shot performance of
+M ATCH ED, following SAUGE [22], by training on
+BSDS and testing on NYUD-v2. Despite being unable to
+fully reproduce SAUGE’s reported results using the officially published model, M ATCH ED achieves performance
+nearly identical to standard post-processing, except for a
+-0.003 drop in OIS according to our evaluation.
+BIPED-v2. We also evaluate the performance of our models on the BIPED-v2 dataset, which is designed for edge
+detection rather than contour or boundary detection, as
+shown in Table 5. While SOTA methods are evaluated after post-processing, our method is evaluated without postprocessing. PiDiNet + M ATCH ED has the best performance for all metrics among SOTA methods. Additionally,
+it improves PiDiNet [37] performance by +0.008, +0.008,
+and +0.02 in ODS, OIS, and AP metrics, respectively.
+Main Result
+Experiment 2 shows that M ATCH ED consistently improves performance, particularly under the crispnessemphasized (CEval) protocol, with substantial gains
+in ODS, OIS, AP, and AC metrics. Additionally,
+M ATCH ED generates inherently crisp edge maps, often
+surpassing or matching standard post-processing, highlighting its generalizability and effectiveness across diverse datasets.
+
+6
+
+Table 4. Exp 2: Comparison of SOTA results under Standard (SEval) and Crispness-emphasized (CEval) evaluations on the NYUDv2 dataset using RGB images. ODS: Optimal Dataset Score, OIS:
+Optimal Image Score, AP: Average Precision, AC: Average Crispness. The best and second-best results for supervised methods
+(upper part of the table) are shown in bold and underlined, respectively. The bottom section presents zero-shot results, where training is conducted on BSDS and evaluation is performed on NYUD.
+* denotes results from our training and † denotes results obtained
+using the official checkpoint. +Green highlights improvements
+compared to the base model.
+CEval
+
+hyperparameter, respectively. Overall, M ATCH ED demonstrates robustness across reasonable ranges of these hyperparameters. A more detailed discussion is provided in the
+supplementary material.
+Number of hyperparameters in M ATCH ED. We compare
+M ATCH ED with standard post-processing in terms of the
+number of hyperparameters. While NMS uses three hyperparameters, r (window size for suppression check), s
+(border fade size), and e (edge magnitude multiplier), and
+skeleton-based thinning has no parameters, our proposed
+method (M ATCH ED) introduces four hyperparameters: τc ,
+τd , α, and β. Notably, τd does not require additional search,
+as it is identical to the maximum distance tolerance already
+employed in the evaluation procedure of edge detection results. Therefore, the number of hyperparameters is the same
+for both approaches.
+
+SEval
+
+Method
+
+ODS
+
+OIS
+
+AP
+
+AC
+
+ODS OIS AP
+
+HED [41]
+(ICCV15)
+RCF [21]
+(CVPR17)
+(CVPR18)
+LPCB [7]
+BDCN [9]
+(CVPR19)
+PiDiNet [37]
+(ICCV21)
+(CVPR22)
+EDTER [28]
+Diff.Edge [45]
+(AAAI24)
+Diff.Edge* [45] (AAAI24)
+RankED [5]
+(CVPR24)
+(TII24)
+EdgeSAM [43]
+EDMB [18]
+(WACV25)
+
+.387
+.398
+–
+.426
+.399
+.430
+.732
+.727
+.477
+–
+–
+
+.404
+.413
+–
+.450
+.424
+.457
+.738
+.733
+.490
+–
+–
+
+–
+–
+–
+.362
+–
+–
+–
+.693
+.483
+–
+–
+
+–
+–
+–
+.162
+.173
+.195
+.846
+.863
+.146
+–
+–
+
+.722 .737 –
+.745 .759 –
+.739 .754 –
+.748 .762 .778
+.733 .747 –
+.774 .789 .797
+.761 .766 –
+.755 .762 .723
+.780 .793 .826
+.783 .797 .805
+.783 .789 –
+
+Main Result
+Experiment 3 shows that M ATCH ED provides reliable
+performance across a wide range of hyperparameter values. M ATCH ED effectively uses three hyperparameters,
+comparable to NMS, while outperforming standard postprocessing as shown in Experiment 2.
+
+PiDiNet + M ATCH ED .736+.3 .749+.3 .777 .930+.7 .736 .749 .756
+Diff.Edge + M ATCH ED .759+.03 .762+.03 .703+.01.937+.07.758 .762 .703
+RankED + M ATCH ED .775+.3 .784+.3 .806+.3 .886+.7 .774 .784 .802
+
+4.5. Exp 4: Efficiency Analysis
+
+Zero-shot Performance (trained on BSDS, evaluated on NYUD)
+
+Parameter overhead. We analyze how M ATCH ED increases the overall parameter count when integrated into
+existing models. M ATCH ED introduces only a minimal additional cost, ∼21K parameters. Even when integrated into
+the lightweight model PiDiNet [37], it increases the number of parameters by just 3%. For larger models such as
+RankED [5], DiffusionEdge [45], and SAUGE [22], the increase becomes negligible, less than 0.02%.
+Running time. We compare the runtime of M ATCH ED
+with standard post-processing on a CPU (Intel® Xeon® E52630 v3), as shown in Table 6(d). Standard post-processing
+applies NMS once, followed by skeleton-based thinning for
+100 thresholded edge maps ([0, 1) with a step of 0.01), resulting in 100 thinning operations per image during evaluation. For fairness, we implement vectorized PyTorch versions of NMS and thinning. M ATCH ED achieves lower runtime than NMS with a single thinning operation and is about
+0.02% of the cost of NMS with 100 thinning operations.
+Also, note that our method’s running time does not depend
+on the crispness of the given edge map, whereas both NMS
+and thinning are affected by it.
+GPU memory overhead. We analyze the additional GPU
+memory consumption introduced by M ATCH ED. For 80 ×
+80 inputs, the overhead remains modest (1.72 GB) even
+under a low confidence threshold (τd = 0.01), where almost all pixels in the crisp edge map Ec are included in
+the matching process. In contrast, processing 320 × 320
+inputs incurs significantly higher memory usage, reaching
+
+SAUGE [22]
+(AAAI25)
+–
+–
+–
+–
+.794 .803 .813
+SAUGE †[22]
+(AAAI25) .491
+.517 .554 .187 .758 .782 .810
+SAUGE + M ATCH ED .758+.2 .779+.2 .813+.2 .852+.6 .760 .784 .811
+
+Table 5. Exp 2: Comparison of base models and base models with
+M ATCH ED on BIPED-v2 dataset. M ATCH ED results are reported
+without post-processing, while base model results include postprocessing. Best and second-best results are shown in bold and
+underlined, respectively. * denotes results of our training.
+Method
+
+ODS
+
+OIS
+
+AP
+
+RCF [21]
+(CVPR17)
+(CVPR19)
+BDCN [9]
+CATS [12]
+(PAMI21)
+PiDiNet [37]
+(ICCV21)
+DexiNed [35] (Pat.Rec.22)
+DiffEdge* [45] (AAAI24)
+
+.849
+.890
+.887
+.892
+.895
+.885
+
+.861
+.899
+.892
+.897
+.900
+.886
+
+.906
+.934
+.817
+.951
+.927
+.905
+
+PiDiNet + M ATCH ED
+Diffusion + M ATCH ED
+
+.900+.008 .905+.008 .971+.02
+.889+.004 .892+.006 .903-.002
+
+4.4. Exp 3: Ablation Analysis
+Effects of hyperparameters. We analyze the impact
+of confidence threshold τc (Eq. 3), distance threshold τd
+(Eq. 3), and confidence score weight α (Eq. 3) on the performance of M ATCH ED, using PiDiNet [37] on BSDS dataset.
+The results are summarized in Table 6(a, b, c) for each
+7
+
+Table 6. Exp 3 and 4: Effect of (a) confidence threshold τc , (b) distance threshold τd , and (c) confidence score weight α on the BSDS
+dataset using PiDiNet. The baseline (PiDiNet) performance is ODS = .789 and OIS = .803. (d) CPU running time comparison of
+M ATCH ED and standard post-processing on the NYUD dataset using PiDiNet [37]. The reported running time corresponds to the entire NYUD test set (654 images).
+(a) Confidence threshold τc
+
+(b) Distance threshold τd
+
+(c) Confidence score weight α
+
+τc
+
+ODS
+
+OIS
+
+AP
+
+τd
+
+ODS
+
+OIS
+
+AP
+
+α
+
+ODS
+
+OIS
+
+AP
+
+Method
+
+0.01
+0.03
+0.05
+0.10
+0.20
+0.30
+
+.800
+.799
+.799
+.799
+.788
+.761
+
+.811
+.811
+.811
+.808
+.803
+.771
+
+.866
+.858
+.845
+.836
+.820
+.803
+
+2
+4
+6
+8
+—
+—
+
+.797
+.800
+.797
+.797
+—
+—
+
+.807
+.811
+.809
+.808
+—
+—
+
+.856
+.866
+.866
+.866
+—
+—
+
+5
+10
+15
+20
+25
+30
+
+.630
+.783
+.794
+.798
+.800
+.798
+
+.639
+.790
+.802
+.811
+.811
+.811
+
+.653
+.827
+.845
+.857
+.866
+.867
+
+NMS
+NMS + Thin. (×1)
+NMS + Thin. (×100)
+M ATCH ED (Ours)
+—
+—
+
+Time (sec.)
+25.69
+41.36
+1875.57
+32.98
+—
+—
+
+D�ffus�onEdge
++ NMS
+
+D�ffus�onEdge
+
+GT
+
+RGB
+
+28.32 GB at the same threshold. To mitigate this overhead, we divide 320 × 320 input into four non-overlapping
+patches and process them independently. This patch-wise
+strategy substantially reduces memory requirements, enabling the method to run on low-memory GPUs while leading to longer training times. Therefore, the input size can be
+adapted according to the available GPU memory. Moreover,
+this analysis is based on the first training iteration. As the
+model learns to predict sharper edge maps with fewer noisy
+responses, the number of pixels that exceed the confidence
+threshold τc decreases, leading to lower memory usage in
+later training stages. For detailed GPU memory overhead,
+see the supplementary material.
+
+(d) CPU Runtime on NYUD
+
+D�ffus�onEdge
++ MatchED
+
+4.6. Exp 5: Qualitative Results
+
+RankED
++ NMS
+
+RankED
+
+We present a comparison between the raw outputs of
+SOTA models, their results after applying NMS, and
+their M ATCH ED integrated versions within the M ATCH ED
+pipeline on the NYUD-v2 dataset in Figure 3. As shown
+in the figures, M ATCH ED successfully produces one-pixelwide edge maps, remains robust to variations in edge thickness across different models and achieves better visual results than NMS. See the supplementary material for more
+visual results.
+
+RankED
++ MatchED
+
+5. Conclusion
+In this study, we propose a novel plug-and-play matchingbased supervision for the crisp edge detection problem.
+Our method can be seamlessly integrated into the pipeline
+of any detection model, and allows for end-to-end training. Extensive experiments demonstrate that it is a robust solution, suitable for various architectures, including
+CNNs, transformers, and diffusion models, each with different loss functions. Notably, this is the first crisp edge
+detection model to match the performance of standard postprocessing methods while also boosting performance in
+CEval metrics. Beyond metric improvements, it gives a
+competitive visual quality compared to traditional postprocessing approaches.
+
+Figure 3. Exp 5: Visual results of the raw outputs of SOTA models, their results after applying NMS, and their M ATCH ED integrated versions on NYUD-v2 dataset. Best viewed by zooming in.
+Baseline results are generated from the pipeline of M ATCH ED.
+
+Limitations. Although our method uses the same number of hyperparameters as standard post-processing, tuning them requires retraining, which increases computational
+cost. However, our experiments suggest that M ATCH ED is
+relatively robust against hyperparameter changes.
+8
+
+Acknowledgments
+
+boundaries. In IEEE Winter Conference on Applications of Computer Vision (WACV), pages 1043–1051.
+IEEE, 2019. 1
+[12] Linxi Huan, Nan Xue, Xianwei Zheng, Wei He, Jianya
+Gong, and Gui-Song Xia. Unmixing convolutional
+features for crisp edge detection. IEEE TPAMI, 44
+(10):6602–6609, 2021. 2, 3, 5, 6, 7
+[13] Ramesh Jain, Rangachar Kasturi, Brian G Schunck,
+et al. Machine Vision. McGraw-hill New York, 1995.
+2
+[14] André Peter Kelm, Vijesh Soorya Rao, and Udo
+Zölzer. Object contour and edge detection with refinecontournet. In Computer Analysis of Images and
+Patterns (CAIP), pages 246–258, 2019. 1, 2
+[15] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi
+Mao, Chloe Rolland, Laura Gustafson, Tete Xiao,
+Spencer Whitehead, Alexander C Berg, Wan-Yen Lo,
+et al. Segment anything. In ICCV, pages 4015–4026,
+2023. 2
+[16] Josef Kittler. On the accuracy of the sobel edge detector. Image and Vision Computing, 1(1):37–42, 1983.
+2
+[17] Louisa Lam, Seong-Whan Lee, and Ching Y Suen.
+Thinning methodologies-a comprehensive survey.
+IEEE TPAMI, 14(09):869–885, 1992. 2
+[18] Yachuan Li, Xavier Soria Poma, Yun Bai, Qian
+Xiao, Chaozhi Yang, Guanlin Li, and Zongmin Li.
+Edmb: Edge detector with mamba. arXiv preprint
+arXiv:2501.04846, 2025. 1, 2, 6, 7
+[19] Yachuan Li, Xavier Soria Poma, Yongke Xi, Guanlin
+Li, Chaozhi Yang, Qian Xiao, Yun Bai, and Zongmin
+Li. A doubly decoupled network for edge detection.
+Neurocomputing, page 129442, 2025. 1, 2
+[20] Changsong Liu, Wei Zhang, Yanyan Liu, Mingyang
+Li, Wenlin Li, Yimeng Fan, Xiangnan Bai, and Liang
+Zhang. Cycle pixel difference network for crisp edge
+detection. Neurocomputing, 619:129153, 2025. 2, 3
+[21] Yun Liu, Ming-Ming Cheng, Xiaowei Hu, Kai Wang,
+and Xiang Bai. Richer convolutional features for edge
+detection. In CVPR, pages 3000–3009, 2017. 1, 2, 4,
+6, 7
+[22] Xing Liufu, Chaolei Tan, Xiaotong Lin, Yonggang Qi,
+Jinxuan Li, and Jian-Fang Hu. Sauge: Taming sam for
+uncertainty-aligned multi-granularity edge detection.
+arXiv preprint arXiv:2412.12892, 2024. 2, 3, 5, 6, 7
+[23] Kevis-Kokitsi Maninis, Jordi Pont-Tuset, Pablo Arbeláez, and Luc Van Gool. Convolutional oriented
+boundaries. In ECCV, pages 580–596, 2016. 1, 2
+[24] David Marr and Ellen Hildreth. Theory of edge detection. Proceedings of the Royal Society of London. Series B. Biological Sciences, 207(1167):187–
+217, 1980. 2
+
+This work was supported by the Council of Higher Education Research Universities Support program through METU
+Scientific Research Projects (“New Techniques in Visual
+Recognition”, Project No. ADEP-312-2024-11485). We
+also gratefully acknowledge the computational resources
+provided by METU-ROMER, Center for Robotics and Artificial Intelligence, as well as TUBITAK ULAKBIM Truba.
+
+References
+[1] Pablo Arbelaez, Michael Maire, Charless Fowlkes,
+and Jitendra Malik. Contour detection and hierarchical
+image segmentation. IEEE TPAMI, 33(5):898–916,
+2010. 5
+[2] Gedas Bertasius, Jianbo Shi, and Lorenzo Torresani.
+Deepedge: A multi-scale bifurcated deep network for
+top-down contour detection. In CVPR, pages 4380–
+4389, 2015. 1, 2
+[3] John Canny. A computational approach to edge detection. IEEE TPAMI, 8(6):679–698, 1986. 1, 2
+[4] Nicolas Carion, Francisco Massa, Gabriel Synnaeve,
+Nicolas Usunier, Alexander Kirillov, and Sergey
+Zagoruyko. End-to-end object detection with transformers. In ECCV, pages 213–229. Springer, 2020.
+4
+[5] Bedrettin Cetinkaya, Sinan Kalkan, and Emre Akbas.
+Ranked: Addressing imbalance and uncertainty in
+edge detection using ranking-based losses. In CVPR,
+pages 3239–3249, 2024. 1, 2, 3, 5, 6, 7
+[6] Liang-Chieh Chen, Jonathan T Barron, George Papandreou, Kevin Murphy, and Alan L Yuille. Semantic image segmentation with task-specific edge detection using cnns and a discriminatively trained domain
+transform. In CVPR, pages 4545–4554, 2016. 1
+[7] Ruoxi Deng, Chunhua Shen, Shengjun Liu, Huibing
+Wang, and Xinru Liu. Learning to predict crisp boundaries. In ECCV, pages 562–578, 2018. 1, 2, 3, 5, 6,
+7
+[8] Zicheng Guo and Richard W Hall. Parallel thinning
+with two-subiteration algorithms. Communications of
+the ACM, 32(3):359–373, 1989. 2
+[9] Jianzhong He, Shiliang Zhang, Ming Yang, Yanhu
+Shan, and Tiejun Huang. Bi-directional cascade network for perceptual edge detection. In CVPR, pages
+3828–3837, 2019. 1, 2, 6, 7
+[10] Qinghui Hong, Haoyou Jiang, Pingdan Xiao, Sichun
+Du, and Tao Li. Edcssm: Edge detection with
+convolutional state space model. arXiv preprint
+arXiv:2409.01609, 2024. 1, 2
+[11] Junjie Hu, Mete Ozay, Yan Zhang, and Takayuki
+Okatani. Revisiting single image depth estimation:
+Toward higher resolution maps with accurate object
+9
+
+[25] David A Mély, Junkyung Kim, Mason McGill, Yuliang Guo, and Thomas Serre. A systematic comparison between visual cues for boundary detection. Vision Research, 120:93–107, 2016. 5
+[26] Kamyar Nazeri, Eric Ng, Tony Joseph, Faisal Qureshi,
+and Mehran Ebrahimi. Edgeconnect: Structure guided
+image inpainting using edge prediction. In Proceedings of the IEEE/CVF international conference on
+computer vision workshops, pages 0–0, 2019. 1
+[27] Mengyang Pu, Yaping Huang, Qingji Guan, and
+Haibin Ling. Rindnet: Edge detection for discontinuity in reflectance, illumination, normal and depth.
+In ICCV, pages 6879–6888, 2021. 1, 2
+[28] Mengyang Pu, Yaping Huang, Yuming Liu, Qingji
+Guan, and Haibin Ling. Edter: Edge detection with
+transformer. In CVPR, pages 1402–1412, 2022. 1, 2,
+6, 7
+[29] Edoardo Mello Rella, Ajad Chhatkuli, Yun Liu, Ender
+Konukoglu, and Luc Van Gool. Zero pixel directional
+boundary by vector transform. In ICLR, 2022. 2
+[30] Lawrence G Roberts. Machine perception of threedimensional solids. PhD thesis, Massachusetts Institute of Technology, 1963. 2
+[31] Wonseok Roh, Hwanhee Jung, Giljoo Nam, Jinseop
+Yeom, Hyunje Park, Sang Ho Yoon, and Sangpil
+Kim. Edge-aware 3d instance segmentation network
+with intelligent semantic prior. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 20644–20653, 2024. 1
+[32] Wei Shen, Xinggang Wang, Yan Wang, Xiang Bai,
+and Zhijiang Zhang. Deepcontour: A deep convolutional feature learned by positive-sharing loss for contour detection. In CVPR, pages 3982–3991, 2015. 1,
+2
+[33] Nathan Silberman, Derek Hoiem, Pushmeet Kohli,
+and Rob Fergus. Indoor segmentation and support inference from rgbd images. In ECCV, pages 746–760.
+Springer, 2012. 5
+[34] Xavier Soria, Yachuan Li, Mohammad Rouhani, and
+Angel D Sappa. Tiny and efficient model for the edge
+detection generalization. In ICCV, pages 1364–1373,
+2023. 2
+[35] Xavier Soria, Angel Sappa, Patricio Humanante, and
+Arash Akbarinia. Dense extreme inception network
+for edge detection. Pattern Recognition, 139:109461,
+2023. 5, 7
+[36] Russell Stewart, Mykhaylo Andriluka, and Andrew Y
+Ng. End-to-end people detection in crowded scenes.
+In CVPR, pages 2325–2333, 2016. 4
+[37] Zhuo Su, Wenzhe Liu, Zitong Yu, Dewen Hu, Qing
+Liao, Qi Tian, Matti Pietikäinen, and Li Liu. Pixel
+difference networks for efficient edge detection. In
+ICCV, pages 5117–5127, 2021. 1, 2, 3, 5, 6, 7, 8
+
+[38] Beaudelaire Saha Tchinda, Daniel Tchiotsop, Michel
+Noubom, Valerie Louis-Dorr, and Didier Wolf. Retinal blood vessels segmentation using classical edge
+detection filters and the neural network. Informatics
+in Medicine Unlocked, 23:100521, 2021. 1
+[39] Yupei Wang, Xin Zhao, Yin Li, and Kaiqi Huang.
+Deep crisp boundaries: From boundaries to higherlevel tasks. IEEE TIP, 28(3):1285–1298, 2018. 2,
+3
+[40] Yilin Wang, Haiyang Xu, Xiang Zhang, Zeyuan Chen,
+Zhizhou Sha, Zirui Wang, and Zhuowen Tu. Omnicontrolnet: Dual-stage integration for conditional image generation. In CVPR, pages 7436–7448, 2024. 1
+[41] Saining Xie and Zhuowen Tu. Holistically-nested
+edge detection. In ICCV, pages 1395–1403, 2015. 1,
+2, 4, 6, 7
+[42] Jiawei Yang, Katie Z Luo, Jiefeng Li, Congyue Deng,
+Leonidas Guibas, Dilip Krishnan, Kilian Q Weinberger, Yonglong Tian, and Yue Wang. Denoising vision transformers. In ECCV, pages 453–469. Springer,
+2024. 5
+[43] Wenya Yang, Xiao-Diao Chen, Wen Wu, Hongshuai
+Qin, Kangming Yan, Xiaoyang Mao, and Haichuan
+Song. Boosting deep unsupervised edge detection via
+segment anything model. IEEE Transactions on Industrial Informatics, 2024. 2, 6, 7
+[44] Yunfan Ye, Renjiao Yi, Zhirui Gao, Zhiping Cai, and
+Kai Xu. Delving into crispness: Guided label refinement for crisp edge detection. IEEE TIP, 32:4199–
+4211, 2023. 2, 3, 5, 6
+[45] Yunfan Ye, Kai Xu, Yuhang Huang, Renjiao Yi, and
+Zhiping Cai. Diffusionedge: Diffusion probabilistic
+model for crisp edge detection. In AAAI, pages 6675–
+6683, 2024. 1, 2, 3, 5, 6, 7
+[46] Jianye Yi, Xiaopin Zhong, Weixiang Liu, Wenxuan Zhu, Zongze Wu, and Yuanlong Deng. Edgeaware plug-and-play scheme for semantic segmentation. arXiv preprint arXiv:2303.10307, 2023. 1
+[47] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala.
+Adding conditional control to text-to-image diffusion
+models. In ICCV, pages 3836–3847, 2023. 1
+[48] Shihao Zhao, Dongdong Chen, Yen-Chun Chen, Jianmin Bao, Shaozhe Hao, Lu Yuan, and Kwan-Yee K
+Wong. Uni-controlnet: All-in-one control to text-toimage diffusion models. NeurIPS, 36:11127–11150,
+2023. 1
+[49] Caixia Zhou, Yaping Huang, Mengyang Pu, Qingji
+Guan, Li Huang, and Haibin Ling. The treasure
+beneath multiple annotations: An uncertainty-aware
+edge detector. In CVPR, pages 15507–15517, 2023.
+1, 2, 3, 6
+[50] Caixia Zhou, Yaping Huang, Mengyang Pu, Qingji
+Guan, Ruoxi Deng, and Haibin Ling. Muge: Multiple
+10
+
+granularity edge detection. In CVPR, pages 25952–
+25962, 2024. 1, 2, 6
+[51] Shengjie Zhu, Garrick Brazil, and Xiaoming Liu. The
+edge of depth: Explicit constraints between segmentation and depth. In CVPR, pages 13116–13125, 2020.
+1
+
+11
+
+Supplementary Material for
+”MatchED: Crisp Edge Detection Using End-to-End, Matching-based
+Supervision”
+
+Contents
+S1. Reasons for Edge Thickness
+
+1
+
+S2. Time Complexity of Our Matching Algorithm
+
+1
+
+S3. Details of Light-weight CNN
+
+2
+
+S4. Hyperparameter Configurations
+
+2
+
+S5. Results on Multi-cue
+
+2
+
+S6. Effects of hyperparameter
+
+2
+
+S7. GPU memory overhead
+
+3
+
+S8. More Visual Results
+S8.1. More Visual Results on NYUD . . . . . . .
+S8.2. More Visual Results on BSDS . . . . . . .
+S8.3. More Visual Results on BIPED . . . . . . .
+S8.4. More Visual Results on Multi-Cue . . . . .
+
+3
+4
+4
+4
+4
+
+When these differing annotations are aggregated into a single ground-truth map, the resulting supervision inherently
+broadens in spatial extent. Training with such thick supervision signals encourages models to produce similarly thick
+raw predictions.
+Inherent Image Gradients: In natural RGB images,
+transitions between distinct regions rarely occur as ideal
+one-pixel step edges. Due to optical blur, illumination
+changes, sensor sampling, and other imaging factors, physical boundaries typically appear as gradual intensity transitions spanning multiple pixels. Therefore, even prior
+to annotation, the underlying image gradients already exhibit spatial thickness, further contributing to thick edge responses in learned models.
+M ATCH ED explicitly addresses and mitigates all three
+factors, enabling the model to produce spatially precise and
+significantly thinner edge predictions.
+
+S2. Time Complexity of Our Matching Algorithm
+In this section, we provide a detailed analysis of the time
+complexity involved in generating the proposed matchingbased supervision. First, computing the cost matrix C in
+Eq. 3 of the main manuscript requires comparing all pixels
+in the ground-truth G and the predicted crisp edge map Ec .
+Therefore, the time complexity of this step is O (W · H)2 ,
+where W and H denote the width and height of Ec . Then,
+solving the bipartite matching problem in Eq. 4 of the main
+manuscript using the linear sum assignment
+ algorithm has a
+cubic time complexity of O (NG · NEc )3 . Finally, recovering unmatched ground-truth edges in Eq. 6 of the main
+manuscript requires iterating over all pixels in the ground
+truth G, and it has a time complexity of O (W · H) .
+Consequently, the total time complexity of the proposed
+matching-based supervision algorithm is
+
+(S1)
+O (W · H)2 + (NG · NEc )3 + (W · H) .
+
+S1. Reasons for Edge Thickness
+Both traditional and learning-based edge detection methods
+tend to produce thick raw edge predictions. This behavior arises from three primary and compounding factors: (i)
+annotation misalignment, (ii) merged supervision, and (iii)
+inherent image gradients.
+Annotation Misalignment: Human annotators inevitably
+introduce small spatial inconsistencies when manually tracing edges in the scene. These pixel-level deviations prevent
+perfect alignment between RGB images and their groundtruths. As a result, during training, the supervision signal
+is spatially dispersed rather than concentrated on a single
+pixel. Consequently, models learn to activate not only the
+true boundary pixel but also its neighboring pixels, leading
+to thicker predictions.
+Merged Supervision: Datasets such as BSDS [1] and MultiCue [6] provide multiple annotations per image. Annotators often disagree not only on precise boundary localization but also on the semantic validity of certain boundaries.
+
+The dominant term is the cubic cost of the linear sum assignment. In practice, NEc can be large in the initial iterations due to noisy and thick edge predictions. However, as
+1
+
+Sigmoid
+
+Conv2D
+
+Block5
+
+Block4
+
+Block3
+
+Block2
+
+Block1
+
+ReLU
+
+Norm
+
+Conv2D
+
+(a) The architecture of lightweight CNN.
+
+Table S1. Hyperparameter configurations used for integrating
+M ATCH ED into each base model across NYUD-v2 [9], BSDS
+[1], Multi-Cue [6], and BIPED [10] datasets. τc is the confidence threshold for selecting edge pixels in Eq. 4 of the main
+manuscript, α is the weight of the confidence score in Eq. 3 of the
+main manuscript, and β is the loss coefficient of M ATCH ED.
+Model
+
+Dataset
+
+τc (×10−2 )
+
+α
+
+β
+
+RankED [2]
+
+NYUD
+BSDS
+Multi-Cue
+BIPED
+
+1
+1
+1
+–
+
+25
+25
+25
+–
+
+5
+5
+5
+–
+
+PiDiNet [11]
+
+NYUD
+BSDS
+Multi-Cue
+BIPED
+
+1
+1
+1
+1
+
+20
+25
+55
+55
+
+1
+1
+1
+1
+
+DiffusionEdge [14]
+
+NYUD
+BSDS
+Multi-Cue
+BIPED
+
+10
+10
+–
+10
+
+5
+5
+–
+5
+
+1
+1
+–
+–
+
+SAUGE [5]
+
+NYUD
+BSDS
+Multi-Cue
+BIPED
+
+5
+5
+–
+–
+
+20
+20
+–
+–
+
+1
+1
+–
+–
+
+(b) The architecture of Block.
+Figure S1. (a) A lightweight CNN consists of five blocks followed
+by a final Conv2D layer with a sigmoid activation. Therefore, it
+has only approximately 21K parameters. (b) Each block contains
+Conv2D, ReLU, and normalization layers, where the type of normalization (e.g., BatchNorm, LayerNorm) is chosen to match that
+used in the base edge detector.
+
+the model learns a more accurate and crisp edge map, NEc
+decreases significantly, thereby reducing the computational
+cost in subsequent iterations.
+
+S3. Details of Light-weight CNN
+As shown in Figure S1(a), a light-weight CNN has five
+blocks and one Conv2D layer with sigmoid activation. Each
+block (Figure S1(b)) has one Conv2D layer with ReLU activation and one normalization layer. The normalization layer
+type matches that of the base edge detector. For example,
+PiDiNet [11] + M ATCH ED uses BatchNorm2D, whereas
+SAUGE [5] + M ATCH ED uses LayerNorm. In total, it introduces only ∼21k parameters.
+
+S4. Hyperparameter Configurations
+Hyperparameter settings for each base model and dataset
+are presented in Table S1. We tuned the β coefficient, the
+loss weight of M ATCH ED in Eq. 8 of the main manuscript,
+only for RankED [2], due to its grid-like artifacts [13] and
+down-sampled predictions. To mitigate the performance
+degradation caused by these two factors, we performed a
+dedicated search for β only on RankED.
+For tuning the parameters α (the weight of the confidence score) and τc (the confidence threshold used to select
+edge pixels) in Eq. 3 of the main manuscript, our heuristic
+is that less noisy and crisper raw edge predictions benefit
+from a larger τc (e.g., 0.1) and a smaller τc (e.g., 5).
+
+S5. Results on Multi-cue
+Since Multi-Cue dataset lacks an official split, results are
+reported as the mean and variance over three random splits,
+following [2, 11, 16], which results in longer training times
+
+compared to other datasets. Due to resource constraints,
+M ATCH ED is integrated into only two models, (i) PiDiNet
+[11] and (ii) RankED [2], and their performance is compared with SOTA in Table S2. Additionally, due to the
+lack of official models for Multi-Cue, SOTA methods are
+reported with post-processing, whereas our method is evaluated without post-processing.
+When integrated into PiDiNet [11], our method yields
+improvements of +4.8 and +5.1 in ODS and OIS, respectively, for the edge part, and scores of +0.7 and -0.1 for
+the boundary part. As discussed in Section 4.3 of the main
+manuscript, the down-scaled feature map size and interpolation artifacts cause the performance of M ATCH ED to drop
+to that of RankED [2] when compared to the post-processed
+results.
+
+S6. Effects of hyperparameter
+Effect of confidence threshold τc . We investigate the effects of different confidence thresholds τc in Eq. 3 of the
+main manuscript on the performance of M ATCH ED, using
+PiDiNet [11] on BSDS dataset, as shown in Table S3(a).
+According to the results, the best performance is achieved
+when nearly all predictions (i.e., pixels with confidence ¿
+0.01) are included in the matching process. Threshold values up to 0.1 yield similar performance, except for the AP
+metric. Excluding low-confidence pixels results in a lower
+AP score. Nevertheless, our method still outperforms standard post-processing for threshold values up to 0.2. During
+these experiments, the value of the confidence score α and
+distance threshold τd are used as 25 and 4, respectively.
+
+Table S2. Comparison of SOTA results on Multi-Cue dataset.
+While M ATCH ED results are reported under CEval, other results
+are reported under SEval. ODS: Optimal Dataset Score, OIS: Optimal Image Score, AP: Average Precision, AC: Average Crispness.
+Best and second-best results are shown in bold and underlined,
+respectively.
+Edge
+Method
+Human
+(VR’16)
+Multicue [6]
+HED [12]
+(ICCV’15)
+RCF [4]
+(CVPR’17)
+(CVPR’19)
+BDCN [3]
+PiDiNet [11] (ICCV’21)
+EDTER [7] (CVPR’22)
+UAED [15] (CVPR’23)
+MuGE [16] (CVPR’24)
+Diff.Edge [14] (AAAI’24)
+RankED [2] (CVPR’24)
+PiDiNet + M ATCH ED
+RankED + M ATCH ED
+
+ODS
+
+OIS
+
+AP
+
+.830±.002
+.851±.014
+.857±.004
+.891±.001
+.855±.007
+.894±.005
+.895±.002
+.898±.004
+.904
+.962±.003
+
+.750±.024
+–
+.864±.011
+.862±.004
+.898±.002
+.860±.005
+.900±.003
+.902±.001
+.900±.004
+.909
+.965±.003
+
+–
+–
+–
+–
+.935±.002
+–
+.944±.002
+.949±.002
+.950±.004
+–
+.973±.006
+
+.903±.002
+.924±.010
+
+.911±.004
+.929±.010
+
+.973±.007
+.969±.007
+
+OIS
+
+AP
+
+–
+
+still outperforms standard post-processing methods. During
+these experiments, the distance threshold τd and the confidence threshold τc are used as 2 and 0.01, respectively.
+Heuristic for parameter choice. Our experiments indicate
+that tuning the distance threshold τd is unnecessary, as it
+has minimal impact on performance and works well when
+aligned with the evaluation threshold.
+For the τc parameter, there is a trade-off between training
+time and performance: increasing τc reduces training time
+because fewer pixels are included in the matching process
+(see Section S2), but slightly lowers performance. For lower
+computational cost, τc can be set in the range 0.1–0.2; for
+optimal performance, all pixels can be used, i.e., τc = 0.01.
+For crisp and accurate raw edge predictions, such as [14],
+setting τc = 0.1 yields good performance.
+The α parameter should be small for crisp raw results
+(e.g., α = 5) and larger for noisy or thick raw results (e.g.,
+α = 20).
+
+S7. GPU memory overhead
+
+Boundary
+Method
+
+ODS
+
+Human
+(VR’16)
+Multicue [6]
+HED [12]
+(ICCV’15)
+RCF [4]
+(CVPR’17)
+BDCN [3]
+(CVPR’19)
+PiDiNet [11] (ICCV’21)
+EDTER [7] (CVPR’22)
+UAED [15] (CVPR’23)
+MuGE [16] (CVPR’24)
+RankED [2] (CVPR’24)
+
+.720±.014
+.814±.011
+.817±.004
+.836±.001
+.818±.003
+.861±.003
+.864±.004
+.875±.006
+.963±.002
+
+.760±.017
+–
+.822±.008
+.825±.005
+.846±.003
+.830±.005
+.870±.004
+.872±.006
+.879±.006
+.967±.002
+
+–
+–
+.869±.015
+–
+.893±.001
+–
+.919±.003
+.927±.006
+.932±.006
+.995±.001
+
+PiDiNet + M ATCH ED
+RankED + M ATCH ED
+
+.825±.003
+.941±.009
+
+.829±.002
+.946±.008
+
+.889±.003
+.995±.006
+
+–
+
+Effect of distance threshold τd . We analyze how varying
+the distance threshold τd in Eq. 3 of the main manuscript
+impacts the performance of M ATCH ED on BSDS dataset
+using PiDiNet [11], as presented in Table S3(b). According
+to the results, all tested threshold values yield similar performance, except for τd = 2 in the AP metric, which shows
+a 1.0-point lower score. Notably, the best performance is
+achieved with τd = 4, which aligns with the distance threshold used during evaluation. During these experiments, the
+weight of the confidence score α and the confidence threshold τc are used as 25 and 0.01, respectively.
+Effect of confidence score’s weight α. We examine the
+impact of varying the confidence score weight α in Eq. 3 of
+the main manuscript on the performance of M ATCH ED on
+BSDS dataset, when integrated into PiDiNet [11], as shown
+in Table S3(c). The results show that α = 5 leads to a
+significant performance drop across all metrics. The best
+performance is achieved with α = 25, while α = 30 yields
+nearly the same results. Moreover, using α = 15 or 20
+
+Table S4 presents the GPU memory overhead introduced
+by M ATCH ED under varying image resolutions and confidence thresholds τc . As expected, memory consumption increases substantially with larger input sizes, rising
+from around 1.7 GB for 80 × 80 inputs to over 28 GB
+for 320 × 320 inputs. Moreover, increasing the confidence
+threshold τc leads to decreasing GPU memory usage, as a
+higher τc reduces the number of edge pixels involved in the
+matching process. Note that the memory consumption is
+sensitive to the number of edge pixels in the ground-truth
+as well as the number of pixels exceeding the confidence
+threshold τc . As these numbers increase, the required GPU
+memory grows accordingly.
+
+S8. More Visual Results
+This section presents visual results on the NYUD, BSDS,
+BIPED, and Multi-Cue datasets. To enable a fair comparison for each base edge detector with an officially released
+checkpoint (on NYUD and on BSDS), we report two types
+of raw visual results:
+• Official Results: Edge maps produced directly from the
+publicly released model weights. These serve as the
+canonical reference for each base model.
+• M ATCH ED’s Pipeline: Raw edge maps produced by
+the same base model when used within the M ATCH ED’s
+training pipeline. These results serve as the proper baseline for visually assessing how M ATCH ED refines the raw
+predictions.
+Minor visual and numerical discrepancies between these
+two outputs are expected. Such differences arise from (i)
+non-determinism in modern training pipelines (e.g., random
+initialization and data loading order), and (ii) the influence
+
+Table S3. Effect of (a) confidence threshold τc , (b) distance threshold τd , and (c) confidence score weight α on BSDS dataset using
+PiDiNet. The baseline (PiDiNet) performance is ODS = .789 and OIS = .803.
+(a) Confidence threshold τc
+
+(b) Distance threshold τd
+
+(c) Confidence score weight α
+
+Param.
+
+ODS
+
+OIS
+
+AP
+
+Param.
+
+ODS
+
+OIS
+
+AP
+
+Param.
+
+ODS
+
+OIS
+
+AP
+
+0.01
+0.03
+0.05
+0.10
+0.20
+0.30
+
+.800
+.799
+.799
+.799
+.788
+.761
+
+.811
+.811
+.811
+.808
+.803
+.771
+
+.866
+.858
+.845
+.836
+.820
+.803
+
+2
+4
+6
+8
+—
+—
+
+.797
+.800
+.797
+.797
+—
+—
+
+.807
+.811
+.809
+.808
+—
+—
+
+.856
+.866
+.866
+.866
+—
+—
+
+5
+10
+15
+20
+25
+30
+
+.630
+.783
+.794
+.798
+.800
+.798
+
+.639
+.790
+.802
+.811
+.811
+.811
+
+.653
+.827
+.845
+.857
+.866
+.867
+
+Table S4. GPU memory overhead introduced by M ATCH ED at
+different image sizes and confidence thresholds τd .
+
+Image Size
+
+τd
+
+GPU Memory (GB)
+
+80 × 80
+
+0.01
+0.05
+0.10
+
+1.72
+1.65
+1.57
+
+320 × 320
+
+0.01
+0.05
+0.10
+
+28.43
+27.30
+25.86
+
+of M ATCH ED’s loss gradients on the base model during an
+end-to-end optimization.
+Across all datasets and base models, the visual results
+demonstrate that M ATCH ED consistently generates superior crisp edge maps. Notably, M ATCH ED successfully
+achieves thinning without altering the thickness of the raw
+input edge map.
+
+S8.1. More Visual Results on NYUD
+In this section, we present visual results of M ATCH ED on
+NYUD-v2 [8] dataset using the four base models: (i) DiffusionEdge [14] (Figure S2), (ii) PiDiNet [11] (Figure S3),
+(iii) RankED [2] (Figure S4), and SAUGE [5] (Figure S5).
+Each figure compares the raw outputs from official model
+checkpoints, the outputs from the M ATCH ED pipeline before and after NMS, and the outputs of M ATCH ED integrated versions.
+
+S8.2. More Visual Results on BSDS
+In this section, we present visual results of M ATCH ED on
+BSDS [1] dataset using the four base models: (i) DiffusionEdge [14] (Figure S6), (ii) PiDiNet [11] (Figure S7),
+(iii) RankED [2] (Figure S8), and SAUGE [5] (Figure S9).
+Each figure compares the raw outputs from official model
+checkpoints, the outputs from the M ATCH ED pipeline before and after NMS, and the outputs of M ATCH ED integrated versions.
+
+S8.3. More Visual Results on BIPED
+In this section, we present visual results of M ATCH ED on
+BIPED-v2 [10] dataset using the two base models: (i) DiffusionEdge [14] (Figure S10) and (ii) PiDiNet [11] (Figure S11). Each figure compares the raw outputs from the
+M ATCH ED pipeline before and after NMS, and the outputs
+of M ATCH ED integrated versions.
+
+S8.4. More Visual Results on Multi-Cue
+In this section, we present visual results of M ATCH ED
+on Multi-Cue [6] dataset using the two base models: (i)
+PiDiNet [11] (Figure S12) and (ii) RankED [2] S13).
+
+RGB
+
+GT
+
+DiffusionEdge
+(Official Results)
+
+DiffusionEdge
+(MatchED’s pipeline)
+
+DiffusionEdge
++ NMS
+
+DiffusionEdge
++ MatchED
+
+Figure S2. Qualitative comparisons on NYUD dataset using DiffusionEdge [14]. We show results from DiffusionEdge [14] (official
+checkpoint), raw outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated
+results, respectively. Best viewed zoomed-in.
+
+RGB
+
+GT
+
+PiDiNet
+(Official Results)
+
+PiDiNet
+(MatchED’s pipeline)
+
+PiDiNet
++ NMS
+
+PiDiNet
++ MatchED
+
+Figure S3. Qualitative comparisons on NYUD dataset using PiDiNet [11]. We show results from PiDiNet [11] (official checkpoint), raw
+outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated results, respectively. Best viewed zoomed-in.
+
+RGB
+
+GT
+
+RankED
+(Official Results)
+
+RankED
+(MatchED’s pipeline)
+
+RankED
++ NMS
+
+RankED
++ MatchED
+
+Figure S4. Qualitative comparisons on NYUD dataset using RankED [2]. We show results from RankED [2] (official checkpoint), raw outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated results, respectively.
+Best viewed zoomed-in.
+
+RGB
+
+GT
+
+SAUGE
+(Official Results)
+
+SAUGE
+(MatchED’s pipeline)
+
+SAUGE
++ NMS
+
+SAUGE
++ MatchED
+
+Figure S5. Qualitative comparisons on NYUD dataset using SAUGE [5]. We show results from SAUGE [5] (official checkpoint), raw outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated results, respectively.
+Best viewed zoomed-in.
+
+RGB
+
+GT
+
+DiffusionEdge
+(Official Results)
+
+DiffusionEdge
+(MatchED’s pipeline)
+
+DiffusionEdge
++ NMS
+
+DiffusionEdge
++ MatchED
+
+Figure S6. Qualitative comparisons on BSDS dataset using DiffusionEdge [14]. We show results from DiffusionEdge [14] (official
+checkpoint), raw outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated
+results, respectively. Best viewed zoomed-in.
+
+RGB
+
+GT
+
+PiDiNet
+(Official Results)
+
+PiDiNet
+(MatchED’s pipeline)
+
+PiDiNet
++ NMS
+
+PiDiNet
++ MatchED
+
+Figure S7. Qualitative comparisons on BSDS dataset using PiDiNet [11]. We show results from PiDiNet [11] (official checkpoint), raw
+outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated results, respectively. Best viewed zoomed-in.
+
+RGB
+
+GT
+
+RankED
+(Official Results)
+
+RankED
+(MatchED’s pipeline)
+
+RankED
++ NMS
+
+RankED
++ MatchED
+
+Figure S8. Qualitative comparisons on BSDS dataset using RankED [2]. We show results from RankED [2] (official checkpoint), raw outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated results, respectively.
+Best viewed zoomed-in.
+
+RGB
+
+SAUGE
+(Official Results)
+
+GT
+
+SAUGE
+(MatchED’s pipeline)
+
+SAUGE
++ NMS
+
+SAUGE
++ MatchED
+
+Figure S9. Qualitative comparisons on BSDS dataset using SAUGE [5]. We show results from SAUGE [5] (official checkpoint), raw outputs from our M ATCH ED pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated results, respectively.
+Best viewed zoomed-in.
+RGB
+
+GT
+
+DiffusionEdge
+(MatchED’s pipeline)
+
+DiffusionEdge
++ NMS
+
+DiffusionEdge
++ MatchED
+
+Figure S10. Qualitative comparisons on BIPED dataset using DiffusionEdge [14]. We show results of raw outputs from our M ATCH ED
+pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated version, respectively. Best viewed zoomed-in.
+
+RGB
+
+GT
+
+PiDiNet
+(MatchED’s pipeline)
+
+PiDiNet
++ NMS
+
+PiDiNet
++ MatchED
+
+Figure S11. Qualitative comparisons on BIPED dataset using PiDiNet [11]. We show results of raw outputs from our M ATCH ED pipeline,
+raw outputs after applying NMS, and their corresponding MATCHED integrated version, respectively. Best viewed zoomed-in.
+
+RGB
+
+GT
+
+PiDiNet
+(MatchED’s pipeline)
+
+PiDiNet
++ NMS
+
+PiDiNet
++ MatchED
+
+(a) Boundary
+
+(b) Edge
+
+Figure S12. Qualitative comparisons on Multi-Cue dataset using PiDiNet [11]. We show results of raw outputs from our M ATCH ED
+pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated version, respectively. Best viewed zoomed-in.
+While the upper part shows the boundary detection results, the lower part shows the edge detection results.
+
+RGB
+
+GT
+
+RankED
+(MatchED’s pipeline)
+
+RankED
++ NMS
+
+RankED
++ MatchED
+
+(a) Boundary
+
+(b) Edge
+
+Figure S13. Qualitative comparisons on Multi-Cue dataset using RankED [2]. We show results of raw outputs from our M ATCH ED
+pipeline, raw outputs after applying NMS, and their corresponding MATCHED integrated version, respectively. Best viewed zoomed-in.
+While the upper part shows the boundary detection results, the lower part shows the edge detection results.
+
+References
+[1] Pablo Arbelaez, Michael Maire, Charless Fowlkes,
+and Jitendra Malik. Contour detection and hierarchical
+image segmentation. IEEE TPAMI, 33(5):898–916,
+2010. 1, 2, 4
+[2] Bedrettin Cetinkaya, Sinan Kalkan, and Emre Akbas.
+Ranked: Addressing imbalance and uncertainty in
+edge detection using ranking-based losses. In CVPR,
+pages 3239–3249, 2024. 2, 3, 4, 7, 11, 15
+[3] Jianzhong He, Shiliang Zhang, Ming Yang, Yanhu
+Shan, and Tiejun Huang. Bi-directional cascade network for perceptual edge detection. In CVPR, pages
+3828–3837, 2019. 3
+[4] Yun Liu, Ming-Ming Cheng, Xiaowei Hu, Kai Wang,
+and Xiang Bai. Richer convolutional features for edge
+detection. In CVPR, pages 3000–3009, 2017. 3
+[5] Xing Liufu, Chaolei Tan, Xiaotong Lin, Yonggang Qi,
+Jinxuan Li, and Jian-Fang Hu. Sauge: Taming sam for
+uncertainty-aligned multi-granularity edge detection.
+arXiv preprint arXiv:2412.12892, 2024. 2, 4, 8, 12
+[6] David A Mély, Junkyung Kim, Mason McGill, Yuliang Guo, and Thomas Serre. A systematic comparison between visual cues for boundary detection. Vision Research, 120:93–107, 2016. 1, 2, 3, 4
+[7] Mengyang Pu, Yaping Huang, Yuming Liu, Qingji
+Guan, and Haibin Ling. Edter: Edge detection with
+transformer. In CVPR, pages 1402–1412, 2022. 3
+[8] Nathan Silberman and Rob Fergus. Indoor scene segmentation using a structured light sensor. In 2011
+IEEE international conference on computer vision
+workshops (ICCV workshops), pages 601–608. IEEE,
+2011. 4
+[9] Nathan Silberman, Derek Hoiem, Pushmeet Kohli,
+and Rob Fergus. Indoor segmentation and support inference from rgbd images. In ECCV, pages 746–760.
+Springer, 2012. 2
+[10] Xavier Soria, Angel Sappa, Patricio Humanante, and
+Arash Akbarinia. Dense extreme inception network
+for edge detection. Pattern Recognition, 139:109461,
+2023. 2, 4
+[11] Zhuo Su, Wenzhe Liu, Zitong Yu, Dewen Hu, Qing
+Liao, Qi Tian, Matti Pietikäinen, and Li Liu. Pixel
+difference networks for efficient edge detection. In
+ICCV, pages 5117–5127, 2021. 2, 3, 4, 6, 10, 13, 14
+[12] Saining Xie and Zhuowen Tu. Holistically-nested
+edge detection. In ICCV, pages 1395–1403, 2015. 3
+[13] Jiawei Yang, Katie Z Luo, Jiefeng Li, Congyue Deng,
+Leonidas Guibas, Dilip Krishnan, Kilian Q Weinberger, Yonglong Tian, and Yue Wang. Denoising vision transformers. In ECCV, pages 453–469. Springer,
+2024. 2
+
+[14] Yunfan Ye, Kai Xu, Yuhang Huang, Renjiao Yi, and
+Zhiping Cai. Diffusionedge: Diffusion probabilistic
+model for crisp edge detection. In AAAI, pages 6675–
+6683, 2024. 2, 3, 4, 5, 9, 12
+[15] Caixia Zhou, Yaping Huang, Mengyang Pu, Qingji
+Guan, Li Huang, and Haibin Ling. The treasure
+beneath multiple annotations: An uncertainty-aware
+edge detector. In CVPR, pages 15507–15517, 2023. 3
+[16] Caixia Zhou, Yaping Huang, Mengyang Pu, Qingji
+Guan, Ruoxi Deng, and Haibin Ling. Muge: Multiple
+granularity edge detection. In CVPR, pages 25952–
+25962, 2024. 2, 3
+
+

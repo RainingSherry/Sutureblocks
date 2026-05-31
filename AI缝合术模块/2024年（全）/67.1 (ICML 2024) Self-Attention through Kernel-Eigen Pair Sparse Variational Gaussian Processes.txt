@@ -1,0 +1,3555 @@
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+Yingyi Chen * 1 Qinghua Tao * 1 Francesco Tonin 2 Johan A.K. Suykens 1
+
+Abstract
+
+Touvron et al., 2021; Wu et al., 2022). However, the large architecture capacities of Transformers could also lead to overconfident predictions (Guo et al., 2017; Mukhoti et al., 2020)
+with risks of robustness-related issues in safety-critical applications (Moon et al., 2020; Zhu et al., 2023) where reliable
+uncertainty quantification can help. Bayesian approaches
+allowing rich probabilistic interpretations of model predictions have been well studied on modern neural networks
+(Blundell et al., 2015; Gal & Ghahramani, 2016; Kendall &
+Gal, 2017; Salimbeni & Deisenroth, 2017; Geifman et al.,
+2019; Zhang et al., 2020), where posterior inferences are
+often conducted in weight spaces (Foong et al., 2020; Ritter
+et al., 2021; Coker et al., 2022). In Transformers, uncertainty estimation with Variational Inference (VI) (Graves,
+2011) is relatively less studied. Existing works include the
+studies using VI on layer weights (Tran et al., 2019; Xue
+et al., 2021), attention matrix (Fan et al., 2020; Cinquin
+et al., 2022) and attention outputs (Liu et al., 2020; Chen &
+Li, 2023), vital in providing reliable predictions.
+
+arXiv:2402.01476v2 [cs.LG] 28 May 2024
+
+While the great capability of Transformers significantly boosts prediction accuracy, it could also
+yield overconfident predictions and require calibrated uncertainty estimation, which can be commonly tackled by Gaussian processes (GPs). Existing works apply GPs with symmetric kernels
+under variational inference to the attention kernel;
+however, omitting the fact that attention kernels
+are in essence asymmetric. Moreover, the complexity of deriving the GP posteriors remains high
+for large-scale data. In this work, we propose
+Kernel-Eigen Pair Sparse Variational Gaussian
+Processes (KEP-SVGP) for building uncertaintyaware self-attention where the asymmetry of attention kernels is tackled by Kernel SVD (KSVD)
+and a reduced complexity is acquired. Through
+KEP-SVGP, i) the SVGP pair induced by the two
+sets of singular vectors from KSVD w.r.t. the attention kernel fully characterizes the asymmetry;
+ii) using only a small set of adjoint eigenfunctions
+from KSVD, the derivation of SVGP posteriors
+can be based on the inversion of a diagonal matrix containing singular values, contributing to
+a reduction in time complexity; iii) an evidence
+lower bound is derived so that variational parameters and network weights can be optimized with
+it. Experiments verify our excellent performances
+and efficiency on in-distribution, distribution-shift
+and out-of-distribution benchmarks.
+
+Gaussian processes (GPs) (Rasmussen & Williams, 2006)
+serve as principal tools for uncertainty estimation within
+Bayesian inference. Though GPs provide posterior distributions in closed forms, they are intractable for large datasets,
+e.g., long-sequence data for Transformers, as time complexity to the posterior GPs scale as O(N 3 ) where N is the
+number of training samples. Sparse Variational Gaussian
+Process (SVGP) (Titsias, 2009) deploying VI is proposed as
+an efficient alternative to classical GP. It conducts posterior
+approximation based on a small set of s “inducing points
+(variables)” yielding a reduction of time complexity from
+O(N 3 ) to O(N s2 ). Recently, SVGPs are utilized (Chen
+& Li, 2023) on attention outputs for uncertainty estimation.
+However, we underscore that the self-attention kernel is in
+essence asymmetric (Tsai et al., 2019; Wright & Gonzalez,
+2021; Chen et al., 2023), whereas SVGPs can only be characterized with symmetric kernels, resulting in a nontrivial
+gap in capturing the intrinsic rationale.
+
+1. Introduction
+In recent years, Transformers (Vaswani et al., 2017) stand
+out among deep learning models, achieving state-of-the-art
+performances and excelling in feature learning in diverse
+applications (Brown et al., 2020; Dosovitskiy et al., 2021;
+
+Chen et al. (2023) casts the asymmetric self-attention kernel
+in the framework of Kernel Singular Value Decomposition
+(KSVD) (Suykens, 2016; Tao et al., 2023), which fully characterizes the asymmetry of the attention kernel through two
+sets of projection outputs w.r.t. both right and left singular
+vectors and can be efficiently optimized through an auxiliary
+loss. In this paper, we propose Kernel-Eigen Pair Sparse
+
+*
+
+Equal contribution 1 ESAT-STADIUS, KU Leuven, Belgium
+LIONS, EPFL, Switzerland (most of the work was done at
+ESAT-STADIUS, KU Leuven). Correspondence to: Yingyi Chen
+<yingyi.chen@esat.kuleuven.be, chenyingyi076@gmail.com>.
+2
+
+Proceedings of the 41 st International Conference on Machine
+Learning, Vienna, Austria. PMLR 235, 2024. Copyright 2024 by
+the author(s).
+
+1
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+𝑂 = 𝐹 #)) 𝑊 #)) or 𝑂 = 𝑊,*#$ 𝐹 *#$ 𝑊-*#$
+
+𝑂
+
+𝒢𝒫 𝝁' , Σ'
+Mean:
+𝐸! Λ"# 𝒎𝒖
+
+𝐾#$$ ≔ 𝜙! 𝑋 𝜙" 𝑋 %
+
+𝒢𝒫 𝝁( , Σ(
+
+Covariance:
+𝐸! Λ"% 𝑆𝒖𝒖 𝐸!&
+
+Λ≔
+𝜙" (𝑋)
+
+Uncertainty Estimation Uncertainty estimation aims at
+providing confidence scores to the predictions, hence helping with both interpretability and trustworthiness of the
+models, and benefits downstream tasks, including failure
+prediction (Hendrycks & Gimpel, 2017; Li et al., 2024),
+model calibration (Guo et al., 2017), OOD detection (Zhu
+et al., 2023), etc. MSP (Hendrycks & Gimpel, 2017) takes
+the maximum softmax probabilities from the softmax label
+distribution in deep neural network (DNN) classifiers as
+confidence scores. Temperature Scaling (Guo et al., 2017)
+is a post-hoc model calibration method which optimizes a
+single temperature parameter within the softmax in the DNN
+classifier on a validation set to calibrate predictions. MonteCarlo Dropout (MC Dropout) (Gal & Ghahramani, 2016)
+casts dropout training in DNNs as approximate Bayesian
+inference in deep Gaussian processes, hence modelling uncertainty with dropout NNs. Kronecker-factored last layer
+Laplace approximation (KFLLLA) (Kristiadi et al., 2020)
+calibrates uncertainty on a ReLU network with asymptotic
+confidence of a last-layer Gaussian-approximated binary
+ReLU classifier with Laplace approximation. Deep Ensembles (Lakshminarayanan et al., 2017) ensembles DNNs for
+well-calibrated uncertainty estimates. Note that all the above
+mentioned methods can be easily implemented in different
+network architectures, such as Transformers.
+
+𝝐 ∼ 𝒩(𝟎, 𝐼+ )
+
+𝐾#$$ 𝑣(𝑋)
+
+𝜙! (𝑋)
+
+2. Related Work
+
+𝐹 #)) ≔ 𝐹 ' + 𝐹 ( or 𝐹 *#$ ≔ [𝐹 ' ; 𝐹 ( ]
+
+𝑣 𝑋
+
+𝐸& ≔ 𝑊'% 𝜙! (𝑋)
+
+Mean:
+𝑅! Λ"# 𝒎𝒖
+
+Covariance:
+𝑅! Λ"% 𝑆𝒖𝒖 𝑅!&
+
+𝑠×𝑠
+
+𝑅& ≔ 𝑊(% 𝜙" (𝑋)
+
+𝑋
+output from previous layer
+
+𝑋
+output from previous layer
+
+(a) Canonical Transformer
+
+(b) KEP-SVGP
+
+Figure 1. Illustration of canonical self-attention and our KEPSVGP in one layer. (a) The attention kernel Katt in canonical
+self-attention is induced by two different feature maps ϕq , ϕk related to queries and keys; hence Katt is in essence asymmetric. (b)
+KEP-SVGP consists of one SVGP pair induced by the two sets of
+projection outputs based on ϕq , ϕk from KSVD w.r.t. Katt , which
+fully characterizes the asymmetry of self-attention in the posterior.
+The posteriors are now approximated based on the inversion of
+a diagonal matrix Λ containing top s singular values, thereby of
+time complexity O(s).
+
+Variational Gaussian Processes (KEP-SVGP) for building
+uncertainty-aware self-attention where the asymmetry of
+attention kernel is tackled by KSVD and a reduced time
+complexity in computing the SVGPs posterior is also acquired. Specifically, through KEP-SVGP:
+
+Deep Gaussian Processes Damianou & Lawrence (2013)
+introduces a deep hierarchy of GPs, where each layer is a
+GP or GP latent variable model. Rather than combining
+with DNNs, Damianou & Lawrence (2013) utilizes deep GP
+hierarchies and are limited to small datasets. Aitchison et al.
+(2021) also focuses on the deep hierarchy of GPs by encompassing Damianou & Lawrence (2013) into deep kernel
+processes, where each GP layer with isotropic covariance
+kernel is connected to Wishart distribution and thus is fully
+characterized by the Gram matrix. Milsom et al. (2024)
+proposes convolutional deep kernel machine (C-DKM). Despite the naming, it belongs to deep GPs operating on Gram
+matrices (Aitchison et al., 2021) but focuses on convolutional kernels. Another category is deep kernel learning
+(DKL). Wilson et al. (2016) proposes stochastic variational
+deep kernel learning (SV-DKL), which introduces an extra
+GP layer to DNN backbones, where the DKL is in the sense
+of applying kernel machines on top of a DNN, which is agnostic in architectures. SV-DKL requires two-step training,
+i.e., the backbone pretraining and the finetuning with the
+extra GP layer. Ober et al. (2021) further empirically investigates Wilson et al. (2016). Discussions on KEP-SVGP’s
+connections to deep GPs are provided in Section 4.1.
+
+• Our SVGP pair induced by the left and right singular vectors of KSVD w.r.t. the attention kernel matrix fully characterizes the asymmetry in the posterior. This SVGP pair is obtained by setting the pair
+of adjoint eigenfunctions (Schmidt, 1907; Stewart,
+1993) w.r.t. the asymmetric attention kernel to formulate “inducing variables”, which is a technique named
+kernel-eigen features for SVGPs (Lázaro-Gredilla &
+Figueiras-Vidal, 2009; Leibfried et al., 2020). Note
+that this technique has not yet been explored for largearchitecture models, such as Transformers.
+• We reduce the time complexity of the matrix inversion
+in SVGPs posterior approximation from O(s3 ) to O(s).
+By using the singular vectors-induced SVGP pair, the
+posterior is now approximated based on the inversion
+of a truncated singular value matrix, e.g., corresponding to top-s singular values, which is a diagonal matrix.
+• An evidence lower bound (ELBO) tailored for KEPSVGP is derived, so that variational parameters and the
+network weights can be jointly optimized with ELBO.
+• KEP-SVGP’s efficacy and efficiency are experimentally
+verified on in-distribution, distribution-shift and out-ofdistribution benchmarks without sacrificing accuracy.1
+1
+
+Bayesian Transformers Tran et al. (2019) and Xue et al.
+(2021) perform variational inference (VI) on Transformers’
+
+Code is at https://github.com/yingyichen-cyy/KEP-SVGP.
+
+2
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+SVGPs, the mean µu is set to zero without loss of generality and the covariance matrix is KZZ := [κ(zi , zj )] ∈
+Rs×s . Other than considering the marginal distribution
+p(u) = N (0, KZZ ), SVGPs give a variational distribution
+q(u) = N (mu , Suu ), mu ∈ Rs , Suu ∈ Rs×s (Leibfried
+et al., 2020). Thus, aR marginal distribution over f can be
+obtained by q(f ) = p(f |u)q(u) du, which corresponds
+to the posterior whose distribution is also Gaussian:
+
+layer weights, which can underfit the data, verified both
+empirically (Chen & Li, 2023) and theoretically (Foong
+et al., 2020; Coker et al., 2022). Fan et al. (2020) and
+Cinquin et al. (2022) perform VI on attention matrix where
+their experimental settings can be too restrictive for complex
+problems (Chen & Li, 2023). VI can be also performed
+on attention outputs (Liu et al., 2020; Chen & Li, 2023).
+Liu et al. (2020) fits an extra GP layer over the last layer
+output, which can be treated as a deep kernel learning in
+Transformer. Chen & Li (2023) proposes Sparse Gaussian
+Process Attention (SGPA) by formulating the self-attention
+with one SVGP. Our KEP-SVGP is different from SGPA in
+i) we use two SVGPs with two kernel-eigen features, hence
+taking the asymmetry in self-attention into consideration,
+while SGPA considers one vanilla SVGP; ii) we manage to
+reduce time complexity for self-attention to linear with the
+number of input data N , while SGPA remains N 2 . More
+discussions on the comparisons of time complexity between
+KEP-SVGP and SGPA are provided in Section 4.1.
+
+−1
+q(f ) = N KXZ KZZ
+mu ,
+
+
+−1
+−1
+KXX − KXZ KZZ
+(KZZ − Suu )KZZ
+KZX ,
+
+where the kernel function values are KXZ := [κ(xi , zj )] ∈
+⊤
+. In inference, the approximate
+RN ×s , KZX := KXZ
+posterior distribution evaluated at test inputs can then
+be obtained with (3). The optimization of SVGPs proceeds to maximize the evidence lower bound (ELBO)
+Eq(f ) [log p (y|f )] − KL (q(u)∥p(u)) for the variational
+parameters mu and Suu in the variational distribution q(u).
+Detailed derivations are given in Appendix A.1.
+
+3. Background
+
+Kernel-Eigen Features for SVGPs Further in SVGPs,
+the “inducing variables” u can be alternatively chosen as a
+linear functional on f (·), which is called the “inter-domain
+GPs” (Lázaro-Gredilla & Figueiras-Vidal, 2009; Leibfried
+et al., 2020), such that
+Z
+um = f (x)ϕm (x) dx, m = 1, . . . , s,
+(4)
+
+3.1. Sparse Variational Gaussian Processes
+Gaussian Processes A GP (Rasmussen & Williams, 2006)
+represents a distribution, denoted by GP, over real-valued
+functions f (·) : X → R defined on an input domain
+X ⊂ Rd . A GP prior is characterized through two realvalued functions: a mean function µ(·) : X → R which is
+often set to zero without loss of generality, and a symmetric positive-definite covariance function parameterized by
+a kernel function κ(·, ·) : X × X → R. When evaluating
+a GP at any finite number of inputs X = [x1 , . . . , xN ]⊤ ,
+xi ∈ X , we obtain a Gaussian marginal distribution of
+function values f := [f (x1 ), . . . , f (xN )]⊤ ∈ RN , that is,
+Prior: f (·) ∼ GP(0, κ(·, ·))
+
+(3)
+
+where {ϕm (·)}sm=1 are the “inducing features” through the
+real-valued function ϕm (·) : X → R. In particular, let
+ϕm (·) := νm (·) be chosen as the m-th eigenfunction of the
+symmetric kernel κ(·, ·) with eigenvalue λm , that is,
+Z
+λm νm (·) = κ(·, x)νm (x) dx, m = 1, . . . , s. (5)
+
+⇒
+
+f ∼ N (0, KXX ),
+(1)
+with KXX := [κ(xi , xj )] ∈ RN ×N . The training data is
+⊤
+(X, y) := {(xi , yi )}N
+i=1 with y = [y1 , . . . , yN ] , yi ∈ R
+being the given outputs to the inputs X. With the likelihood
+y|f ∼ N (f , σ 2 IN ) being Gaussian, the posterior is also
+a GP. Given the test inputs X ∗ , the posterior predictive
+distribution of f ∗ is
+
+When evaluating the SVGP prior over a finite set X ⊂ X
+and its inducing points Z, the chosen eigenfunction νm (·)
+for the “inducing features” ϕm (·) in (4) leads to an eigenvalue problem, which corresponds to the finite case of the
+integral equations w.r.t. the symmetric kernel function κ(·, ·)
+in (5) (Williams & Seeger, 2000):
+KXX H = HΛ,
+
+(6)
+
+N ×s
+
+where H := [ν1 , . . . , νs ] ∈ R
+contains the eigenvectors to the top-s nonzero eigenvalues of the kernel matrix KXX , i.e., Λ = diag{λ1 , . . . , λs }. With q(u) =
+N (mu , Suu ), the posterior distribution (3) in SVGPs with
+kernel-eigen features is then yielded as:
+ 
+ 
+
+KXX HΛ
+f
+Prior:
+∼ GP 0,
+u
+ΛH ⊤
+Λ
+
+p(f ∗ |X ∗ , X, y) = N KX ∗ X (KXX + σ 2 IN )−1 y ,
+(2)
+
+KX ∗ X ∗ − KX ∗ X (KXX + σ 2 IN )−1 KXX ∗ .
+However, (2) is intractable for large-scale data as the inversion of an N × N matrix is of time complexity O(N 3 ).
+Sparse Variational Gaussian Processes SVGPs (Titsias, 2009) variationally approximate GP posteriors with
+a small set of s supports, i.e., (Z, u) := {(zm , um )}sm=1 ,
+zm ∈ X , um = f (zm ) ∈ R where the “inducing variables” u are evaluated at the “inducing points” Z. In
+
+⇓
+q(f ) = N (HΛ)Λ−1 mu ,
+
+KXX − (HΛ)Λ−1 (Λ − Suu )Λ−1 (ΛH ⊤ ) .
+3
+
+(7)
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+PR
+Remark 3.1. By the compact SVD KXX = i=1 λi νi νi⊤
+with R the rank of KXX , the covariance of the posterior
+in (7) can be written as KXX − HΛH ⊤ + HSuu H ⊤ =
+U ΛU U ⊤ + HSuu H ⊤ , where ΛU = diag{λs+1 , . . . , λR }
+are the smallest non-zero (R − s) eigenvalues, and columns
+of U are the corresponding eigenvectors. By the EckartYoung theorem (Eckart & Young, 1936), HΛH ⊤ is the
+best rank-s approximation to KXX . For low-rank matrices,
+such as the self-attention (Wang et al., 2020), ∥U ΛU U ⊤ ∥2F
+is small, motivating to a faster-to-compute approximate
+posterior by q̃(f ) ∼ N Hmu , HSuu H ⊤ . Validity of
+this approximation is numerically verified in Appendix D.6.
+
+kernel for self-attention is introduced as κatt (xi , xj ) =
+⟨ϕq (xi ), ϕk (xj )⟩ with ϕq (·) : X → Rp and ϕk (·) : X →
+Rp related to queries and keys, respectively. The primaldual representations of self-attention with KSVD give:
+
+e(x) = We⊤ ϕq (x),
+Primal:
+r(x) = Wr⊤ ϕk (x),
+(
+PN
+(10)
+e(x) = j=1 hrj κatt (x, xj ),
+Dual:
+PN
+r(x) = i=1 hei κatt (xi , x),
+where e(x), r(x) ∈ Rs are the projections related to queries
+and keys, whose variances are maximized under KSVD as
+shown in the objective (11). Primal variables We , Wr ∈
+Rp×s serve as the projection weights, and dual variables
+He := [he1 , . . . , heN ]⊤ , Hr := [hr1 , . . . , hrN ]⊤ ∈ RN ×s
+are column-wisely the left and right singular vectors of the
+attention matrix Katt . Note that the canonical self-attention
+outputs in (9) corresponds to the dual representation of the
+projection score e(x) in (10) once setting hrj := v(xj ).
+
+Recall that regular SVGPs (3) give the posterior involving
+the inversion on KZZ ∈ Rs×s , and thereby have a time
+complexity of O(s3 ). In contrast, with kernel-eigen features in SVGPs, the empirical covariance matrix w.r.t. u
+becomes diagonal, i.e., Λ, hence the time complexity of the
+matrix inversion is O(s), leading to a greater improvement
+in efficiency. Detailed derivations are in Appendix A.2.
+
+To fully exploit the asymmetry in self-attention kernel matrix, Chen et al. (2023) proposes Primal-Attention, which
+concatenates both projections e(x), r(x) w.r.t. right and
+left singular vectors, such that Fi := [e(xi ); r(xi )] =
+[We⊤ ϕq (xi ); Wr⊤ ϕk (xi )]. With the KKT conditions, the
+stationary solutions to KSVD yield a zero-value objective,
+as proved in Lemma 4.2 in Chen et al. (2023). Thus, the
+KSVD optimization in Primal-Attention can be flexibly implemented by minimizing an auxiliary regularization loss:
+
+PN
+min LKSVD := − 12 i=1 e(xi )⊤ Λ−1 e(xi )
+We ,Wr ,Λ
+2
+PN
+− 12 j=1 r(xj )⊤ Λ−1 r(xj ) + Tr(We⊤ Wr ) ,
+
+3.2. Self-Attention as Asymmetric Kernel Machine
+Self-Attention corresponds to Asymmetric Kernel Let
+the input data sequence be {xi }N
+i=1 , xi ∈ X , self-attention
+formulates the queries q(xi ) = Wq xi , Wq ∈ Rdq ×d , keys
+k(xi ) = Wk xi , Wk ∈ Rdk ×d , and values v(xi ) = Wv xi ,
+Wv ∈ Rdv ×d , commonly with dq = dk . As pointed out in
+Tsai et al. (2019), the attention matrix can be interpreted
+as a kernel matrix with entries depicting the asymmetric
+similarities between queries and keys:
+p
+κatt (xi , xj ) := softmax(⟨Wq xi , Wk xj ⟩ / dk ), (8)
+where κatt (·, ·) : X ×X → R is the kernel yielding attention
+matrix Katt := [κatt (xi , xj )] ∈ RN ×N . As Wq ̸= Wk
+generally, we have ⟨Wq xi , Wk xj ⟩ ̸= ⟨Wq xj , Wk xi ⟩, so
+that the attention matrix is essentially asymmetric with
+Kij ̸= Kji . The canonical self-attention output in each
+head is denoted as O := [o1 , . . . , oN ]⊤ ∈ RN ×dv with
+XN
+oi =
+v(xj )κatt (xi , xj ), i = 1, . . . , N. (9)
+
+(11)
+seeking for the projections with maximal variances w.r.t.
+the two sets of singular vectors, where Λ ∈ Rs×s is a
+positive diagonal matrix of the top-s singular values. PrimalAttention avoids computing the attention kernel matrix in
+the dual by deploying the primal representations with greater
+efficiency. Details of Chen et al. (2023) are in Appendix C.
+
+Kernel-based approaches have become popular in studying the attention (Choromanski et al., 2021; Nguyen et al.,
+2022; Chi et al., 2022; Nguyen et al., 2023). However, they
+resort to the techniques with symmetric kernels where the inN
+puts are {q(xi )}N
+i=1 , {k(xj )}i=1 . Differently, the following
+Chen et al. (2023) works directly on the asymmetric kernel
+function and is grounded on the original input {xi }N
+i=1 .
+
+4. KEP-SVGP for Self-Attention
+
+j=1
+
+In this section, the method of KEP-SVGP is illustrated in
+Section 4.1, where two branches of SVGPs with the adjoint
+kernel-eigen feature pair are considered based on KSVD to
+capture asymmetry in self-attention. Section 4.2 provides
+the optimization of KEP-SVGP.
+4.1. Kernel-Eigen Pair SVGP
+
+Self-Attention with Kernel SVD Chen et al. (2023) formulates the self-attention mechanism with KSVD (Suykens,
+2016; Tao et al., 2023) which allows asymmetric kernels,
+and derives a primal-dual framework to represent the attention outputs and the optimization. The asymmetric
+
+In (SV)GPs, the kernel function is required to be symmetric,
+whereas the attention in Transformers is in essence asymmetric. As shown in Chen et al. (2023), the asymmetric kernel
+in self-attention can be fully characterized by two sets of
+4
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+SVGPs with Kernel-Eigen Features Pair In basic setups
+of (SV)GPs, the processes are of single-output as in Section 3.1 with f (·) : X → R. For the multi-dimensional
+attention outputs, we consider independent multi-output
+Gaussian processes (Leibfried et al., 2020) where a separate SVGP is specified for each output dimension (Salimbeni & Deisenroth, 2017; Chen & Li, 2023). Following
+the KSVD framework with Primal-Attention setups (Chen
+et al., 2023), we model the s-dimensional attention outputs
+with the two sets of projections for capturing the asymmee
+r
+try, denoted as F[d]
+:= F e [:, d], F[d]
+:= F r [:, d] ∈ RN ,
+d = 1, . . . , s, w.r.t. e(x), r(x) in (10), respectively. Therefore, with (15), a SVGP pair w.r.t. the two symmetric ker⊤
+⊤
+nels Katt Katt
+and Katt
+Katt induced by the asymmetric
+Katt is established. With the kernel-eigen feature pair He ,
+e
+r
+Hr on f[d]
+, f[d]
+∈ RN , similar as (7) with Remark 3.1 our
+SVGPs are attained as follows:
+!
+ 
+
+e
+⊤
+f[d]
+Katt Katt
+He Λ2
+Prior:
+∼ GP 0,
+ue[d]
+Λ2 He⊤
+Λ2
+⇓
+
+
+
+projections under the KSVD framework. To variationally
+model the outputs with the asymmetric attention kernel, we
+use the pair of adjoint eigenfunctions in the integral equations w.r.t. the attention kernel for the kernel-eigen features,
+so as to formulate the “inducing variables” in SVGPs.
+Pair of Adjoint Eigenfunctions for Self-Attention With
+asymmetric κatt (·, ·) (8), its adjoint eigenfunctions νem (·),
+νrm (·) regarding the eigenvalue λm (Schmidt, 1907) satisfy
+R
+λm νem (·) = R κatt (·, z)νrm (z) dz,
+(12)
+λm νrm (·) = κatt (x, ·)νem (x) dx.
+The finite-sample cases to the integrals in (12) correspond to
+the compact SVD on an asymmetric attention kernel matrix
+Katt ∈ RN ×N , i.e., KSVD (Tao et al., 2023), where the
+approximation to νem (·), νrm (·) leads to the left and right
+singular vectors. To differentiate from the symmetric cases,
+eigenvalue λm in (12) with asymmetric kernels are named as
+singular values (Stewart, 1993). In self-attention, this yields
+the shifted eigenvalue problem (Lanczos, 1958; Suykens,
+2016) w.r.t. the attention matrix Katt (Chen et al., 2023):
+Katt Hr = He Λ,
+
+⊤
+Katt
+He = Hr Λ,
+
+⊤
+e
+q̃(f[d]
+) = N EX Λ−1 mu,[d] , EX Λ−2 Suu,[d] EX
+|
+{z
+} |
+{z
+}
+µe :=me[d]
+
+(13)
+
+r
+f[d]
+Prior:
+r
+u[d]
+
+!
+
+Σe :=Le[d] Le[d] ⊤
+
+
+ ⊤
+Katt Katt Hr Λ2
+∼ GP 0,
+Λ2
+Λ2 Hr⊤
+⇓
+
+
+⊤
+r
+q̃(f[d]
+) = N RX Λ−1 mu,[d] , RX Λ−2 Suu,[d] RX
+|
+{z
+} |
+{z
+}
+
+where Λ = diag{λ1 , . . . , λs } contains the top-s nonzero
+singular values of Katt , He , Hr ∈ RN ×s are kernel-eigen
+features defined in Section 3.2. However, the kernel matrix
+in (13) is asymmetric, hence inconsistent with the symmetry
+requirements of SVGPs in (6).
+
+
+
+µr :=mr[d]
+
+Two sets of integral equations w.r.t. a pair of symmetric
+kernels can be introduced to equivalently characterize the
+integral equations in (12) (Schmidt, 1907; Stewart, 1993):
+R
+λ2m νem (·) = R κe (·, z)νem (z) dz,
+(14)
+λ2m νrm (·) = κr (x, ·)νrm (x) dx,
+
+Σr :=Lr[d] Lr[d] ⊤
+
+(16)
+with variational distributions on ue[d] , ur[d] ∈ Rs :
+ue[d] , ur[d] ∼ N (mu,[d] , Suu,[d] ),
+
+(17)
+
+where EX := [e(xi ), . . . , e(xN )]⊤ ∈ RN ×s and RX :=
+[r(xi ), . . . , r(xN )]⊤ ∈ RN ×s are the projection matrices
+w.r.t. right and left singular vectors of KSVD in (10), and
+mu ∈ Rs×s , Suu ∈ Rs×s×s are the variational parameters
+with mu,[d] := mu [:, d] ∈ Rs , Suu,[d] := Suu [:, :, d] ∈
+Rs×s corresponding to the d-th output dimension. Note that
+we set ue[d] ,ur[d] from the same variational distribution since
+the priors in SVGP pair in (16) share the same marginal
+distribution of the “inducing variables”. Detailed derivations
+of our SVGP pair (16) are given in Appendix B.2.
+
+R
+where
+κe (·, z) := κatt (·, y)κatt (z, y) dy, κr (x, ·) :=
+R
+κatt (y, x)κatt (y, ·) dy correspond to two symmetric and
+positive definite kernels and λ2m is the eigenvalue in the
+induced two sets of integral equations. Thus, we can deploy
+a SVGP pair with kernel-eigen features (5) to variationally
+model the self-attention outputs.
+Given the training data sequences in self-attention, the finitesample cases to integrals (14) give two eigendecompositions
+w.r.t. symmetric kernels κe , κr :
+
+Based on the approximate posteriors in (16), the outputs of
+the two SVGPs are obtained by the reparameterization trick
+(Salimbeni & Deisenroth, 2017):
+
+⊤
+⊤
+(Katt Katt
+)He = He Λ2 , (Katt
+Katt )Hr = Hr Λ2 . (15)
+
+e
+F[d]
+= me[d] + Le[d] ϵ,
+
+The asymmetric attention matrix Katt can be fully char⊤
+⊤
+acterized by the symmetric Katt Katt
+and Katt
+Katt with
+kernel-eigen feature pair He , Hr serving as the “inducing
+features” in the resulting two SVGPs. Detailed derivations
+of (15) are given in Appendix B.1.
+
+r
+F[d]
+= mr[d] + Lr[d] ϵ,
+
+(18)
+
+with ϵ ∼ N (0, IN ), where me[d] , mr[d] are the means in (16)
+and Le[d] := EX Λ−1 Luu,[d] , Lr[d] := RX Λ−1 Luu,[d] are
+Cholesky factors of the approximate posterior covariances
+Σe , Σr in (16), and Luu,[d] is the Cholesky factor of Suu,[d] .
+5
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+Merging the SVGPs Utilizing the SVGP pair in (16) to
+preserve the asymmetric Katt , we propose two schemes to
+merge two SVGPs outputs in (18):
+e
+r
+Addition: F[d] := F[d]
++ F[d]
+∈ RN ,
+e
+r
+Concatenation: F[d] := [F[d]
+; F[d]
+] ∈ R2N .
+
+Bayesian inference in the outputs of multi-head attention
+blocks. Relevance: When multiple self-attention layers in a
+Transformer are replaced by KEP-SVGP, the model can be
+categorized as a specialized deep GPs; when only the last
+self-attention layer is replaced by KEP-SVGP, the model
+can be categorized as a stochastic variational model upon
+deep kernel learning with Transformer backbones. Differences: i) As attention matrix is asymmetric and cannot be
+simply treated as a GP covariance matrix, we propose two
+GP branches to capture the asymmetry. Current literature in
+deep GPs has not considered this asymmetric case observed
+in transformers. ii) Rather than adding an extra GP layer
+on top of a DNN (Wilson et al., 2016; Ober et al., 2021),
+KEP-SVGP replaces the last self-attention layer without imposing extra layers for variational modelling. iii) Compared
+to the two-step training in SV-DKL (Wilson et al., 2016),
+KEP-SVGP trains from scratch. iv) C-DKM (Milsom et al.,
+2024) is computationally demanding due to the large Gram
+matrices in each layer, while KEP-SVGP is efficient. Hence,
+some deep GPs methods are not comparable to KEP-SVGP
+in transformers due to different setups. Experiments on SVDKL are in Section 5 with transformer for fair comparisons.
+
+(19)
+
+To align with the dv dimensions in standard Transformer architectures (9), our s-dimensional outputs are applied with
+linear projections, similar to Chen et al. (2023). Specifically, the final outputs O ∈ RN ×dv of the attention layer
+are: O := F add W add for the addition, O := W1cat F cat W2cat
+for the concatenation, where F = [F[1] , . . . , F[s] ] is the output matrix of our merged SVGPs with projection matrices
+W add ∈ Rs×dv , W1cat ∈ RN ×2N and W2cat ∈ Rs×dv . Both
+schemes can be applied to data with fixed sequence lengths
+common in computer vision tasks, while for those with varying sequence lengths common in language modelling, we
+turn to the addition scheme. Note that for the concatenation scheme, we can replace W1cat with AB ⊤ , A ∈ RN ×s ,
+B ∈ R2N ×s to maintain the linear complexity with N .
+More details can be found in Appendix D.2.
+
+4.2. Optimization of KEP-SVGP
+
+Discussions on Time Efficiency The time complexity
+of MSP (Hendrycks & Gimpel, 2017), i.e., the canonical
+Transformer with softmax self-attention, is O(BN 2 ), where
+B is the batch size, N is the data sequence length. Recently, Chen & Li (2023) employs SVGPs for self-attention
+where Bayesian inference is performed in the attention output space to calibrate uncertainty. Chen & Li (2023) proposes: i) standard SGPA, which is based on regular SVGPs,
+with a time complexity of O(BN 3 ); ii) decoupled SGPA,
+which sets s global “inducing points”, with time complexity O(BN 2 s + s3 ). However, decoupled SGPA still scales
+quadratically w.r.t. the sequence length and needs the matrix
+inversion with O(s3 ). In contrast, our posterior distribution
+in (16) involves the matrix multiplication with O(BN s2 )
+and the inversion of the s × s diagonal matrix Λ with only
+O(s), leading to O(BN s2 + Bs). To alignment with the
+hidden dimensions in standard Transformers, after (19), our
+concatenation merging scheme takes the matrix multiplication of O(N 2 s). In practice, we commonly have s < N
+with s being distinctively smaller than N , so that, omitting the effect of batch size, the main time complexities in
+MSP, SGPA, and KEP-SVGP scale as O(N 2 ), O(N 2 s), and
+O(N s2 ) for addition scheme, O(N 2 s) for concatenation
+scheme, respectively. In practice, we pertain considerable
+efficiency advantages for both our merging schemes, as we
+by default apply KEP-SVGP to the last layer, yielding better
+performances, instead of all layers as SGPA. Experiments
+on training time efficiency are in Table 4 and Appendix D.4.
+
+In optimization, we derive the ELBO objective for training
+the variational parameters involved in our SVGP pair. For
+Transformers with Nh heads in L attention layers applied
+with KEP-SVGP, we denote {F l ∈ RN ×(Nh dv ) }L
+l=1 as the
+output of the l-th KEP-SVGP layer following the convention of linearly concatenating the heads. Since single-output
+SVGPs (Leibfried et al., 2020) are employed as explained in
+(18), we can perform the variational inference on each output dimension of the attention heads before concatenating
+them, rather than the inference directly on the multi-head
+h
+attention. With {ul,nh }L,N
+l=1,nh =1 for the SVGPs in our KEPSVGP, the ELBO is formulated as:
+max
+
+Θ,{mu ,Suu }
+Nh
+L P
+P
+
+
+
+LELBO := Eq(F L |F 0 ) log p(Y |F L )
+
+
+
+Eq(F l−1 ) KL q(ul,nh |F l−1 )∥p(ul,nh |F l−1 )
+
+−
+
+l=1 nh =1
+
+(20)
+where Θ denotes all network weights including We , Wr and
+Λ, Y contains the labels of the input data F 0 := Xin . In
+(20), the first item in LELBO corresponds to the objective of
+the learning task, such as the cross-entropy loss, while the
+second term of the Kullback–Leibler divergence balances
+the distance between the prior and variational distribution of
+the inducing variables ul,nh . Since ue , ur share the same
+marginal prior and variational distributions conditioned on
+each F l−1 , we can consider one u for the KL divergence
+term. The KL divergence involved in the ELBO of our
+KEP-SVGP is depicted in Proposition 4.1, with detailed
+derivations in Appendix B.3.
+
+Discussions on Connections to Deep GPs KEP-SVGP
+proposes a variational self-attention mechanism performing
+6
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+Table 1. Mean and standard deviations on CIFAR-10, CIFAR-100, IMDB, CoLA benchmarks. Experimental results are reported over five
+trials, with the best mean results shown in bold. ACC, AUROC, FPR95, ECE and Brier are percentages, AURC is ×103 , NLL is ×10.
+Dataset
+
+CIFAR-10
+(Krizhevsky et al., 2009)
+
+CIFAR-100
+(Krizhevsky et al., 2009)
+
+IMDB
+(Maas et al., 2011)
+
+CoLA
+(Warstadt et al., 2019)
+
+Method
+
+ACC/MCC ↑
+
+AURC ↓
+
+AUROC ↑
+
+FPR95 ↓
+
+ECE ↓
+
+NLL ↓
+
+Brier ↓
+
+MSP (Hendrycks & Gimpel, 2017)
+Temperature Scaling (Guo et al., 2017)
+MC Dropout (Gal & Ghahramani, 2016)
+KFLLLA (Kristiadi et al., 2020)
+SV-DKL (Wilson et al., 2016)
+KEP-SVGP (ours)
+
+83.50±0.43
+83.50±0.43
+83.69±0.51
+83.54±0.45
+83.82±0.58
+84.70±0.61
+
+42.60±1.84
+40.47±1.63
+41.36±1.45
+40.12±1.65
+39.78±1.91
+35.15±2.65
+
+86.15±0.35
+86.55±0.36
+86.18±0.28
+86.70±0.50
+86.57±0.38
+87.20±0.65
+
+66.51±2.19
+65.10±2.23
+66.49±1.96
+63.13±1.75
+65.02±1.33
+64.93±1.41
+
+12.87±0.29
+9.50±0.25
+12.48±0.43
+1.51±0.18
+11.32±0.55
+10.60±0.45
+
+11.13±0.40
+6.70±0.20
+10.35±0.41
+5.08±0.10
+7.88±0.57
+8.00±0.56
+
+28.62±0.74
+26.05±0.68
+28.09±0.73
+23.75 0.57
+27.03±0.96
+25.45±1.05
+
+Deep Ensembles (Lakshminarayanan et al., 2017)
+KEP-SVGP Ensembles (ours)
+
+86.43
+87.62
+
+27.76
+22.56
+
+88.64
+89.64
+
+60.72
+56.70
+
+9.98
+8.19
+
+7.40
+5.61
+
+22.89
+20.08
+
+MSP (Hendrycks & Gimpel, 2017)
+Temperature Scaling (Guo et al., 2017)
+MC Dropout (Gal & Ghahramani, 2016)
+KFLLLA (Kristiadi et al., 2020)
+SV-DKL (Wilson et al., 2016)
+KEP-SVGP (ours)
+
+52.82±0.53
+52.82±0.53
+53.37±0.62
+51.35±0.64
+53.00±0.71
+55.02±0.83
+
+229.25±4.41
+223.83±4.18
+224.01±4.82
+263.59±4.65
+228.10±8.35
+209.75±6.20
+
+82.01±1.93
+82.47±0.34
+81.44±0.17
+79.62±0.19
+81.41±0.63
+81.71±0.30
+
+75.45±0.83
+71.79±0.97
+75.12±1.12
+71.86±1.30
+72.22±1.63
+74.03±0.90
+
+30.97±0.61
+17.36±0.68
+30.09±0.80
+37.98±4.61
+1.59±0.22
+27.80±0.57
+
+33.21±1.13
+21.82±0.54
+31.78±1.22
+27.21±1.66
+17.28±0.31
+28.38±0.45
+
+74.89±1.03
+64.92±0.84
+73.51±1.24
+82.84±3.82
+60.07±0.87
+69.91±1.12
+
+Deep Ensembles (Lakshminarayanan et al., 2017)
+KEP-SVGP Ensembles (ours)
+
+59.65
+62.45
+
+165.27
+144.63
+
+83.84
+84.56
+
+71.40
+70.68
+
+24.41
+21.01
+
+22.93
+19.64
+
+62.01
+56.63
+
+MSP (Hendrycks & Gimpel, 2017)
+Temperature Scaling (Guo et al., 2017)
+MC Dropout (Gal & Ghahramani, 2016)
+KFLLLA (Kristiadi et al., 2020)
+SV-DKL (Wilson et al., 2016)
+SGPA (Chen & Li, 2023)
+KEP-SVGP (ours)
+
+88.17±0.52
+88.17±0.52
+88.34±0.65
+88.17±0.52
+88.86±1.04
+88.36±0.75
+89.01±0.14
+
+35.27±3.04
+35.27±3.04
+34.62±3.17
+35.20±3.01
+59.84±18.90
+33.14±3.46
+30.69±0.69
+
+82.29±0.87
+82.29±0.87
+82.24±0.83
+82.31±0.86
+73.20±5.56
+82.78±0.44
+83.22±0.31
+
+71.41±1.57
+71.08±1.55
+71.65±2.03
+71.07±1.51
+69.91±3.68
+70.85±2.46
+68.15±0.95
+
+4.01±1.36
+1.05±0.70
+2.66±1.84
+19.13±0.73
+7.31±8.27
+5.52±0.46
+3.72±0.81
+
+3.10±0.26
+2.89±0.12
+2.97±0.27
+4.38±0.07
+3.38±0.82
+3.40±0.10
+3.00±0.13
+
+17.88±0.95
+17.40±0.80
+17.47±1.19
+25.88±0.63
+19.62±5.18
+18.05±0.81
+16.56±0.25
+
+Deep Ensembles (Lakshminarayanan et al., 2017)
+KEP-SVGP Ensembles (ours)
+
+89.57
+89.68
+
+28.69
+27.79
+
+83.45
+83.56
+
+67.69
+67.54
+
+2.42
+3.43
+
+2.68
+2.84
+
+15.60
+15.68
+
+MSP (Hendrycks & Gimpel, 2017)
+Temperature Scaling (Guo et al., 2017)
+MC Dropout (Gal & Ghahramani, 2016)
+KFLLLA (Kristiadi et al., 2020)
+SV-DKL (Wilson et al., 2016)
+SGPA (Chen & Li, 2023)
+KEP-SVGP (ours)
+
+26.93±1.38
+26.93±1.38
+26.41±1.87
+26.90±1.31
+26.65±1.38
+26.15±1.12
+30.54±1.61
+
+205.47±7.62
+205.46±7.61
+203.93±8.34
+204.31±8.57
+235.76±10.03
+210.03±6.30
+186.66±8.50
+
+64.55±0.86
+64.55±0.91
+65.15±0.76
+64.60±0.96
+62.14±1.36
+64.18±0.68
+65.16±0.86
+
+89.86±1.29
+90.09±0.77
+88.58±0.53
+90.06±0.74
+89.94±1.79
+90.35±1.47
+88.39±0.83
+
+23.84±2.23
+18.98±3.33
+23.33±2.16
+2.51±1.09
+18.13±8.92
+16.48±0.79
+15.89±3.48
+
+14.45±2.83
+8.72±1.18
+13.74±2.64
+5.94±0.04
+8.07±1.86
+8.76±0.34
+8.54±1.66
+
+52.15±2.43
+47.59±2.85
+51.35±2.43
+40.52±0.38
+48.45±6.41
+45.77±0.54
+43.55±2.99
+
+Deep Ensembles (Lakshminarayanan et al., 2017)
+KEP-SVGP Ensembles (ours)
+
+27.35
+31.02
+
+184.96
+164.06
+
+67.02
+67.88
+
+87.93
+85.18
+
+22.82
+14.96
+
+12.45
+7.40
+
+49.45
+40.68
+
+Proposition 4.1. The Kullback–Leibler divergence in the
+ELBO objective (20) is equal to
+s h
+P
+
+−2
+Tr(Λ−2 Suu,[d] ) + m⊤
+mu,[d]
+u,[d] Λ
+d=1
+i
+|Λ2 |
++ log |Suu,[d]
+| −s
+
+1
+2
+
+maximum softmax probability score (MSP) (Hendrycks &
+Gimpel, 2017), Temperature Scaling (Guo et al., 2017),
+Monte-Carlo Dropout (MC Dropout) (Gal & Ghahramani,
+2016), Kronecker-factored last layer Laplace approximation
+(KFLLLA) (Kristiadi et al., 2020), and SGPA (Chen & Li,
+2023); ii) ensemble method: we compare our KEP-SVGP
+Ensembles with Deep Ensembles (Lakshminarayanan et al.,
+2017). In the experiments, we set the concatenation merging scheme for computer vision datasets, and the addition
+merging scheme for language modelling datasets. Unless
+specified, we replace the last-layer self-attention with KEPSVGP, as this simple setup already achieves better performances with improved efficiency.
+
+(21)
+
+where Λ ∈ Rs×s is diagonal whose inversion is of O(s).
+The training objective of KEP-SVGP is min −LELBO +
+ηLKSVD , where η > 0 is the regularization constant. In
+our objective, we also incorporate loss LKSVD in KSVD
+given in (11), ensuring that He , Hr in (15) are kernel-eigen
+features defined in Section 3.2 for SVGPs. Monte-Carlo
+sampling is used to compute LELBO , where function values
+are generated iteratively by passing through each layer with
+the reparameterization trick (Kingma & Welling, 2013).
+
+Training Configurations and Evaluation Metrics For
+both CIFAR-10, CIFAR-100, we train 7-layer Vision Transformer (ViT) (Dosovitskiy et al., 2021), optimized by Adam
+with batch size 128 and a cosine learning rate initialized
+with 10−3 for 300 epochs. Following Chen & Li (2023), for
+IMDB, we adopt one-layer Transformer, trained with batch
+size 32 with a cosine learning rate initialized with 10−3 for
+20 epochs; for CoLA, we adopt a two-layer Transformer
+trained with batch size 32, an initial cosine learning rate
+of 5 × 10−4 for 50 epochs. For evaluations, in addition
+to test accuracy (ACC), we consider a variety of metrics
+
+5. Experiments
+Datasets and Baselines We conduct empirical evaluations
+on benchmarks including i) computer vision: CIFAR-10,
+CIFAR-100 (Krizhevsky et al., 2009); ii) language modelling: IMDB sentiment analysis (Maas et al., 2011), CoLA
+linguistic acceptability prediction (Warstadt et al., 2019).
+We compare our KEP-SVGP with i) single-model methods:
+7
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+Table 2. Performance under distribution shift. The averaged results
+for 15 kinds of corruption under five different levels of perturbation
+severity are reported.
+ACC ↑
+
+AURC ↓
+
+MSP
+MC Dropout
+KFLLLA
+SV-DKL
+KEP-SVGP (ours)
+
+69.17
+69.26
+69.17
+68.95
+69.71
+
+CIFAR-10-C
+151.07
+78.71
+150.11
+78.70
+146.55
+79.59
+150.90
+79.10
+144.90
+79.40
+
+77.98
+78.01
+75.11
+76.70
+77.13
+
+24.75
+24.26
+6.94
+22.43
+22.03
+
+24.27
+22.79
+9.72
+16.45
+18.30
+
+53.99
+53.39
+43.17
+51.94
+50.70
+
+Deep Ensembles
+KEP-SVGP Ensembles (ours)
+
+73.93
+73.67
+
+114.14
+115.65
+
+81.47
+81.54
+
+73.98
+73.85
+
+20.14
+18.34
+
+17.40
+14.17
+
+44.82
+43.42
+
+MSP
+MC Dropout
+KFLLLA
+SV-DKL
+KEP-SVGP (ours)
+
+39.19
+39.62
+38.00
+40.17
+39.69
+
+CIFAR-100-C
+394.14
+76.64
+389.91
+76.67
+419.64
+76.41
+379.79
+77.84
+391.65
+76.57
+
+79.52
+79.27
+77.18
+76.40
+78.93
+
+40.53
+39.73
+27.43
+19.48
+37.82
+
+48.98
+47.29
+31.33
+27.75
+43.83
+
+96.31
+95.12
+88.19
+78.76
+93.13
+
+Deep Ensembles
+KEP-SVGP Ensembles (ours)
+
+46.33
+46.31
+
+312.35
+315.69
+
+76.73
+76.38
+
+33.40
+31.21
+
+35.91
+33.03
+
+82.98
+80.93
+
+Method
+
+80
+60
+40
+20
+0
+
+78.90
+78.76
+
+FPR95 ↓
+
+ECE ↓
+
+NLL ↓
+
+ID
+OOD
+
+LSUN
+
+SVHN
+
+CIFAR-10
+
+LSUN
+
+MSP
+MC Dropout
+KFLLLA
+SV-DKL
+KEP-SVGP (ours)
+
+86.56
+86.56
+75.95
+75.48
+84.75
+
+AUROC ↑
+81.50
+81.67
+75.67
+76.81
+82.32
+
+87.48
+88.19
+80.00
+82.02
+91.50
+
+75.83
+76.62
+72.81
+74.35
+79.98
+
+67.14
+67.54
+65.37
+65.72
+67.51
+
+74.97
+74.94
+71.25
+72.03
+78.22
+
+Deep Ensembles
+KEP-SVGP Ensembles (ours)
+
+90.74
+88.15
+
+85.22
+85.36
+
+90.25
+93.24
+
+79.49
+84.16
+
+70.09
+70.44
+
+77.93
+81.28
+
+MSP
+MC Dropout
+KFLLLA
+SV-DKL
+KEP-SVGP (ours)
+
+81.34
+81.89
+66.58
+64.68
+79.05
+
+AUPR ↑
+83.30
+83.50
+78.51
+78.79
+84.07
+
+89.08
+89.69
+83.22
+84.71
+92.77
+
+65.85
+67.03
+58.98
+59.63
+71.57
+
+68.42
+68.93
+67.50
+68.83
+68.83
+
+78.74
+78.81
+74.42
+74.91
+81.65
+
+Deep Ensembles
+KEP-SVGP Ensembles (ours)
+
+87.79
+84.35
+
+86.75
+86.78
+
+91.62
+94.29
+
+71.38
+77.69
+
+71.30
+71.68
+
+82.05
+84.70
+
+Density
+
+ECE (%)
+
+CIFAR-100
+
+CIFAR-100
+
+KEP-SVGP
+MC Dropout
+MSP
+25
+25
+25
+ID correct
+20
+20
+20
+OOD
+15
+15
+15
+10 Overlapping=0.23
+10 Overlapping=0.27
+10 Overlapping=0.30
+5
+5
+5
+00.4
+0.6
+0.8
+1.0 00.4
+0.6
+0.8
+1.0 00.4
+0.6
+0.8
+1.0
+Confidence Score
+Confidence Score
+Confidence Score
+
+MSP
+KEP-SVGP
+
+50
+
+CIFAR-10
+SVHN
+
+Brier ↓
+
+MSP
+KEP-SVGP
+
+100
+
+0
+
+bri
+g
+co ht
+ntr
+de ast
+foc
+u
+ela s
+sti
+c
+fog
+fro
+st
+ga
+us
+s
+gla
+ss
+im
+pu
+lse
+jpe
+g
+mo
+tio
+pix n
+ela
+te
+sh
+ot
+sn
+ow
+zoo
+m
+
+NLL (×10)
+
+AUROC ↑
+
+Table 3. OOD detection performance with AUROC (%) and AUPR
+(%). The average results over five trials are reported.
+
+Figure 3. KEP-SVGP leads to better confidence separation between ID correct and OOD samples.
+
+Figure 2. Comparisons of our KEP-SVGP with MSP under distribution shift. Performance on 15 types of corruption under the
+severity level of 5 is reported, where models are trained on CIFAR10/ViT and tested on CIFAR-10-C.
+
+with MSP, our method not only improves upon ACC/MCC,
+but significantly reduces the AURC, NLL, and other comparing metrics. Although SV-DKL using two-step training
+shows better performance in some metrics on CIFAR-100,
+KEP-SVGP has overall better performance regarding all
+benchmarks. Notably, compared to the latest method for uncertainty calibration on Transformers (SGPA), KEP-SVGP
+distinctively surpasses its performances w.r.t. both failure
+prediction and calibration metrics, together with significantly improved efficiency as later shown in Table 4. Deep
+Ensembles integrates five independently trained models and
+achieves more advantageous results than single-model methods. Compared to Deep Ensembles, KEP-SVGP Ensembles
+still outperforms it on all datasets and w.r.t. most metrics.
+Moreover, KEP-SVGP can serve as a good complement for
+further improvement in calibration, given in Appendix D.3.
+
+widely used for failure prediction and uncertainty calibration, presenting more comprehensive analyses: i) failure
+prediction: the area under risk coverage curves (AURC)
+(Geifman & El-Yaniv, 2017), the area under the receiver
+operating characteristic curve (AUROC) (Davis & Goadrich,
+2006), FPR95 that returns FPR at 95% TPR; ii) uncertainty
+calibration: expected calibration error (ECE) (Naeini et al.,
+2015), negative predictive log-likelihood (NLL), and Brier
+score (Brier, 1950). More implementation details including
+choices of s, η, kernel functions, Monte-Carlo sampling for
+ELBO during inference are given in Appendix D.1.
+5.1. Comparison Results
+Uncertainty Awareness on In-distribution Data In Table 1, we evaluate the in-distribution performances on
+four benchmarks where results on CoLA are measured
+with Matthew correlation coefficient (MCC) (Matthews,
+1975; Warstadt et al., 2019). Among single-model methods, KFLLLA and Temperature Scaling are two post-hoc
+approaches designed for calibration and show good performances w.r.t. ECE, NLL and Brier. However, the performance of KFLLLA is not stable across tasks, e.g., it has the
+highest ECE on CIFAR-100, while not able to improve much
+regarding the failure prediction metrics. Our KEP-SVGP
+has consistently better performance across tasks. Compared
+
+Robustness on Distribution-shift Data We consider
+CIFAR-10-C and CIFAR-100-C (Hendrycks & Dietterich,
+2019) in Table 2, which are corrupted data of CIFAR-10/100
+containing 15 types of input corruptions over 5 levels of corruption severity. Models are trained on clean CIFAR-10/100
+and evaluated on corrupted CIFAR-10/100-C. As Temperature Scaling is designed for in-distribution uncertainty only,
+we omit its comparison herein. Among almost all singlemodel methods, KEP-SVGP is with best ACC. Although
+KFLLLA has good calibration metrics on both datasets, its
+ACC is equal to or lower than that of MSP, indicating that
+its good calibration performance comes at the cost of ACC.
+8
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+Table 4. Comparisons of performance and efficiency on a single NVIDIA Tesla V100 SXM2 32 GB. Results are reported over five trials.
+Time
+Complexity
+
+ACC ↑
+
+NLL ↓
+
+s/Epoch
+
+ACC ↑
+
+NLL ↓
+
+s/Epoch
+
+ACC ↑
+
+NLL ↓
+
+s/Epoch
+
+MCC ↑
+
+NLL ↓
+
+s/Epoch
+
+MSP
+SGPA
+
+O(N 2 )
+O(N 2 s)
+
+78.11±0.10
+77.87±0.12
+
+13.40±0.07
+6.97±0.02
+
+29.58
+137.28
+
+52.16±0.50
+53.02±0.36
+
+43.90±0.42
+25.64±0.41
+
+29.76
+288.04
+
+88.17±0.52
+88.36±0.75
+
+3.10±0.26
+3.40±0.10
+
+16.65
+1662.36
+
+26.93±1.38
+26.15±1.12
+
+14.45±2.83
+8.76±0.34
+
+23.09
+28.05
+
+KEP-SVGP (ours)
+
+O(N s2 )
+
+78.27±0.30
+
+6.29±0.06
+
+30.97
+
+56.26±0.70
+
+20.10±1.10
+
+32.21
+
+89.01±0.14
+
+3.00±0.13
+
+32.30
+
+30.54±1.61
+
+8.54±1.66
+
+23.95
+
+Method
+
+CIFAR-10
+
+CIFAR-100
+
+MCC ↑
+
+AURC ↓
+
+AUROC ↑
+
+FPR95 ↓
+
+ECE ↓
+
+NLL ↓
+
+Brier ↓
+
+MSP
+
+26.93
+
+205.47
+
+64.55
+
+89.86
+
+23.84
+
+14.45
+
+52.15
+
+e
+e
+F[d]
++ F[d]
+r
+r
+F[d]
++ F[d]
+
+28.71
+28.10
+
+199.48
+196.65
+
+64.05
+64.66
+
+89.36
+90.01
+
+21.85
+18.99
+
+13.15
+10.76
+
+49.99
+47.68
+
+e
+r
+F[d]
++ F[d]
+
+29.31
+
+189.08
+
+64.88
+
+88.51
+
+16.08
+
+9.02
+
+44.16
+
+CoLA
+
+marks, which is consistent with the analytical results on time
+complexity. Compared to MSP, it is reasonable that KEPSVGP takes comparable or sometimes slightly longer training time as O(N s2 ) can be sometimes larger than O(N 2 )
+with the chosen rank s. KEP-SVGP distinctively outperforms MSP on all datasets and metrics, only with a slightly
+extra training time. More results are in Appendix D.4.
+
+Table 5. Ablation on the asymmetry of our SVGP pair on CoLA.
+Results are reported over five trials.
+Pairing
+
+IMDB
+
+SV-DKL is a strong method on CIFAR-100-C, however, its
+ACC on CIFAR-10-C is even lower than the MSP baseline,
+which is less desirable. KEP-SVGP has good ACC with
+more stable uncertainty metrics. Figure 2 shows the comparisons to MSP built upon canonical softmax-based Transformer where KEP-SVGP improves the model robustness
+under various corruptions. With ensembles, Deep Ensembles is a classical method admitted with strong robustness
+against distribution shift. Notably, KEP-SVGP Ensembles
+provides better results than Deep Ensembles on more metrics, especially on CIFAR-10-C. As we are not aiming at
+achieving SOTAs in all metrics/setups, current results can
+verify KEP-SVGP’s robustness under distribution shift.
+
+5.3. Ablation Study
+In Table 5, we investigate the effectiveness of leveraging our
+SVGPs for characterizing the asymmetric self-attention. We
+adopt a two-layer Transformer with all layers substituted by
+KEP-SVGP, which can also investigate our model applied
+to deep layers. We consider addition scheme for merging
+e
+r
+the outputs of SVGPs, i.e., F[d]
++ F[d]
+, and compare with
+the symmetric cases, which only include a single SVGP
+e
+e
+r
+under the same architecture, i.e., either F[d]
++ F[d]
+or F[d]
++
+r
+F[d] . Results show that we achieve performance gains by
+leveraging our SVGP pair conceived from the asymmetry
+on the self-attention kernel. Moreover, the 2-layer KEPSVGP performs slightly inferior than transformers with
+only the last attention layer replaced by KEP-SVGP in Table
+1. This can be due to the fact that shallow layer may not
+necessarily enjoy a low-rank property (Chen et al., 2023).
+Nevertheless, all variants of our 2-layer KEP-SVGP in Table
+5 clearly outperform the MSP baseline, further verifying
+the effectiveness of our SVGPs, especially the asymmetry
+in our KEP-SVGP. More ablation results are provided in
+Appendix D.5.
+
+Out-of-distribution Detection An effective estimator
+with reliable confidence is expected to well separate outof-distribution (OOD) data and misclassified in-distribution
+(ID) data from correct predictions. Hence, we consider OOD
+detection, where CIFAR-10/100 are taken as the ID data
+with evaluations on each other, SVHN (Netzer et al., 2011)
+and LSUN (Yu et al., 2015). In Table 3, KEP-SVGP can
+overall boost the AUROC and AUPR over baselines. Note
+that though KFLLLA has good performance on the tasks
+of in-distribution calibration and distribution-shift datasets,
+it cannot handle OOD detection well, while our method
+maintains its effectiveness. Moreover, our KEP-SVGP Ensembles achieves the best performance almost in all cases,
+e.g., the boost on CIFAR-100→SVHN is 4.67% in AUROC, 6.31% in AUPR over Deep Ensembles, which is quite
+substantial. Figure 3 shows that KEP-SVGP leads to less
+confidence overlap between OOD and correct ID compared
+with MSP, MC Dropout, which is desirable.
+
+6. Conclusion
+In this work, we propose a novel variational modelling for
+realizing more reliable self-attention outputs through two
+branches of SVGPs, which leverages the pair of adjoint
+eigenfunctions w.r.t. the asymmetric attention kernel to formulate a pair of kernel-eigen features for “inducing features”
+in SVGPs. First, we fully characterize the intrinsic asymmetry of the attention kernel by utilizing the adjoint pair
+of SVGPs. Second, by deploying KSVD into SVGPs, we
+manage to reduce the time complexity of posterior processes
+approximation significantly. Third, we tailor the ELBO for
+optimizing the variational parameters in our model. Experiments verify our enhanced reliability and efficiency. To the
+best of our knowledge, this is the first variational inference
+modelling of Transformers with the asymmetry in attention
+kernel addressed.
+
+5.2. Time Complexity
+Table 4 gives the training time efficiency discussed in Section 4.1. We adopt same architectures in Chen & Li (2023)
+on all datasets for fair comparisons with SGPA. Compared
+to the latest SVGPs-based counterpart SGPA, KEP-SVGP
+significantly reduces the computational time over all bench9
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+Acknowledgements
+
+Chen, W. and Li, Y. Calibrating transformers via sparse
+Gaussian processes. In International Conference on
+Learning Representations, 2023.
+
+This work is jointly supported by the European Research
+Council under the European Union’s Horizon 2020 research and innovation program/ERC Advanced Grant EDUALITY (787960), iBOF project Tensor Tools for Taming the Curse (3E221427), Research Council KU Leuven: Optimization framework for deep kernel machines
+C14/18/068, KU Leuven Grant CoE PFV/10/002, The Research Foundation–Flanders (FWO) projects: GOA4917N
+(Deep Restricted kernel Machines: Methods and Foundations), Ph.D./Postdoctoral grant, the Flemish Government
+(AI Research Program), EU H2020 ICT-48 Network TAILOR (Foundations of Trustworthy AI-Integrating Reasoning, Learning and Optimization), Leuven.AI Institute.
+
+Chen, Y., Tao, Q., Tonin, F., and Suykens, J. A. Primalattention: Self-attention through asymmetric kernel SVD
+in primal representation. Advances in Neural Information
+Processing Systems, 2023.
+Chi, T.-C., Fan, T.-H., Ramadge, P. J., and Rudnicky, A. Kerple: Kernelized relative positional embedding for length
+extrapolation. Advances in Neural Information Processing Systems, 35:8386–8399, 2022.
+Choromanski, K. M., Likhosherstov, V., Dohan, D., Song,
+X., Gane, A., Sarlos, T., Hawkins, P., Davis, J. Q., Mohiuddin, A., Kaiser, L., Belanger, D. B., Colwell, L. J.,
+and Weller, A. Rethinking attention with performers. In
+International Conference on Learning Representations,
+2021.
+
+Impact Statement
+In this work, we provide a new variational inference modelling for realizing uncertainty-aware self-attention modules in Transformers relying on Sparse Variational Gaussian Processes and Kernel SVD. Compared to methods in
+literature for self-attention within the Bayesian inference
+framework, our method has a low time complexity, hence
+faster computation processes. Therefore, we provide a more
+energy friendly method whose advantages lie in requiring
+less power consumption during model training. Moreover,
+as we propose a new self-attention mechanism, it can be
+adopted in many deep learning systems with Transformers
+as backbones. However, we should be aware that an undue
+trust in deep learning models when applying to real-life
+scenarios can lead to unexpected consequences. Considering that our uncertainty-aware attention maintains good
+robustness in failure prediction analysis, distribution-shift
+and out-of-distribution benchmarks, we still see opportunities in anticipating and mitigating the risks due to real-world
+uncertainty during applications in advance.
+
+Cinquin, T., Immer, A., Horn, M., and Fortuin, V. Pathologies in priors and inference for Bayesian transformers.
+In the Fourth Symposium on Advances in Approximate
+Bayesian Inference, 2022.
+Coker, B., Bruinsma, W. P., Burt, D. R., Pan, W., and DoshiVelez, F. Wide mean-field Bayesian neural networks
+ignore the data. In International Conference on Artificial
+Intelligence and Statistics, 2022.
+Damianou, A. and Lawrence, N. D. Deep Gaussian processes. In International Conference on Artificial Intelligence and Statistics, pp. 207–215, 2013.
+Davis, J. and Goadrich, M. The relationship between
+precision-recall and ROC curves. In International Conference on Machine Learning, pp. 233–240, 2006.
+
+Aitchison, L., Yang, A., and Ober, S. W. Deep kernel processes. In International Conference on Machine Learning,
+pp. 130–140, 2021.
+
+Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn,
+D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer,
+M., Heigold, G., Gelly, S., Uszkoreit, J., and Houlsby,
+N. An image is worth 16x16 words: Transformers for
+image recognition at scale. In International Conference
+on Learning Representations, 2021.
+
+Blundell, C., Cornebise, J., Kavukcuoglu, K., and Wierstra,
+D. Weight uncertainty in neural network. In International
+Conference on Machine Learning, pp. 1613–1622, 2015.
+
+Eckart, C. and Young, G. The approximation of one matrix
+by another of lower rank. Psychometrika, 1(3):211–218,
+1936.
+
+Brier, G. W. Verification of forecasts expressed in terms of
+probability. Monthly Weather Review, 78(1):1–3, 1950.
+
+Fan, X., Zhang, S., Chen, B., and Zhou, M. Bayesian
+attention modules. Advances in Neural Information Processing Systems, 33:16362–16376, 2020.
+
+References
+
+Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D.,
+Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G.,
+Askell, A., et al. Language models are few-shot learners.
+Advances in Neural Information Processing Systems, 33:
+1877–1901, 2020.
+
+Foong, A., Burt, D., Li, Y., and Turner, R. On the expressiveness of approximate inference in Bayesian neural
+networks. Advances in Neural Information Processing
+Systems, 33:15897–15908, 2020.
+10
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+Gal, Y. and Ghahramani, Z. Dropout as a Bayesian approximation: Representing model uncertainty in deep learning.
+In International Conference on Machine Learning, 2016.
+
+Lázaro-Gredilla, M. and Figueiras-Vidal, A. Inter-domain
+Gaussian processes for sparse inference using inducing
+features. Advances in Neural Information Processing
+Systems, 22, 2009.
+
+Geifman, Y. and El-Yaniv, R. Selective classification for
+deep neural networks. Advances in Neural Information
+Processing Systems, 30, 2017.
+
+Leibfried, F., Dutordoir, V., John, S., and Durrande, N.
+A tutorial on sparse Gaussian processes and variational
+inference. arXiv preprint arXiv:2012.13962, 2020.
+
+Geifman, Y., Uziel, G., and El-Yaniv, R. Bias-reduced uncertainty estimation for deep neural classifiers. International
+Conference on Learning Representations, 2019.
+
+Li, Y., Chen, Y., Yu, X., Chen, D., and Shen, X. SURE:
+SUrvey REcipes for building reliable and robust deep
+networks. In IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, 2024.
+
+Graves, A. Practical variational inference for neural networks. Advances in Neural Information Processing Systems, 24, 2011.
+
+Liu, J., Lin, Z., Padhy, S., Tran, D., Bedrax Weiss, T., and
+Lakshminarayanan, B. Simple and principled uncertainty
+estimation with deterministic deep learning via distance
+awareness. Advances in Neural Information Processing
+Systems, 33:7498–7512, 2020.
+
+Guo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. On calibration of modern neural networks. In International Conference on Machine Learning, pp. 1321–1330. PMLR,
+2017.
+Hendrycks, D. and Dietterich, T. Benchmarking neural
+network robustness to common corruptions and perturbations. International Conference on Learning Representations, 2019.
+
+Maas, A., Daly, R. E., Pham, P. T., Huang, D., Ng, A. Y., and
+Potts, C. Learning word vectors for sentiment analysis.
+In Annual Meeting of the Association for Computational
+Linguistics: Human Language Technologies, pp. 142–
+150, 2011.
+
+Hendrycks, D. and Gimpel, K. A baseline for detecting
+misclassified and out-of-distribution examples in neural
+networks. In International Conference on Learning Representations, 2017.
+
+Matthews, B. W. Comparison of the predicted and observed
+secondary structure of T4 phage lysozyme. Biochimica
+et Biophysica Acta (BBA)-Protein Structure, 405(2):442–
+451, 1975.
+
+Kendall, A. and Gal, Y. What uncertainties do we need in
+Bayesian deep learning for computer vision? Advances
+in Neural Information Processing Systems, 30, 2017.
+
+Milsom, E., Anson, B., and Aitchison, L. Convolutional
+deep kernel machines. International Conference on
+Learning Representations, 2024.
+
+Kingma, D. P. and Ba, J. Adam: A method for stochastic optimization. International Conference on Learning
+Representations, 2015.
+
+Moon, J., Kim, J., Shin, Y., and Hwang, S. Confidenceaware learning for deep neural networks. In International
+Conference on Machine Learning, pp. 7034–7044, 2020.
+
+Kingma, D. P. and Welling, M. Auto-encoding variational
+bayes. arXiv preprint arXiv:1312.6114, 2013.
+
+Mukhoti, J., Kulharia, V., Sanyal, A., Golodetz, S., Torr, P.,
+and Dokania, P. Calibrating deep neural networks using
+focal loss. Advances in Neural Information Processing
+Systems, 33:15288–15299, 2020.
+
+Kristiadi, A., Hein, M., and Hennig, P. Being Bayesian,
+even just a bit, fixes overconfidence in ReLU networks.
+In International Conference on Machine Learning, pp.
+5436–5446, 2020.
+
+Naeini, M. P., Cooper, G., and Hauskrecht, M. Obtaining
+well calibrated probabilities using Bayesian binning. In
+AAAI Conference on Artificial Intelligence, volume 29,
+2015.
+
+Krizhevsky, A., Hinton, G., et al. Learning multiple layers
+of features from tiny images. Technical Report, 2009.
+
+Netzer, Y., Wang, T., Coates, A., Bissacco, A., Wu, B.,
+and Ng, A. Y. Reading digits in natural images with
+unsupervised feature learning. 2011.
+
+Lakshminarayanan, B., Pritzel, A., and Blundell, C. Simple
+and scalable predictive uncertainty estimation using deep
+ensembles. Advances in Neural Information Processing
+Systems, 30, 2017.
+
+Nguyen, T., Pham, M., Nguyen, T., Nguyen, K., Osher,
+S., and Ho, N. Fourierformer: Transformer meets generalized fourier integral theorem. Advances in Neural
+Information Processing Systems, 35:29319–29335, 2022.
+
+Lanczos, C. Linear systems in self-adjoint form. The American Mathematical Monthly, 65(9):665–679, 1958.
+11
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+Nguyen, T. M., Nguyen, T. M., Ho, N., Bertozzi, A. L.,
+Baraniuk, R., and Osher, S. A primal-dual framework
+for transformers and neural networks. In International
+Conference on Learning Representations, 2023.
+
+Tsai, Y.-H. H., Bai, S., Yamada, M., Morency, L.-P., and
+Salakhutdinov, R. Transformer dissection: An unified
+understanding for transformer’s attention via the lens of
+kernel. In Conference on Empirical Methods in Natural Language Processing and the International Joint
+Conference on Natural Language Processing (EMNLPIJCNLP), pp. 4344–4353, 2019.
+
+Ober, S. W., Rasmussen, C. E., and van der Wilk, M. The
+promises and pitfalls of deep kernel learning. In Uncertainty in Artificial Intelligence, pp. 1206–1216, 2021.
+
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones,
+L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. Attention is all you need. Advances in Neural Information
+Processing Systems, 30, 2017.
+
+Peters, M., Neumann, M., Iyyer, M., Gardner, M., Clark,
+C., Lee, K., and Zettlemoyer, L. Deep contextualized
+word representations. Conference of the North American
+Chapter of the Association for Computational Linguistics,
+2018.
+
+Wang, S., Li, B. Z., Khabsa, M., Fang, H., and Ma, H.
+Linformer: Self-attention with linear complexity. arXiv
+preprint arXiv:2006.04768, 2020.
+
+Rasmussen, C. E. and Williams, C. K. Gaussian processes
+for machine learning. Springer, 2006.
+
+Warstadt, A., Singh, A., and Bowman, S. R. Neural network
+acceptability judgments. Transactions of the Association
+for Computational Linguistics, 7:625–641, 2019.
+
+Ritter, H., Kukla, M., Zhang, C., and Li, Y. Sparse uncertainty representation in deep learning with inducing
+weights. Advances in Neural Information Processing
+Systems, 34:6515–6528, 2021.
+
+Williams, C. and Seeger, M. Using the Nyström method
+to speed up kernel machines. In Leen, T., Dietterich,
+T., and Tresp, V. (eds.), Advances in Neural Information
+Processing Systems, volume 13, 2000.
+
+Salimbeni, H. and Deisenroth, M. Doubly stochastic variational inference for deep Gaussian processes. Advances
+in Neural Information Processing Systems, 30, 2017.
+
+Wilson, A. G., Hu, Z., Salakhutdinov, R. R., and Xing, E. P.
+Stochastic variational deep kernel learning. Advances in
+Neural Information Processing Systems, 29, 2016.
+
+Schmidt, E. Zur theorie der linearen und nichtlinearen
+integralgleichungen. Mathematische Annalen, 63(4):433–
+476, 1907.
+
+Wright, M. A. and Gonzalez, J. E. Transformers are deep
+infinite-dimensional non-Mercer binary kernel machines.
+arXiv preprint arXiv:2106.01506, 2021.
+
+Stewart, G. W. On the early history of the singular value
+decomposition. SIAM Review, 35(4):551–566, 1993.
+
+Wu, H., Wu, J., Xu, J., Wang, J., and Long, M. Flowformer: Linearizing transformers with conservation flows.
+In International Conference on Machine Learning, pp.
+24226–24242, 2022.
+
+Suykens, J. A. SVD revisited: A new variational principle, compatible feature maps and nonlinear extensions.
+Applied and Computational Harmonic Analysis, 40(3):
+600–609, 2016.
+Tao, Q., Tonin, F., Patrinos, P., and Suykens, J. A. Nonlinear SVD with asymmetric kernels: feature learning and asymmetric Nyström method. arXiv preprint
+arXiv:2306.07040, 2023.
+
+Xue, B., Yu, J., Xu, J., Liu, S., Hu, S., Ye, Z., Geng, M.,
+Liu, X., and Meng, H. Bayesian transformer language
+models for speech recognition. In IEEE International
+Conference on Acoustics, Speech and Signal Processing,
+pp. 7378–7382. IEEE, 2021.
+
+Titsias, M. Variational learning of inducing variables in
+sparse Gaussian processes. In International Conference
+on Artificial Intelligence and Statistics, pp. 567–574,
+2009.
+
+Yu, F., Seff, A., Zhang, Y., Song, S., Funkhouser, T., and
+Xiao, J. Lsun: Construction of a large-scale image dataset
+using deep learning with humans in the loop. arXiv
+preprint arXiv:1506.03365, 2015.
+
+Touvron, H., Cord, M., Douze, M., Massa, F., Sablayrolles,
+A., and Jégou, H. Training data-efficient image transformers & distillation through attention. In International Conference on Machine Learning, pp. 10347–10357, 2021.
+
+Zhang, R., Li, C., Zhang, J., Chen, C., and Wilson, A. G.
+Cyclical stochastic gradient MCMC for Bayesian deep
+learning. In International Conference on Learning Representations, 2020.
+
+Tran, D., Dusenberry, M., Van Der Wilk, M., and Hafner, D.
+Bayesian layers: A module for neural network uncertainty.
+Advances in Neural Information Processing Systems, 32,
+2019.
+
+Zhu, F., Cheng, Z., Zhang, X.-Y., and Liu, C.-L. Openmix:
+Exploring outlier samples for misclassification detection.
+In IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 12074–12083, 2023.
+12
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+A. Analytical Derivations of SVGPs
+A.1. Derivations of (3): Variational Marginal Distribution in SVGPs
+As an efficient alternative to the classical GPs (2), SVGPs (Titsias, 2009) variationally approximate the Gaussian posterior
+distribution with a small set of s supports, i.e., (Z, u) := {(zm , um )}sm=1 , zm ∈ X , um = f (zm ) ∈ R, commonly with
+s ≪ N , where Z are named “inducing points” and u are “inducing variables”. In SVGPs, the mean µu is often set to zero
+and the covariance matrix is given by Kuu := [κ(zi , zj )] ∈ Rs×s . The joint GP and the conditional GP of f (·) conditioned
+on u are as follows:
+
+
+ 
+
+f (·)
+κ(·, ·) κ·u
+Prior:
+∼ GP 0,
+u
+κu· Kuu
+⇓
+
+−1
+−1
+f (·)|u ∼ GP κ·u Kuu
+u, κ(·, ·) − κ·u Kuu
+κu·
+
+(22)
+
+with κ·u := [κ(·, z1 ), . . . , κ(·, zs )], κu· := [κ(z1 , ·), . . . , κ(zs , ·)]⊤ , and κu· = κ⊤
+·u . Then, the corresponding conditional
+distribution of the function values f on u is as follows:
+−1
+−1
+p(f |u) = N (KXZ KZZ
+u, KXX − KXZ KZZ
+KZX ),
+
+where KXZ := [κ(xi , zj )] ∈ RN ×s , KZX := [κ(zi , xj )] ∈ Rs×N and KZZ = Kuu ∈ Rs×s .
+In addition to considering the marginal distribution p(u) = N (0, KZZ ), SVGPs provide a variational distribution q(u) =
+N (mu , RSuu ) where mu ∈ Rs , Suu ∈ Rs×s (Leibfried et al., 2020). The variational marginal distribution of f is given by
+q(f ) = p(f |u)q(u) du, which is still Gaussian and corresponds to the approximate posterior (3) in Section 3.1:
+
+−1
+−1
+−1
+q(f ) = N KXZ KZZ
+mu , KXX − KXZ KZZ
+(KZZ − Suu )KZZ
+KZX .
+(23)
+In inference, the posterior distribution of f ∗ evaluated at test inputs X ∗ is then given by
+
+−1
+−1
+−1
+q(f ∗ |X ∗ , Z) = N KX ∗ Z KZZ
+mu , KX ∗ X ∗ − KX ∗ Z KZZ
+(KZZ − Suu )KZZ
+KZX ∗ .
+In SVGPs, the evidence lower-bound (ELBO) objective involves the variational parameters mu , Suu in the variational
+distribution q(u) = N (mu , Suu ) and is used for the training
+LELBO = Eq(f ) [log p(y|f )] − KL (q(u)||p(u)) .
+The derivation of this classical ELBO is provided in (30) in Appendix B.3. More details on SVGPs can refer to Titsias
+(2009); Leibfried et al. (2020).
+A.2. Derivations of (7): SVGPs with Kernel-Eigen Features
+With (4), let ϕm (·) := νm (·)
+R be chosen as the eigenfunction corresponding to the m-th largest eigenvalue λm w.r.t. the
+kernel function κ(·, ·), i.e., κ(·, x)νm (x) dx = λm νm (·) in (5). In this setup, the κ·u , κu· , Kuu of the prior GP in (22)
+are updated as follows (Leibfried et al., 2020):
+κ·u [m] = κu· [m] = λm νm (·),
+Kuu = diag{λ1 , . . . , λs },
+
+(24)
+
+where κ·u [m], κu· [m] are the m-th entry of κ·u and κu· respectively. The derivations of (24) are provided in the following.
+The cross-covariance κ·u is a vector-valued function with s outputs. The scalar-valued function κ·u [m] corresponding to
+the output index m is computed as:
+
+Z
+
+κ·u [m] = E [(f (·) − 0) (um − 0)] = E f (·)
+f (x)νm (x) dx
+Z
+Z
+= E [f (·)f (x)] νm (x) dx = κ(·, x)νm (x) dx = λm νm (·).
+13
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+Similarly, the m-th output of the cross-covariance κu· is the attained as:
+
+
+Z
+f (x)νm (x) dx f (·)
+κu· [m] = E [(um − 0) (f (·) − 0)] = E
+Z
+Z
+= E [f (x)f (·)] νm (x) dx = κ(x, ·)νm (x) dx
+Z
+= κ(·, x)νm (x) dx = λm νm (·),
+where the fifth equation holds with a symmetric κ(·, ·). The covariance Kuu is an s × s matrix with the [i, j]-th entry
+computed by
+Z
+ Z
+
+′
+′
+′
+Kuu [i, j] = E [(ui − 0) (uj − 0)] = E
+f (x)νi (x) dx
+f (x )νj (x ) dx
+Z Z
+Z Z
+=
+E [f (x)f (x′ )] νi (x)νj (x′ ) dx′ dx =
+κ(x, x′ )νi (x)νj (x′ ) dx′ dx
+(25)
+Z
+Z
+Z
+Z
+= νi (x) κ(x, x′ )νj (x′ ) dx′ dx = νi (x)λj νj (x)dx = λj νi (x)νj (x)dx
+= λi if i = j else 0.
+R
+The last equation in (25) establishes since eigenfunctions are orthonormal systems: νi (x)νj (x) dx equals one if i equals
+j, and is zero otherwise. When evaluating the SVGP prior over a finite set X ⊂ X and its inducing points Z, we have the
+finite case of the integral equations w.r.t. the symmetric kernel function κ(·, ·) in (5) (Williams & Seeger, 2000) as
+KXX H = HΛ,
+where H := [ν1 , . . . , νs ] ∈ RN ×s contains the eigenvectors to the top-s nonzero eigenvalues of the kernel matrix KXX ,
+i.e., Λ = diag{λ1 , . . . , λs }. By substituting (24) together with its finite sample case (6) into the GP prior in (22), with
+q(u) = N (mu , Suu ), the posterior distribution corresponding to (23) is then formulated as
+ 
+ 
+
+KXX HΛ
+f
+Prior:
+∼ N 0,
+u
+ΛH ⊤
+Λ
+(26)
+⇓
+
+q(f ) = N (HΛ)Λ−1 mu , KXX − (HΛ)Λ−1 (Λ − Suu )Λ−1 (ΛH ⊤ ) .
+This completes the derivation of (7) in the paper.
+
+B. Analytical Derivations of KEP-SVGP
+B.1. Derivations of (15): Two Eigenvalue Problems Induced by KSVD on the Asymmetric Attention Kernel Matrix
+From the KSVD on the asymmetric attention kernel matrix Katt , we have Katt = He ΛHr⊤ , where the left and right
+singular vectors suffice He⊤ He = I, Hr⊤ Hr = I with he,i := He [:, i] = [he1 [i], . . . , heN [i]]⊤ ∈ RN and hr,i := Hr [:
+, i] = [hr1 [i], . . . , hrN [i]]⊤ ∈ RN , i = 1, . . . , N . With KSVD, we have the shifted eigenvalue problem in (13), which gives
+
+⊤
+
+⊤
+Katt Katt
+He = Katt He ΛHr⊤ He = Katt Hr ΛHe⊤ He = Katt Hr Λ He⊤ He = Katt Hr Λ = He Λ2 ,
+
+
+
+⊤
+⊤
+Katt
+Katt Hr = He ΛHr⊤ Katt Hr = Hr ΛHe⊤ (Katt Hr ) = Hr ΛHe⊤ (He Λ) = Hr Λ He⊤ He Λ = Hr Λ2 .
+(27)
+More explanations on the shifted eigenvalue problem from SVD can refer to the Lanczos decomposition in Lanczos (1958),
+Theorem 3.2 in Chen et al. (2023), Proposition 3.1 in Tao et al. (2023). This completes the derivation of (15) in the paper.
+B.2. Derivations of (16): SVGP Pair on the Asymmetric Attention Kernel
+Within the framework of KSVD (Suykens, 2016; Tao et al., 2023) w.r.t. the self-attention (Chen et al., 2023), we have
+the equivalence between the primal and dual model representation for the projection matrices w.r.t. right and left singular
+vectors of KSVD in (10), such that
+(10)
+
+(13)
+
+EX := We⊤ ϕq (X) = Katt Hr = He Λ,
+14
+
+(10)
+
+(13)
+
+RX := Wr⊤ ϕk (X) = K ⊤ He = Hr Λ,
+
+(28)
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+where EX := e(X) = [e(xi ), . . . , e(xN )]⊤ ∈ RN ×s , RX := RX = [r(xi ), . . . , r(xN )]⊤ ∈ RN ×s are the projection
+matrices w.r.t. right and left singular vectors of KSVD in (10). Here, we only consider the output of the d-th dimension.
+⊤
+⊤
+We consider the approximate posterior GP w.r.t. the symmetric kernel Katt Katt
+and Katt
+Katt given the distribution on
+e
+r
+s
+the inducing points u[d] , u[d] ∼ N (mu,[d] , Suu,[d] ), where mu,[d] := mu [:, d] ∈ R and Suu,[d] := Suu [:, :, d] ∈ Rs×s
+correspond to the d-th output dimension for the variational parameters mu ∈ Rs×s , Suu ∈ Rs×s×s .
+According to the formulations of SVGPs in (7) and (26), the mean of the posterior process in the first set of SVGP in (16) is
+attained as
+µe := (He Λ2 )Λ−2 mu,[d] = (He Λ)Λ−1 mu,[d] = EX Λ−1 mu,[d] ,
+
+(29)
+
+with the covariance matrix
+⊤
+Σe := Katt Katt
+− (He Λ2 )Λ−2 (Λ2 − Suu,[d] )Λ−2 (Λ2 He⊤ )
+⊤
+= Katt Katt
+− (He Λ2 )Λ−2 (Λ2 He⊤ ) + (He Λ)Λ−1 Suu,[d] Λ−1 (He Λ)⊤
+⊤
+⊤
+= Katt Katt
+− He Λ2 He⊤ +EX Λ−1 Suu,[d] Λ−1 EX
+{z
+}
+|
+≈0 (see Remark 3.1)
+
+⊤
+≈ EX Λ−1 Suu,[d] Λ−1 EX
+⊤
+= EX Λ−2 Suu,[d] EX
+.
+
+The attention matrix is commonly low-rank (Wang et al., 2020; Chen et al., 2023), so we motivate to utilize the fast-tocompute approximate posterior as given by Remark 3.1. Numerical evidence is also provided in Appendix D.6, verifying
+the validity of Remark 3.1 in our work. Therefore, we have the approximate distribution of the posterior process as
+
+e
+⊤
+q̃(f[d]
+) = N EX Λ−1 mu,[d] , EX Λ−2 Suu,[d] EX
+.
+⊤
+Similarly, based on (16) and (7), the mean of the posterior process w.r.t. the symmetric kernel Katt
+Katt is
+
+µr := (Hr Λ2 )Λ−2 mu,[d] = (Hr Λ)Λ−1 mu,[d] = RX Λ−1 mu,[d] ,
+as given in (16), and the corresponding covariance is
+⊤
+Σr := Katt
+Katt − (Hr Λ2 )Λ−2 (Λ2 − Suu,[d] )Λ−2 (Λ2 Hr⊤ )
+⊤
+= Katt
+Katt − (Hr Λ2 )Λ−2 (Λ2 Hr⊤ ) + (Hr Λ)Λ−1 Suu,[d] Λ−1 (Hr Λ)⊤
+⊤
+⊤
+= Katt
+Katt − Hr Λ2 Hr⊤ +RX Λ−1 Suu,[d] Λ−1 RX
+|
+{z
+}
+≈0 (see Remark 3.1)
+
+⊤
+≈RX Λ−1 Suu,[d] Λ−1 RX
+⊤
+= RX Λ−2 Suu,[d] RX
+,
+
+hence yielding the approximate distribution of the posterior process as
+
+r
+⊤
+q̃(f[d]
+) = N RX Λ−1 mu,[d] , RX Λ−2 Suu,[d] RX
+.
+This completes the derivation of (16) in the paper.
+B.3. Derivations of (20): The ELBO Objective of KEP-SVGP
+For the optimization of our approximate posterior distribution, we follow the spirit of deep Gaussian Processes in Salimbeni
+& Deisenroth (2017); Damianou & Lawrence (2013). Hence the Transformers applied with KEP-SVGP can be viewed as a
+sparse approximation to a deep GPs with kernels in each layer. To proceed our derivations, we firstly recall the formulations
+15
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+of the ELBO involving y, f , u:
+Z
+
+Z
+
+p(y|f , u)p(f , u)
+p(y|f , u) p(f , u) df du = log q(f , u)
+df du
+| {z } | {z }
+q(f , u)
+likelihood
+GP Prior
+
+
+Z
+Jensen’s inequality
+p(y|f , u)p(f , u)
+df du
+≥
+q(f , u) log
+q(f , u)
+
+
+
+
+Z
+p(y, f , u)
+p(y, f , u)
+= q(f , u) log
+df du = Eq(f ,u) log
+.
+q(f , u)
+q(f , u)
+
+log p(y, f , u) = log
+
+(30)
+
+Similar to the doubly stochastic variational inference framework (Salimbeni & Deisenroth, 2017) for the ELBO derivation,
+let {F l ∈ RN ×(Nh dv ) }L
+l=1 be the output of the l-th KEP-SVGP layer, where L is the number of layers and Nh is the number
+of heads. Our model follows the convention of concatenating these multiple heads in canonical self-attention. As is shown
+in (16) and (17), ue , ur share the same marginal prior and variational distribution, hence we only need to optimize one set
+L,Nh
+of variational parameters {mu , Suu } for each KEP-SVGP layer. In this manner, we consider {ul,nh }l=1,n
+for the L
+h =1
+attention layers with Nh heads, and the resulting process can be characterized with the joint density:
+
+
+
+ 
+
+ YL
+l,nh L,Nh
+0
+L
+l
+l,nh Nh
+l−1
+l,nh Nh
+l−1
+,
+(31)
+p Y, {F l }L
+,
+{u
+}
+|F
+=
+p
+Y
+|F
+p
+F
+|{u
+}
+,
+F
+p
+{u
+}
+)|F
+l=1
+nh =1
+nh =1
+l=1,nh =1
+| {z } | l=1
+{z
+}
+likelihood
+
+GP Prior
+
+l,nh L,Nh
+where we define F 0 := Xin as the inputs to the Transformer. The variational posterior of ({F l }L
+}l=1,nh =1 ) is
+l=1 , {u
+then:
+
+ YL
+
+
+l,nh L,Nh
+0
+l
+l,nh Nh
+l−1
+l,nh Nh
+l−1
+q {F l }L
+,
+{u
+}
+|F
+=
+p(F
+|{u
+}
+,
+F
+)q
+{u
+}
+)|F
+,
+(32)
+l=1
+nh =1
+nh =1
+l=1,nh =1
+l=1
+
+l−1
+l−1
+h
+h
+h
+where q {ul,nh }N
+is the variational distribution, and q(F l |{ul,nh }N
+) = p(F l |{ul,nh }N
+) is
+nh =1 )|F
+nh =1 , F
+nh =1 , F
+also assumed as in Chen & Li (2023). Moreover, we also follow the assumption in Chen & Li (2023) on the conditional
+h
+independency for each head across layers. When considering {ul,nh }N
+nh =1 from each head, we then have the factorizations:
+
+
+l−1
+
+
+ YNh
+l−1
+h
+p {ul,nh }N
+=
+nh =1 )|F
+
+nh =1
+
+
+ YNh
+l−1
+h
+q {ul,nh }N
+=
+nh =1 )|F
+
+
+p ul,nh |F l−1 ,
+
+nh =1
+
+
+q ul,nh |F l−1 .
+
+(33)
+
+With the prerequisites derived above, we now proceed to formulate the ELBO in our KEP-SVGP:
+
+
+
+l L
+l,nh L,Nh
+0
+p
+Y,
+{F
+}
+,
+{u
+}
+|F
+l=1
+l=1,n
+=1
+h
+(30)
+
+ 
+LELBO = Eq{F l }L ,{ul,nh }L,Nh |F 0  log
+L,Nh
+L
+l=1
+l=1,nh =1
+l
+l,n
+h
+q {F }l=1 , {u }l=1,nh =1 |F 0
+ 
+
+
+
+ QL
+l−1
+l,nh Nh
+l−1
+L
+l
+l,nh Nh
+)|F
+p
+Y
+|F
+p
+F
+|{u
+}
+,
+F
+p
+{u
+}
+nh =1
+nh =1
+l=1
+(31),(32)
+
+
+
+= Eq{F l }L ,{ul,nh }L,Nh |F 0  log
+Q
+L
+N
+N
+h
+h
+l=1
+l=1,nh =1
+l |{ul,nh }
+l−1 )q {ul,nh }
+l−1
+p(F
+,
+F
+)|F
+nh =1
+nh =1
+l=1
+"
+#
+QL,Nh
+p ul,nh |F l−1
+
+
+(33)
+l=1,n
+=1
+h
+L
+= Eq{F l }L ,{ul,nh }L,Nh |F 0  log p Y |F
++Eq{F l }L ,{ul,nh }L,Nh |F 0  log QL,Nh
+l,nh |F l−1 )
+l=1
+l=1,nh =1
+l=1
+l=1,nh =1
+l=1,nh =1 q (u
+"
+#
+
+
+ XL XNh
+p ul,nh |F l−1
+= Eq(F L |F 0 ) log p Y |F L +
+Eq(F l−1 ) Eq(ul,nh |F l−1 ) log
+l=1
+nh =1
+q (ul,nh |F l−1 )
+
+ XL XNh
+
+
+
+= Eq(F L |F 0 ) log p Y |F L −
+Eq(F l−1 ) KL q ul,nh |F l−1 ∥ p ul,nh |F l−1
+,
+(34)
+l=1
+
+nh =1
+
+R QL
+
+h
+l
+l,nh Nh
+l−1
+l L−1
+h
+where q(F L |F 0 ) =
+}nh =1 , F l−1 )q({ul,nh }N
+) {dul,nh }L,N
+nh =1 |F
+l=1 p(F |{u
+l=1,nh =1 {dF }l=1 . In this regard, the
+first term in the above ELBO can be estimated using Monte-Carlo samples layer-wise with the reparameterization trick
+(Kingma & Welling, 2013). As introduced in Section 4.1, we consider the independent multi-output Gaussian Processes
+(Leibfried et al., 2020) by specifying separate s single-output SVGPs. Hence, an independent SVGP is formulated for each
+
+16
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+h
+h
+l−1
+l−1
+of the output dimension, i.e., q(ul,n
+) = N (mu,[d] , Suu,[d] ), p(ul,n
+) = N (0, Λ2 ). Thus, the KL-divergence
+[d] |F
+[d] |F
+term in (34) for each head index by nh in each layer indexed by l can be expressed in the following form:
+ 
+
+
+
+
+ Xs
+h
+h
+KL q ul,nh |F l−1 ∥ p ul,nh |F l−1 =
+KL q ul,n
+|F l−1 ∥ p ul,n
+|F l−1
+[d]
+[d]
+d=1
+
+
+|Λ2 |
+(16),(17) 1 Xs
+−2
+⊤
+−2
+Tr(Λ Suu,[d] ) + mu,[d] Λ mu,[d] + log
+−s ,
+=
+d=1
+2
+|Suu,[d] |
+h
+s
+where s is the number of output dimensions of ul,n
+[d] ∈ R , and also the number of “inducing points” for the SVGPs. This
+completes the derivation of (20).
+
+C. More Background Materials
+In this section, we recall Suykens (2016); Chen et al. (2023) so as to provide a better understanding of KEP-SVGP.
+SVD under LS-SVM framework (Suykens, 2016) Let X ∈ RN ×M be the data matrix, we first define two sources
+M
+of data, corresponding to the rows and columns of the data matrix X respectively: {xi := X ⊤ ϵi }N
+i=1 , {zj := Xεj }j=1
+N
+M
+where ϵi ∈ R , εj ∈ R denote standard basis vectors, that is, the column vectors of the identity matrices IN and IM ,
+N M
+respectively. The operations from X to {xi ∈ RM }N
+i=1 and {zj ∈ R }j=1 can be denoted by two linear feature maps:
+φ(xi ) := C ⊤ xi = C ⊤ X ⊤ ϵi ,
+
+ψ(zj ) := zj = Xεj ,
+
+(35)
+
+where φ : RM → N, ψ : RN → RN and C ∈ RM ×N is a compatibility matrix so that xi , zj can be compared with each
+other after applying he feature maps. Now we consider the following constrained optimization problem, i.e., primal problem,
+which aims at maximizing the projection variances w.r.t. rows and columns data of X:
+1 PN 2
+1 PM 2
+e +
+r − w⊤ v
+2γ i=1 i
+2γ j=1 j
+s.t. ei = w⊤ φ(xi ), i = 1, . . . , N,
+rj = v ⊤ ψ(zj ), j = 1, . . . , M,
+
+max
+
+w,v,ei ,rj
+
+J=
+
+(36)
+
+where w, v ∈ RN are the projection weights, ei , rj ∈ R are the projection scores, and γ ∈ R is the regularization coefficient.
+This projection variances maximization in (36) exactly follows the spirit of singular value decomposition (SVD).
+KSVD problem for self-attention (Chen et al., 2023) Let {xi ∈ Rd }N
+i=1 be the input data sequence. The asymmetric selfattention kernel matrix Katt can be formulated by Katt := [κatt (xi , xj )] ∈ RN ×N where κatt (xi , xj ) := ⟨ϕq (xi ), ϕk (xj )⟩
+with two feature maps ϕq , ϕk related to queries and keys, corresponding to (35). Chen et al. (2023) gives the primal
+problem of KSVD of the self-attention mechanism as follows:
+
+1 PN
+1 PN
+max
+J=
+e(xi )⊤ Λ−1 e(xi ) +
+r(xj )⊤ Λ−1 r(xj ) − Tr We⊤ Wr
+i=1
+j=1
+We ,Wr ,Λ
+2
+2
+(37)
+s.t. e(xi ) = We⊤ ϕq (xi ), i = 1, . . . , N,
+⊤
+r(xj ) = Wr ϕk (xj ), j = 1, . . . , N,
+which corresponds to the primal problem in (36). Here, We , Wr ∈ Rp×s are the projection weights, ϕq (·), ϕk (·) : Rd → Rp
+are the feature maps, e(xi ) = We⊤ ϕq (xi ) ∈ Rs , r(xj ) = Wr⊤ ϕk (xj ) ∈ Rs are the projection scores, and Λ ∈ Rs×s is the
+regularization coefficient which is a positive diagonal matrix. J in (37) maximizes the projection variances of We⊤ ϕq (xi ),
+Wr⊤ ϕk (xj ) regarding queries and keys, and involves a regularization term coupling the projections.
+With Lagrangian duality and KKT conditions, the dual problem of (37) is
+Katt Hr = He Λ,
+
+⊤
+Katt
+He = Hr Λ
+
+(38)
+
+where Λ ∈ Rs×s is a positive diagonal matrix serves as singular values of Katt , and He = [he1 , . . . , heN ]⊤ ∈ RN ×s ,
+Hr = [hr1 , . . . , hrN ]⊤ ∈ RN ×s are the dual variables serving as the left and right singular vectors, respectively. Then the
+projection scores can be either represented in the primal using explicit feature maps or in the dual using kernel functions:
+(
+
+PN
+e(x) = j=1 hrj κatt (x, xj )
+e(x) = We⊤ ϕq (x)
+Primal:
+,
+Dual:
+PN
+r(x) = Wr⊤ ϕk (x)
+r(x) = i=1 hei κatt (xi , x).
+17
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+According to Lemma 4.2 in Chen et al. (2023), the solutions He , Hr , Λ to the dual problem (38) lead to the zero-value
+objective J in (37). Therefore, we set LKSVD := J 2 in (11) as our KSVD regularization loss. By minimizing LKSVD to zero
+through SGD-based optimizers, we realize SVD on Katt in self-attention in an approximate way.
+
+D. More Experiment Details
+First of all, in addition to reporting good performance on in-distribution datasets, we would like to provide some rationales
+behind KEP-SVGP’s good performance in distribution-shift robustness and out-of-distribution detection, which are two
+common tasks for Bayesian models:
+• With KSVD, we use the pair of adjoint eigenfunctions of the attention kernel as the “inducing features” in two SVGPs
+with two benefits: i) eigenfunctions span an orthogonal system seeking informative feature spaces; ii) eigenfunctions in
+our KSVD promote low-rank property to attention, where noisy patterns could be filtered out.
+• Recall that the distribution-shift data corrupts the clean data with shifts, while out-of-distribution (OOD) data are from
+another different distribution. i) As distribution shifts can serve as noisy patterns, the low-rank property can help
+filtering out these noises. ii) As the feature space of OOD data can be largely different from that of the in-distribution
+data, the informative features by the eigenfunctions can help distinguish such differences.
+D.1. More Details on Experimental Setups
+All experiments presented in this work are implemented with PyTorch, which can be conducted on a single NVIDIA GeForce
+RTX 2070 SUPER GPU. Our implementation is available at https://github.com/yingyichen-cyy/KEP-SVGP.
+Experiments on CIFAR-10 and CIFAR-100 For both CIFAR-10 and CIFAR-100, we randomly split the original training
+set into 90% training and 10% validation set, leading to a training set of 45K samples and a validation set of 5K. The test
+set is of 10K samples. For both datasets, we use 7-layer ViT (Dosovitskiy et al., 2021) where the 32×32 input images are
+tokenized with patches of size 4 × 4, the embedding dimension is 384, the hidden dimension is 384, the number of heads is
+12, the dropout ratio is 0.1, and the classification token is turned off. For all KEP-SVGPs on these two datasets, we set the
+regularization constant of KSVD loss in our objective min −LELBO + ηLKSVD as η = 10, set the rank for KSVD as s = 10.
+In our experimental section, we choose the feature maps related to the cosine similarity kernel on queries and keys as in
+Chen et al. (2023). All models are trained from scratch with ADAM optimizer (Kingma & Ba, 2015), except the post-hoc
+methods including Temperature Scaling and KEFLLLA, for 300 epochs with 5 warm-up epochs. The batch size is 128,
+and a cosine learning rate schedule is utilized with a learning rate of 10−3 and minimum learning rate of 10−5 . Ensemble
+methods are based on the models trained independently over 5 trials. More specifically, deep Ensembles is implemented by
+the mean ensembling of 5 independently trained transformers, which is the referred “regular transformer-based model along
+with ensembling techniques”. KEP-SVGP Ensembles does the same for 5 independently trained KEP-SVGP transformers.
+The best models are selected with the best validation accuracy. During inference, for MC Dropout and our KEP-SVGP,
+predictive uncertainty is estimated using 10 Monte Carlo samples. Note that SGPA (Chen & Li, 2023) is very time and
+memory consuming with 7-layer architectures, therefore we do not include it in the comparisons on CIFAR datasets in Table
+1. However, we do include SGPA in Table 4 with all models trained with the same architectures as done in its original paper
+(Chen & Li, 2023) for fair comparisons: 5-layer ViT on CIFAR-10, 6-layer ViT on CIFAR-100.
+Experiments on IMDB We randomly split the IMDB original training set into 35K as training and 5K as validation,
+the test set is of 10K samples. IMDB is with the maximum sequence length of 512. Following Chen & Li (2023), we
+use 1-layer Transformer (Vaswani et al., 2017) where the embedding dimension is 128, the hidden dimension is 128, the
+number of heads is 8, and the dropout ratio is 0.1. For our KEP-SVGP with addition scheme (19) for merging of SVGPs
+outputs, we set KSVD regularization constant as η = 10, the KSVD rank as s = 10, with feature maps related to the cosine
+similarity kernel on queries and keys (Chen et al., 2023). We train all models with ADAM optimizer, except for the post-hoc
+methods including Temperature Scaling and KFLLLA, for 20 epochs with 5 warm-up epochs, a batch size of 32, and a
+initial learning rate 10−3 which decays to 10−4 following a cosine learning rate decay. Ensemble methods are based on the
+models trained independently over 5 trials. The best models are selected with the best validation accuracy. During inference,
+for MC Dropout, SGPA and our KEP-SVGP, predictive uncertainty is estimated with 10 Monte Carlo samples.
+18
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+Table 6. Comparisons on W1cat ∈ RN ×2N and AB ⊤ , A ∈ RN ×s , B ∈ R2N ×s on CIFAR-10. Forward time (s) is on a single V100.
+Concatenation
+
+Forward Time (s)
+
+ACC ↑
+
+AURC ↓
+
+AUROC ↑
+
+FPR95 ↓
+
+ECE ↓
+
+NLL ↓
+
+Brier ↓
+
+W1cat ∈ RN ×2N
+AB ⊤ , A ∈ RN ×s , B ∈ R2N ×s
+
+0.08±0.03
+0.05±0.02
+
+84.70±0.61
+84.71±0.10
+
+35.15±2.65
+36.01±1.01
+
+87.20±0.65
+86.63±0.31
+
+64.93±1.41
+67.72±1.08
+
+10.60±0.45
+10.53±0.22
+
+8.00±0.56
+8.03±0.32
+
+25.45±1.05
+25.57±0.33
+
+Table 7. KEP-SVGP serves as a good complement to other methods for improving calibration. Experimental results are reported over five
+trials, with the best mean results shown in bold. ACC, AUROC, FPR95, ECE and Brier are percentages, AURC is ×103 , NLL is ×10.
+Dataset
+IMDB
+(Maas et al., 2011)
+
+CoLA
+(Warstadt et al., 2019)
+
+Method
+
+ACC/MCC ↑
+
+AURC ↓
+
+AUROC ↑
+
+FPR95 ↓
+
+ECE ↓
+
+NLL ↓
+
+Brier ↓
+
+MSP (Hendrycks & Gimpel, 2017)
+Temperature Scaling (TS) (Guo et al., 2017)
+
+88.17±0.52
+88.17±0.52
+
+35.27±3.04
+35.27±3.04
+
+82.29±0.87
+82.29±0.87
+
+71.41±1.57
+71.08±1.55
+
+4.01±1.36
+1.05±0.70
+
+3.10±0.26
+2.89±0.12
+
+17.88±0.95
+17.40±0.80
+
+KEP-SVGP (ours)
+KEP-SVGP+TS (ours)
+
+89.01±0.14
+89.01±0.14
+
+30.69±0.69
+30.71±0.76
+
+83.22±0.31
+83.22±0.36
+
+68.15±0.95
+68.38±0.60
+
+3.72±0.81
+1.19±0.19
+
+3.00±0.13
+2.73±0.03
+
+16.56±0.25
+16.21±0.16
+
+MSP (Hendrycks & Gimpel, 2017)
+KFLLLA (Kristiadi et al., 2020)
+
+26.93±1.38
+26.90±1.31
+
+205.47±7.62
+204.31±8.57
+
+64.55±0.86
+64.60±0.96
+
+89.86±1.29
+90.06±0.74
+
+23.84±2.23
+2.51±1.09
+
+14.45±2.83
+5.94±0.04
+
+52.15±2.43
+40.52±0.38
+
+KEP-SVGP (ours)
+KEP-SVGP+KFLLLA (ours)
+
+30.54±1.61
+31.22±1.63
+
+186.66±8.50
+185.58±6.57
+
+65.16±0.86
+65.49±1.31
+
+88.39±0.83
+87.97±2.12
+
+15.89±3.48
+5.81±2.19
+
+8.54±1.66
+5.78±0.04
+
+43.55±2.99
+38.98±0.44
+
+Experiments on CoLA This dataset provides an in-distribution training with 8551 samples and a in-distribution test of
+527. Following Chen & Li (2023), we use 2-layer Transformer (Vaswani et al., 2017) where the embedding dimension is
+128, the hidden dimension is 256, the number of heads is 4. For the input embedding, we adopt ELMO-style representation
+(Peters et al., 2018). For our KEP-SVGP with addition merging scheme in (19), we set KSVD regularization constant
+as η = 1, the KSVD rank as s = 5, with feature maps ϕq , ϕk in (10) related to the cosine similarity kernel (Chen et al.,
+2023). We train all models with ADAM optimizer, except for the post-hoc methods including Temperature Scaling and
+KFLLLA, for 50 epochs with 5 warm-up epochs, a batch size of 32, and a initial learning rate 5 × 10−4 which decays to
+10−5 following a cosine learning rate decay. Ensemble methods are based on the models trained independently over 5 trials.
+During inference, for MC Dropout, SGPA and our KEP-SVGP, predictive uncertainty is estimated using 10 Monte Carlo
+samples.
+D.2. More Details on Concatenation Weights
+For the concatenation merging scheme in Section 4.1, we can replace W1cat ∈ RN ×2N with AB ⊤ where A ∈ RN ×s ,
+B ∈ R2N ×s to maintain the overall linear time complexity with N when computing KEP-SVGP. We provide empirical
+evaluations on comparing these two concatenation weight schemes in Table 6. By utilizing AB ⊤ , comparable performances
+are obtained at less computational cost. However, we still adopt W1cat for all experiments in this paper so as to maintain
+good failure prediction and calibration performances.
+D.3. More Details on Calibration Improvement
+We discuss the further potentials of KEP-SVGP here. The benefits of our KEP-SVGP can beyond the existing evaluations,
+as the key idea of fully utilizing the asymmetry in self-attention is compatible with other calibration method and thus serves
+as a good complement for a further boost in performances, as demonstrated in Table 7. Specifically, we find that
+• KEP-SVGP+TS on IMDB: Temperature Scaling (TS) is a post-hoc method tuning the temperature scale inside the
+softmax probability in the classification head. As KEP-SVGP directly models the attention blocks, it can be combined
+with TS, leading to an improved calibration.
+• KEP-SVGP+KFLLLA on CoLA: KFLLLA is a post-hoc method working on the last linear layer in the classification
+head. Hence, fine-tuning the classification head with KFLLLA on pre-trained KEP-SVGP transformer improves both
+failure prediction and calibration metrics.
+D.4. More Details on Time Efficiency
+In addition to Table 4, we also report forward time in seconds during training in Table 8 so as not to include the time taken by
+the optimizer. It can be seen that we reach the same conclusion as in Section 5.2 that KEP-SVGP distinctively outperforms
+MSP on all datasets with only a slightly extra forward time during training.
+19
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+Table 8. Performance and forward time (s) on a single NVIDIA Tesla V100 SXM2 32 GB. Results are reported over five trials.
+Time
+Complexity
+
+ACC ↑
+
+Forward Time (s)
+
+ACC ↑
+
+Forward Time (s)
+
+ACC ↑
+
+Forward Time (s)
+
+MCC ↑
+
+Forward Time (s)
+
+MSP (Hendrycks & Gimpel, 2017)
+SGPA (Chen & Li, 2023)
+
+O(N 2 )
+O(N 2 s)
+
+78.11±0.10
+77.87±0.12
+
+0.02±0.01
+0.15±0.0
+
+52.16±0.50
+53.02±0.36
+
+0.02±0.02
+0.27±0.0
+
+88.17±0.52
+88.36±0.75
+
+0.001±0.0
+0.63±0.07
+
+26.93±1.38
+26.15±1.12
+
+0.40±0.33
+0.47±0.37
+
+KEP-SVGP (ours)
+
+O(N s2 )
+
+78.27±0.30
+
+0.02±0.02
+
+56.26±0.70
+
+0.03±0.01
+
+89.01±0.14
+
+0.01±0.0
+
+30.54±1.61
+
+0.37±0.41
+
+Method
+
+CIFAR-10
+
+CIFAR-100
+
+IMDB
+
+CoLA
+
+Table 9. Ablation on KSVD regularization constant η and the merging scheme of the SVGP pair on CIFAR-10.
+η
+10
+1
+0.1
+0.01
+10
+1
+0.1
+0.01
+
+ACC ↑
+84.70
+83.77
+83.78
+82.60
+84.04
+84.45
+83.56
+81.46
+
+AURC ↓
+
+AUROC ↑
+
+ECE ↓
+
+NLL ↓
+
+Brier ↓
+
+35.43
+39.28
+37.39
+44.60
+
+e
+r
+[F[d]
+; F[d]
+]
+87.17
+62.55
+87.08
+66.36
+87.86
+64.12
+86.17
+67.13
+
+FPR95 ↓
+
+10.71
+12.09
+12.04
+13.12
+
+7.95
+9.67
+9.62
+11.16
+
+25.32
+27.64
+27.46
+29.85
+
+38.99
+37.32
+39.74
+49.71
+
+e
+r
+F[d]
++ F[d]
+86.64
+66.04
+86.97
+65.02
+87.03
+63.63
+85.81
+66.51
+
+11.64
+11.30
+12.22
+13.94
+
+9.39
+8.80
+9.49
+11.24
+
+27.02
+26.27
+27.84
+31.35
+
+D.5. Additional Ablations
+There are two main hyper-parameters in KEP-SVGP: the regularization constant of KSVD loss η, the rank of KSVD s. For
+the rank s, we adopt the default settings in Chen et al. (2023) and set s ∈ {5, 10}. As η balances LELBO and LKSVD , it is of
+importance for KEP-SVGP. Therefore, we provide the ablation of η with rank s = 10 fixed on CIFAR-10 (Krizhevsky et al.,
+2009), and also the ablation on the addition and concatenation merging schemes given in (19) in Table 9, so as to give a
+guideline of the choice of schemes.
+It can be seen in Table 9 that the concatenation merging scheme has an overall better performance among all metrics than
+the addition scheme. The possible reason can be that positive and negative output values from the two SVGPs branches
+can cancel each other out when employing the addition scheme, while the concatenation scheme can preserve the outputs
+information. However, when dealing with language modelling tasks, we employ the addition scheme since it is sequence
+length independent while most of the language datasets are with varying sequence length. We also find that η = 10 returns
+better performances than choosing a small one. A larger η can help the model to conduct effective KSVD in an early stage,
+contributing to the construction of more accurate SVGPs branches and thereby leading to better overall performances.
+D.6. Low-rank Property in Attention Kernel Matrix
+To further validate the approximate posterior distributions described in Remark 3.1, we present empirical evidence delving
+into the low-rank property resided in the Transformer models. We adopt the two-layer Transformer on CoLA following
+the setups in Appendix D.1. Specifically, we consider 3 different models: i) MSP; ii) last-layer KEP-SVGP; iii) two-layer
+KEP-SVGP. All our methods here are with addition merging scheme. The spectrum analysis of the self-attention kernel
+matrix in each layer of each model is provided in the following Figure 4.
+According to the results in Figure 4, we find that
+• The attention matrix in the layers of Transformer has low-rank property, though the shallow layer may not desires the
+low-rank property as much as the deeper layer. This is consistent with the findings in Chen et al. (2023). (Figure 4(c))
+• Most of the information (> 95% explained variance) of the attention matrix in both layers in the MSP baseline can be
+captured by the top-5 singular vectors. Thus, the hyperparameter s = 5 in KSVD of our method is reasonable and
+approaches the ground-truth rank of the attention kernel. Our method captures distinctively higher explained variances
+in the top singular vectors than the MSP baseline. (Figure 4(a), Figure 4(b))
+• Applying KEP-SVGP only to the last layer also enhances the low-rank property of the attention in other layers, as
+shown in the comparisons between our last-layer KEP-SVGP and two-layer KEP-SVGP. (Figure 4(a), Figure 4(b))
+20
+
+Self-Attention through Kernel-Eigen Pair Sparse Variational Gaussian Processes
+
+(b) Second-layer Kernel Matrix
+
+(a) First-layer Kernel Matrix
+
+Layer Index
+
+MSP
+
+Last-layer KEP-SVGP
+
+Two-layer KEP-SVGP
+
+(c) Low-rank of Each Layer
+
+Figure 4. Spectrum analysis of the self-attention kernel matrix on CoLA. Specifically, we consider the normalized cumulative singular
+values of the attention matrix of the two-layer Transformer models. (a) plots the spectrum results of the first-layer kernel matrix; (b) plots
+the spectrum results of the second-layer kernel matrix; (c) plots the normalized cumulative singular values w.r.t. singular value index of
+each layer, showing the low-rank property of the attention matrix of each model.
+
+D.7. Additional Visualization on Distribution-shift Data
+We provide comparisons of our KEP-SVGP with all other baselines under distribution shift in Figure 5. We report the
+mean AURC results of all 5 severity levels under 15 types of corruption on CIFAR-10-C (Hendrycks & Dietterich, 2019).
+All models are trained on CIFAR-10/ViT following the setups in Appendix D.1, and then tested on CIFAR-10-C. Our
+KEP-SVGP has overall better and stable AURC than all other comparing methods.
+
+300
+
+MSP
+MC Dropout
+KFLLLA
+SV-DKL
+KEP-SVGP
+
+AURC (×103)
+
+250
+200
+150
+100
+50
+
+lse
+jpe
+g
+mo
+tio
+n
+pix
+ela
+te
+sh
+ot
+sn
+ow
+zoo
+m
+
+im
+
+pu
+
+us
+s
+gla
+ss
+
+st
+fro
+
+ga
+
+de
+
+foc
+us
+ela
+sti
+c
+fog
+
+ast
+
+ntr
+
+co
+
+bri
+
+gh
+
+t
+
+0
+
+Figure 5. Comparisons of our KEP-SVGP with baselines under distribution shift. Mean AURC results of all 5 severity levels under 15
+types of corruption are reported, where models are trained on CIFAR-10/ViT and tested on CIFAR-10-C.
+
+21
+
+

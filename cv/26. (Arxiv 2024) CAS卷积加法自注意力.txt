@@ -1,0 +1,1007 @@
+CAS-ViT: Convolutional Additive Self-attention Vision Transformers
+for Efficient Mobile Applications
+Tianfang Zhang1, 2 , Lei Li3 , Yang Zhou1 , Wentao Liu1 , Chen Qian1 , Xiangyang Ji2
+1
+
+SenseTime Research, 2 Department of Automation, Tsinghua University
+Department of Electrical and Computer Engineering, University of Washington
+sparkcarleton@gmail.com, lenny.cs007@gmail.com, {zhouyang,liuwentao,qianchen}@sensetime.com, xyji@tsinghua.edu.cn
+
+arXiv:2408.03703v1 [cs.CV] 7 Aug 2024
+
+3
+
+Abstract
+Vision Transformers (ViTs) mark a revolutionary advance
+in neural networks with their token mixer’s powerful global
+context capability. However, the pairwise token affinity and
+complex matrix operations limit its deployment on resourceconstrained scenarios and real-time applications, such as mobile devices, although considerable efforts have been made
+in previous works. In this paper, we introduce CAS-ViT:
+Convolutional Additive Self-attention Vision Transformers,
+to achieve a balance between efficiency and performance in
+mobile applications. Firstly, we argue that the capability of token mixers to obtain global contextual information hinges on
+multiple information interactions, such as spatial and channel
+domains. Subsequently, we construct a novel additive similarity function following this paradigm and present an efficient implementation named Convolutional Additive Token
+Mixer (CATM). This simplification leads to a significant reduction in computational overhead. We evaluate CAS-ViT
+across a variety of vision tasks, including image classification, object detection, instance segmentation, and semantic
+segmentation. Our experiments, conducted on GPUs, ONNX,
+and iPhones, demonstrate that CAS-ViT achieves a competitive performance when compared to other state-of-the-art
+backbones, establishing it as a viable option for efficient mobile vision applications. Our code and model are available at:
+https://github.com/Tianfang-Zhang/CAS-ViT
+
+Introduction
+In recent years, the emergence of Vision Transformers
+(ViTs) marks a revolutionary shift in neural network architecture (Han et al. 2021; Huang et al. 2023; Zhang
+et al. 2023). Compared to Convolutional Neural Networks
+(CNNs), which make a splash with lower computational
+complexity and higher inference efficiency (Zhang et al.
+2022; Zhang, Li, and Peng 2023), ViTs employ a novel
+architecture known as token mixer (Yu et al. 2022). This
+module facilitates enhanced global modeling and representational capabilities of ViTs through its ability to capture
+long-range dependencies.
+The basic module of ViT consists of token mixer, MLP,
+and corresponding skip connections, where token mixer is
+widely implemented as Multi-head Self-Attention (MSA).
+MSA operates on the entire input sequence, compensating
+for the limitations of CNNs with restricted receptive fields,
+© 2025
+
+Figure 1: Flops v.s. Top-1 accuracy on ImageNet-1K (Deng
+et al. 2009). The circle size indicates parameter number and
+best viewed in color.
+
+and providing unique advantages in terms of model scalability and adaptability (Li et al. 2023; Wu et al. 2024). Despite
+its reputation, the reality that MSA is of quadratic complexity with respect to input image size (Wu et al. 2021) makes
+ViT models more resource-intensive, rending it unsuitable
+for real-time applications and unfavorable for widespread
+deployment on resource-constrained devices, e.g. mobile
+applications (Mehta and Rastegari 2021; Liu et al. 2023).
+Therefore, developing token mixers that combine both efficient deployment and high performance becomes an urgent
+problem on mobile devices.
+Efforts have been made to improve token mixers, including MSA refinements and Heterogeneous-MSA (H-MSA).
+Refinements focus on following matrix multiplication of
+Query and Key to enhance the ability to capture long-range
+dependencies while reducing algorithmic complexity. Specific techniques include feature shift (Liu et al. 2021), carrier token (Hatamizadeh et al. 2023), sparse attention (Wang
+et al. 2022), linear attention (Han et al. 2023), etc. As an
+alternative paradigm, H-MSA intends to break through the
+
+limitations of point-by-point similarity between Q and K to
+explore more flexible network designs (Yu et al. 2022). The
+recently proposed pool token mixer (Yu et al. 2022) and context vector (Sandler et al. 2018; Shaker et al. 2023) further
+accelerate the inference efficiency.
+Although considerable progress has been made in related works, ViT models still suffer from the following constraints: 1. High complexity associated with matrix operations such as Softmax in token mixers. 2. The difficulty of
+simultaneously achieving accuracy, efficiency and easy-todeployment on mobile devices or real-time applications.
+In order to address the encountered problems, we propose
+a family of lightweight networks named as Convolutional
+Additive Self-attention (CAS)-ViT to achieve a balance between computation and efficiency as shown in Fig.1. Firstly,
+we argue that the capability of token mixers to obtain global
+contextual information hinges on multiple information interactions, such as spatial and channel domains. Meanwhile,
+we construct a novel additive similarity function following
+this paradigm, and expect to stimulate more valuable research. Further, we propose Convolutional Additive Token
+Mixer (CATM) employing underlying spatial and channel
+attention as novel interaction forms. This module eliminates
+troublesome complex operations such as matrix multiplication and Softmax. Finally, we evaluate our method on various vision tasks, and the throughput is reported on GPUs,
+ONNX and iPhone. Extensive experiments demonstrate our
+competitive performance compared with other SOTA backbones.
+
+Related Work
+Efficient Vision Transformers
+Since the debut of ViT (Dosovitskiy et al. 2020) and through
+its successful validation in image classification tasks on
+large-scale datasets such as ImageNet (Deng et al. 2009), it
+has demonstrated the potential of self-attention mechanisms
+for applications in computer vision (Dong et al. 2022). However, the concomitant increase in network sizes poses a huge
+challenge for resource-constrained scenarios such as mobile
+devices and real-time applications. To promote the potential
+value of ViT, workers have invested a considerable effort in
+efficient ViTs.
+The improvement ideas for ViT architecture cover several aspects. One of which is to refine the token mixer
+to enhance performance or solve the quadratic complexity problem of the self-attention mechanism. For example,
+PVT (Wang et al. 2021) adopts spatial reduction strategy to
+achieve sparse attention to deal with high-resolution images,
+and Swin (Liu et al. 2021) employs a window-splitting approach to achieve local self-attention and deals with dependencies between patches by window shifting.
+Another perspective is to explore hybrid models combining CNN and Transformer as compensation for the limitation of self-attention mechanism in processing local information (Guo et al. 2022). EdgeViT (Pan et al. 2022)
+adopts convolutional layers and sparse attention for information integration and propagation in block respectively.
+NextViT (Li et al. 2022a) confirms the validity of hybrid
+
+models and the design strategy through comprehensive experiments. EfficientViT (Liu et al. 2023) further analyzes the
+time-consuming proportion of various operations to achieve
+efficient inference.
+
+Efficient Token Mixer
+Efficient token mixer design is one of the critical orientations
+in the evolution of Transformers. Efforts have been made
+to pursue lighter and more computationally efficient token
+mixers to advance the feasibility of training and practical
+applications.
+One part of the effort is devoted to improving the MSA.
+Twins (Chu et al. 2021) introduce self-attention between
+patches to achieve global and local dependency tandem.
+Works (Ali et al. 2021; Ding et al. 2022; Maaz et al.
+2022) focus on information integration between channels
+and achieve self-attention between distinct domains through
+concatenation and transposition. Linear attention (Shen
+et al. 2021) addresses the quadratic complexity of the selfattention mechanism by assuming that the similarity function is linearly differentiable. (Han et al. 2023) promotes
+ReLU-based linear attention to be more discretized by focused function. (Bolya et al. 2022) further simplifies the attention complexity by increasing the attention heads.
+Heteromorphic-MSA (H-MSA) is an extension form of
+the self-attention mechanism development, which breaks
+through the limitations of MSA framework and intended to
+obtain better feature relations and more robust inference efficiency. Initially, MetaFormer (Yu et al. 2022) posited that
+token mixer is not the key component that affects the performance of Transformers, however PoolFormer could not
+be validated to be highly efficient. Subsequently, MobileViTv2 (Mehta and Rastegari 2022) simplifies the complex
+matrix multiplication by endowing global information to
+the context vector. SwiftFormer (Shaker et al. 2023) even
+eliminates ’Value’ and implements weighted sums between
+features with simpler normalization operations, achieving a
+more concise and efficient H-MSA.
+
+Methods
+In this section, we first review the principles of MSA and
+its variants. Subsequently, we will introduce the proposed
+CATM and focus on its distinctions and advantages over the
+traditional mechanism. Finally, we will describe the overall
+network architecture of CAS-ViT.
+
+Overview of Self-Attention and Variants
+As a crucial component of Visual Transformers, selfattention mechanism can effectively capture the relationship
+between different positions. Given an input x ∈ RN ×d ,
+see Fig. 2(a), which contains N tokens with d-dimensional
+embedding vectors within each head. Self-attention can be
+presented
+as follow
+with similarity function Sim(Q, K) =
+
+√ 
+exp QK⊤ / d :
+!
+QK⊤
+√
+O = Sof tmax
+V .
+(1)
+d
+
+Figure 2: Comparison of diverse self-attention mechanisms. (a) is the classical multi-head self-attention in ViT (Dosovitskiy
+et al. 2020). (b) is the separable self-attention in MobileViTv2 (Mehta and Rastegari 2022), which reduces the feature metric
+of a matrix to a vector. (c) is the swift self-attention in SwiftFormer (Shaker et al. 2023), which achieves efficient feature
+association only with Q and K. (d) is proposed convolutional additive self-attention.
+Separable self-attention (Sandler et al. 2018), see Fig.
+2(b), reduces the matrix-based feature metric to a vector,
+achieving lightweight and efficient inference by decreasing the computational complexity. Subsequently, the context score is calculated through Sof tmax(·). Then, context
+score q is multiplied with K and summed along the spatial
+dimension to obtain the context vector that measures global
+information. It could be concretely described as:
+!
+N
+X
+O=
+Sof tmax(q) · K V ,
+(2)
+i=1
+N ×1
+
+where q ∈ R
+is obtained from Q key through a linear
+layer, · denotes broadcast element-wise multiplication.
+Swift self-attention, see Fig. 2(c), is a well-attended HMSA architecture, which reduces the keys of self-attention
+to two, thereby achieving fast inference. It utilizes the coefficients α obtained by linear transformed Q to weight each
+token. Subsequently, it is summed along the spatial domain
+and multiplied with K to obtain the global context. It is
+specifically represented as:
+! !
+N
+X
+O=T
+αi · Qi K + Q̂ ,
+(3)
+i=1
+
+where Q̂ denotes the normalized Query and T(·) is linear
+transformation.
+
+Convolutional Additive Self-attention
+In this section, we argue that the information integration capability of self-attentive mechanisms resides in the multiple information interactions, e.g. the spatial association of
+MSA, DaViT (Ding et al. 2022) in channels, and the compressive representation of MobileViTv2 and SwiftFormer in
+
+both dimensions as in Fig. 2. Alternatively, isn’t it possible
+that simple and efficient operations can work better while
+satisfying multiple interactions?
+Inheriting from this postulate, as shown in Fig. 2(d), we
+innovatively define the similarity function as the sum of context scores of Q ∈ RN ×d and K ∈ RN ×d :
+Sim (Q, K) = Φ(Q) + Φ(K) s.t. Φ(Q) = C(S(Q)) , (4)
+where Query, Key, and Value are obtained by independent linear transformations, e.g. Q = Wq x, K = Wk x,
+V = Wv x, Φ(·) denotes context mapping function, which
+contains the essential information interactions. The advantage of this generalization is that is not restricted to manual context design, and confers the possibility of implementing by convolutional operations. In this article, we simply concretize Φ(·) as the Sigmoid-based channel attention
+C(·) ∈ RN ×d and spatial attention S(·) ∈ RN ×d . Thus the
+output of CATM can be formulated as:
+O = Γ (Φ(Q) + Φ(K)) · V ,
+(5)
+where Γ(·) ∈ RN ×d denotes the linear transformation for
+integrating the contextual information. Since the operations
+in CATM are represented by convolution, the complexity is
+O(N ).
+Relation with Separable Self-Attention: Compared to
+(Mehta and Rastegari 2022)’s approach of extracting context scores only on Query, we perform similarity extraction
+on both Query and Key branches and retain the original feature dimensions on each branch. This enables greater preservation of visual sparse features and avoids information loss
+on 2D score vectors.
+Relation with Efficient Additive Attention: First, on token mixer, we adopt a sigmoid-activated form of attention
+extraction instead of normalization. this facilitates network
+
+Experiments
+ImageNet-1K Classification
+
+Figure 3: Upper: Illustration of the classification backbone.
+Four stages downsample the original image. Lower: Block
+architecture with Ni blocks stacked in each stage.
+parallelization and deployment on mobile devices. In addition, the attention module in (Shaker et al. 2023) is only applied to the last layer in each stage of the network, whereas
+the proposed CATM will be applied to each layer of the
+whole ViT architecture.
+Complexity Analysis: In the concrete implementation,
+S(·) is designed as a combination of depthwise convolution and Sigmoid activation and Ω(S) = (11 + 4b) HW C,
+where b denotes the batch size, which keeps constant in both
+training and inference phases. C(·) is achieved by a simplified channel attention and Ω(C) = (2 + b) HW C. Together
+with operations such as the mapping of QKV and the linear transformation of Γ, CATM maintains linear complexity
+with respect to the input size:
+Ω(CATM) = (47 + 10b) HW C .
+
+(6)
+
+Network Architecture
+Fig. 3(Upper) illustrates the proposed network architecture.
+Input a natural image of size H × W . Subsequently it is
+downsampled to H4 × W
+4 × C1 by two consecutive convolution layers with stride 2 in Stem.
+Afterward, it passes through four stage encoding layers,
+with Patch Embedding downsampling 2 times used between
+W
+each stage, and obtained feature maps of size H
+8 × 8 × C2 ,
+H
+W
+H
+W
+16 × 16 × C3 and 32 × 32 × C4 . Ci , i ∈ {1, 2, 3, 4} denotes
+the feature map channels. Each stage contains Ni stacked
+blocks as shown in Fig. 3(Lower), and the feature map size
+remains constant.
+The design of block references hybrid networks such as
+EfficientViT (Liu et al. 2023) and EdgeViT (Pan et al. 2022)
+and contains three parts with residual shortcuts: Integration
+subnet, CATM and MLP. Inspired by SwiftFormer (Shaker
+et al. 2023), Integration sub-network consists of three depthwise convolution layers activated by ReLU (Glorot, Bordes,
+and Bengio 2011). We construct a family of lightweight ViT
+models by varying the number of channels Ci and blocks
+Ni , and the specific parameter settings refer to Appendix.
+
+Implementation Details ImageNet-1K (Deng et al. 2009)
+contains over 1.3 million images across 1,000 natural categories. The dataset covers a wide range of objects and scenes
+and has become one of the most extensively used datasets
+with its diversity. We trained the network from scratch without any pre-trained models or additional data. The training
+strategy follows EdgeNeXt (Maaz et al. 2022), all models are trained on input size of 224×224 using AdamW
+(Loshchilov and Hutter 2018) optimizer for 300 epochs with
+batch size of 2048. Learning rate is set to 6×10−3 and the
+cosine (Loshchilov and Hutter 2016) decay schedule with
+20 epochs warmup is used. Label smoothing 0.1 (Szegedy
+et al. 2016), random resize crop, horizontal flip, RandAugment (Cubuk et al. 2020), multi-scale sampler (Mehta and
+Rastegari 2021) are enabled, and the momentum of EMA
+(Polyak and Juditsky 1992) is set to 0.9995 during training. To take full advantage of network effectiveness, we finetuned the model for another 30 epochs at a learning rate of
+10−5 at 384×384 resolution with batch size of 64.
+We implement the classification model on TIMM 1 based
+on PyTorch (Paszke et al. 2019) and run on 16 V100 GPUs.
+In addition, we compile the Torch model into ONNX format
+and measure the throughput on V100 GPUs and Intel Xeon
+Gold CPU @ 3.00GHz with batch size 64, respectively. For
+the mobile side, we compiled it through CoreML library 2
+and throughput is measured on deployment to iPhone X neural engine.
+Results The experimental outcomes on the ImageNet-1K
+(Deng et al. 2009) dataset in Table 1 distinctly illustrate the
+advancements our model introduces in the realm of image
+classification. Compared to established benchmarks, our approach significantly elevates the precision of classification
+while adeptly managing the trade-offs between model complexity and computational demand. Notably, the XS and
+S variants of our model demonstrate an exceptional synergy between size, measured in millions of parameters, and
+computational efficiency, quantified through Flops, without
+compromising on the crucial metric of top-1 accuracy. This
+achievement is pivotal, as it suggests our model’s capability to maintain high accuracy levels even in constrained
+computational settings, a testament to its optimized architecture. The superior performance of our model, especially
+in achieving higher top-1 accuracy with fewer parameters
+and lower Flops compared to traditional models like MobileNetV3 (Howard et al. 2019), underscores its potential for
+real-world applications where resources are limited. Moreover, the throughput analysis across diverse platforms (GPU,
+ONNX, and ANE) highlights our model’s adaptability and
+efficiency, making it an ideal candidate for deployment in
+various scenarios, from mobile devices to high-end servers,
+thereby broadening the scope of its applicability in the field
+of image recognition. For comparisons of extra information
+like finetuning please refer to the Appendix.
+1
+2
+
+https://github.com/rwightman/pytorch-image-models
+https://apple.github.io/coremltools/docs-guides/
+
+Table 1: Image classification on ImageNet-1K validation set (Deng et al. 2009). Throughput results are tested on NVIDIA
+V100 GPU, Intel Xeon Gold 6248R CPU @ 3.00GHz for ONNX and Apple Neural Engine (ANE) compiled by CoreMLTools
+on iPhone X IOS 15.2. Note that for throughput, we report data per frame on mobile device, and report the results on GPUs and
+ONNX with batch size of 64. Our results are shown in bold for all model variants.
+Model
+
+Par.↓ Flops↓ Throughput(images/s)↑ Top-1↑
+(M) (M) GPU ONNX ANE
+(%)
+
+SpectFormer-T
+8.88 1688 2389
+4.76 830 4323 1366.80
+MobileOne-S1
+FAT-B0
+4.49 710 1688 50.97
+MobileNetv3-L-1.0 4.18 215 6303 226.38
+EdgeViT-XXS
+4.07 546 2438 107.16
+EfficientFormerV2-S0 3.59 400 1008 73.83
+SwiftFormer-XS
+3.47 608 3184 132.69
+2.38 425 2672 80.11
+EMO-2M
+MobileViT-XS
+2.31 706 2893 129.13
+CAS-ViT-XS
+3.20 560 3251 115.30
+SDT-8-384
+16.43 18802 PoolFormer-S12 11.90 1813 2428 75.51
+MobileOne-S3
+10.07 1902 2899 652.73
+EfficientViT-M4
+8.80 301 6975 404.03
+FAT-B1
+7.81 1186 1290 37.77
+EdgeViT-XS
+6.78 1123 2044 85.17
+EfficientFormerV2-S1 6.18 666 881 55.51
+SwiftFormer-S
+6.09 991 2607 108.98
+EMO-5M
+5.11 883 1971 53.61
+MobileViTv2-1.0
+4.88 1412 2429 91.40
+CAS-ViT-S
+5.76 932 2151 73.06
+
+20.85
+6.00
+36.70
+10.31
+19.13
+17.11
+19.07
+17.90
+14.63
+6.33
+16.16
+4.27
+6.77
+14.33
+12.90
+10.43
+11.52
+9.92
+
+Par.(M) Flops(G) mIoU(%)
+
+CAS-ViT-XS
+
+6.9
+
+24.2
+
+36.8
+
+PVT-S
+PoolFormer-S24
+EfficientFormer-L1
+EdgeViT-XXS
+CAS-ViT-S
+
+28.2
+25.1
+15.6
+7.9
+9.4
+
+44.5
+39.3
+28.2
+24.4
+26.1
+
+39.8
+40.3
+38.9
+37.9
+40.3
+
+PoolFormer-S36
+PVTv2-B1
+EfficientFormerV2-S2
+SwiftFormer-L1
+CAS-ViT-M
+
+34.6
+17.8
+16.3
+15.5
+15.8
+
+47.5
+34.2
+27.8
+29.7
+31.3
+
+42.0
+42.5
+42.4
+41.4
+43.6
+
+PoolFormer-M48
+PVT-L
+XCiT-S24 P16
+EfficientFormer-L3
+SwiftFormer-L3
+CAS-ViT-T
+
+77.1
+65.1
+51.8
+34.7
+31.7
+25.0
+
+82.1
+79.6
+42.0
+42.5
+40.39
+
+42.7
+42.1
+44.6
+43.5
+43.9
+45.0
+
+Par.↓ Flops↓ Throughput(images/s)↑ Top-1↑
+(M) (M) GPU ONNX ANE
+(%)
+
+76.9
+PoolFormer-S24 21.35 3394 1258 36.06
+77.4
+SpectFormer-XS 19.61 3765 1581
+77.6
+AFNO-ViT-S/4 14.88 2840 1245
+75.2
+MobileOne-S4 14.82 2987 1468 125.20
+74.4
+PVTv2-B1
+14.00 2034 1385 21.91
+75.7
+EfficientViT-M5 12.47 525 5104 277.10
+75.7
+SwiftFormer-L1 12.05 1604 2047 80.62
+75.1
+GC ViT-XXT
+11.94 1939 951 41.45
+75.7
+MobileViTv2-1.5 10.56 3151 1526 58.38
+77.5
+CAS-ViT-M
+12.42 1887 1566 50.39
+72.3
+ViT-B/16
+86.42 16864 705 18.27
+77.2 ResNeXt101-64x4d 83.46 15585 606 36.84
+80.0
+PoolFormer-S36 32.80 14620 853 17.29
+74.3
+SpectFormer-S 32.03 6197 966
+80.1
+SDT-8-512
+29.18 33238 77.5
+SwiftFormer-L3 28.48 4021 1309 42.23
+79.0
+Swin-T
+28.27 4372 977
+78.5
+PVT-S
+24.10 3687 933 40.62
+78.4
+Twins-SVT-S
+24.06 2821 1202 46.45
+78.1
+Wave-ViT-S
+22.69 4391 653
+80.2
+CAS-ViT-T
+21.76 3597 1084 38.67
+
+Table 2: Semantic segmentation result on ADE20K (Zhou
+et al. 2019) combined with Semantic FPN (Kirillov et al.
+2019). Flops are tested on image size 512 × 512.
+Backbone
+
+Model
+
+3.26
+9.70
+3.41
+9.93
+2.76
+6.23
+5.49
+0.93
+2.75
+2.16
+6.4
+3.08
+3.83
+
+80.3
+80.2
+80.9
+79.4
+78.7
+77.1
+79.8
+79.9
+80.4
+81.4
+77.9
+79.6
+81.4
+81.7
+74.6
+83.0
+81.3
+79.8
+81.7
+82.7
+82.3
+
+Computational Efficiency Across all tasks, our models
+maintain a competitive edge in computational efficiency.
+This is particularly evident when comparing the Flops and
+parameter counts, where our models achieve higher or comparable performance metrics with lower computational overheads. For instance, CAS-ViT-M outperforms all listed models in both detection and segmentation tasks while keeping
+the computational costs competitive, underscoring the effectiveness of our architectural choices.
+
+Object Detection and Instance Segmentation
+Implementation Details Taking the pre-trained model on
+ImageNet-1K as backbone, RetinaNet (Lin et al. 2017) and
+Mask RCNN (He et al. 2017) are integrated to evaluate the
+performance of our model on object detection and instance
+segmentation on MS COCO 2017 (Lin et al. 2014) dataset.
+Following (Yu et al. 2022), we adopt 1× training strategy
+and the network is finetuned 12 epochs with learning rate of
+2×10−4 and batch size of 32, and the AdamW (Loshchilov
+and Hutter 2018) optimizer is used. The training images are
+resized to 800 pixels on the short side and no more than
+1333 pixels on the long side. The models are implemented
+on MMDeteciton (Chen et al. 2019) codebase.
+
+Table 3: Object detection and instance segmentation performance on COCO val2017 (Deng et al. 2009). Flops are tested
+on image size 800 × 1280. Our results are shown in bold and achieve better performance with less computational overhead.
+Backbone
+
+RetinaNet 1×
+Mask RCNN 1×
+b
+b
+m
+AP AP50 AP75 APS APM APL AP AP50 APb75 APm APm
+50 AP75
+
+Par.(M) Flops(G)
+
+CAS-ViT-XS
+
+23
+
+181
+
+36.5 56.3 38.9 21.8 39.9 48.4 37.4 59.1 40.4 34.9 56.2 37.0
+
+ResNet-50
+PVT-T
+EfficientFormer-L1
+CAS-ViT-S
+
+44
+33
+32
+25
+
+260
+240
+196
+189
+
+36.3 55.3 38.6 19.3 40.0 48.8 38.0 58.6
+36.7 56.9 38.9 22.6 38.8 50.0 36.7 59.2
+- 37.9 60.3
+38.6 59.2 41.2 24.0 42.1 51.2 39.8 61.5
+
+41.4
+39.3
+41.0
+43.2
+
+34.4 55.1
+35.1 56.7
+35.4 57.3
+36.7 58.8
+
+36.7
+37.3
+37.3
+39.2
+
+ResNeXt101-32x4d
+PoolFormer-S36
+EfficientFormer-L3
+SwiftFormer-L1
+CAS-ViT-M
+EfficientFormer-L7
+Swin-T
+SwiftFormer-L3
+PVT-S
+EfficientFormerV2-S2
+CAS-ViT-T
+
+63
+51
+51
+31
+32
+101
+48
+48
+44
+32
+41
+
+336
+272
+250
+202
+208
+378
+267
+252
+305
+196
+244
+
+39.9 59.6
+39.5 60.5
+40.9 61.7
+41.5 62.1
+38.7 59.3
+41.9 62.8
+
+45.9
+44.8
+44.7
+44.8
+46.7
+46.1
+46.2
+46.7
+43.8
+47.5
+47.5
+
+37.5 59.4
+37.7 60.1
+38.1 61.0
+38.1 60.2
+38.9 61.3
+39.0 62.2
+39.1 61.6
+39.1 61.7
+37.8 60.1
+39.5 62.4
+39.6 62.3
+
+40.2
+40.0
+40.4
+40.7
+41.7
+41.7
+42.0
+41.8
+40.3
+42.2
+42.2
+
+Results In the comprehensive evaluation of object detection and instance segmentation on COCO val2017 (Lin
+et al. 2014) dataset, several backbone models were assessed in terms of their Average Precision (AP) metrics
+across different scales (small, medium, large) and tasks (detection and segmentation), alongside their computational
+efficiency indicated by parameters (Par.) and Flops. The
+analysis primarily focuses on comparing the performance
+of our proposed models against established models like
+ResNet-50 (He et al. 2016), PVT-T (Wang et al. 2022),
+PoolFormer-S12 (Yu et al. 2022), EfficientFormer-L1 (Li
+et al. 2022b), ResNeXt101-32x4d (Xie et al. 2017), PVTv2B0 (Wang et al. 2022), PoolFormer-S36 (Yu et al. 2022), and
+SwiftFormer-L1 (Shaker et al. 2023).
+
+Semantic Segmentation
+Implementation Details We conduct semantic segmentation experiments on ADE20K (Zhou et al. 2019) dataset.
+The proposed model is evaluated with Semantic FPN (Kirillov et al. 2019) with the normalization layers frozen,
+taken as backbone and loaded the pre-trained weights of
+ImageNet-1K classification. Following the common practice (Yu et al. 2022), the network is trained for 40K iterations on batch size of 32 and AdamW optimizer. The learning rate is initialized as 2×10−4 and decays in polynomial
+schedule with power of 0.9. Images are resized and cropped
+to 512×512 during training. The model is implemented on
+MMSegmentation 3 codebase.
+3
+
+https://github.com/open-mmlab/mmsegmentation
+
+42.7 22.3 44.2 52.5 41.9 62.5
+41.8 22.5 42.9 52.4 41.0 63.1
+- 41.4 63.9
+- 41.2 63.2
+43.9 25.2 44.6 53.0 42.3 64.4
+- 42.6 65.1
+44.2 25.1 44.9 55.5 42.2 64.6
+- 42.7 64.4
+40.8 21.2 41.6 54.4 40.4 62.9
+- 43.4 65.4
+45.0 25.1 46.1 55.1 43.5 65.3
+
+Results The qualitative and quantitative analysis of segmentation results on the ADE20K dataset, as illustrated in
+Table 2, reveals the superior balance between computational
+efficiency and segmentation accuracy achieved by our models (CAS-ViT-XS, CAS-ViT-S, and CAS-ViT-M). Despite
+their relatively lower parameter counts and Flops, our models demonstrate competitive or superior mean Intersection
+over Union (mIoU) percentages, indicative of their effectiveness in semantic segmentation tasks. Specifically, CAS-ViTM outperforms more computationally intensive models with
+an mIoU of 43.6%, underscoring its architectural efficiency
+and the efficacy of its design in capturing detailed semantic information. This balance of high efficiency and accuracy across our model variants highlights their suitability for
+diverse segmentation applications, especially in resourceconstrained scenarios, establishing them as compelling options for efficient and effective semantic segmentation on
+ADE20K (Zhou et al. 2019) dataset.
+
+Visualization
+Fig. 4 presents a comparison of the heatmap visualizations
+carried out at the last layer of the networks, where the three
+methods share a similar parameter number. It can be observed that our method is able to accurately localize the region of interest to the critical part. Meanwhile in comparison, we obtain a larger receptive field, which is beneficial
+to overall performance, especially for subsequent dense prediction tasks. More visualizations on object detection and
+instance segmentation please refer to Appendix.
+
+Figure 4: Heatmap visualization for the last layer of the backbone. From top to bottom are the original image, PoolFormerS24 (Yu et al. 2022), SwiftFormer-L1 (Shaker et al. 2023) and CAS-ViT-M respectively. Our model accurately captures the
+global context and achieves a larger receptive field compared to other SOTAs, which is beneficial for dense prediction tasks.
+Table 4: Ablation study. We replace CATM with other modules and replace similarity function Φ(·) with other interactions.
+# Token Mixer
+1 +CATM
+2 CATM → Pooling
+3 CATM → W-MSA
+# Similarity Function
+Sim(Q, K) = Φ(Q) + Φ(K)
+4 Φ(·) → w/o spatial
+5 Φ(·) → w/o channel
+Sim(Q, K) = Φ(Q) + Ψ(K)
+6 Φ(·) = S(·), Ψ(·) = C(·)
+7 Φ(·) = S(C(·)) Ψ(·) = C(S(·))
+
+Flops(G) Top-1(%)
+1.88
+1.46
+1.96
+
+80.43
+78.71
+80.41
+
+Flops(G) Top-1(%)
+1.86
+1.88
+
+79.98
+80.22
+
+tial and channel decreasing by 0.45% and 0.21%. (#6-#7)
+replace the context mapping function Φ(·) in the Query and
+Key branches with different ones, and only retaining the full
+interaction in #7 achieves similar results.
+
+Limitation and Future Work
+CAS-ViT makes extensive usage of convolution layers for
+feature processing, which itself retains inductive bias. The
+benefits include the ability to converge faster than vanilla
+Transformer, and the consequent problem of being slightly
+less effective on large-scale datasets and large parametric models. In future work, we will explore on larger
+datasets and model scales. We are committed to developing
+lightweight networks that are more efficient and convenient
+to deploy.
+
+Conclusion
+1.87
+1.88
+
+80.04
+80.40
+
+Ablation Study
+We demonstrate the effectiveness of the proposed method
+by ablation study. As shown in Table 4(#1-#3), we replace CATM with Pooling (Yu et al. 2022) and WindowMSA (Dosovitskiy et al. 2020), respectively. Pooling without information interaction -1.72%, while making interaction through W-MSA -0.02%. It verifies the feasibility of
+CATM’s information interaction via Sigmoid-activated attention. Table 4(#4-#5) explored the effect of lacking a dimension interaction on the results, with the absence of spa-
+
+In this paper, we proposed a convolutional additive selfattention network referred to as CAS-ViT. Firstly we argue that the key to enabling token mixer in ViT to work
+efficiently is multiply information interaction including
+spatial and channel domains. Subsequently following this
+paradigm, we innovatively designed an additive similarity
+function and implement it simply by Sigmoid-activated attention, which effectively avoids complex operations such as
+matrix multiplication and Softmax in vanilla ViTs. We constructed a family of lightweight models and verified their
+superior performance on tasks: image classification, object
+detection, instance/semantic segmentation. Meanwhile, we
+have deployed the network to ONNX and Iphone, and the
+experiments demonstrate that CAS-ViT maintains high accuracy while facilitating efficient deployment and inference
+on mobile devices.
+
+References
+Ali, A.; Touvron, H.; Caron, M.; Bojanowski, P.; Douze, M.;
+Joulin, A.; Laptev, I.; Neverova, N.; Synnaeve, G.; Verbeek,
+J.; et al. 2021. Xcit: Cross-covariance image transformers. Advances in neural information processing systems, 34:
+20014–20027.
+Bolya, D.; Fu, C.-Y.; Dai, X.; Zhang, P.; and Hoffman,
+J. 2022. Hydra attention: Efficient attention with many
+heads. In European Conference on Computer Vision, 35–
+49. Springer.
+Chen, K.; Wang, J.; Pang, J.; Cao, Y.; Xiong, Y.; Li, X.; Sun,
+S.; Feng, W.; Liu, Z.; Xu, J.; Zhang, Z.; Cheng, D.; Zhu, C.;
+Cheng, T.; Zhao, Q.; Li, B.; Lu, X.; Zhu, R.; Wu, Y.; Dai,
+J.; Wang, J.; Shi, J.; Ouyang, W.; Loy, C. C.; and Lin, D.
+2019. MMDetection: Open MMLab Detection Toolbox and
+Benchmark. arXiv preprint arXiv:1906.07155.
+Chu, X.; Tian, Z.; Wang, Y.; Zhang, B.; Ren, H.; Wei, X.;
+Xia, H.; and Shen, C. 2021. Twins: Revisiting the design of
+spatial attention in vision transformers. Advances in Neural
+Information Processing Systems, 34: 9355–9366.
+Cubuk, E. D.; Zoph, B.; Shlens, J.; and Le, Q. V. 2020. Randaugment: Practical automated data augmentation with a reduced search space. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition workshops, 702–703.
+Deng, J.; Dong, W.; Socher, R.; Li, L.-J.; Li, K.; and FeiFei, L. 2009. Imagenet: A large-scale hierarchical image
+database. In 2009 IEEE conference on computer vision and
+pattern recognition, 248–255. Ieee.
+Ding, M.; Xiao, B.; Codella, N.; Luo, P.; Wang, J.; and Yuan,
+L. 2022. Davit: Dual attention vision transformers. In European Conference on Computer Vision, 74–92. Springer.
+Dong, X.; Bao, J.; Chen, D.; Zhang, W.; Yu, N.; Yuan, L.;
+Chen, D.; and Guo, B. 2022. Cswin transformer: A general
+vision transformer backbone with cross-shaped windows. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 12124–12134.
+Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn,
+D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.;
+Heigold, G.; Gelly, S.; et al. 2020. An image is worth 16x16
+words: Transformers for image recognition at scale. arXiv
+preprint arXiv:2010.11929.
+Glorot, X.; Bordes, A.; and Bengio, Y. 2011. Deep sparse
+rectifier neural networks. In Proceedings of the fourteenth
+international conference on artificial intelligence and statistics, 315–323. JMLR Workshop and Conference Proceedings.
+Guo, J.; Han, K.; Wu, H.; Tang, Y.; Chen, X.; Wang, Y.; and
+Xu, C. 2022. Cmt: Convolutional neural networks meet vision transformers. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 12175–
+12185.
+Han, D.; Pan, X.; Han, Y.; Song, S.; and Huang, G. 2023.
+Flatten transformer: Vision transformer using focused linear
+attention. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision, 5961–5971.
+
+Han, K.; Xiao, A.; Wu, E.; Guo, J.; Xu, C.; and Wang, Y.
+2021. Transformer in transformer. Advances in Neural Information Processing Systems, 34: 15908–15919.
+Hatamizadeh, A.; Heinrich, G.; Yin, H.; Tao, A.; Alvarez,
+J. M.; Kautz, J.; and Molchanov, P. 2023. FasterViT: Fast
+Vision Transformers with Hierarchical Attention. arXiv
+preprint arXiv:2306.06189.
+He, K.; Gkioxari, G.; Dollár, P.; and Girshick, R. 2017. Mask
+r-cnn. In Proceedings of the IEEE international conference
+on computer vision, 2961–2969.
+He, K.; Zhang, X.; Ren, S.; and Sun, J. 2016. Deep residual learning for image recognition. In Proceedings of the
+IEEE conference on computer vision and pattern recognition, 770–778.
+Howard, A.; Sandler, M.; Chu, G.; Chen, L.-C.; Chen, B.;
+Tan, M.; Wang, W.; Zhu, Y.; Pang, R.; Vasudevan, V.; et al.
+2019. Searching for mobilenetv3. In Proceedings of the
+IEEE/CVF international conference on computer vision,
+1314–1324.
+Huang, H.; Zhou, X.; Cao, J.; He, R.; and Tan, T. 2023. Vision Transformer with Super Token Sampling. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 22690–22699.
+Kirillov, A.; Girshick, R.; He, K.; and Dollár, P. 2019.
+Panoptic feature pyramid networks. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, 6399–6408.
+Li, J.; Xia, X.; Li, W.; Li, H.; Wang, X.; Xiao, X.; Wang,
+R.; Zheng, M.; and Pan, X. 2022a. Next-vit: Next generation vision transformer for efficient deployment in realistic
+industrial scenarios. arXiv preprint arXiv:2207.05501.
+Li, L.; Zhang, T.; Kang, Z.; and Jiang, X. 2023. MaskFPAN: Semi-supervised Face Parsing in the Wild with Deocclusion and UV GAN. Computers & Graphics, 116: 185–
+193.
+Li, Y.; Yuan, G.; Wen, Y.; Hu, J.; Evangelidis, G.; Tulyakov,
+S.; Wang, Y.; and Ren, J. 2022b. Efficientformer: Vision
+transformers at mobilenet speed. Advances in Neural Information Processing Systems, 35: 12934–12949.
+Lin, T.-Y.; Goyal, P.; Girshick, R.; He, K.; and Dollár, P.
+2017. Focal loss for dense object detection. In Proceedings
+of the IEEE international conference on computer vision,
+2980–2988.
+Lin, T.-Y.; Maire, M.; Belongie, S.; Hays, J.; Perona, P.; Ramanan, D.; Dollár, P.; and Zitnick, C. L. 2014. Microsoft
+coco: Common objects in context. In Computer Vision–
+ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part V 13, 740–
+755. Springer.
+Liu, X.; Peng, H.; Zheng, N.; Yang, Y.; Hu, H.; and Yuan,
+Y. 2023. EfficientViT: Memory Efficient Vision Transformer with Cascaded Group Attention. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 14420–14430.
+Liu, Z.; Lin, Y.; Cao, Y.; Hu, H.; Wei, Y.; Zhang, Z.; Lin,
+S.; and Guo, B. 2021. Swin transformer: Hierarchical vision transformer using shifted windows. In Proceedings of
+
+the IEEE/CVF international conference on computer vision,
+10012–10022.
+Loshchilov, I.; and Hutter, F. 2016. SGDR: Stochastic Gradient Descent with Warm Restarts. In International Conference on Learning Representations.
+Loshchilov, I.; and Hutter, F. 2018. Decoupled Weight Decay Regularization. In International Conference on Learning Representations.
+Maaz, M.; Shaker, A.; Cholakkal, H.; Khan, S.; Zamir,
+S. W.; Anwer, R. M.; and Shahbaz Khan, F. 2022. Edgenext: efficiently amalgamated cnn-transformer architecture for mobile vision applications. In European Conference
+on Computer Vision, 3–20. Springer.
+Mehta, S.; and Rastegari, M. 2021. Mobilevit: light-weight,
+general-purpose, and mobile-friendly vision transformer.
+arXiv preprint arXiv:2110.02178.
+Mehta, S.; and Rastegari, M. 2022.
+Separable selfattention for mobile vision transformers. arXiv preprint
+arXiv:2206.02680.
+Pan, J.; Bulat, A.; Tan, F.; Zhu, X.; Dudziak, L.; Li, H.; Tzimiropoulos, G.; and Martinez, B. 2022. Edgevits: Competing light-weight cnns on mobile devices with vision transformers. In European Conference on Computer Vision, 294–
+311. Springer.
+Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.;
+Chanan, G.; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.;
+et al. 2019. Pytorch: An imperative style, high-performance
+deep learning library. Advances in neural information processing systems, 32.
+Polyak, B. T.; and Juditsky, A. B. 1992. Acceleration of
+stochastic approximation by averaging. SIAM journal on
+control and optimization, 30(4): 838–855.
+Sandler, M.; Howard, A.; Zhu, M.; Zhmoginov, A.; and
+Chen, L.-C. 2018. Mobilenetv2: Inverted residuals and linear bottlenecks. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, 4510–4520.
+Shaker, A.; Maaz, M.; Rasheed, H.; Khan, S.; Yang, M.-H.;
+and Khan, F. S. 2023. SwiftFormer: Efficient Additive Attention for Transformer-based Real-time Mobile Vision Applications. arXiv preprint arXiv:2303.15446.
+Shen, Z.; Zhang, M.; Zhao, H.; Yi, S.; and Li, H. 2021.
+Efficient attention: Attention with linear complexities. In
+Proceedings of the IEEE/CVF winter conference on applications of computer vision, 3531–3539.
+Szegedy, C.; Vanhoucke, V.; Ioffe, S.; Shlens, J.; and Wojna,
+Z. 2016. Rethinking the inception architecture for computer
+vision. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, 2818–2826.
+Wang, W.; Xie, E.; Li, X.; Fan, D.-P.; Song, K.; Liang, D.;
+Lu, T.; Luo, P.; and Shao, L. 2021. Pyramid vision transformer: A versatile backbone for dense prediction without
+convolutions. In Proceedings of the IEEE/CVF international
+conference on computer vision, 568–578.
+Wang, W.; Xie, E.; Li, X.; Fan, D.-P.; Song, K.; Liang, D.;
+Lu, T.; Luo, P.; and Shao, L. 2022. Pvt v2: Improved baselines with pyramid vision transformer. Computational Visual Media, 8(3): 415–424.
+
+Wu, F.; Zhang, T.; Li, L.; Huang, Y.; and Peng, Z. 2024. RPCANet: Deep Unfolding RPCA Based Infrared Small Target
+Detection. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision, 4809–4818.
+Wu, H.; Xiao, B.; Codella, N.; Liu, M.; Dai, X.; Yuan, L.;
+and Zhang, L. 2021. Cvt: Introducing convolutions to vision
+transformers. In Proceedings of the IEEE/CVF international
+conference on computer vision, 22–31.
+Xie, S.; Girshick, R.; Dollár, P.; Tu, Z.; and He, K. 2017. Aggregated residual transformations for deep neural networks.
+In Proceedings of the IEEE conference on computer vision
+and pattern recognition, 1492–1500.
+Yu, W.; Luo, M.; Zhou, P.; Si, C.; Zhou, Y.; Wang, X.; Feng,
+J.; and Yan, S. 2022. Metaformer is actually what you need
+for vision. In Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, 10819–10829.
+Zhang, T.; Li, L.; Cao, S.; Pu, T.; and Peng, Z. 2023.
+Attention-Guided Pyramid Context Networks for Detecting
+Infrared Small Target Under Complex Background. IEEE
+Transactions on Aerospace and Electronic Systems.
+Zhang, T.; Li, L.; Igel, C.; Oehmcke, S.; Gieseke, F.; and
+Peng, Z. 2022. LR-CSNet: Low-Rank Deep Unfolding Network for Image Compressive Sensing. In 2022 IEEE 8th International Conference on Computer and Communications
+(ICCC), 1951–1957. IEEE.
+Zhang, T.; Li, L.; and Peng, Z. 2023. Optimization-inspired
+Cumulative Transmission Network for image compressive
+sensing. Knowledge-Based Systems, 279: 110963.
+Zhou, B.; Zhao, H.; Puig, X.; Xiao, T.; Fidler, S.; Barriuso,
+A.; and Torralba, A. 2019. Semantic understanding of scenes
+through the ade20k dataset. International Journal of Computer Vision, 127: 302–321.
+
+

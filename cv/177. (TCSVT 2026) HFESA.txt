@@ -1,0 +1,1110 @@
+4330
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+Ultra-High-Definition Image Restoration via
+High-Frequency Enhanced Transformer
+Chen Wu , Ling Wang , Zhuoran Zheng , Weidong Jiang , Yuning Cui , Graduate Student Member, IEEE,
+and Jingyuan Xia , Member, IEEE
+
+Abstract—Transformer-based architectures exhibit substantial
+promise in the realm of ultra-high-definition (UHD) image
+restoration (IR). Nevertheless, they encounter significant challenges in maintaining high-frequency (HF) details, which are
+crucial for the reconstruction of texture. Conventional methods tackle computational complexity by significantly reducing
+the resolution (by a factor of 4 to 8). Moreover, the majority of high-frequency components are eliminated due to the
+inherent characteristics of self-attention mechanisms, as these
+mechanisms tend to naturally suppress high-frequency elements
+during non-local feature integration. This paper proposes a
+dual-branch transformer architecture that synergistically combines native-resolution HF preservation with efficient contextual
+modeling, named HiFormer. The high-resolution branch utilizes
+a directionally-sensitive large-kernel decomposition to effectively address anisotropic degradations with fewer parameters
+and applies depthwise separable convolutions for localized
+high-frequency (HF) information extraction. Concurrently, the
+low-resolution branch assimilates these localized HF elements
+using adaptive channel modulation to offset spectral losses
+induced by the inherent smoothing effect of self-attention. Comprehensive experiments across numerous UHD image restoration
+tasks reveal that our approach surpasses current leading methods
+in both quantitative metrics and qualitative analysis. The code
+is available at https://github.com/5chen/HiFormer
+Index Terms—Image restoration, UHD image, frequency learning, transformer.
+
+I. I NTRODUCTION
+LTRA-HIGH-DEFINITION (UHD) imaging has
+emerged as a cornerstone technology across medical
+diagnostics, satellite remote sensing, and next-generation
+vision systems. Defined by resolutions exceeding 3840 × 2160
+pixels, UHD images exhibit three distinct operational
+characteristics compared to conventional imaging: systemscale spatial redundancy, high-dimensional feature disparity,
+
+U
+
+Received 31 May 2025; revised 26 October 2025; accepted 16 November
+2025. Date of publication 21 November 2025; date of current version
+7 April 2026. This work was supported by the National Natural Science
+Foundation of China under Grant 62576350 and Grant 62131020. This article
+was recommended by Associate Editor B. Bao. (Corresponding author:
+Yuning Cui.)
+Chen Wu, Weidong Jiang, and Jingyuan Xia are with the National
+University of Defense Technology, Changsha 410073, China (e-mail:
+wuchen5X@mail.ustc.edu.cn; jwd2232@vip.163.com; j.xia10@nudt.edu.cn).
+Ling Wang is with The Hong Kong University of Science and Technology (Guangzhou), Guangzhou 511400, China (e-mail: lwang851@connect.
+hkust-gz.edu.cn).
+Zhuoran Zheng is with Sun Yat-sen University (Shenzhen), Shenzhen
+510275, China (e-mail: zhengzr@njust.edu.cn).
+Yuning Cui is with the Technical University of Munich, 80333 Munich,
+Germany (e-mail: yuning.cui@in.tum.de).
+Digital Object Identifier 10.1109/TCSVT.2025.3636011
+
+and conflicting global-local information requirements. These
+characteristics together pose a fundamental challenge in
+UHD restoration: the complex interrelationship of multiscale dependencies, where structurally similar pixel motifs
+distribute across 4-8× larger spatial regions than equivalents
+in common images, yet derive semantic meaning from
+their macro-scale contextual arrangements. Consequently,
+state-of-the-art methods [1], [2], [3], [4], [5], [6], [7], [8],
+[9], [10], [11], [12], [13], [14], [15], [16], [17], [18], [19],
+[20], [21] face critical scalability challenges when processing
+UHD images. Specifically, due to the astonishing pixel
+count of UHD images, these methods often face a trade-off
+between performance and computational overhead, making
+it challenging to deploy them on consumer-grade GPUs
+(which are common gaming or home GPUs, known for
+their cost-effectiveness and wide applicability, typically with
+memory sizes of up to 12 GB).
+Recent transformer-based approaches for UHD image
+restoration face an inherent resolution-fidelity trade-off rooted
+in architectural constraints. Current methodologies primarily
+adopt two compromised strategies to handle UHD’s extreme
+pixel density: i) Patch-based processing (e.g., LLFormer [22])
+divides images into sub-regions for localized restoration, but
+introduces boundary artifacts due to inconsistent feature aggregation across adjacent tiles [23]; ii) Aggressive downsampling
+(e.g., UHDformer [24] employs 8× resolution reduction)
+enables GPU-compatible processing by sacrificing spatial
+fidelity, particularly high-frequency components essential for
+texture clarity. Both strategies stem from the self-attention
+mechanism’s dual limitations - its quadratic computational
+complexity prohibits native UHD processing, while its inherent
+low-pass filtering characteristic [25], [26], [27] systematically
+attenuates high-frequency signals during global feature integration. This creates a paradoxical scenario where maintaining
+computational feasibility necessitates information loss, and
+preserving full spectral integrity demands prohibitive hardware
+resources. The central challenge thus resides in developing
+mechanisms that reconcile transformer-based global modeling
+with precise high-frequency preservation under strict memory
+constraints.
+To overcome these fundamental limitations, we present
+HiFormer, a novel dual-branch transformer architecture that
+strategically reconciles high-frequency preservation with computational efficiency in UHD restoration. Our framework
+introduces two cooperatively designed processing streams
+
+© 2025 The Authors. This work is licensed under a Creative Commons Attribution 4.0 License.
+For more information, see https://creativecommons.org/licenses/by/4.0/
+
+WU et al.: UHD IMAGE RESTORATION VIA HIGH-FREQUENCY ENHANCED TRANSFORMER
+
+Fig. 1. The number of parameters vs. PSNR on the UHD-LOL4K [22]
+dataset. Our HiFormer significantly outperforms state-of-the-art UHD image
+restoration methods, achieving a better balance between performance and
+parameter count.
+
+4331
+
+• We establish a novel collaboration mechanism between
+a high-resolution branch and a low-resolution transformer branch. The high-resolution branch combines
+directionally decomposed large-kernel convolutions for
+effective anisotropic degradation modeling (e.g., motion
+blur, rain streaks) and explicit high-frequency mining. The low-resolution branch is strategically enhanced
+through high-frequency feature recalibration modules,
+which adaptively compensate for the intrinsic spectral
+losses caused by downsampling and the self-attention
+mechanism’s low-pass filtering characteristic.
+• We perform extensive quantitative and qualitative evaluations, demonstrating that HiFormer achieves state-of-theart performance across multiple UHD image restoration
+tasks, including low-light enhancement, deraining, dehazing, deblurring and desnowing.
+II. R ELATED W ORK
+A. Vision Transformer for Image Restoration
+
+operating at complementary resolutions. The high-resolution
+branch directly processes native UHD inputs through two
+synergistic pathways: i) Direction-sensitive local modeling
+using decomposed large-kernel convolutions that capture
+anisotropic degradations (e.g., motion blur, rain streaks)
+through spatial factorization, and ii) High-frequency mining
+via depthwise separable convolutions coupled with channel attention, explicitly preserving texture-critical components
+often suppressed by standard operations. These extracted
+high-frequency features serve as adaptive supplements to the
+parallel low-resolution processing stream. The low-resolution
+branch employs conventional self-attention mechanisms but
+crucially integrates high-frequency guidance through feature
+recalibration modules. This cross-branch interaction compensates for the intrinsic spectral losses caused by both
+downsampling operations and attention-based low-pass filtering. A hierarchical fusion mechanism then combines the
+globally aware contextual features from the low-resolution
+stream with the locally preserved high-frequency details,
+enabling continuous information exchange while preventing boundary artifacts common in patch-based approaches.
+Extensive validation across five challenging UHD restoration scenarios (low-light enhancement, deraining, dehazing,
+deblurring, and desnowing) demonstrates our method’s consistent superiority in preserving fine textures and structural
+integrity (See Fig. 1). The results reveal significant qualitative
+improvements in edge sharpness and artifact suppression compared to existing transformer-based approaches, particularly in
+handling directional degradations while maintaining practical
+GPU memory consumption.
+Our main contributions are summarized below:
+• We introduce HiFormer, a novel dual-branch transformer
+architecture that enables full-resolution UHD image
+restoration on consumer-grade GPUs. This is achieved
+through a systematic spatial-computational decoupling
+strategy, representing a significant architectural innovation for native-resolution processing in UHD restoration
+tasks.
+
+In the wake of the ViT [28] success, numerous transformerbased strategies for image restoration have emerged. IPT
+[29], a trailblazer in applying Transformer-based models
+to image restoration, addresses computational challenges by
+dividing input images into smaller patches and processing
+them in sequence. Uformer [2] and SwinIR [30] utilize
+window-based self-attention mechanisms to enhance image
+restoration efficiency. With the rising interest in linear attention, Restormer [3] introduces a channel-level computation
+of self-attention mechanisms, notably decreasing the model’s
+computational burden. GRL [31] incorporates both windowbased and channel-based self-attention methods, offering
+versatile solutions for various image restoration tasks. DRSformer [32] presents a top-k sparse attention approach to
+limit feature aggregation among unrelated tokens, minimizing
+the interaction between mismatched query and key tokens
+to efficiently perform image deraining. Similarly, AST [33]
+develops an adaptive sparse self-attention mechanism to prevent unnecessary interactions from irrelevant regions. Beyond
+spatial-domain research utilizing self-attention, some studies
+are exploring transformer capabilities in the frequency domain.
+For example, FFTformer [34] takes advantage of the convolution theorem to transform the calculation of attention maps
+from spatial-domain matrices to element-wise multiplication
+in the frequency domain, resulting in significant computational
+savings. In addition to these works, other noteworthy studies
+have achieved impressive outcomes in diverse image restoration domains, such as deraining [35], [36], [37], dehazing
+[38], [39], [40], and deblurring [41], [42]. Despite these
+methods yielding promising results, the massive pixel count
+of UHD images demands considerable memory, restricting
+their feasibility on consumer-grade GPUs. Nevertheless, the
+significant performance advancements offered by transformerbased techniques in restoration tasks, due to their advanced
+non-local modeling capabilities, are striking. Consequently,
+there is an urgent demand for a specialized and efficient
+transformer-based UHD image restoration method, capable of
+handling UHD images with reduced computational resource
+requirements.
+
+4332
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+Fig. 2. The overall composition of the proposed HiFormer consists of a three-tier encoder-decoder network structure, incorporating several High Frequency
+Enhanced Transformer (HFET) modules at each tier. Within these HFET modules, we integrate dual-branch learning, and the synergistic interaction between
+these two branches facilitates superior UHD image restoration, significantly enhancing performance.
+
+B. UHD Image Restoration
+The restoration of UHD images through learning-based
+techniques has attracted notable attention recently. Certain
+studies [43], [44], [45] integrate bilateral learning within
+deep learning frameworks to tackle UHD image restoration challenges. Their central concept involves extracting
+local affine coefficients from low-resolution images using
+the bilateral grid and applying these to high-resolution
+images. Other research efforts have investigated [46], [47]
+processing UHD images in the frequency domain because
+this approach efficiently discriminates between various types
+of degradations. For example, UHDFour [46] reveals that
+both high-resolution and low-resolution images share similar amplitudes, with luminance information predominantly
+residing in the amplitude. Hence, they enhance the frequency domain of the low-resolution image followed by its
+upscaling to high-resolution, addressing the issue of UHD
+low-light enhancement effectively. Wave-Mamba [48] is an
+innovator in utilizing state space models to capture longrange dependencies in UHD images, yielding promising results
+for low-light enhancement tasks. Leveraging the powerful
+non-local modeling capabilities afforded by the self-attention
+mechanism, several studies have examined transformer-based
+architectural applications in diverse UHD image restoration
+tasks, exemplified by LLFormer [22] and UHDformer [24].
+LLFormer decomposes UHD images into non-overlapping
+patches, processes each as a separate low-resolution image,
+which may introduce boundary artifacts and affect visual
+quality. UHDformer proposes a dual-path correlation matching
+transformation module that optimally interpolates features
+between high- and low-resolution spaces to exclude redundant
+
+content, thereby enhancing feature representations in lowresolution space for more effective UHD image recovery.
+Nonetheless, substantial downsampling results in considerable
+information loss. Moreover, transformer-based methods face a
+common challenge: the self-attention mechanism functions as
+a dynamic low-pass filter, naturally neglecting high-frequency
+details. Consequently, developing methods that re-emphasize
+high-frequency information is crucial for network enhancement in focusing on textural detail restoration.
+III. M ETHODOLOGY
+A. Overview
+The architecture of our HiFormer is depicted in Fig. 2
+(a). Starting with an image I ∈ RH×W×3 , HiFormer initially
+utilizes a convolutional layer to generate the low-level feature
+maps F0 ∈ RH×W×C , where H, W, and C denote height,
+width, and channels, respectively. The low-level features F0
+are then processed through a 3-level hierarchical encoderdecoder architecture, similar to UNet [49], to derive deep
+features Ire ∈ RH×W×C . During this procedure, the image’s
+resolution is initially decreased by a given factor and subsequently restored to its original size through a matching
+increase in resolution. Conversely, the feature channels display
+the opposite pattern, fluctuating in number. Both the encoder
+and decoder incorporate multiple High Frequency Enhanced
+Transformer (HFET) modules (see Fig. 2 (b)), which integrate
+dual-branch learning to emphasize the reconstruction of highfrequency detail information. Ultimately, HiFormer applies
+another convolutional layer to compute the residual image
+R ∈ RH×W×3 from Ire . The final restored image is acquired
+
+WU et al.: UHD IMAGE RESTORATION VIA HIGH-FREQUENCY ENHANCED TRANSFORMER
+
+by summing the degraded image with the residual image,
+represented as Î = I + R.
+B. High Frequency Enhanced Self-Attention
+HFESA constitutes the central element of HFET, with its
+architecture illustrated in Fig. 2 (c). It primarily aims to
+enhance the network’s focus on high-frequency detail while
+simultaneously prioritizing the restoration of background texture information. This system integrates high-resolution and
+low-resolution branch learning within its framework. The
+synergistic learning of these branches leads to improved image
+restoration outcomes.
+1) High-Resolution Branch Learning: UHD images are
+dominant by their resolution of 3840 × 2160, which results
+in a higher pixel count than standard images. This means
+that each image contains more content and displays complex local patterns, which poses challenges for traditional
+convolutional sizes in capturing the intricate variations of
+texture patterns. Specifically, semantically coherent structures
+in UHD images can span hundreds or even thousands of pixels,
+while conventional 1 × 1 or 3 × 3 convolutions, due to their
+limited receptive fields, restrict the network’s ability to model
+subtle spatial dependencies and fine-grained texture patterns.
+To address this issue, the high-resolution branch employs
+convolutions with expanded receptive fields to capture these
+local features, denoted as Fh ∈ RH×W×C . However, simply
+increasing the receptive field leads to a growth in model
+parameters. To mitigate this, large kernels are decomposed into
+a linear combination of asymmetric elongated convolutions,
+which process local features independently along the H and W
+dimensions. This design not only reduces parameter overhead
+but also enhances the model’s ability to recognize directional
+patterns, making it particularly suitable for addressing various
+types of directional degradation, such as rain streaks or motion
+blur. For layer-normalized feature maps Fin ∈ RH×W×C , this
+can be mathematically expressed as:
+Fh = W p1×1 Wd3×3 ([Wd11×1 Fin ; Wd1×11 Fin ]),
+
+(1)
+
+where W p(·) stands for the convolution layer and Wd(·) denotes
+the depthwise convolution layer. [; ] is concatenation operation.
+Additionally, a dedicated high-frequency extraction pathway
+is constructed to explicitly capture and preserve texture-critical
+details that are often suppressed in subsequent downsampling and global modeling stages. Inspired by previous work
+[50], we utilize 3 × 3 depthwise convolutions to capture
+high-frequency information, effectively extracting local highfrequency components such as edges and fine textures with
+minimal computational overhead. Before extracting highfrequency information, we employ a 1 × 1 convolution as
+a lightweight feature projector, enabling efficient fine-grained
+feature interactions. This process can be denoted as:
+Fg = Wd3×3 W p1×1 Fin .
+
+(2)
+
+The resulting high-frequency feature maps, denoted as Fg ∈
+RH×W×C , are subsequently injected into the low-resolution
+branch as a key adaptive supplement through feature recalibration, compensating for the spectral loss inherently caused
+
+4333
+
+by the downsampling operations and the low-pass filtering
+characteristics of the self-attention mechanism. This crossbranch integration ensures that the globally modeled features
+remain rich in high-frequency details, which is essential for
+the high-fidelity reconstruction of textures in the final output.
+2) Low-Resolution Branch Learning: The self-attention
+mechanism has exhibited remarkable performance in diverse
+image restoration tasks [2], [3], [32], primarily attributed to its
+superior ability to model long-range dependencies. Typically,
+attention-based methodologies can be represented as:
+
+
+Q(F)K(F)>
+· V(F), (3)
+Attention = A · V = Softmax
+√
+dk
+where F denotes the input feature maps. Q, K and V are the
+projections which generate query, key and value of the input
+features. dk is the dimension of the keys. After applying the
+softmax activation function, the attention map A will be rowwise normalized to ensure:
+X
+Ai, j ≥ 0 and
+Ai, j = 1,
+(4)
+j
+
+where i and j denote the index of the row and column in A.
+In other words, Eq. 3 can be rewritten as:
+X
+f (F) = A · V =
+Ai, j F( j).
+(5)
+j
+
+Therefore, each row of the matrix A acts as a low-pass
+filter. Fundamentally, the self-attention mechanism based on
+softmax acts as an adaptable low-pass filter [25], [26], [27],
+inherently missing concentration on high-frequency information that is essential for successful image restoration.
+Previous studies [51], [52] have confirmed this and provided detailed experimental evidence, showing that both
+spatial self-attention mechanisms and channel self-attention
+mechanisms inherently lack sensitivity to high-frequency
+information. Moreover, for conducting UHD image restoration
+with consumer-grade GPUs, most techniques must rely on
+global modeling within a significantly downsampled space
+[24], [53]. The downsampling-induced information loss can
+further deteriorate the image restoration quality.
+The low-resolution branch in our HFESA is designed to
+address this dual challenge: efficiently performing global modeling in the low-resolution space while actively compensating
+for the lost high-frequency information by incorporating the
+high-frequency feature maps from the high-resolution branch.
+For feature maps with layer normalization Fin ∈ RH×W×C ,
+we initially downsample them to adjust to a resolution of
+F̂in ∈ RĤ×Ŵ×C , allowing fewer computing resources to model
+the long-range dependencies of the features. Then, multiple
+convolutions are applied to derive the query (Q), key (K), and
+value (V) projections from the features F̂in , enhanced with
+local context. Following this, the attention map A is computed
+along the channel dimension, which, although does result in
+some precision loss, substantially reduces computational costs.
+The computation of the attention map A along the channel
+dimension makes its computational cost reliant solely on the
+number of channels, effectively lowering the self-attention’s
+
+4334
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+time complexity to linear and significantly diminishing the
+computational load. This method can be expressed as:
+Q = WdQ W pQ F̂in , K = WdK W pK F̂in , V = WdV W pV F̂in ,
+
+(6)
+
+A = Softmax(K · Q/α),
+
+(7)
+
+where W p(·) signifies the 1 × 1 point-wise convolution, and Wd(·)
+represents the 3×3 depthwise convolution. The parameter α is
+a learnable scaling factor. Analogous to ViT [28], we partition
+the channels into ‘heads’ and concurrently learn individual
+attention maps.
+Subsequently, before interacting the value projection V with
+the attention map A, we recalibrate the value projection V
+to enhance the high-frequency information it contains. This
+is a core step of our method. Rather than attempting to
+recover the high-frequency information lost due to degradation
+using operations that are insensitive to high-frequency details
+in the downsampled feature space, we recalibrate the value
+projection V before the interaction, injecting high-frequency
+cues Fg captured at the original resolution to enhance its highfrequency content. Specifically, we first employ global average
+pooling (GAP) to capture the overall contextual information in
+V, while using global max pooling (GMP) to extract the most
+salient features in each channel. The sum of these pooled features forms a compact channel-wise descriptor, which is then
+used to modulate Fg via element-wise multiplication. This
+operation acts as a channel-wise gating mechanism, selectively
+highlighting the parts of Fg that are most relevant to the global
+context in V. Through this step, the modulated value projection
+V̂ not only enhances high-frequency information but also
+significantly reduces the misalignment differences between the
+two branches caused by changes in resolution. This operation
+also adjusts the resolution of the value projection to align with
+that of the high-resolution branch:
+V̂ = Fg
+
+(GAP(W p V) + GMP(W p V)),
+
+(8)
+
+where
+denotes element-wise multiplication. GAP(·) and
+GMP(·) represent global average pooling and global max pooling, respectively. Subsequently, we compute the self-attention
+results to obtain the global feature representations Fl , and then
+fuse them with the local feature representations Fh from the
+previous stage to obtain the final result Fout ∈ RH×W×C :
+Fl = V̂ · A,
+Fout = W p ([Fl , Fh ]).
+
+(9)
+(10)
+
+In this way, we achieve both the enhancement of highfrequency information and the restoration of the feature
+resolution to its original dimensions.
+C. Feed-Forward Network
+Building on the Metaformer framework [54], we integrate
+a Feed-forward Network (FFN) following the application of
+HFESA. The structure of the FFN is shown in Fig. 3. The
+FFN’s role is to improve nonlinear feature mapping and
+limit the passage of irrelevant feature data through a gating
+mechanism [3]. Consistently with our prior approach for the
+high-resolution branch, we use larger convolutional kernels to
+
+Fig. 3. The feed-forward network within the suggested HiFormer system
+utilizes a larger kernel size than standard FFN networks, primarily to address
+the substantial pixel quantity of UHD images.
+
+extend the receptive field, thus addressing the intricate local
+texture information found in the high-resolution properties
+of UHD images. Furthermore, to account for any directional
+degradation, we handle processing in two separate directions
+prior to the final feature integration. The detailed architecture
+of the FFN is illustrated in Fig 3. For an input feature Fin , the
+process is described by:
+Fgate , Fhw = Split(Wd1×1 Fin ),
+Fout = GELU(Fgate ) · (W p1×11 Fhw + W p11×1 Fhw ),
+
+(11)
+(12)
+
+where GELU(·) denotes the activation function, Split(·) signifies an equal division of the feature channels.
+IV. E XPERIMENTS
+A. Implementation Details and Datasets
+1) Implementation Details: Our experiments are conducted
+using PyTorch on a setup of 4 NVIDIA A800 GPUs. The
+model is trained for 300k iterations utilizing the Adam
+optimizer (as described by Kingma and Ba [55]) with hyperparameters β1 = 0.9 and β2 = 0.999. The learning rate is initially
+set to 2 × 10−4 and is adjusted according to a cosine annealing
+schedule throughout the training. Specifically, the warmup
+period spans 15% of the total epochs, and the maximum
+learning rate is reached at 75% of the total epochs. For input,
+we randomly crop the original 4K images to a resolution
+of 768 × 768 and use a batch size of 8. To enhance the
+training dataset, we apply random horizontal and vertical flips
+to the images. Our method’s architecture features a 3-level
+encoder-decoder with a varying number of transformer Blocks
+at each level, specifically [4, 4, 8] from level 1 to level 3. The
+downsampling ratio is set to 4. To optimize the weights and
+biases of the network, we utilize the L1 loss in the RGB color
+space as the basic reconstruction loss.
+2) Datasets: To assess the performance of HiFormer, we
+conduct evaluations using multiple UHD-related datasets.
+UHD-LOL4K [22] is an extensive low-light outdoor dataset
+featuring 8,099 images in 4K resolution, with 5,999 images
+dedicated to training and 2,100 images utilized for testing.
+UHD-LL [46] is a real-world low-noise/normal-clear paired
+image dataset that contains 2,150 pairs of 4K UHD data
+
+WU et al.: UHD IMAGE RESTORATION VIA HIGH-FREQUENCY ENHANCED TRANSFORMER
+
+4335
+
+TABLE I
+T RAINABLE PARAMETERS , FLOP S AND M EMORY R EQUIRED FOR I NFERENCE OF S OME I MAGE R ESTORATION M ETHODS . W E R ECORD THE C OMPUTA TIONAL C OST R EQUIRED TO P ERFORM I NFERENCE ON 512 × 512 S IZE I MAGES U SING A S INGLE NVIDIA G E F ORCE RTX 3090 GPU
+
+Fig. 4. Visual quality comparisons with state-of-the-art methods on UHDLOL-4K dataset. Please zoom in for details.
+
+TABLE II
+DATASET D ESCRIPTION FOR VARIOUS UHD I MAGE R ESTORATION TASKS
+
+saved in 8-bit sRGB format. It has been split into two parts:
+2,000 pairs for training and 150 pairs for testing. The 4KRain13k [56] dataset consists of 13,000 paired rainy and
+rain-free 4K images, with 12,500 pairs for training and 500
+pairs reserved for testing. The datasets UHD-Haze and UHDBlur are reconstructed from previous works by Zheng et al.
+[43] and Deng et al. [57], as collected by Wang et al. [24].
+Specifically, the UHD-Haze dataset includes 2,290 haze-free
+image pairs for training and 231 pairs for testing, while the
+UHD-Blur dataset comprises 1,964 blurry-clear image pairs
+for training and 300 pairs for testing. Furthermore, UHD-Snow
+[58] and UHD-Rain [58] are established from the UHDSR4K
+[59] dataset, each containing 3,000 training images and 200
+testing images. An overview of these datasets can be found in
+Tab. II.
+B. Comparisons With the State-of-the-Art Methods
+1) Evaluation: We use the two most commonly used metrics for image quality assessment, Peak Signal-to-Noise Ratio
+(PSNR) and Structural Similarity (SSIM) [60], to perform
+quantitative comparisons. PSNR and SSIM are calculated
+
+TABLE III
+C OMPARISON OF Q UANTITATIVE R ESULTS ON UHD-LOL4K DATASET.
+B EST AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT
+AND U NDERLINED T EXT R ESPECTIVELY
+
+along the RGB channels. Furthermore, to better support the
+notion that our method achieves a good balance between
+performance and efficiency, we compare the parameters,
+FLOPs, and memory required for inference of various methods
+in Tab. I.
+2) Low-Light Uhd Image Enhancement Results: For the
+task of enhancing UHD images in low-light conditions, we
+evaluate HiFormer against techniques such as Z DCE++
+[61], RUAS [62], ELGAN [63], Uformer [2], Restormer [3],
+NSEN [64], UHDFour [46], LLFormer [22], UHDformer [24],
+Wave-Mamba [48], MixNet [23], D2Net [65], UHDDIP [58]
+and UHD-processer [66]. As depicted in Tab. III, on the
+synthetic dataset UHD-LOL, our method shows a 2.15 dB
+improvement in PSNR over the most recent UHD low-light
+enhancement technique, Wave-Mamba, and a PSNR increase
+of 0.36 dB over the previous leading method, MixNet. These
+
+4336
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+Fig. 5. Visual quality comparisons with state-of-the-art methods on 4K-Rain13k dataset. Please zoom in for details.
+
+TABLE IV
+
+TABLE V
+
+C OMPARISON OF Q UANTITATIVE R ESULTS ON UHD-LL DATASET. B EST
+AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT AND
+U NDERLINED T EXT R ESPECTIVELY
+
+C OMPARISON OF Q UANTITATIVE R ESULTS ON 4K-R AIN 13 K DATASET.
+B EST AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT
+AND U NDERLINED T EXT R ESPECTIVELY
+
+TABLE VI
+
+findings are promising and suggest that our method is capable
+of restoring finer texture details. The visual comparisons
+in Fig. 4 reveal that our approach significantly enhances
+the recovery of damaged background information and offers
+improved color correction. In the real-world UHD-LL dataset,
+our proposed HiFormer outperforms existing methods in terms
+of PSNR, with quantitative results summarized in Tab. IV.
+These experimental outcomes further demonstrate the strong
+generalization capability of our approach. Even when confronted with complex and diverse degradations commonly
+encountered in real-world scenarios, HiFormer consistently
+achieves compelling restoration performance, highlighting its
+robustness and practical applicability.
+3) Rain Streak Removal Results: To validate the effectiveness of our method on the task of rain streak removal, we
+compare it with many methods on 4K-Rain13k dataset, including RCDNet [67], SPDNet [68], IDT [35], Restormer [3],
+DRSformer [32], UDR-S2Former [69], GLGFN [70], UDRMixer [56] and ERR [53]. Compared to the latest UHD image
+deraining methods, our approach achieves a 1.29 dB PSNR
+improvement, and a 2.41 dB lead over the transformer-based
+UDR-S2Former. You can see the quantitative comparison
+results in Tab. V, and we also provide visual comparison
+results in Fig. 5. Our method can better handle rain streaks
+and recover occluded background.
+
+C OMPARISON OF Q UANTITATIVE R ESULTS ON UHD-R AIN DATASET. B EST
+AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT AND
+U NDERLINED T EXT R ESPECTIVELY
+
+Additionally, we conduct a comparison on the UHD-Rain
+dataset with methods such as Uformer [2], Restormer [3],
+SFNet [71], UHD [44], UHDformer [24], and UHDDIP [58].
+In Tab. VI, we present the quantitative results of these methods. It is evident that our approach achieves a performance
+gain of 2.32 dB in PSNR compared to the latest method, UHDDIP. Furthermore, Fig. 6 illustrates the qualitative comparison
+results, demonstrating that our method effectively restores the
+background texture information damaged by rain streaks.
+4) Image Dehazing Results: For the UHD image dehazing task, we compare our HiFormer with a wide range of
+state-of-the-art methods, including Restormer [3], Uformer
+[2], DehazeFormer [38], UHD [44], UHDformer [24] and
+UHDDIP [58]. As shown in Tab. VII, our method slightly
+
+WU et al.: UHD IMAGE RESTORATION VIA HIGH-FREQUENCY ENHANCED TRANSFORMER
+
+4337
+
+Fig. 6. Visual quality comparisons with state-of-the-art methods on UHD-Rain dataset. Please zoom in for details.
+
+Fig. 7. Visual quality comparisons with state-of-the-art methods on UHD-Haze dataset. Please zoom in for details.
+
+Fig. 8. Visual quality comparisons with state-of-the-art methods on UHD-Blur dataset. Please zoom in for details.
+
+outperforms the transformer-based UHD image restoration
+method UHDformer, achieving a 0.73 dB PSNR improvement.
+You can find the visual comparison results in Fig. 7.
+5) Image Debluring Results: In the UHD image deblurring
+task, we evaluate our proposed HiFormer against existing deblurring approaches, including MIMO-Unet++ [72],
+Restormer [3], Uformer [2], Stripformer [41], FFTformer
+[34], UHDformer [24], UHDDIP [58], DreamUHD [73]
+and MixNet [23]. As shown in Tab. VIII, compared to
+
+UHDformer, the latest transformer-based method, our
+approach leads by 0.90 dB in PSNR. Additionally, when
+compared to the current best-performing method, MixNet, our
+method achieves a PSNR advantage of 0.29 dB. You can find
+the visual comparison results in Fig. 8, where our method can
+restore clearer images and recover more textural details.
+6) Image Desnowing Results: In the image desnowing task,
+we compare HiFormer with Uformer [2], Restormer [3], SFNet
+[71], UHD [44], UHDformer [24], and UHDDIP [58]. As
+
+4338
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+Fig. 9. Visual quality comparisons with state-of-the-art methods on UHD-Snow dataset. Please zoom in for details.
+
+TABLE VII
+
+TABLE IX
+
+C OMPARISON OF Q UANTITATIVE R ESULTS ON UHD-H AZE DATASET. B EST
+AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT AND
+U NDERLINED T EXT R ESPECTIVELY
+
+C OMPARISON OF Q UANTITATIVE R ESULTS ON UHD-S NOW DATASET.
+B EST AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT
+AND U NDERLINED T EXT R ESPECTIVELY
+
+TABLE VIII
+
+TABLE X
+A BLATION S TUDY OF D IFFERENT D EPTH -W ISE
+C ONVOLUTION K ERNEL S IZES
+
+C OMPARISON OF Q UANTITATIVE R ESULTS ON UHD-B LUR DATASET. B EST
+AND S ECOND B EST VALUES A RE I NDICATED W ITH B OLD T EXT AND
+U NDERLINED T EXT R ESPECTIVELY
+
+shown in Tab. IX, our method exceeds the current bestperforming method, UHDDIP, by 1.5 dB in PSNR. Fig. 9
+presents the visual comparison results.
+C. Ablation Study
+We further conduct extensive ablation studies to better
+understand and evaluate each component in the proposed
+HiFormer. For a fair comparison, we train our HiFormer and
+its variants on the UHD-LOL4K dataset with 768×768 image
+patches for 300k iterations.
+1) Effectiveness of Depthwise Convolution Kernel Size:
+We perform a series of experiments to understand the effect
+of kernel size, in which the large-kernel (1 × 11 or 11 × 1)
+depthwise convolutions in the HFESA and FFN modules are
+
+directly replaced with smaller kernels of various sizes (e.g.,
+1×1, 3×3), while keeping the number of channels consistent.
+The results are shown in Tab. X. Compared to our method, the
+performance of other variants with smaller kernels shows a
+certain degree of degradation. It can be inferred that the higher
+resolution characteristics of UHD images allow each image
+to contain more information. Therefore, using conventional
+kernel sizes may lead to suboptimal feature extraction, as
+these kernels may not cover enough of the spatial context
+needed to capture the fine details in UHD images. Larger
+or more adaptive kernel sizes could help in better enhancing
+the model’s receptive field and understanding and representing the high-frequency details present in UHD images,
+thus improving the model’s performance. Additionally, we
+observe that using a kernel size of 11 × 11 yields performance
+
+WU et al.: UHD IMAGE RESTORATION VIA HIGH-FREQUENCY ENHANCED TRANSFORMER
+
+4339
+
+Fig. 10. Figures (b)-(e) are our intermediate feature maps, while Figures (g)-(j) are the spectrograms.
+
+TABLE XI
+A BLATION S TUDY OF H IGH -F REQUENCY
+I NFORMATION E NHANCEMENT S TAGE
+
+comparable to our method; however, this comes at the cost
+of significantly increased parameters. In contrast, our method
+attains a similar performance level with a much more efficient
+parameter budget, owing to the directionally-sensitive largekernel decomposition. In Fig. 10 (b) and (c), we can observe
+that the directionally-sensitive large-kernel decomposition activates distinct features along different dimensions. This design
+leads to a more favorable trade-off between performance and
+compactness of the model.
+2) Effectiveness of High-Frequency Information Enhancement Stage: The high-frequency information enhancement
+stage is the core component of our method, representing
+the collaborative interaction between the low-resolution and
+high-resolution branches. To validate its effectiveness, we
+conduct experimental evaluations on the salient feature extraction components in the low-resolution branch and the feature
+extraction methods in the high-resolution branch, with the
+results presented in Tab. XI.
+It can be seen that the pooling layer provides performance
+gains to the network. The use of max pooling helps in capturing the most prominent features by selecting the maximum
+value in a pooling window, which can be particularly useful
+in retaining high-intensity features. On the other hand, mean
+pooling provides a smoothing effect by averaging the values in
+the pooling window, which helps in capturing the overall trend
+and reducing noise. The combination of max pooling and mean
+pooling preserves the salient features from the low-resolution
+branch, guiding the integration of high-frequency features and
+eliminating the domain gap between the high-resolution and
+low-resolution branches.
+In recent years, some studies [5], [27], [74], [75] have
+begun to obtain high-frequency information through frequency
+
+domain processing, such as in the Fourier or wavelet domains.
+In our work, following previous research [50], we use depthwise convolution to extract high-frequency information. To
+verify whether frequency domain processing is a necessary
+step for enhancing high-frequency information, we transfer the
+process of obtaining high-frequency information Fg to the frequency domain using Fourier transform for experimentation.
+The results indicate that frequency domain processing is not
+necessary, as it does not yield additional performance gains.
+Notably, for UHD images, the computational cost associated
+with using Fourier transform is unacceptable, as it significantly
+increases the inference time of our HiFormer.
+Furthermore, to rigorously validate the critical role of the
+high-frequency (HF) enhancement stage in our HiFormer
+framework, we conducted systematic ablation studies:
+1) directly upsampling the V projection without any HF-guided
+recalibration, and 2) replacing element-wise multiplication
+with channel concatenation. Experimental results demonstrate
+a sharp performance decline in both variants, as evidenced
+by significant deteriorations in PSNR and SSIM metrics. This
+unequivocally confirms the indispensability of the proposed
+HF enhancement stage. Direct upsampling variant exhibits
+the most severe performance loss. This underscores the limitation of attempting to recover high-frequency information
+solely from the degraded low-resolution features, and highlights the necessity of our explicit HF guidance strategy.
+Furthermore, there is also a performance drop observed in
+the channel concatenation variant, which validates our core
+design motivation: element-wise multiplication functions as
+an adaptive feature gating and weighting mechanism, which
+effectively selects and emphasizes components in Fg that are
+most relevant to the V projection. This process significantly
+reduces domain gaps and resolution misalignment between
+the two branches. In contrast, simple concatenation fails to
+establish such a refined modulation relationship, leading to
+less efficient and more passive feature integration. In summary,
+the integration of HF features through the recalibration module
+enables the network to effectively compensate for the spectral
+losses inherently caused by downsampling operations and
+the low-pass characteristics of the self-attention mechanism.
+As clearly demonstrated in Fig. 10 (d) and (e), the highfrequency information is effectively integrated into V, where
+it is modulated to selectively enhance the relevant content.
+
+4340
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+TABLE XII
+A BLATION S TUDY OF D UAL -B RANCH L EARNING
+
+model. The unique branch design imparts distinct characteristics to the model, which cannot be substituted by standard
+ResBlocks.
+V. C ONCLUSION
+
+By explicitly supplementing high-frequency cues, the model
+gains an enhanced capacity to reconstruct fine-grained textural
+details that are often lost during global feature aggregation,
+thereby substantially improving the overall restoration quality,
+particularly in regions rich in high-frequency content such as
+edges and textures.
+3) Effectiveness of Dual-Branch Learning: The dualbranch learning strategy constitutes the architectural core of
+HiFormer, designed to synergistically address the distinct
+yet complementary challenges of local high-frequency detail
+preservation and global contextual modeling in UHD image
+restoration. To rigorously assess the necessity and superiority
+of this design, we conduct a comprehensive ablation study,
+which involves either removing the corresponding branches or
+replacing them with standard residual convolution blocks (ResBlocks). It is important to note that since ResBlocks do not
+include depthwise separable convolutions and consist solely of
+traditional convolutions, they incur a higher parameter count.
+The quantitative results summarized in Tab. XII clearly
+demonstrate the indispensability of both branches. Removing
+any one of the branches leads to a significant decline in performance. The removal of the high-resolution branch results
+in the most pronounced degradation, as it is responsible for
+modeling local information and capturing fine-grained highfrequency details, which are crucial for texture clarity in
+UHD images. Similarly, the removal of the low-resolution
+branch also leads to a substantial decrease, highlighting the
+importance of addressing long-range dependency modeling
+and suppressing the flow of unimportant information over large
+spatial extents in UHD content. In Fig. 10 (g)-(j), we present
+the visualized spectral maps of these ablation results. It can be
+observed that our method yields the most natural distribution
+of spectral energy, with richer high-frequency information.
+Additionally, we present the experimental results of replacing each branch with ResBlocks to avoid the parameter
+imbalance caused by the removal of branches. The results
+indicate that for the high-resolution branch, the proposed
+directionally-sensitive large kernel decomposition and dedicated high-frequency mining operations are more effective
+than standard convolution blocks in handling anisotropic
+degradation and extracting key texture information. For the
+low-resolution branch, the lack of global modeling capability
+in ResBlocks leads to a decline in performance, validating that
+the proposed HFESA outperforms local convolution operations
+in capturing the non-local interactions necessary for coherent
+global restoration.
+The above experiments demonstrate that the collaborative
+learning of the two branches provides significant gains for the
+
+In this paper, we proposed a novel high frequency enhanced
+transformer for UHD image restoration, dubbed HiFormer.
+HiFormer adopts a dual-branch learning strategy: the highresolution branch focuses on modeling local features and
+preserving high-frequency details, while the low-resolution
+branch addresses non-local interactions and artifact removal,
+enhanced by the collaboration of high-frequency information.
+By focusing on and enhancing high-frequency detail information, our method has achieved state-of-the-art results on
+UHD low-light image enhancement, UHD image deraining,
+UHD image dehazing, UHD image deblurring and UHD image
+desnowing.
+R EFERENCES
+[1]
+
+K. G. Lore, A. Akintayo, and S. Sarkar, “LLNet: A deep autoencoder
+approach to natural low-light image enhancement,” Pattern Recognit.,
+vol. 61, pp. 650–662, Jan. 2017.
+[2] Z. Wang, X. Cun, J. Bao, W. Zhou, J. Liu, and H. Li, “Uformer:
+A general U-shaped transformer for image restoration,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2022,
+pp. 17683–17693.
+[3] S. W. Zamir, A. Arora, S. Khan, M. Hayat, F. S. Khan, and M.-H. Yang,
+“Restormer: Efficient transformer for high-resolution image restoration,”
+in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun.
+2022, pp. 5728–5739.
+[4] Y. Cai, H. Bian, J. Lin, H. Wang, R. Timofte, and Y. Zhang,
+“Retinexformer: One-stage Retinex-based transformer for low-light
+image enhancement,” in Proc. IEEE/CVF Int. Conf. Comput. Vis.
+(ICCV), Oct. 2023, pp. 12504–12513.
+[5] G. Yang, L. Lin, C. Wu, and F. Wang, “Dual-domain learning for
+jpeg artifacts removal,” in Proc. Int. Conf. Neural Inf. Process., 2023,
+pp. 556–568.
+[6] C. Li et al., “An underwater image enhancement benchmark dataset and
+beyond,” IEEE Trans. Image Process., vol. 29, pp. 4376–4389, 2020.
+[7] Y. Cui, W. Ren, X. Cao, and A. Knoll, “Revitalizing convolutional
+network for image restoration,” IEEE Trans. Pattern Anal. Mach. Intell.,
+vol. 46, no. 12, pp. 9423–9438, Dec. 2024.
+[8] Y. Cui, Y. Tao, W. Ren, and A. Knoll, “Dual-domain attention for image
+deblurring,” in Proc. AAAI Conf. Artif. Intell., 2023, vol. 37, no. 1,
+pp. 479–487.
+[9] Y. Wang, L. Peng, L. Li, Y. Cao, and Z.-J. Zha, “Decoupling-andaggregating for image exposure correction,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), Jun. 2023, pp. 18115–18124.
+[10] Q. Yan, A. Jiang, K. Chen, L. Peng, Q. Yi, and C. Zhang, “Textual
+prompt guided image restoration,” 2023, arXiv:2312.06162.
+[11] W. Zhang et al., “Underwater image enhancement via weighted wavelet
+visual perception fusion,” IEEE Trans. Circuits Syst. Video Technol.,
+vol. 34, no. 4, pp. 2469–2483, Apr. 2024.
+[12] J. Zhuang, Y. Zheng, B. Guo, and Y. Yan, “Globally deformable
+information selection transformer for underwater image enhancement,”
+IEEE Trans. Circuits Syst. Video Technol., vol. 35, no. 1, pp. 19–32,
+Jan. 2025.
+[13] Y. Li, Z. Mi, Y. Wang, S. Jiang, and X. Fu, “TAFormer: A transmissionaware transformer for underwater image enhancement,” IEEE Trans.
+Circuits Syst. Video Technol., vol. 35, no. 1, pp. 601–616, Jan. 2025.
+[14] Z. He et al., “Low-light image enhancement with multi-scale attention
+and frequency-domain optimization,” IEEE Trans. Circuits Syst. Video
+Technol., vol. 34, no. 4, pp. 2861–2875, Apr. 2024.
+[15] M. Liu, Y. Cui, W. Ren, J. Zhou, and A. C. Knoll, “LIEDNet: A
+lightweight network for low-light enhancement and deblurring,” IEEE
+Trans. Circuits Syst. Video Technol., vol. 35, no. 7, pp. 6602–6615, Jul.
+2025.
+[16] K. Zhang et al., “MC-blur: A comprehensive benchmark for image
+deblurring,” IEEE Trans. Circuits Syst. Video Technol., vol. 34, no. 5,
+pp. 3755–3767, May 2024.
+
+WU et al.: UHD IMAGE RESTORATION VIA HIGH-FREQUENCY ENHANCED TRANSFORMER
+
+[17] K. Zhang, W. Luo, Y. Zhong, L. Ma, W. Liu, and H. Li, “Adversarial
+spatio-temporal learning for video deblurring,” IEEE Trans. Image
+Process., vol. 28, no. 1, pp. 291–301, Jan. 2019.
+[18] K. Zhang, R. Li, Y. Yu, W. Luo, and C. Li, “Deep dense multi-scale
+network for snow removal using semantic and depth priors,” IEEE Trans.
+Image Process., vol. 30, pp. 7419–7431, 2021.
+[19] K. Zhang, D. Li, W. Luo, W. Ren, and W. Liu, “Enhanced spatiotemporal interaction learning for video deraining: Faster and better,”
+IEEE Trans. Pattern Anal. Mach. Intell., vol. 45, no. 1, pp. 1287–1293,
+Jan. 2023.
+[20] K. Zhang et al., “Deep image deblurring: A survey,” Int. J. Comput.
+Vis., vol. 130, no. 9, pp. 2103–2130, Sep. 2022.
+[21] K. Zhang, D. Li, W. Luo, and W. Ren, “Dual attention-in-attention model
+for joint rain streak and raindrop removal,” IEEE Trans. Image Process.,
+vol. 30, pp. 7608–7619, 2021.
+[22] T. Wang, K. Zhang, T. Shen, W. Luo, B. Stenger, and T. Lu, “Ultra-highdefinition low-light image enhancement: A benchmark and transformerbased method,” in Proc. AAAI Conf. Artif. Intell., 2023, vol. 37, no. 3,
+pp. 2654–2662.
+[23] C. Wu, Z. Zheng, Y. Cui, and W. Ren, “MixNet: Towards effective and
+efficient UHD low-light image enhancement,” 2024, arXiv:2401.10666.
+[24] C. Wang et al., “Correlation matching transformation transformers for
+UHD image restoration,” in Proc. AAAI Conf. Artif. Intell., 2024, vol. 38,
+no. 6, pp. 5336–5344.
+[25] N. Park and S. Kim, “How do vision transformers work?” 2022,
+arXiv:2202.06709.
+[26] P. Wang, W. Zheng, T. Chen, and Z. Wang, “Anti-oversmoothing in
+deep vision transformers via the Fourier domain analysis: From theory
+to practice,” 2022, arXiv:2203.05962.
+[27] J. Dong, J. Pan, Z. Yang, and J. Tang, “Multi-scale residual low-pass
+filter network for image deblurring,” in Proc. IEEE/CVF Int. Conf.
+Comput. Vis. (ICCV), Oct. 2023, pp. 12311–12320.
+[28] A. Dosovitskiy et al., “An image is worth 16×16 words: Transformers
+for image recognition at scale,” 2020, arXiv:2010.11929.
+[29] H. Chen et al., “Pre-trained image processing transformer,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2021,
+pp. 12294–12305.
+[30] J. Liang, J. Cao, G. Sun, K. Zhang, L. Van Gool, and R. Timofte,
+“SwinIR: Image restoration using Swin transformer,” in Proc. IEEE/CVF
+Int. Conf. Comput. Vis. Workshops (ICCVW), Oct. 2021, pp. 1833–1844.
+[31] Y. Li et al., “Efficient and explicit modelling of image hierarchies
+for image restoration,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), Jun. 2023, pp. 18278–18289.
+[32] X. Chen, H. Li, M. Li, and J. Pan, “Learning a sparse transformer network for effective image deraining,” in Proc. IEEE/CVF Conf. Comput.
+Vis. Pattern Recognit. (CVPR), Jun. 2023, pp. 5896–5905.
+[33] S. Zhou, D. Chen, J. Pan, J. Shi, and J. Yang, “Adapt or perish:
+Adaptive sparse transformer with attentive feature refinement for image
+restoration,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Jun. 2024, pp. 2952–2963.
+[34] L. Kong, J. Dong, J. Ge, M. Li, and J. Pan, “Efficient frequency
+domain-based transformers for high-quality image deblurring,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2023,
+pp. 5886–5895.
+[35] J. Xiao, X. Fu, A. Liu, F. Wu, and Z.-J. Zha, “Image de-raining
+transformer,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 45, no. 11,
+pp. 12978–12995, Nov. 2023.
+[36] H. Chen, X. Chen, J. Lu, and Y. Li, “Rethinking multi-scale representations in deep deraining transformer,” in Proc. AAAI Conf. Artif. Intell.,
+2024, vol. 38, no. 2, pp. 1046–1053.
+[37] C. Wu, Z. Zheng, P. Dai, C. Shan, and X. Jia, “Rethinking image
+deraining via text-guided detail reconstruction,” in Proc. IEEE Int. Conf.
+Multimedia Expo (ICME), Jul. 2024, pp. 1–6.
+[38] Y. Song, Z. He, H. Qian, and X. Du, “Vision transformers for single
+image dehazing,” IEEE Trans. Image Process., vol. 32, pp. 1927–1941,
+2023.
+[39] Y. Qiu, K. Zhang, C. Wang, W. Luo, H. Li, and Z. Jin, “MBTaylorFormer: Multi-branch efficient transformer expanded by Taylor
+formula for image dehazing,” in Proc. IEEE/CVF Int. Conf. Comput.
+Vis. (ICCV), Oct. 2023, pp. 12756–12767.
+[40] Z. Jin, Y. Qiu, K. Zhang, H. Li, and W. Luo, “MB-TaylorFormer v2:
+Improved multi-branch linear transformer expanded by Taylor formula
+for image restoration,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 47,
+no. 7, pp. 5990–6005, Jul. 2025.
+[41] F.-J. Tsai, Y.-T. Peng, Y. Lin, C.-C. Tsai, and C. Lin, “Stripformer: Strip
+transformer for fast image deblurring,” in Proc. Eur. Conf. Comput. Vis.,
+2022, pp. 146–162.
+
+4341
+
+[42] X. Mao, J. Wang, X. Xie, Q. Li, and Y. Wang, “LoFormer: Local
+frequency transformer for image deblurring,” in Proc. 32nd ACM Int.
+Conf. Multimedia, Oct. 2024, pp. 10382–10391.
+[43] Z. Zheng et al., “Ultra-high-definition image dehazing via multi-guided
+bilateral learning,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), Jun. 2021, pp. 16180–16189.
+[44] Z. Zheng, W. Ren, X. Cao, T. Wang, and X. Jia, “Ultra-high-definition
+image HDR reconstruction via collaborative bilateral learning,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct. 2021, pp. 4429–4438.
+[45] Y. Zhou, C. Li, L. Jin, T. Xu, X. Liu, and J. Xu, “4K-resolution photo
+exposure correction at 125 FPS with 8K parameters,” in Proc. IEEE/CVF
+Winter Conf. Appl. Comput. Vis., Jan. 2024, pp. 1576–1586.
+[46] C. Li et al., “Embedding Fourier for ultra-high-definition low-light image
+enhancement,” 2023, arXiv:2302.11831.
+[47] Y. Wei, Z. Zheng, and X. Jia, “Uhd underwater image enhancement via
+frequency-spatial domain aware network,” in Proc. Asian Conf. Comput.
+Vis., 2022, pp. 299–314.
+[48] W. Zou, H. Gao, W. Yang, and T. Liu, “Wave-mamba: Wavelet state
+space model for ultra-high-definition low-light image enhancement,” in
+Proc. 32nd ACM Int. Conf. Multimedia, Oct. 2024, pp. 1534–1543.
+[49] O. Ronneberger, P. Fischer, and T. Brox, “U-Net: Convolutional networks for biomedical image segmentation,” in Proc. 18th Int. Conf.
+Med. Image Comput. Comput.-Assist. Intervent., 2015, pp. 234–241.
+[50] Y. Zhou, Z. Li, C.-L. Guo, S. Bai, M.-M. Cheng, and Q. Hou,
+“SRFormer: Permuted self-attention for single image super-resolution,”
+in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct. 2023,
+pp. 12780–12791.
+[51] A. Li, L. Zhang, Y. Liu, and C. Zhu, “Feature modulation transformer:
+Cross-refinement of global representation via high-frequency prior for
+image super-resolution,” in Proc. IEEE/CVF Int. Conf. Comput. Vis.
+(ICCV), Oct. 2023, pp. 12480–12490.
+[52] A. Li, L. Zhang, Y. Liu, and C. Zhu, “Exploring frequency-inspired
+optimization in transformer for efficient single image super-resolution,”
+IEEE Trans. Pattern Anal. Mach. Intell., vol. 47, no. 4, pp. 3141–3158,
+Apr. 2025.
+[53] C. Zhao et al., “From zero to detail: Deconstructing ultra-highdefinition image restoration from progressive spectral perspective,”
+2025, arXiv:2503.13165.
+[54] W. Yu et al., “MetaFormer is actually what you need for vision,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2022,
+pp. 10819–10829.
+[55] D. P. Kingma and J. Ba, “Adam: A method for stochastic optimization,”
+2014, arXiv:1412.6980.
+[56] H. Chen, X. Chen, C. Wu, Z. Zheng, J. Pan, and X. Fu, “Towards ultrahigh-definition image deraining: A benchmark and an efficient method,”
+2024, arXiv:2405.17074.
+[57] S. Deng, W. Ren, Y. Yan, T. Wang, F. Song, and X. Cao, “Multi-scale
+separable network for ultra-high-definition video deblurring,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct. 2021, pp. 14010–14019.
+[58] L. Wang et al., “Ultra-high-definition image restoration: New
+benchmarks and a dual interaction prior-driven solution,” 2024,
+arXiv:2406.13607.
+[59] K. Zhang et al., “Benchmarking ultra-high-definition image superresolution,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct.
+2021, pp. 14749–14758.
+[60] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli, “Image quality assessment: From error visibility to structural
+similarity,” IEEE Trans. Image Process., vol. 13, no. 4, pp. 600–612,
+Apr. 2004.
+[61] C. Li, C. Guo, and C. C. Loy, “Learning to enhance low-light image
+via zero-reference deep curve estimation,” IEEE Trans. Pattern Anal.
+Mach. Intell., vol. 44, no. 8, pp. 4225–4238, Aug. 2022.
+[62] R. Liu, L. Ma, J. Zhang, X. Fan, and Z. Luo, “Retinex-inspired
+unrolling with cooperative prior architecture search for low-light image
+enhancement,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Jun. 2021, pp. 10556–10565.
+[63] Y. Jiang et al., “EnlightenGAN: Deep light enhancement without paired
+supervision,” IEEE Trans. Image Process., vol. 30, pp. 2340–2349,
+2021.
+[64] W. Yu, Q. Zhu, N. Zheng, J. Huang, M. Zhou, and F. Zhao, “Learning
+non-uniform-sampling for ultra-high-definition image enhancement,” in
+Proc. 31st ACM Int. Conf. Multimedia, Oct. 2023, pp. 1412–1421.
+[65] C. Wu, L. Wang, L. Peng, D. Lu, and Z. Zheng, “Dropout the high-rate
+downsampling: A novel design paradigm for UHD image restoration,”
+in Proc. IEEE/CVF Winter Conf. Appl. Comput. Vis. (WACV), Feb. 2025,
+pp. 2390–2399.
+
+4342
+
+IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY, VOL. 36, NO. 4, APRIL 2026
+
+[66] Y. Liu, D. Li, X. Fu, X. Lu, J. Huang, and Z.-J. Zha, “UHD-processer:
+Unified UHD image restoration with progressive frequency learning and
+degradation-aware prompts,” in Proc. IEEE/CVF Conf. Comput. Vis.
+Pattern Recognit. (CVPR), Jun. 2025, pp. 23121–23130.
+[67] H. Wang, Q. Xie, Q. Zhao, and D. Meng, “A model-driven deep neural
+network for single image rain removal,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), Jun. 2020, pp. 3100–3109.
+[68] Q. Yi, J. Li, Q. Dai, F. Fang, G. Zhang, and T. Zeng, “Structurepreserving deraining with residue channel prior guidance,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct. 2021, pp. 4218–4227.
+[69] S. Chen, T. Ye, J. Bai, E. Chen, J. Shi, and L. Zhu, “Sparse sampling
+transformer with uncertainty-driven ranking for unified removal of
+raindrops and rain streaks,” in Proc. IEEE/CVF Int. Conf. Comput. Vis.
+(ICCV), Oct. 2023, pp. 13060–13071.
+[70] T. Yan et al., “GLGFN: Global–local grafting fusion network for highresolution image deraining,” IEEE Trans. Circuits Syst. Video Technol.,
+vol. 34, no. 11, pp. 10860–10873, Nov. 2024.
+[71] Y. Cui et al., “Selective frequency network for image restoration,” in
+Proc. 11th Int. Conf. Learn. Represent., 2023, pp. 36361–36373.
+[72] S.-J. Cho, S.-W. Ji, J.-P. Hong, S.-W. Jung, and S.-J. Ko, “Rethinking
+coarse-to-fine approach in single image deblurring,” in Proc. IEEE/CVF
+Int. Conf. Comput. Vis. (ICCV), Oct. 2021, pp. 4641–4650.
+[73] Y. Liu, D. Li, J. Xiao, Y. Bao, S. Xu, and X. Fu, “DreamUHD:
+Frequency enhanced variational autoencoder for ultra-high-definition
+image restoration,” in Proc. AAAI Conf. Artif. Intell., 2025, vol. 39,
+no. 6, pp. 5712–5720.
+[74] H. Yu, N. Zheng, M. Zhou, J. Huang, Z. Xiao, and F. Zhao, “Frequency
+and spatial dual guidance for image dehazing,” in Proc. Eur. Conf.
+Comput. Vis., Oct. 2022, pp. 181–198.
+[75] Y. Cui, W. Ren, and A. Knoll, “Omni-kernel modulation for universal
+image restoration,” IEEE Trans. Circuits Syst. Video Technol., vol. 34,
+no. 12, pp. 12496–12509, Dec. 2024.
+
+Chen Wu received the B.Eng. degree from Central
+South University, Changsha, China, in 2022, and
+the M.S. degree from the University of Science
+and Technology of China, Hefei, China, in 2025.
+He is currently pursuing the Ph.D. degree with the
+National University of Defense Technology, Changsha, China. His research interests include low-level
+vision and image generation.
+
+Ling Wang received the B.Eng. degree in software engineering from Tongji University, Shanghai,
+China, in 2023. He is currently pursuing the M.Phil.
+degree with the AI Thrust, Information Hub, The
+Hong Kong University of Science and Technology (Guangzhou), Guangzhou, China. His research
+interests include low-level vision, brain signal recognition, and multi-modal large language model.
+
+Zhuoran Zheng received the Ph.D. degree from
+Nanjing University of Science and Technology in
+2024. Since 2024, he has been a Post-Doctoral
+Researcher with Sun Yat-sen University. He has
+published multiple papers in top-tier computer vision
+conferences, including CVPR, ICCV, and ECCV.
+His primary research focuses on image processing,
+with particular emphasis on image enhancement,
+restoration, and reconstruction.
+
+Weidong Jiang was born in Chongqing, China, in
+1968. He received the B.S. degree in communication engineering and the Ph.D. degree in electronic
+science and technology from the National University
+of Defense Technology (NUDT), Changsha, China,
+in 1991 and 2001, respectively. He is currently a
+Professor with NUDT. His current research interests
+include MIMO radar signal processing and radar
+system technology.
+
+Yuning Cui (Graduate Student Member, IEEE)
+received the B.Eng. degree from Central South
+University, China, in 2016, and the M.Eng. degree
+from the National University of Defense Technology, China, in 2018. He is currently pursuing the
+Ph.D. degree with the Chair of Robotics, Artificial Intelligence and Real-Time Systems, School of
+Computation, Information and Technology, Technical University of Munich. His research interest lies
+in image restoration.
+
+Jingyuan Xia (Member, IEEE) received the B.Sc.
+and M.Sc. degrees from the National University of
+Defense Technology (NUDT), Changsha, China, in
+2014 and 2016, respectively, and the Ph.D. degree
+from Imperial College London (ICL), London, U.K.,
+in 2020. He is currently an Associate Professor with
+the College of the Electronic Science, NUDT. His
+current research interests include low-level image
+processing, nonconvex optimization, and machine
+learning for signal processing.
+
+

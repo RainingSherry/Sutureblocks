@@ -1,0 +1,1583 @@
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+5601115
+
+A Dual-Stream UNet With Parallel Channel–Spatial
+Interaction and Aggregation for Change Detection
+Chaoyu Zhang , Graduate Student Member, IEEE, Qiuze Yu , Yanli Shang , Fanghong Liu ,
+and Haowen Zhang , Graduate Student Member, IEEE
+
+Abstract—Change detection (CD) aims to analyze changes in
+objects between bitemporal images, playing a crucial role in
+geographical observations. However, hidden difference features
+and insufficient interfeature interaction both lead to suboptimal
+performance of methods. To address these challenges, this article
+proposes a dual-stream UNet with parallel channel–spatial interaction and aggregation (DCSI-UNet). First, the encoding part
+utilizes a multilayer dual-stream convolutional neural network
+(CNN) to extract multilayer features of bitemporal images and
+then processes them through a channel group interaction module
+(CGIM) and a spatial Gaussian attention module (SGAM) to generate channel and spatial interaction feature maps, respectively.
+Specifically, the CGIM splits the bitemporal feature maps into
+multiple channelwise subspaces and applies interactive attention
+to enhance cross-channel feature correlation. The SGAM calculates the mixed mean and joint variance at the spatial level of
+bitemporal feature maps, which establish a Gaussian attention
+kernel (GAK) capturing hidden difference features. Second,
+the decoding part is designed in two phases: skip connections
+and interaction-feature aggregation. The former decodes the
+interactive feature maps from CGIM and SGAM separately. The
+latter fuses multilayer channel and spatial interactive features
+from the encoding part, which suppresses localization loss and
+exploits richer semantic consistency of changed regions. Finally,
+comprehensive experiments on three public datasets demonstrate
+that the proposed method outperforms existing methods in both
+quantitative and qualitative evaluations. The code is available at
+https://github.com/ZChaoyv/DCSI-UNet
+Index Terms—Change detection (CD), channel–spatial attention interaction, convolutional neural network (CNN), dualstream UNet, interaction-feature aggregation.
+
+I. I NTRODUCTION
+HANGE detection (CD) is an important task in remote
+sensing (RS) image processing, which generates pixellevel binary change maps of ground objects by analyzing pairs
+of images taken at different times in a specific geographic area.
+Therefore, it can be applied to various fields such as urban
+planning [1], [2], disaster assessment [3], [4], land cover [5],
+[6], building change [7], [8], and environmental monitoring
+[9]. The real change of the building can be obtained by
+comparing and analyzing bitemporal images, as shown in the
+
+C
+
+Received 19 July 2025; revised 10 November 2025; accepted 7 December
+2025. Date of publication 12 December 2025; date of current version 8 January
+2026. (Corresponding authors: Qiuze Yu; Chaoyu Zhang.)
+The authors are with the School of Electronic Information, Wuhan University, Wuhan 430072, China (e-mail: chaoyv@whu.edu.cn; yuhenry007@whu.
+edu.cn; aaysyl@126.com; 2018302080229@whu.edu.cn; 17361636069@
+163.com).
+Digital Object Identifier 10.1109/TGRS.2025.3643508
+
+Fig. 1. Illustration of CD. (a) and (b) Bitemporal images and (c) change map.
+The green frame is an example of a real changed building object. The red
+frame (1) and the yellow frames (2) are two examples of the pseudo changes
+for tree occlusion and cars.
+
+green frame in Fig. 1. However, pseudo changes can affect the
+results due to different imaging times and occlusion by other
+objects, as shown in the red frame (1) and yellow frames (2)
+in Fig. 1, where the tree occlusion and the cars belong to
+task-irrelevant pseudo changes. Therefore, the core of CD is
+to accurately identify true regions of change, in other words,
+to enhance the capture of difference features while reducing
+task-irrelevant distractions.
+CD methods can be broadly categorized into two groups:
+traditional methods [10], [11], [12], [13] and deep learning
+(DL) methods [14], [15], [16], [17], [18], [19], [20], [21],
+[22]. Traditional methods include regression analysis [13],
+change vector analysis [10], principal component analysis
+[12], and k-means [11]. These methods recognize changed
+regions by processing images and setting thresholds manually. Since only pixel-level differences and shallow features
+are considered, they are not sufficient in reducing pseudochange interference. With the development of computer vision,
+DL methods have been widely studied and applied in CD
+tasks by virtue of their powerful feature extraction and detail
+representation capabilities. These methods take bitemporal
+images as input and generally establish end-to-end singlestream or dual-stream networks to generate binary change
+maps.
+Various current DL methods have shown that the combination of the UNet [23] multilayer feature fusion structure
+[14], [23], [24], and attention [15], [18], [22], [25] can help
+CD methods to learn changed regions more accurately. It
+should be noted that CD is essentially a pixel-level binary
+classification task (with 0 and 1 representing unchanged and
+changed labels), in which fine-grained semantic features are
+crucial for the adjudication of edges in changed regions.
+
+1558-0644 © 2025 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and
+similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission.
+See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Therefore, deploying the UNet-style feature fusion structure
+at all layers can integrate different levels of semantic features
+by upsampling them sequentially, capturing more accurate
+difference features. In addition, the attention level of different
+parts of bitemporal images can be dynamically adjusted by the
+attention mechanism through feature extraction and attention
+weight calculation. For example, channel attention (CA) [15],
+[25] and spatial attention [18], [22] assign higher attention
+weights to targets with higher semantic relevance in the feature
+maps to promote effective feature propagation. As a result, real
+changed regions in bitemporal images (buildings in Fig. 1) will
+have higher semantic relevance, which are easily enhanced
+and captured by attention. In recent years, Transformer [26]
+has been proposed to break the limitation of the restricted
+convolutional neural network (CNN) receptive field. Compared with convolutional attention [15], [25], it obtains an
+accurate global receptive field through positional information
+embedding and matrix projection to more precisely capture the
+long-range semantic relations of bitemporal images. Therefore, a number of researchers have attempted to utilize a
+Transformer or its similar variants, which further focus on
+changed regions to gain performance improvements [16], [20],
+[27], [28]. Although the above CD strategies have achieved
+significant results, they still have the following shortcomings
+in the capability of difference features extraction and effective
+propagation:
+1) Many methods focus on bitemporal images feature
+extraction and utilize the absolute value of image
+subtraction to obtain difference features, ignoring the
+interactions between features, which inhibits the mining
+of difference features.
+2) Directly stack Transformer blocks in UNet-style structures, resulting in high computational costs, and
+insufficiently utilize semantic information features
+by considering bitemporal or differential features
+separately.
+3) Although both CA and spatial attention can improve the
+CD accuracy, they ignore the co-modeling of channel
+and spatial features, and these features may be different
+in the edges and textures of changed regions.
+In this article, we propose a dual-stream UNet with parallel
+channel–spatial interaction and aggregation (DCSI-UNet) to
+address existing issues. Most current methods extract difference features via feature subtraction, neglecting bitemporal
+feature interactions and leading to insufficient mining of
+hidden difference features; thus, we design the channel group
+interaction module (CGIM) and spatial Gaussian attention
+module (SGAM) to enhance such interactions from channel
+subspace cross-interaction and spatial statistical distribution
+modeling, respectively, overcoming isolated feature processing. While Transformer-based methods capture long-range
+dependencies, stacking Transformer blocks raises computational cost and fails to fully fuse channel–spatial synergistic
+features. We adopt a lightweight attention interaction to
+avoid high Transformer overhead, and propose the interactionfeature aggregation module (IAM) to fuse channel–spatial
+interaction features for low-cost and high-synergy feature
+utilization. Most existing methods use CA and spatial attention
+
+separately, ignoring their complementarity in changed regions.
+DCSI-UNet designs CGIM and SGAM in parallel, with IAM
+aggregating multilayer channel–spatial interaction features
+to preserve edge details (spatial attention advantage) and
+strengthen semantic correlations (CA advantage), effectively
+suppressing localization errors.
+Our contributions in this study can be concluded as follows.
+1) We propose a DCSI-UNet for CD to enhance bitemporal
+feature maps interaction in channels and spatial dimensions, allowing the propagation and discrimination of
+difference features more efficiently and effectively.
+2) We propose two plug-and-play interaction modules,
+CGIM and SGAM. CGIM realizes channel feature
+correlation to enhance cross-channel feature relevance.
+SGAM constructs a Gaussian attention kernel (GAK)
+to generate spatial weights, which strengthens spatial
+interaction and difference features, thereby focusing on
+real changed regions.
+3) The IAM is proposed to aggregate multilayer channel
+and spatial interaction features. It ensures the reliability
+of co-modeling in both channel and spatial dimensions while maintaining fine-grained changed regions
+boundaries.
+The rest of this article is organized as follows. Section II
+briefly reviews related works on CD. In Section III, the
+proposed DCSI-UNet and design details of each module are
+discussed. Section IV presents a detailed description and
+analysis of the comparative and ablation study results. Finally,
+Section V concludes this article.
+II. R ELATED W ORK
+According to the feature extraction and feature information
+fusion strategies, the current mainstream DL methods in CD
+can be broadly categorized into two groups: the CNN-based
+and the Transformer-based. The former highlights the validity
+of the UNet-style multilayer feature fusion structure and the
+attention of feature extraction. The latter obtains global sensing
+capability by establishing long-distance dependence on features, demonstrating its effectiveness in feature enhancement
+and feature interaction to get performance improvement.
+A. CNN-Based Methods in CD
+In order to cope with irrelevant changes and complex
+objects, CNN-based methods usually deploy the UNet structure to fuse the multilayer features to achieve a combination
+of low-level features for the localization of changed regions
+and high-level features with sufficient semantic information.
+UNet [23] was originally proposed for semantic segmentation
+[29], [30]. It recursively fuses two layers of neighboring
+feature maps using upsampling and skip connections, showing
+excellent performance on a variety of pixel-level tasks. The
+UNet structure in CD can be categorized into single-stream
+[14] and dual-stream [14], [18], [19], [31], [32], [33], [34]
+based on the processing of the input images. The singlestream structure first concatenates the bitemporal images and
+feeds them directly into UNet for feature extraction, and then
+decodes them to predict the change map. The dual-stream
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+5601115
+
+Fig. 2. Illustration of DCSI-UNet. The four-layer bitemporal feature maps are first extracted using the ResConv structural encoder. Then, the bitemporal
+feature maps are fed into CGIM and SGAM to enhance the feature interactions in both channel and spatial dimensions. After that, the interaction feature maps
+generated by CGIM and SGAM are decoded using skip connections, and IAM is introduced to aggregate the interaction features. Finally, a weight adaptive
+prediction head is used to predict the change map.
+
+structure first uses the two encoders of UNet to achieve dualbranch feature extraction on the bitemporal images, and then
+decodes the difference absolute values of these features or
+concatenates them together to predict the change map. Obviously, the lack of independent original input images makes it
+difficult for single-stream CD networks to extract fine features
+of bitemporal images, which is not conducive for the extraction
+and propagation of difference features. To more fully utilize
+multilayer feature maps, UNet++ [24] was proposed. Its core
+characteristic is the nesting of dense skip connections on the
+dual-stream structure, which enables each layer in the decoder
+to fuse feature maps from different layers of the encoder,
+but leads to an increase in computational complexity. These
+studies have amply demonstrated the excellent performance of
+the UNet-style structure in CD.
+In addition, dual-stream structure can be designed using
+weight-sharing (Siamese) [14], [19], [32], [34] or nonweightsharing [18], [31], [33]. The advantage of the weight-sharing is
+that it has fewer parameters (Params.) and great generalization.
+However, the weight-sharing encoder may result in a weaker
+feature extraction ability, thereby affecting the identifying
+accuracy of true regions of change. This problem can be
+solved by using a nonweight-sharing encoder, but this often
+leads to an increase in the number of Params. or overfitting
+due to inconsistencies in the feature space. In order to solve
+this problem, it is necessary to design a method for the
+CD that allows the features to be fully interacted with and
+utilized.
+
+Various types of convolutional attention [15], [18], [22],
+[25], [35], [36] have also been extensively studied in order
+to more precisely capture difference features to facilitate the
+recognition of changed regions. Specifically, such methods can
+utilize convolution and multilayer perceptron (MLP) to achieve
+mapping of feature weights to enhance attention on taskrelevant features. Representative methods include IFNet [35]
+and SNUNet [15]. IFNet uses both CA and spatial attention
+in multiscale feature fusion for improving the integrity and
+internal compactness of changed region boundaries. SNUNet
+uses improved CA for extracting output group relations, which
+is used to achieve feature refinement and suppress localization
+differences. Such methods can also use a combination of
+convolution and mathematical computation to achieve adaptive
+enhancement of feature weight distributions. Examples include
+USSFC-Net [18] and SEIFNet [22]. USSFC-Net uses a combination of Nadaraya–Watson and dilation convolution to model
+spatial–spectral dependencies for feature enrichment. SEIFNet
+uses coordinate correlations for enhanced global and local
+feature capture by injecting them into attentions. However,
+despite the bright results of these CNN methods in improving
+CD performance, the ability to model remote dependencies
+remains to be explored due to the limitations of the CNN
+perceptual domain.
+B. Transformer-Based Methods in CD
+Transformer [26] has global attention capabilities and can
+help capture long-range dependencies between contextual
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+information to enhance feature representation. Specifically, the
+Transformer first adopts the class token and patch embedding,
+and uses matrix projection to obtain multihead self-attention.
+Then, it uses an MLP to further enhance the feature representation and incorporates multihead self-attention with skip
+connections. With the strong and robust representation on
+large-scale datasets, the Transformer-based methods show
+comparable or even better performance than the CNN. Therefore, they have been widely applied in visual tasks, including
+image classification [37], [38], [39], semantic segmentation
+[40], [41], object detection [42], [43], and super-resolution
+[44], [45], [46]. This excellent global attention capability of
+the Transformer has also been applied to CD tasks to improve
+performance. For example, BIT [16] uses a lightweight Transformer encoder and two Transformer decoders to effectively
+model the spatiotemporal context. Changeformer [27] combines a hierarchical Transformer encoder with an MLP decoder
+within a Siamese network architecture to effectively present
+the multiscale long-range details required for precise CD.
+To complement the advantages of CNN and Transformers,
+capture texture details while establishing long-range semantic correlations, and improve computational efficiency, some
+methods utilize Transformers as attention blocks embedded
+in CNN networks. They achieve channel or spatial attention
+at different scales of bitemporal images, thereby enhancing
+detection capabilities. Since they rely on the self-attention
+of Transformers to realize key functions, they still belong
+to Transformer-based methods. For example, ELGC-Net [21]
+constructs spatial attention by combining improved pooling operations with Transformer to enhance global context
+and local spatial feature extraction. AMTNet [47] enhances
+the detection performance by constructing the Transformer
+with spatial and channel dual-attention to capture long-range
+dependencies for a more discriminative feature representation.
+Although these Transformer-based CD methods have achieved
+significant detection results, the stacking of Transformer on the
+backbone does not allow glimpses of feature representations on
+another image, resulting in still insufficient interaction between
+bitemporal images. As a consequence, researchers have begun
+to explore feature interactions between neighboring scales.
+Feng et al. [20] proposed a dual-branch multilevel intertemporal network (DMINet), which extracts features through
+CNNs and uses JointAtt to guide the global feature distribution of each input. Zhang et al. [34] propose a multiscale
+cascaded cross-attention hierarchical network (MSCCA-Net),
+which designs multiscale cascade cross-attention for crossfusing hierarchical features, and realizes semantic feature
+redistribution by modeling channel correlations through channel projections on the output feature map. The above studies
+indicate that feature interactions between dimensions of bitemporal images are beneficial for the detail and localization of
+changed regions.
+III. M ETHODOLOGY
+A. Network Overview
+In this section, we focus on the overall design and architecture of the proposed DCSI-UNet, as shown in Fig. 2, which
+
+Algorithm 1 Overall CD Process of DCSI-UNet
+Input: Bitemporal images: Img1 , Img2
+Output: Change map: CM
+1: // Extracting the four-layer bitemporal feature maps
+through the non-weight-sharing encoder
+2: {F1l | l = 1, 2, 3, 4} = Encoder(Img1 )
+3: {F2l | l = 1, 2, 3, 4} = Encoder(Img2 )
+4: // Refining channel and spatial feature interactions through
+CGIM and SGAM
+5: for l = 1 to 4 do
+
+6:
+Fcl = CGIM F1l , F2l 
+7:
+Fsl = SGAM F1l , F2l
+8:
+Fg l = Concat (Fcl , Fsl )
+9: end for
+10: // Decoding channel and spatial interaction feature maps
+through upsampling operations and ResConv
+11: for l = 4 to 1 do
+12:
+if l = 4 then
+13:
+Ycl = ResConv (Fcl )
+14:
+Ysl = ResConv (Fsl )
+15:
+else
+
+16:
+Ycl = ResConv Concat Fcl , Yc(l+1) ↑
+17:
+Ysl = ResConv Concat Fsl , Ys(l+1) ↑
+18:
+end if
+19: end for
+20: // Fusing the multilayer channel and spatial interaction
+feature maps through IAM 
+21: Yg = IAM Fg 1 , Fg 2 , Fg 3 , Fg 4
+22: // Predicting the change map through the classifier
+23: CM = Predictor(Yc1 , Ys1 , Yg )
+
+consists of an encoding part and a decoding part, with the
+decoding further divided into two phases. Specifically, Img1
+and Img2 ∈ RH×W×3 represent the bitemporal images input
+to the DCSI-UNet, where H and W denote the height and
+width of the images, respectively. The decoded output finally
+generates a binary change map CM ∈ RH×W×1 via a weight
+adaptive prediction head. Algorithm 1 shows the overall CD
+process of our DCSI-UNet.
+1) Encoding Part: Residual convolutional (ResConv)
+blocks [48] and max-pooling operations are used as the dualstream nonweight-sharing backbone of the encoding part, as
+shown in Fig. 2, to extract the four-layer bitemporal feature
+maps. After each layer of feature extraction operation, CGIM
+and SGAM accept bitemporal feature maps as inputs, producing channel and spatial interaction feature maps. Details of
+CGIM and SGAM are presented in Fig. 3(a) and (b). Then,
+each CGIM and SGAM generated interaction feature map is
+stacked as channel and spatial dimension guiding feature map
+for the decoding part. The encoding process can be described
+as follows:
+
+Ftl = ResConv Imgt ↓, l = 1
+(1)
+
+t
+t
+Fl = ResConv Fl−1 ↓, l = 2, 3, 4
+(2)
+
+1
+2
+(3)
+Fcl = CGIM Fl , Fl
+
+1
+2
+(4)
+F sl = SGAM Fl , Fl
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+5601115
+
+Fig. 3. Illustration of the proposed modules. (a) Our CGIM. (b) Our SGAM. (c) IAM.
+
+Fg l = Concat (Fcl , F sl )
+l
+
+l
+
+(5)
+
+l −1
+
+where Ftl ∈ R(H/2 )×(W/2 )×2 C represents the feature map of
+the lth (l = 1, 2, 3, and 4) layer with time phase t = 1
+l
+l
+l −1
+l
+l
+l −1
+and 2. Fcl ∈ R(H/2 )×(W/2 )×2 C and F sl ∈ R(H/2 )×(W/2 )×2 C
+represent the interaction feature maps generated by CGIM or
+SGAM in the lth layer, respectively. ResConv(·) refers to the
+ResConv operation, and the function (·) ↓ denotes the 2 × 2
+max-pooling operations. Concat(·) represents the concatenal
+l
+l
+tion along the channel dimension. Fg l ∈ R(H/2 )×(W/2 )×2 C
+represents the guiding feature maps at the lth layer.
+2) Decoding Part: The first phase of the decoding part
+consists of dual-stream upsampling operations and ResConv,
+using skip connections to sequentially generate two feature
+l
+l
+l −1
+l
+l
+l −1
+maps, Ycl ∈ R(H/2 )×(W/2 )×2 C and Y sl ∈ R(H/2 )×(W/2 )×2 C .
+At the fourth layer, the outputs of CGIM and SGAM, Fc4 and
+F s4 , are directly decoded through ResConv to obtain Yc4 and
+Y s4 . In the first three layers, Fcl and F sl are concatenated with
+the upsampled outputs from the subsequent layer Ycl+1 and
+Y sl+1 , and then fed into ResConv for decoding to produce Ycl
+and Y sl . The first phase of the decoding part can be described
+as follows:
+Ycl = ResConv (Fcl ) ,
+Y sl = ResConv (F sl ) ,
+
+l=4
+
+l=4
+ 
+Ycl = ResConv Concat Fcl , Ycl+1 ↑ ,
+ 
+Y sl = ResConv Concat F sl , Y sl+1 ↑ ,
+
+ultimately producing Yg ∈ R(H/2)×(W/2)×C . Detailed information on IAM is shown in Fig. 3(c). This process can be
+summarized as follows:
+
+Yg = IAM Fg 1 , Fg 2 , Fg 3 , Fg 4 .
+(10)
+3) Prediction: We adopt a weight adaptive prediction head
+to generate the CM, as shown in Fig. 1. Specifically, the Yc1 ,
+Y s1 , and Yg are upsampled back to the original image size, and
+the number of channels is mapped to 2 by convolutional layers.
+Then, the mapped outputs are multiplied by learnable Params.
+α1 , α2 , and α3 as voting weights, yielding the predicted outputs
+P1 ∈ RH×W×2 , P2 ∈ RH×W×2 , and P3 ∈ RH×W×2 . Finally,
+the predicted outputs are summed and converted from a twochannel map into a one-channel map by argmax operations to
+obtain CM
+Pi = αi × Conv ((Yi ) ↑) , i = 1, 2, 3
+CM = Argmax (P1 + P2 + P3 )
+
+(11)
+(12)
+
+where Conv(·) denotes the convolution operation. Let Y1 =
+Yc1 , Y2 = Y s1 , and Y3 = Yg .
+
+(6)
+
+B. Channel Group Interaction Module
+
+(7)
+
+For bitemporal feature maps, feature interactions need
+to be investigated before capturing true difference features,
+and neighboring pixels in different channels usually exhibit
+correlations. To enhance the channel correlation for mining
+potential changed regions, we propose CGIM, as shown in
+Fig. 3(a). Unlike the attentions proposed by other methods,
+CGIM does not perform operations such as splicing and
+channel adjustment of features in isolation, but facilitates the
+weight distribution of difference features in different channels
+
+l<4
+
+(8)
+
+l<4
+
+(9)
+
+where the function (·) ↑ denotes the upsampling operation
+using bilinear interpolation.
+The second phase of the decoding part takes the guiding
+features {Fg l |l = 1, 2, 3, 4} as inputs and introduces IAM to
+fuse multilayer channel and spatial interaction feature maps,
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+by mutual attention between bitemporal feature map channel
+subspaces.
+First, the input bitemporal feature maps F1 , F2 ∈ RH×W×C
+are stacked along the channel dimension, generating the fused
+tensor Xfuse ∈ RH×W×2C . Then, Xfuse is processed through a
+1 × 1 convolution to reduce the number of channels to C,
+and reshaped into Qfuse ∈ RHW×C as the fused query. Qfuse
+encapsulates both individual image information and shared
+semantic features from the other image. Subsequently, F1 and
+F2 are each passed through 1 × 1 convolutions and reshaped
+to generate their respective keys K1 , K2 ∈ RHW×C and values
+V1 , V2 ∈ RHW×C . This process can be described as follows:
+
+vanishing gradients caused by too large or too small values
+of weights after direct matrix multiplication. In addition, the
+size of the adjusted attention matrix is (C/n) × (C/n) (the size
+of most attention matrices is HW × HW), which effectively
+reduces memory consumption and improves computational
+efficiency.
+Attention score matrix is applied within each channel
+subspace to achieve CA, resulting in the interaction outputs
+outtfuse m ∈ RHW×(C/n) for each subspace
+
+outtfuse m = Vtm · Softmax(Qfuse m )T · Softmax Ktm
+
+Qfuse = Conv (Xfuse ) = Xfuse WQ
+
+Kt = Conv Ft = Ft WtK
+
+Vt = Conv Ft = Ft WtV
+
+Then, the interaction outputs from each channel subspace
+˜ t ∈ RHW×C .
+are stacked along the channel dimension to form X
+The overall process of our MCIS can be summarized as
+follows:
+
+X̃t = MCIS Kt , Qfuse , Vt
+
+= Concat Vt1 · Atttfuse 1 , Vt2 · Atttfuse 2 , . . . , Vtn · Atttfuse n
+
+(18)
+= Concat outtfuse 1 , outtfuse 2 , . . . , outtfuse n .
+
+(13)
+(14)
+(15)
+
+where C, H, and W represent the channels, height, and
+width of the feature maps, respectively. Conv(·) denotes the
+convolution operation. WQ , WtK , WtV ∈ RC×C represent the
+weight matrices for the query, key, and value linear mappings,
+respectively, where t represents the temporal phase of the
+feature map.
+Subsequently, Qfuse , Kt , and Vt are fed into the multisubspace channel interaction strategy (MCIS), as shown in
+Fig. 3(a). MCIS first adjusts Qfuse , Kt , and Vt along the
+channel dimension from C to C/n, dividing them into n
+groups, each representing a channel subspace. Specifically,
+the matrices are reshaped as Qfuse , Kt , Vt ∈ Rn×HW×(C/n) .
+For each subspace, Qfuse m , Ktm , Vtm ∈ RHW×(C/n) , where m
+is the subspace index. We propose an improved method of
+attention computation by first performing a channel dimension
+softmax operation on Qfuse and Ktm , which transforms each
+element into a probability distribution across channels. After
+this process, Ktm is regarded as the CA template and Qfuse m
+is the corresponding weight query coefficient. Subsequently,
+Qfuse m is transposed and multiplied by Ktm , allowing each
+position in Qfuse m to interact with all positions in Ktm . This
+process ensures a thorough interaction between individual and
+fused information, enabling a more refined representation of
+attention and generating the attention score matrix for each
+subspace, as described in the following:
+
+Atttfuse m = Softmax(Qfuse m )T · Softmax Ktm
+(16)
+where Atttfuse m ∈ R(C/n)×(C/n) represents the attention score
+matrix. T denotes the transpose operation. n denotes the
+number of channel subspaces.
+Most of the attention first performs transpose and multiply operations on query and key, and then performs the
+softmax operation. In contrast, the attention in our method
+has significant improvements in computational stability and
+memory consumption. Specifically, the softmax process is first
+performed on the channel dimensions to generate normalized
+distributions prior to matrix multiplication, so that meaningful
+distributions can be generated on channels to motivate interactions [34]. This operation not only highlights the important
+features and weakens the unimportant ones, but also mitigates
+the computational instability problems such as exploding or
+
+= Vtm · Atttfuse m .
+
+(17)
+
+˜ t incorporates partial information from the
+Functionally, X
+other feature map, reducing the learning of irrelevant features.
+Structurally, each interaction is restricted to a limited channel
+range and interacts with another feature map. This design
+effectively captures channel-level differences and reduces fea˜ 1 and X
+˜ 2 are stacked and multiplied
+ture overfitting. Finally, X
+by a learnable parameter µ (initialized to 0) to dynamically
+adjust the attention weights. To prevent loss of the original
+feature, Xfuse is added, and then, a convolution operation
+is performed to obtain the final channel interaction feature
+map Fc
+
+˜ 1 + X̃2 .
+Fc = Conv Xfuse + µ · Concat X
+(19)
+C. Spatial Gaussian Attention Module
+Images captured at different times may be affected by
+irrelevant factors such as illumination intensity and vegetation changes, which can lead to discrepancies in semantic
+features between bitemporal images. If bitemporal feature
+maps are directly stacked or absolute-value differenced, spatial
+dependence will be ignored, and difference features may be
+hidden in the background. Therefore, we propose SGAM, as
+shown in Fig. 3(b), which aims to model spatial interactions
+and dependence to enhance the difference representation in
+changed regions.
+In CrossAtt [19], [34], interaction perception is to find
+the relationship between the bitemporal feature maps queries
+and keys and mapping them to an attention matrix, which
+is then applied to the values to refine the feature maps. To
+get the attention relationship between queries and keys, we
+take inspiration from Nadaraya–Watson kernel regression in
+spatial correlation expansion and design GAK. We generalize
+Gaussian kernel attention on bitemporal feature maps, thereby
+designing a Gaussian attention-based strategy, SGAM, for
+spatial interaction and feature enhancement.
+Specifically, the bitemporal feature maps Ft ∈ RH×W×C are
+used as input, where t denotes the temporal phase of the feature
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+maps. Then, the number of channels is reduced by half using
+1 × 1 convolution, resulting in the tensor At ∈ RH×W×(C/2) ,
+which facilitates spatial concatenation of the bitemporal feature maps. Next, At passes through a BatchNorm (BN) and
+an rectified linear unit (ReLU) activation operations, yielding
+˜ t ∈ RH×W×(C/2)
+the tensor A
+
+
+˜ t = ReLU BN At .
+At = Conv Xt , A
+(20)
+Attention solely from self-feature may lead to the loss of
+shared feature information. Therefore, we compensate for this
+by incorporating correlation for bitemporal features. Inspired
+by the calculation method of the Transformer [26] and the
+2
+2
+Gaussian function g(x) = e−((x−µ) )/(2σ ) [49], [50], [51], we
+˜ t is used as the query, while
+propose the GAK. Specifically, A
+˜
+the corresponding feature map At¯ serves as the key. By computing the mixed mean and joint variance of the bitemporal
+feature maps, the hidden difference features based can be
+enhanced by statistical distribution. Therefore, we inject mixed
+mean and joint variance and extend the Nadaraya–Watson
+kernel regression to a higher dimension. First, the mixed mean
+˜ 1 and
+M ∈ R1×1×C is computed in the spatial dimension of A
+2
+Ã . Then, for each spatial level, the squared Euclidean distance
+˜ t and M is calculated to represent
+between each element of A
+˜ t relative to M is
+the difference. The joint variance θt 2 of A
+˜ t with
+computed by dividing the squared Frobenius norm of A
+M by the total number of spatial elements. These results are
+substituted into the exponential part of the Gaussian function
+to form the Gaussian kernel. Inspired by USSFC-Net [18],
+we add a bias of 0.5 to enhance global perception and achieve
+better attention weight distribution. o is a small constant added
+to ensure numerical stability. Finally, the sigmoid function
+is applied to normalize the weight mapping to obtain the
+Gaussian attention score GAttt , as mathematically expressed
+as follows:
+!
+
+˜t −M 2
+A
+t
++ 0.5
+(21)
+GAtt = sigmoid
+2θt 2 + o
+H−1 W−1
+
+M=
+
+1 X X Ã1 (i, j) + Ã2 (i, j)
+H×W
+2
+
+(22)
+
+i=0 j=0
+
+H−1 W−1
+
+2
+1 XX ˜t
+A (i, j) − M .
+θ =
+H×W
+t2
+
+(23)
+
+i=0 j=0
+
+˜ t is obtained by a 1 × 1 convoThe corresponding value A
+V
+t
+˜
+˜
+lutional mapping A . Then, AtV Hadamard product with GAttt
+to yield Aˆ t . The GAK can be expressed as follows:
+
+˜ t, A
+˜ t¯, A
+˜ tV , t , t¯
+ˆ t = GAK A
+A
+˜ tV
+= GAttt A
+!
+
+˜t −M 2
+A
+= sigmoid
++ 0.5
+ÃtV
+(24)
+2θt 2 + o
+˜ t and A
+˜ t¯ represent different temporal feature maps.
+where A
+denotes the Hadamard product.
+ˆ 1 and A
+ˆ 2 are weighted by a shared parameter β (initialized
+A
+to 0) adaptively adjusted and added to tensors A1 and A2 ,
+
+5601115
+
+preserving original information while directing global attention to regions where changes actually occur. Finally, spatial
+interaction feature maps F s are obtained through the ResConv
+
+ˆ 1 + A1 , β · Â2 + A2 . (25)
+F s = ResConv Concat β · A
+D. Interaction-Feature Aggregation Module
+Bitemporal feature maps establish strong channel interaction via CGIM and spatial interaction via SGAM. However,
+Cheng et al. [52] and Jiang et al. [53] exhibit different attentions that may differ in edge fine-grained details; therefore, a
+strategy is needed to jointly consider the relationship between
+these two interaction feature maps (which are generated by
+CGIM and SGAM), aggregating different semantic features
+on the channel and spatial interaction feature maps. For this
+reason, we design the IAM, as shown in Fig. 3(c), to further
+fuse channel and spatial interaction features, which enrich
+the edge and texture details of the changed regions. Stacking
+the channel and spatial interaction feature maps from the
+encoding stage yields the four-layer guiding feature maps
+{Fg l |l = 1, 2, 3, 4}. These guiding feature maps vary in size
+and represent different semantic levels and spatial positions. It
+has been shown in [15] that the shallow-layer features possess
+more precise localization, and the deep-layer features possess
+richer semantics (this will be further visualized in the subsequent heatmap visualization). Therefore, in the design of IAM,
+multilayer features are fused via CA and Hadamard product
+to balance localization accuracy and semantic consistency,
+thereby suppressing localization loss.
+First, since the guiding feature maps in the subsequent layer
+are half the size of those in the preceding layer and have
+twice the number of channels, we first perform an upsampling
+operation to match the image size, and then align the channel
+dimension using a 1 × 1 convolution. Second, as shown in
+Fig. 3(c), CA is used to learn the channel feature distribution
+weights of the guiding feature maps, and these weights are
+added to the guiding feature map of the preceding layer to
+reinforce important channels that are relevant to the CD. After
+that, since the values of changed regions on feature maps
+tend to be larger, we use a convolution operation to map the
+guiding feature map to spatial attention, and then apply the
+Hadamard product between it and the guiding feature map
+of the preceding layer, which further highlights the features
+and maintains localization. Eventually, the above operation
+is repeated on each layer of the guiding feature maps to
+achieve the aggregation of the channel and spatial interaction
+feature maps of all layers, generating Yg . This process can be
+described as follows:
+
+Yg = IAM Fg 1 , Fg 2 , Fg 3 , Fg 4
+ 
+= Conv Fˆ g1 ↑
+(26)
+
+
+ˆFgl = Fgl + CA F˜ gl+1
+Conv F̃gl+1 , l = 1, 2, 3
+(27)
+ 
+F˜ gl = Conv Fˆ gl ↑ , l = 2, 3
+(28)
+F̃g4 = Conv ((F4 ) ↑)
+
+(29)
+
+CA (F) = δ MLP Avg (F) + MLP (Max (F))
+
+
+
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+(30)
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+TABLE I
+BASIC I NFORMATION A BOUT THE E XPERIMENTAL DATASETS
+
+where Avg(·) and Max(·) denote the average pooling and maxpooling operations across the channel dimension, respectively.
+MLP(·) represents a multilayer perceptron. δ(·) denotes the
+sigmoid function. represents the Hadamard product. Conv(·)
+refers to the convolution operation. The function (·) ↑ denotes
+the upsampling operation using bilinear interpolation.
+E. Loss Function
+The process of generating CM using weight adaptive prediction head produced three different predicted outputs P1 ,
+P2 , and P3 . In the DCSI-UNet training phase, we minimize
+the cross-entropy loss [16], [17] Lce between three predicted
+outputs P1 , P2 , and P3 and the ground truth GT to optimize
+the DCSI-UNet Params. The Lce is expressed as follows:
+N
+X
+
+
+
+ˆ =−1
+Lce GT, Y
+GTi log2 Ŷi
+N
+i=1
+
+ˆi
++ (1 − GTi ) log2 1 − Y
+
+
+
+(31)
+
+where GTi represents the ground-truth label, with values of 0
+ˆ i represents the prediction probability, ranging between
+or 1. Y
+0 and 1. N denotes the total number of pixels in a change
+map. Our total training loss L can be expressed as
+
+
+te
+(λ1 Lce (GT, Φ (P1 )) + λ2 Lce (GT, Φ (P2 ))
+L= 1−
+Te
++ λ3 Lce (GT, Φ (P3 )))
+(32)
+where λ1 , λ2 , and λ3 are the tradeoff Params. applied to
+regulate the influence of each loss. In the experiments, their
+weights are all set to 1 because we consider P1 , P2 , and P3 to
+contribute equally to the loss. Additionally, the loss function
+decreases as the number of training epochs increases, ensuring
+DCSI-UNet convergence. T e represents the total number of
+training epochs, and te represents the current epoch. Φ(·) is
+the log-softmax function, which converts the predicted output
+to a prediction probability in the range of 0–1.
+IV. E XPERIMENTS
+A. Datasets and Experimental Setup
+1) Dataset: We demonstrated the validity of DCSI-UNet
+on three publicly researched datasets, as shown in Table I.
+The first dataset, LEVIR-CD1 [54], contains 637 pairs of
+ultrahigh resolution images (0.5 m) selected from Google
+Earth, spanning from 2002 to 2018. It covers multiple cities
+and locations in TX, USA, which is primarily used to study
+land change and land use, especially for buildings. In this
+1 https://justchenhao.github.io/LEVIR
+
+experiment, the images are cropped into 256 × 256 image
+patch pairs and randomly divided into 7120/1024/2048 copies
+for training/validation/testing in the ratio of 7:1:2.
+The second dataset, CDD2 [27], consists of RS images taken
+by Google Earth of the same geographical area. Changes in the
+dataset are mainly caused by buildings, vehicles, roads, and
+seasonal variations. In this experiment, the images are cropped
+into 256 × 256 image patch pairs and randomly divided into
+10 000/2998/3000 copies for training/validation/testing in the
+ratio of 10:3:3.
+The third dataset, WHU-CD3 [55], is a large public
+CD dataset based on RS images before and after the
+Christchurch earthquake in New Zealand, which include many
+rebuilt or newly constructed buildings. In this experiment,
+the images are cropped into 256 × 256 image patch pairs
+and randomly divided into 5947/743/744 copies for training/validation/testing in the ratio of 8:1:1.
+2) Evaluation Metrics: To evaluate the performance of the
+method in our experiments, we used six classical evaluation
+metrics derived from the confusion matrix: precision (Pre.),
+recall (Rec.), F1-score (F1), intersection over union (IoU),
+overall accuracy (OA), and Kappa. The definitions of the
+six evaluation metrics are specified as follows. Precision:
+It reflects the proportion of truly changed pixels among all
+predicted changed pixels. Recall: It represents the proportion
+of correctly predicted changed pixels among all actually
+changed pixels. F1-Score: The F1-score is the harmonic mean
+of precision and recall, balancing their tradeoff and providing
+a comprehensive assessment of the model’s CD performance.
+IoU: It is calculated as the ratio of the intersection area to
+the union area of predicted and ground-truth changed regions,
+reflecting the spatial consistency of predictions. OA: It denotes
+the proportion of correctly classified pixels among all pixels
+in the image. Kappa Coefficient: It evaluates the consistency
+between the model’s predictions and ground truth, which is
+particularly effective for datasets with imbalanced changed and
+unchanged pixel counts. The mathematical formulas for these
+metrics are given as follows:
+TP
+TP + FP
+TP
+Recall =
+TP + FN
+
+Precision =
+
+(33)
+(34)
+
+2
+(35)
+Precision−1 + Recall−1
+TP
+IoU =
+(36)
+TP + FP + FN
+TP + TN
+OA =
+(37)
+TP + FP + TN + FN
+OA − Pe
+Kappa =
+(38)
+1− Pe
+where true positive (TP) denotes the total number of samples
+correctly identified as changing pixels, false positive (FP)
+denotes the total number of samples incorrectly identified as
+changing pixels, true negative (TN) denotes the total number
+F1 =
+
+2 https://drive.google.com/file/d/1GX656JqqOyBi Ef0w65kDGVtonHrNs9
+3 https://aistudio.baidu.com/datasetdetail/251669
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+5601115
+
+TABLE II
+Q UANTITATIVE A NALYSIS AND C OMPARATIVE R ESULTS OF CD A LGORITHMS ON VARIOUS DATASETS . T HE B EST
+R ESULTS A RE IN B OLD . A LL R ESULTS A RE E XPRESSED IN %
+
+of samples correctly identified as unchanged pixels, and false
+negative (FN) denotes the total number of samples incorrectly
+identified as unchanged pixels. Pe (expected agreement) is a
+part of the Kappa coefficient that represents the proportion of
+expected consistency and can be expressed as
+(TP + FN) × (TP + FP) + (TN + FP) × (TN + FN)
+Pe =
+.
+(TP + TN + FP + FN)2
+(39)
+3) Implementation Details: In our experiments, the proposed DCSI-UNet is implemented using the Pytorch framework. For fairness, all the experiments are consistently
+conducted on the workstation with AMD EPYC 7262 8-Core
+and GPU of NVIDIA RTX 3090 with 24 GB of video memory,
+and use the existing data augmentation strategies in [16].
+During training, we set the C = 32 in DCSI-UNet and set
+λ1 = λ2 = λ3 = 1 in the loss function. We optimized the
+network Params. using the stochastic gradient descent (SGD)
+algorithm. The batch size is set to 16, and training lasts for
+200 epochs with a learning rate of 0.01, momentum of 0.99,
+and weight decay of 5e−4 . We save the method Params. that
+keep the highest validation mF1 score for the test.
+We totally select 11 advanced CD methods to make the
+comparisons, specifically, FC-EF [14], FC-SD [14], FC-SC
+[14], SNUNet [15], BIT [16], ICIF-Net [17], USSFC-Net [18],
+HANet [19], DMINet [20], ELGC-Net [21], and SEIFNet [22].
+To ensure rigor and fairness, all comparison methods were
+reproduced on the same dataset, using the same hardware and
+software configurations and following the parameter settings
+in the original article.
+B. Comparison and Analysis
+To evaluate the effectiveness of the proposed DCSI-UNet,
+we conducted extensive experiments on three datasets. The
+results of these experiments are sufficient to demonstrate the
+excellent performance of DCSI-UNet because the comparison
+methodology used has yielded significant results in the field.
+The results of six metrics on the LEVIR-CD, CDD, and WHUCD datasets are presented in Table II and the best values are
+marked in bold.
+
+From the data, our method has excellent performance in F1,
+IoU, OA, and kappa on the three datasets. Although precision
+and recall are sometimes slightly below the optimal values,
+they perform relatively well in these two aspects, thus achieving optimal F1 scores on three datasets. Notably, the proposed
+method is characterized by channel and spatial interaction,
+i.e., two interacting attentions contribute to difference features
+recognition. Therefore, precision and recall can be equalized
+during training, preventing DCSI-UNet from focusing too
+much on a single aspect of learning. It helps to improve
+the overall F1, demonstrating the robustness of DCSI-UNet.
+Furthermore, due to the weight adaptive prediction head, the
+prediction outputs P1 , P2 , and P3 adaptively adjust their
+contributions in the change map, thus moving DCSI-UNet
+toward the overall optimum. The optimal value of F1 reflects
+the strong ability of DCSI-UNet to mine real changed regions.
+Specifically, DCSI-UNet improves the F1 on the LEVIRCD dataset by 1.51%, 1.56%, 1.41%, 1.29%, 1.07%, 1.14%,
+0.35%, and 1.46% over SNUNet, BIT, ICIF-Net, USSFCNet, HANet, DMINet, ELGC-Net, and SEIFNet. The F1 of
+DCSI-UNet on CDD dataset is improved by 2.44%, 2.72%,
+2.04%, 2.33%, 3.8%, 0.8%, 0.7%, and 0.69% over SNUNet,
+BIT, ICIF-Net, USSFC-Net, HANet, DMINet, ELGC-Net, and
+SEIFNet. The F1 of DCSI-UNet on the WHU-CD dataset
+is increased by 4.26%, 4.6%, 2.56%, 2.23%, 4.36%, 4.17%,
+2.63%, and 4.27% over SNUNet, BIT, ICIF-Net, USSFCNet, HANet, DMINet, ELGC-Net, and SEIFNet. The above
+results show that our method can handle architectural and
+general CD tasks well. We propose CGIM and SGAM to
+enhance channel and spatial bitemporal feature interactions,
+suppressing pseudo changes and promoting capturing real
+changed regions. Meanwhile, the introduction of IAM can
+mine richer consistency difference of interaction features.
+We also conducted a visual analysis of the predicted results
+of each method on the datasets to provide an intuitive understanding of the performance of each method on the CD
+task. Different colors were assigned to the predicted images
+to distinguish the correctness of different regions, with TP
+(white), TN (black), FN (green), and FP (red). In order to
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 4. Visualization results of the compared methods on the LEVIR-CD dataset. TP (white), TN (black), FN (green), and FP (red). (a)–(d) Denote different
+sample images selected from the test set for visual comparison.
+
+Fig. 5. Visualization results of the compared methods on the CDD dataset. TP (white), TN (black), FN (green), and FP (red). (a)–(d) Denote different sample
+images selected from the test set for visual comparison.
+
+precisely characterize the change of interest, CD methods
+should to the greatest extent suppress the FP and FN (red
+and green) regions.
+1) Visualization on LEVIR-CD: The results in Fig. 4(a)–(d)
+demonstrate that our proposed method can characterize the
+real changes in buildings with the highest accuracy. The
+results in Fig. 4(c) show that our method has the lowest
+false detection rate, highlighting its superior anti-interference
+capability. When changes are hidden in the environment,
+DCSI-UNet can effectively identify the real changed areas,
+further confirming its advanced differential discrimination
+capability.
+2) Visualization on CDD: In the CDD dataset, we selected
+several representative image pairs for comparison. For example, as shown in Fig. 5(a), the visualization results show the
+strong edge detection and maintenance capability of DCSIUNet under the influence of lighting variations. Fig. 5(b)
+and (c) shows seasonal variations that lead to roads being
+covered by snow. The visualization results clearly show that
+
+the DCSI-UNet has excellent discrimination capability and can
+provide a visual experience that is highly similar to the ground
+truth. In Fig. 5(d), although the changed regions are hidden
+in the environment, DCSI-UNet can accurately identify them.
+Therefore, the above visualization results fully validate the
+strong anti-interference and difference recognition capability
+of DCSI-UNet.
+3) Visualization on WHU-CD: The presence of a large
+number of negative samples in the WHU-CD dataset is
+prone to leakage and misdetection. Objectively speaking,
+our method effectively mitigates this problem. In Fig. 6(a),
+where land changes to buildings, only DCSI-UNet accurately
+focuses on the real change. Most methods struggle to discern the changed areas in Fig. 6(b)–(d), particularly when
+distinguishing the ground with similar color characteristics
+as buildings. However, DCSI-UNet fully takes into account
+the interactions between the channel and space, and shows
+strong capability in recognizing hidden features in complex
+environments.
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+5601115
+
+Fig. 6. Visualization results of the compared methods on the WHU-CD dataset. TP (white), TN (black), FN (green), and FP (red). (a)–(d) Denote different
+sample images selected from the test set for visual comparison.
+TABLE III
+PARAMETERS AND E FFICIENCY. W E R ECORDED THE N UMBER OF M ETHOD
+PARAMETERS , THE FLOP S , AND THE C ORRESPONDING F1 FOR E ACH
+M ETHOD ON THE LEVIR-CD DATASET W ITH AN I NPUT I MAGE
+S IZE OF 256 × 256 × 3. T HE B EST R ESULTS A RE IN B OLD
+
+TABLE IV
+A BLATION S TUDY OF D IFFERENT E NCODING PART BACKBONES IN
+DCSI-UN ET BASED ON THE LEVIR-CD DATASET. T HE
+B EST R ESULTS A RE IN B OLD
+
+TABLE V
+A BLATION E XPERIMENTS ON D IFFERENT M ODULES AND B RANCHES ON
+THE LEVIR-CD DATASET. T HE B EST R ESULTS A RE IN B OLD
+
+We also investigated the relationship among the number
+of DCSI-UNet Params., floating-point operations per second
+(FLOPs), and the F1 on the LEVIR-CD dataset for input
+images of size 256 × 256 × 3, and presented it in Table III.
+DCSI-UNet has exhibited superior performance, which can be
+ascribed to the moderate complexity of its network structure.
+By introducing feature interactions in both the channel and
+spatial dimensions and enhancing the associations between the
+aforementioned dual interactive features, we have increased
+the number of Params. and computational complexity to a
+certain extent, bringing about better performance and stronger
+generalization ability.
+C. Ablation Analysis
+To further validate the rationality of our proposed network
+and the contribution of each module to the network, we conducted comprehensive ablation experiments using the LEVIRCD dataset as an example, as shown in Tables IV–VIII,
+to demonstrate the network’s performance under different
+conditions.
+
+1) Different Encoding Part Backbones: To evaluate the
+impact of different backbones in the encoding part on method
+performance, we conducted ablation experiments using backbones composed of ResConv, ResNet18 [48], ResNet34 [48],
+ResNet50 [48], and ResNet101 [48]. In order to ensure
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 7. Visualization of F1 with increasing number of epochs on the LEVIR-CD validation set. (a) Different nonweight-sharing encoding part backbones.
+(b) Module ablation experiments under the encoding part backbone as a weight-sharing ResNet18. (c) Module ablation experiments under encoding part
+backbone as nonweight-sharing ResConv structure.
+TABLE VI
+
+TABLE VII
+
+Q UANTITATIVE A BLATION R ESULTS FOR THE N UMBER OF
+C HANNEL S UBSPACES ON THE LEVIR-CD DATASET.
+T HE B EST R ESULTS A RE IN B OLD
+
+R ESULTS OF A BLATION E XPERIMENTS FOR W EIGHT A DAPTIVE P REDIC TION H EAD ON LEVIR-CD, W ITH “X” I NDICATING THE U SE OF THE
+P REDICTED O UTPUT. T HE B EST R ESULTS A RE IN B OLD
+
+the fairness and comprehensiveness of the experiments, pretrained weights are not loaded in all backbones, and both
+weight-sharing and nonweight-sharing are considered. The
+results of the experiments and the Params. of the method
+are listed in Table IV. It is worth noting that while weightsharing provides better generalization in some cases, it may
+restrict the extraction of certain unique features from images
+[18]. Our proposed CGIM and SGAM consider the interaction
+information between image pairs, thus integrating the semantic
+feature representations of other inputs while preserving their
+own features. The residual structure of ResConv is more
+concise and does not use pretrained weights, which reduces the
+discrepancy in feature distribution between potentially introduced image pretrained weights and RS images. Moreover,
+ResConv is more compatible with the interaction mechanisms
+of CGIM and SGAM, avoiding the restriction of complex
+convolution blocks in ResNet18 on the interaction of dualtemporal features. Fig. 7(a) visualizes the accuracy of the
+nonweight-sharing backbone on the validation set over epochs.
+Based on the experimental results and considering the Params.
+as well as the performance, we believe that nonweight-sharing
+ResConv is a reasonable choice.
+2) Module Verification: To validate the effectiveness of
+various components and branches within DCSI-UNet, we
+compared the F1 scores when using weight-sharing ResNet18
+and nonweight-sharing ResConv as the backbones of the
+encoding part in these two different scenarios. Through the
+compatibility and actual efficacy of the modules under the two
+different backbones and weight mechanisms, the effectiveness
+and plug-and-play universality of the modules were verified.
+
+TABLE VIII
+A BLATION S TUDY OF L OSS F UNCTION C OEFFICIENTS ON LEVIR-CD.
+T HE B EST R ESULTS A RE IN B OLD
+
+The experimental results are presented in Table V. Fig. 7(b)
+and (c) visualizes the changes in accuracy over epochs during
+the validation process. The term “w/o” stands for “without,”
+indicating that the corresponding modules in DCSI-UNet were
+removed to assess their contributions to the method. The
+“baseline” means removing all additional modules and relying
+only on the basic framework. “w/o α1 α2 α3 ” indicates the
+replacement of learnable Params. with a constant value of
+1, evenly distributing output voting weights. Additionally,
+we recorded the method Params. under different ablation
+experiments.
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+The experimental results demonstrate that each module
+within DCSI-UNet exhibits favorable compatibility and practical efficacy. Specifically, in the absence of interaction modules,
+the weight-sharing ResNet18 achieves superior performance in
+terms of F1 score and generalization ability. However, upon
+the introduction of interaction modules, the F1 score of the
+nonweight-sharing ResConv increases significantly, showing
+better overall generalization performance. We attribute this to
+the more concise residual structure of ResConv, which mitigates the constraints imposed by complex convolutional blocks
+on bitemporal feature interactions, enabling it to achieve
+results comparable to ResNet18 with fewer Params.
+a) Effectiveness of IAM: In order to analyze whether
+IAM supports better overall network performance, we rely
+only on the output of the first phase of the decoding part.
+As shown in Table V, the removal of IAM resulted in a
+significant performance drop compared to the original DCSIUNet, demonstrating the importance of aggregation between
+channel and spatial interaction feature maps. As illustrated
+in Fig. 7(b) and (c), the F1 of DCSI-UNet in both ablation
+experiments outperforms the scenario without IAM, further
+validating the importance of this module.
+b) Effectiveness of CGIM and SGAM: To examine the
+performance of our proposed CGIM and SGAM, we simply
+replaced the interaction modules with elementwise subtraction
+of bitemporal feature maps. As shown in Table V, the absence
+of interaction between the bitemporal feature maps results in
+a certain degree of performance degradation. Furthermore, the
+introduction of each submodule, whether CGIM or SGAM,
+strengthens the association between the bitemporal feature
+maps, leading to significant performance improvements. The
+simultaneous use of both modules in DCSI-UNet proves to be
+more effective than using either module alone, as is visually
+demonstrated in Fig. 7(b) and (c).
+c) Effectiveness of Weight Adaptation: We designed the
+weight adaptive prediction head to optimize method performance using learnable Params. This strategy automatically
+adjusts the weight of each prediction output to improve overall
+predictive performance. As expected, setting the learnable
+Params. to a constant value of 1 led to a decline in the
+network’s performance. The absence of a weight allocation
+resulted in unsatisfactory F1, which convincingly demonstrates the effectiveness of our weight adaptive prediction
+head.
+3) Number of Channel Subspaces: In CGIM, the module
+enables feature interaction across different channel subspaces,
+yet the relationship between the number of subspaces and
+performance remains unclear. We, thus, varied the number
+of subspaces to explore its impact on overall network performance (Table VI). Results show that different numbers of
+channel subspaces induce slight differences in computational
+load and affect OA variably: too few subspaces disperse feature
+associations excessively, causing all channel dimensions to be
+considered collectively; too many result in individual channel
+processing, leading to insufficient bitemporal image correlation
+and hindering effective feature learning. Based on experiments,
+setting the number of channel subspaces to 4 is appropriate.
+
+5601115
+
+4) Prediction Head Verification: The weight adaptive prediction head will adaptively adjust the weights between the
+three decoded outputs Yc1 , Y s1 , and Yg according to the
+task goal, and sum up the generated predicted outputs P1 ,
+P2 , and P3 to get the exquisite CM by argmax operation.
+In order to demonstrate the effectiveness of predicted outputs
+on the performance of the method, we conducted sufficient
+ablation experiments on combinations of P1 , P2 , and P3 . We
+explore the impact on CM by combining different predicted
+outputs, for example, using only P1 or using P1 and P2 (while
+using only the loss term corresponding to them in the loss
+function). A “X” indicates that the predicted output was used
+and the results are shown in Table VII. According to the
+results, using any of the predicted output alone to generate
+CM yields good results, which proves the reliability of our
+module and method. Using a combination of the two predictive
+outputs can provide excellent performance enhancement. We
+think the possible reason for this phenomenon is that the
+CGIM and SGAM complement each other, while IAM can
+also lead to better detection results due to the aggregation of
+channel and spatial interaction feature information. The best
+performance was obtained by using the full prediction outputs
+to generate the CM; therefore, we believe that P1 , P2 , and
+P3 are complementary and all of them can provide a positive
+effect on the final CM, proving the effectiveness of the weight
+adaptive prediction head.
+5) Loss Function Parameter Analysis: In order to assess
+the contribution of the predicted output to the loss function
+and the reasonableness of its construction, while finding a set
+of suitable parameter settings, we conducted a series of experiments. We conducted comprehensive ablation experiments on
+the three hyperparameters λ1 , λ2 , and λ3 in the loss function
+(32). The resultant metrics are presented in Table VIII and
+the value of the three hyperparameters (λ1 , λ2 , and λ3 ) are
+taken as the practical Params. We could see from the results
+of the single branch loss (1, 0, 0), (0, 1, 0), and (0, 0, 1) that
+the overall performance difference is relatively mild against
+different settings of each loss item. Furthermore, the results
+for the double branch loss (1, 1, 0), (1, 0, 1), (0, 1, 1),
+and triple branch loss (1, 1, 1) confirm the validity of the
+multibranch loss, while disabling any of the loss terms leads
+to a degradation of the method’s performance. We add a third
+loss term of 0.5 weight to the double branch loss, and then
+form the three branch loss (0.5, 1, 1), (1, 0.5, 1), and (1, 1,
+0.5), which further verifies the effectiveness of each loss term.
+Based on these results, we conclude that the multibranch loss
+strategy is beneficial for improving DCSI-UNet performance,
+and we propose to set the Params. as λ1 = λ2 = λ3 = 1.
+D. Heatmap Visualization
+In order to visualize the feature maps of each phase in
+DCSI-UNe and to present the effect of each module, we
+selected a test example on LEVIR-CD. Through channelwise
+visualization, we select representative heatmaps presented
+in Fig. 8. Fig. 8(a) displays a pair of bitemporal inputs, Img1
+and Img2 . First, the bitemporal feature maps F1l and F2l in
+Fig. 8(b) and (c) are extracted by ResConv and downsampling
+operations, capturing regions with significant features. Then,
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+5601115
+
+IEEE TRANSACTIONS ON GEOSCIENCE AND REMOTE SENSING, VOL. 64, 2026
+
+Fig. 8. Heatmap visualization using the LEVIR-CD test set as an example. (a) Bitemporal image input. (b) and (c) Bitemporal feature maps F1l and F2l .
+(d) Interaction feature maps Fcl generated by CGIM. (e) Interaction feature maps F sl generated by SGAM. (f) and (g) Decoded outputs Ycl and Y sl by
+skip connections. (h) Interaction feature aggregated output Yg obtained through IAM. (i) Predicted outputs P1 , P2 , and P3 . (j) Output of the weight adaptive
+prediction head. (k) Change map.
+
+CGIM and SGAM are used to enhance the channel and
+spatial interactions between bitemporal feature maps to get the
+corresponding interaction feature maps Fcl and F sl in Fig. 8(d)
+and (e). The visualized heatmap shows that, due to the use of
+channel and spatial interactive attention, the attention of the
+DCSI-UNet is directed to the region where the real change
+is occurring, while task-irrelevant distractions are suppressed.
+This provides reliable detail difference characteristics and
+rich edge textures for subsequent decoding and change map
+generation, proving the effectiveness of CGIM and SGAM for
+extracting difference features. Then, by skip connections generating Ycl and Y sl in Fig. 8(f) and (g), the abstract deep-layer
+interaction feature maps are combined with relatively shallowlayer interaction feature maps to identify areas of change in
+a more fine-grained way. Concurrently, we introduce IAM
+to progressively aggregate semantic features and localization
+details of multilayer channel and spatial interaction feature
+maps to produce the excellent feature map Yg in Fig. 8(h). The
+predicted outputs P1 , P2 , and P3 in Fig. 8(i) show excellent
+visualization. The output of the weight adaptive prediction
+head in Fig. 8(j) shows more accurate regions of change and
+refinement of edges, which further proves the effectiveness of
+DCSI-UNet.
+V. C ONCLUSION
+This article introduces a DCSI-UNet for CD. This method
+addresses the problem of insufficient feature map interaction
+in the encoding phase by constructing two plug-and-play
+interaction modules, CGIM and SGAM, and designs an IAM
+to enhance the aggregation between multilayer channel and
+spatial interaction features. Specifically, CGIM allocates attention to changed regions in the channel dimension by dividing
+the feature map into multiple channel subspaces and applying
+MCIS to enhance the channel correlation of the feature map
+within the subspaces. SGAM calculates the mixed mean and
+joint variance of bitemporal feature maps and integrates them
+
+into the designed GAK to enhance the hidden difference
+features of bitemporal feature maps. Furthermore, we develop
+an IAM to obtain the association between different interaction
+features by aggregating the interaction feature maps generated by CGIM and SGAM from different layers. Compared
+with existing mainstream CD methods, experiments verify the
+effectiveness and superiority of the proposed method in terms
+of quality evaluation and ablation studies.
+ACKNOWLEDGMENT
+The authors would like to sincerely thank Daudt et al. [14],
+Fang et al. [15], Chen et al. [16], Feng et al. [17], Lei et al.
+[18], Han et al. [19], Feng et al. [20], Noman et al. [21], and
+Huang et al. [22] for providing their codes, and the anonymous
+reviewers for their constructive comments on this article.
+R EFERENCES
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+
+[7]
+[8]
+
+C. Marin, F. Bovolo, and L. Bruzzone, “Building change detection in
+multitemporal very high resolution SAR images,” IEEE Trans. Geosci.
+Remote Sens., vol. 53, no. 5, pp. 2664–2682, May 2015.
+G. Pozoukidou and Z. Chatziyiannaki, “15-minute city: Decomposing
+the new urban planning eutopia,” Sustainability, vol. 13, no. 2, p. 928,
+Jan. 2021.
+J. Weichselgartner and P. Pigeon, “The role of knowledge in disaster
+risk reduction,” Int. J. Disaster Risk Sci., vol. 6, no. 2, pp. 107–116,
+Jun. 2015.
+˜ “Looking back and beyond sendai: 25 years of international
+S. Briceno,
+policy experience on disaster risk reduction,” Int. J. Disaster Risk Sci.,
+vol. 6, no. 1, pp. 1–7, Mar. 2015.
+J. Rogan and D. Chen, “Remote sensing technology for mapping and
+monitoring land-cover and land-use change,” Prog. Planning, vol. 61,
+no. 4, pp. 301–325, May 2004.
+H. Long, Y. Li, Y. Liu, M. Woods, and J. Zou, “Accelerated restructuring
+in rural China fueled by ‘increasing vs. decreasing balance’ land-use
+policy for dealing with hollowed villages,” Land Use Policy, vol. 29,
+no. 1, pp. 11–22, Jan. 2012.
+H. Chen, W. Li, and Z. Shi, “Adversarial instance augmentation for
+building change detection in remote sensing images,” IEEE Trans.
+Geosci. Remote Sens., vol. 60, pp. 1–16, 2022.
+Y. Liu, C. Pang, Z. Zhan, X. Zhang, and X. Yang, “Building change
+detection for remote sensing images using a dual-task constrained deep
+Siamese convolutional network model,” IEEE Geosci. Remote Sens.
+Lett., vol. 18, no. 5, pp. 811–815, May 2021.
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+ZHANG et al.: DUAL-STREAM UNet WITH PARALLEL CHANNEL–SPATIAL INTERACTION AND AGGREGATION
+
+[9]
+
+P. Coppin, I. Jonckheere, K. Nackaerts, B. Muys, and E. Lambin,
+“Review ArticleDigital change detection methods in ecosystem monitoring: A review,” Int. J. Remote Sens., vol. 25, no. 9, pp. 1565–1596,
+May 2004.
+[10] J. Chen, P. Gong, C. He, R. Pu, and P. Shi, “Land-use/land-cover change
+detection using improved change-vector analysis,” Photogrammetric
+Eng. Remote Sens., vol. 69, no. 4, pp. 369–379, Apr. 2003.
+[11] T. Celik, “Unsupervised change detection in satellite images using
+principal component analysis and k-means clustering,” IEEE Geosci.
+Remote Sens. Lett., vol. 6, no. 4, pp. 772–776, Oct. 2009.
+[12] L. I. Kuncheva and W. J. Faithfull, “PCA feature extraction for change
+detection in multidimensional unlabeled data,” IEEE Trans. Neural Netw.
+Learn. Syst., vol. 25, no. 1, pp. 69–80, Jan. 2014.
+[13] L. T. Luppino, F. M. Bianchi, G. Moser, and S. N. Anfinsen,
+“Unsupervised image regression for heterogeneous change detection,”
+2019, arXiv:1909.05948.
+[14] R. C. Daudt, B. Le Saux, and A. Boulch, “Fully convolutional Siamese
+networks for change detection,” in Proc. 25th IEEE Int. Conf. Image
+Process. (ICIP), Oct. 2018, pp. 4063–4067.
+[15] S. Fang, K. Li, J. Shao, and Z. Li, “SNUNet-CD: A densely connected
+Siamese network for change detection of VHR images,” IEEE Geosci.
+Remote Sens. Lett., vol. 19, pp. 1–5, 2022.
+[16] H. Chen, Z. Qi, and Z. Shi, “Remote sensing image change detection with transformers,” IEEE Trans. Geosci. Remote Sens., vol. 60,
+pp. 1–14, 2022.
+[17] Y. Feng, H. Xu, J. Jiang, H. Liu, and J. Zheng, “ICIF-Net: Intra-scale
+cross-interaction and inter-scale feature fusion network for bitemporal
+remote sensing images change detection,” IEEE Trans. Geosci. Remote
+Sens., vol. 60, 2022, Art. no. 4410213.
+[18] T. Lei et al., “Ultralightweight spatial–spectral feature cooperation
+network for change detection in remote sensing images,” IEEE Trans.
+Geosci. Remote Sens., vol. 61, 2023, Art. no. 4402114.
+[19] C. Han, C. Wu, H. Guo, M. Hu, and H. Chen, “HANet: A hierarchical
+attention network for change detection with bitemporal very-highresolution remote sensing images,” IEEE J. Sel. Topics Appl. Earth
+Observ. Remote Sens., vol. 16, pp. 3867–3878, 2023.
+[20] Y. Feng, J. Jiang, H. Xu, and J. Zheng, “Change detection on remote
+sensing images using dual-branch multilevel intertemporal network,”
+IEEE Trans. Geosci. Remote Sens., vol. 61, 2023, Art. no. 4401015.
+[21] M. Noman, M. Fiaz, H. Cholakkal, S. Khan, and F. S. Khan, “ELGCNet: Efficient local–global context aggregation for remote sensing
+change detection,” IEEE Trans. Geosci. Remote Sens., vol. 62, 2024,
+Art. no. 4701611.
+[22] Y. Huang, X. Li, Z. Du, and H. Shen, “Spatiotemporal enhancement and
+interlevel fusion network for remote sensing images change detection,”
+IEEE Trans. Geosci. Remote Sens., vol. 62, 2024, Art. no. 5609414.
+[23] O. Ronneberger, P. Fischer, and T. Brox, “U-Net: Convolutional networks for biomedical image segmentation,” in Proc. 18th Int. Conf. Med.
+Image Comput. Comput.-Assist. Intervent., vol. 9351. Cham, Switzerland: Springer, 2015, pp. 234–241.
+[24] Z. Zhou, M. M. R. Siddiquee, N. Tajbakhsh, and J. Liang, “UNet+:
+A nested U-Net architecture for medical image segmentation,” in Proc.
+Deep Learn. Med. Image Anal. Multimodal Learn. Clin. Decis. Support,
+vol. 11045, Sep. 2018, pp. 3–11.
+[25] S. Woo, J. Park, J. Lee, and I. S. Kweon, “CBAM: Convolutional block
+attention module,” in Proc. Eur. Conf. Comput. Vis. (ECCV), 2018,
+pp. 3–19.
+[26] A. Vaswani et al., “Attention is all you need,” Adv. Neural Inf. Process.
+Syst., vol. 30, pp. 5998–6008, 2025.
+[27] W. G. C. Bandara and V. M. Patel, “A transformer-based Siamese
+network for change detection,” in Proc. IEEE Int. Geosci. Remote Sens.
+Symp., Jul. 2022, pp. 207–210.
+[28] C. Zhang, L. Wang, S. Cheng, and Y. Li, “SwinSUNet: Pure transformer
+network for remote sensing image change detection,” IEEE Trans.
+Geosci. Remote Sens., vol. 60, 2022, Art. no. 5224713.
+[29] R. Strudel, R. Garcia, I. Laptev, and C. Schmid, “Segmenter: Transformer for semantic segmentation,” in Proc. IEEE/CVF Int. Conf.
+Comput. Vis. (ICCV), Oct. 2021, pp. 7262–7272.
+[30] Y. Mo, Y. Wu, X. Yang, F. Liu, and Y. Liao, “Review the state-ofthe-art technologies of semantic segmentation based on deep learning,”
+Neurocomputing, vol. 493, pp. 626–646, Jul. 2022.
+[31] Q. Xu, K. Chen, X. Sun, Y. Zhang, H. Li, and G. Xu, “Pseudo-Siamese
+capsule network for aerial remote sensing images change detection,”
+IEEE Geosci. Remote Sens. Lett., vol. 19, pp. 1–5, 2022.
+[32] S. Hafner, A. Nascetti, H. Azizpour, and Y. Ban, “Sentinel-1 and
+Sentinel-2 data fusion for urban change detection using a dual stream
+U-Net,” IEEE Geosci. Remote Sens. Lett., vol. 19, pp. 1–5,2022.
+
+5601115
+
+[33] Q. Xu, K. Chen, G. Zhou, and X. Sun, “Change capsule network for
+optical remote sensing image change detection,” Remote Sens., vol. 13,
+no. 14, p. 2646, Jul. 2021.
+[34] X. Zhang, L. Wang, and S. Cheng, “A multiscale cascaded crossattention hierarchical network for change detection on bitemporal remote
+sensing images,” IEEE Trans. Geosci. Remote Sens., vol. 62, 2024, Art.
+no. 2002216.
+[35] C. Zhang et al., “A deeply supervised image fusion network for
+change detection in high resolution bi-temporal remote sensing
+images,” ISPRS J. Photogramm. Remote Sens., vol. 166, pp. 183–200,
+Aug. 2020.
+[36] J. Chen et al., “DASNet: Dual attentive fully convolutional Siamese
+networks for change detection in high-resolution satellite images,” IEEE
+J. Sel. Topics Appl. Earth Observ. Remote Sens., vol. 14, pp. 1194–1206,
+2021.
+[37] A. Krizhevsky, I. Sutskever, and G. E. Hinton, “ImageNet classification
+with deep convolutional neural networks,” in Proc. Adv. Neural Inf.
+Process. Syst., vol. 60, 2017, pp. 84–90.
+[38] R. Girshick, J. Donahue, T. Darrell, and J. Malik, “Rich feature
+hierarchies for accurate object detection and semantic segmentation,”
+in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., Jun. 2014,
+pp. 580–587.
+[39] C.-F. R. Chen, Q. Fan, and R. Panda, “CrossViT: Cross-attention multiscale vision transformer for image classification,” in Proc. IEEE Int.
+Conf. Comput. Vis. (ICCV), Oct. 2021, pp. 357–366.
+[40] S. Zheng et al., “Rethinking semantic segmentation from a sequenceto-sequence perspective with transformers,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit., Jun. 2021, pp. 6881–6890.
+[41] Y. Lee, J. Kim, J. Willette, and S. J. Hwang, “MPViT: Multi-path vision
+transformer for dense prediction,” in Proc. IEEE/CVF Conf. Comput. Vis.
+Pattern Recognit., Jun. 2022, pp. 7277–7286.
+[42] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, and
+S. Zagoruyko, “End-to-end object detection with transformers,” in
+Proc. Eur. Conf. Comput. Vis. Cham, Switzerland: Springer, 2020,
+pp. 213–229.
+[43] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai, “Deformable
+DETR: Deformable transformers for end-to-end object detection,” 2020,
+arXiv:2010.04159.
+[44] Y. Shang, J. Liu, J. Yang, and Z. Wu, “A model-inspired approach
+with transformers for hyperspectral pansharpening,” IEEE J. Sel.
+Topics Appl. Earth Observ. Remote Sens., vol. 15, pp. 7187–7202,
+2022.
+[45] X. Chen, X. Wang, J. Zhou, Y. Qiao, and C. Dong, “Activating more
+pixels in image super-resolution transformer,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit., Jun. 2023, pp. 22367–22377.
+[46] Y. Shang, J. Liu, J. Zhang, and Z. Wu, “MFT-GAN: A multiscale feature-guided transformer network for unsupervised hyperspectral
+pansharpening,” IEEE Trans. Geosci. Remote Sens., vol. 62, 2024, Art.
+no. 5518516.
+[47] W. Liu, Y. Lin, W. Liu, Y. Yu, and J. Li, “An attention-based
+multiscale transformer network for remote sensing image change
+detection,” ISPRS J. Photogramm. Remote Sens., vol. 202, pp. 599–609,
+Aug. 2023.
+[48] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., Jun.
+2016, pp. 770–778.
+[49] G. S. Watson, “Smooth regression analysis,” Sankhyä Indian J. Statist.,
+A, vol. 26, no. 4, pp. 359–372, 1964.
+´ A. Nadaraya, “On estimating regression,” Theory Probab. Appl.,
+[50] E.
+vol. 9, no. 1, pp. 141–142, 1964.
+[51] S. S. Keerthi and C.-J. Lin, “Asymptotic behaviors of support vector machines with Gaussian kernel,” Neural Comput., vol. 15, no. 7,
+pp. 1667–1689, Jul. 2003.
+[52] G. Cheng, G. Wang, and J. Han, “ISNet: Towards improving separability
+for remote sensing image change detection,” IEEE Trans. Geosci.
+Remote Sens., vol. 60, 2022, Art. no. 5623811.
+[53] K. Jiang, J. Liu, W. Zhang, F. Liu, and L. Xiao, “MANet: An efficient multidimensional attention-aggregated network for remote sensing
+image change detection,” IEEE Trans. Geosci. Remote Sens., vol. 61,
+2023, Art. no. 4706118.
+[54] H. Chen and Z. Shi, “A spatial–temporal attention-based method and a
+new dataset for remote sensing image change detection,” Remote Sens.,
+vol. 12, no. 10, p. 1662, May 2020.
+[55] S. Ji, S. Wei, and M. Lu, “Fully convolutional networks for multisource
+building extraction from an open aerial and satellite imagery data set,”
+IEEE Trans. Geosci. Remote Sens., vol. 57, no. 1, pp. 574–586, Jan.
+2019.
+
+Authorized licensed use limited to: FUDAN UNIVERSITY. Downloaded on May 20,2026 at 11:28:56 UTC from IEEE Xplore. Restrictions apply.
+
+

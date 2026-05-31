@@ -1,0 +1,2060 @@
+Self-Attention And Beyond the Infinite:
+Towards Linear Transformers with Infinite
+Self-Attention
+Giorgio Roffo1
+
+and Luke Palmer2
+
+Equixly API Security
+giorgio.roffo@equixly.com
+2
+GlimpseML, London, United Kingdom
+
+arXiv:2603.00175v3 [cs.CV] 10 Mar 2026
+
+1
+
+Abstract. The quadratic cost of softmax attention limits Transformer
+scalability in high-resolution vision. We introduce Infinite Self-Attention
+(InfSA), a spectral reformulation that treats each attention layer as a diffusion step on a content-adaptive token graph, accumulating multi-hop
+interactions through a discounted Neumann series over attention matrices. This formulation connects self-attention to classical graph centrality
+measures—Katz, PageRank, and eigenvector centrality—yielding interpretable and structurally grounded token weighting. We further show
+that this Neumann kernel coincides with the fundamental matrix of an
+absorbing Markov chain [30, 44], linking each token’s centrality score to
+its expected number of random-walk visits before absorption. Building on
+this, we propose Linear-InfSA, an O(N ) variant that approximates the
+principal eigenvector of the implicit attention operator without forming
+the N × N matrix. It maintains an auxiliary state of fixed size O(dh )—
+where dh is the per-head dimension, independent of the sequence length
+N —is drop-in compatible with standard Vision Transformers, and supports stable forward and backward passes at 40962 resolution and inference at 92162 (∼332k tokens). Integrated into a 4-layer ViT with
+53.5M parameters and 59 GFLOPs at 2242 , Linear-InfSA achieves 84.7%
+top-1 on ImageNet-1K, a +3.2 pp purely architectural gain over a standard 4-layer ViT baseline (81.5%) trained with an identical recipe. On
+ImageNet-V2, all InfViT variants surpass every compared baseline (up
+to 79.8% vs. 76.8% for the best prior method), indicating robust generalization under distribution shift. Attention quality evaluations confirm
+semantically grounded maps: MoRF-AOC reaches 76.0% and boundingbox PR-AUC 76.1%, versus 42.6% and 56.2% respectively for softmax
+ViT. In scalability benchmarks on an A100 40 GB GPU, Linear-InfViT
+delivers 231 img/s at 0.87 J/img—a 13× improvement in both throughput and energy over a standard ViT of equal depth—and is the only
+tested model to complete 92162 inference without running out of memory. The linear approximation faithfully recovers the dominant eigenvector of the full quadratic operator (cosine similarity 0.985). Code available
+at: huggingface.co/groffo/infinite-self-attention
+Keywords: Graph diffusion attention · Absorbing Markov chains · Linearcomplexity Vision Transformers · Eigenvector centrality · Interpretable
+attention maps
+
+2
+
+G. Roffo and L. Palmer
+
+Input
+Softmax
+Self-Attention
+
+Infinite
+Self-Attention
+
+Linear Infinite
+Self-Attention
+
+Attention Graph
+
+Overlay
+
+𝐶𝑢𝑟𝑟𝑒𝑛𝑡
+𝐴𝑡𝑡𝑒𝑛𝑡𝑖𝑜𝑛
+
+𝑠𝑚
+
+𝑄𝐾 𝑇
+𝑑
+
+𝐶𝑒𝑛𝑡𝑟𝑎𝑙𝑖𝑡𝑦
+𝐼𝑛𝑑𝑒𝑥
+
+𝜃 𝑄𝐾 𝑇
+𝜃 𝑄𝐾 𝑇 F + 𝜀
+𝑃𝑟𝑖𝑛𝑐𝑖𝑝𝑎𝑙
+𝐸𝑖𝑔𝑒𝑛𝑣𝑒𝑐𝑡𝑜𝑟
+
+𝑤 = 𝜌𝑎𝑗
+𝑠𝑗
+𝛴𝑙 𝑠𝑙 + 𝜀
+
+=
+
+Fig. 1: Comparison of attention graphs. Visualization of ViT-L/16 attention maps
+on ImageNet. Softmax attention distributes focus across background regions, while
+InfSA variants produce sharper, object-aligned activations.
+
+1
+
+Introduction
+
+Transformer architectures underpin modern vision [12,35,41] and language models [6,53,55], yet their quadratic attention cost limits scalability in high-resolution
+and long-context settings [9,56]. This has motivated numerous efficient attention
+mechanisms [2,11,57,61]. This computational bottleneck also carries environmental cost: data-centre consumption is projected to nearly double by 2030 [28, 54],
+and quadratic attention dominates Transformer energy budgets [50].
+Despite progress, most efficient variants approximate or sparsify the attention
+matrix without a principled model of token interaction. Standard Transformers
+aggregate dependencies implicitly across stacked layers, offering limited control
+over multi-hop influence or interpretability. Empirical analyses further show that
+attention weights may highlight diffuse or semantically irrelevant regions [1, 8].
+Graph-theoretic formulations offer a more structured perspective: diffusion processes quantify node influence through centrality measures such as Katz [29],
+PageRank [3, 39], and eigenvector centrality [5], enabling explicit multi-hop reasoning and structural interpretability—yet such principles remain underexplored
+within Transformer architectures. Notably, the connection between infinite-path
+aggregation on weighted graphs and absorbing Markov chains was established
+by Roffo et al . [44], who showed that the fundamental matrix of a substochastic
+random walk yields the same Neumann kernel N = (I − γA)−1 used for centrality scoring, with entry Nij equal to the expected number of visits to node j
+before absorption when starting from node i.
+We introduce Infinite Self-Attention (InfSA), a spectral diffusion view of attention that aggregates information across layers through a truncated Neumannseries construction, akin to infinite-path kernels used in Katz/PageRank scoring [44,45]. The same Neumann kernel admits an absorbing Markov chain interpretation [30, 44]: tokens are transient states of a random walk on the attention
+
+Infinite Self-Attention
+
+3
+
+graph, and their centrality scores correspond to expected visit counts before diffusion terminates. We also develop Linear-InfSA, a scalable O(N ) variant that
+approximates dominant attention directions via the Ak→∞ eigenvector limit (see
+Fig. 1). Integrated into Vision Transformers, InfSA delivers strong ImageNet1K/V2 accuracy, sharper and more localized attention maps, and stable scaling
+to 4K–9K inputs; derivations appear in the supplementary material.
+Contributions.
+– We connect attention propagation to eigenvector dynamics and nonlinear
+Perron–Frobenius theory, offering a principled view of global token influence.
+– We introduce InfSA, a spectral generalization of self-attention via graph
+diffusion and Neumann-series path integrals, and show that the resulting
+attention graph admits an absorbing Markov chain interpretation in which
+token centrality equals expected random-walk visits before absorption.
+– We propose Linear-InfSA, an O(N ) approximation that avoids attention
+matrix construction, with a fixed-size O(d) auxiliary state independent of
+N , enabling stable scaling to high resolutions.
+– Experiments on vision tasks illustrate interpretability, robustness, and scalability; InfSA establishes a conceptual foundation for efficient AI architectures.
+The rest of the paper is organized as follows: Sec. 2 reviews related work on
+efficient attention, graph centrality, and state-space models; Sec. 3 derives Pure
+InfSA from the path-integral perspective and its absorbing Markov chain interpretation, then introduces Linear-InfSA; Sec. 4 evaluates scalability, attention
+quality, and classification performance; Sec. 5 concludes.
+
+2
+
+Related Work
+
+Efficient Attention. The quadratic cost of softmax attention has driven many
+sub-quadratic alternatives. Linformer [57] projects keys to fixed rank; Performer [9]
+uses kernel random features; SOFT [36] applies softmax-free kernels; FLatten [20]
+restores rank in focused linear attention; Agent Attention [22] bridges softmax
+and linear attention via agent tokens; MLLA [21] recasts Mamba-style gating as
+linear attention; and Fastformer [60] replaces pairwise attention with additive
+pooling. FlashAttention [10, 11] optimizes softmax via fused kernels but retains
+O(N 2 ) compute. All approximate or sparsify the attention matrix without modeling multi-hop token influence. Our Linear-InfSA computes token centrality in
+O(N ) with an O(d) state independent of N , while remaining drop-in compatible
+with ViT blocks.
+Graph Centrality and Markov Interpretations. Attention has been linked
+to graph reasoning [46, 59], but few works model explicit token diffusion. We
+formalize attention as a content-adaptive affinity graph connecting it to Katz
+centrality [29], PageRank [3, 39], and Infinite Feature Selection (Inf-FS) [44, 45],
+whose Neumann kernel coincides with the fundamental matrix of an absorbing Markov chain [30]. TokenRank [13] independently interprets attention as
+
+4
+
+G. Roffo and L. Palmer
+
+a Markov chain, computing the stationary distribution of a closed chain; InfSA instead computes the fundamental matrix N =(I−γ Â)−1 of an absorbing
+chain—encoding expected visit counts rather than steady-state probabilities.
+On interpretability, attention rollout [1], attention flow [8], and perturbation
+saliency [17] propagate relevance heuristically, while MoRF/LeRF [47] evaluates
+faithfulness via masking. InfSA embeds centrality directly in the mechanism,
+unifying attention, diffusion, and attribution.
+State-Space and Convolution Models. SSMs such as Mamba [19] and RWKV [40],
+along with vision adaptations MambaVision [23] and HyenaPixel [49], achieve
+sub-quadratic modeling via recurrence or long convolutions but do not derive
+token importance from graph centrality; InfSA’s spectral formulation is complementary.
+
+3
+
+Infinite Self-Attention (InfSA)
+
+Infinite Self-Attention (InfSA) generalizes Transformer self-attention [12] by
+modeling multi-hop dependencies through a spectral, path-based interpretation
+of token interactions, inspired by Infinite Feature Selection (Inf-FS) [44, 45].
+This connects attention to classical graph diffusion and ranking—Katz, PageRank [29,39]—and to recent spectral views of attention [44,46,51,52]. We derive a
+layer-wise formulation compatible with standard Transformer blocks and introduce Linear-InfSA, a scalable O(N ) variant that bypasses the N ×N attention
+matrix while preserving the ViT residual structure [12].
+3.1
+
+Attention Graphs
+
+We interpret self-attention [12, 55] as a diffusion process on a fully connected,
+content-adaptive graph G = (V, E) where each token is a node and each edge
+(i, j) has weight Aij ≥ 0 derived from attention scores. Let A ∈ RN ×N denote
+the attention matrix and V ∈ RN ×d the value matrix. The self-attention update
+is a diffusion step:
+  Y = AV, \label {eq:diffusion} 
+(1)
+where each output token aggregates values from all others, weighted by attention [7, 59]. When A is row-stochastic (A1 = 1), this is the random-walk operator on G [38]. Viewing A as an affinity matrix connects attention to centrality measures—PageRank [3], Katz [29], eigenvector centrality—and to InfFS [44, 45], which ranks features by structural importance on weighted graphs
+(see Fig. 1).
+3.2
+
+Infinite Self-Attention (InfSA): Path Integrals on the Attention
+Graph
+
+We extend the attention graph perspective by proposing Infinite Self-Attention
+(InfSA)3 , a formulation inspired by the infinite path integration approach in3
+
+P
+t t
+The term “Infinite” refers to the limiting Neumann series, i.e., limL→∞ L
+t=0 γ A
+k
+k
+and to the eigenvector limit v = limk→∞ A x0 /∥A x0 ∥1 . Note: the actual computa-
+
+Infinite Self-Attention
+
+5
+
+troduced by Roffo et al . [44, 45]. That approach ranks features by aggregating
+the weights of all paths on a feature-affinity graph, summing matrix powers
+A + A2 + · · · and closing the series via (I−rA)−1 −I. We map this construction onto self-attention: tokens replace features, the attention matrix replaces
+the feature-affinity matrix, and the resulting infinite-path scores become token
+centralities.
+Paths on the token graph. Let π = (v0 =i, v1 , . . . , vt−1 , vt =j) denote a path
+of length t from token i to token j in the attention graph G. The path weight is
+the product of attention weights along edges:
+ \label {eq:path_weight} w(\pi ) \;=\; \prod _{k=0}^{t-1} A(v_k, v_{k+1}). 
+
+(2)
+
+This product measures the cumulative affinity along the path: it is high when
+all consecutive tokens are mutually relevant.
+Aggregation over all paths of fixed length. Let Ptij be the set of all paths
+of length t from i to j. The total contribution of length-t paths is
+ \label {eq:path_sum} R_t(i,j) \;=\; \sum _{\pi \in \mathbb {P}_{ij}^{t}} w(\pi ). 
+
+(3)
+
+By standard matrix algebra [25], this equals the (i, j)-entry of the t-th power of
+A:
+ \label {eq:path_power} R_t \;=\; A^{\,t}. 
+(4)
+In other words, At (i, j) aggregates the contributions of all length-t walks from
+token i to token j on the attention graph.
+Token score at a fixed path length. To measure the importance of token i
+at path length t, we marginalize over all destination tokens:
+ \label {eq:token_score_t} c_t(i) \;=\; \sum _{j=1}^{N} A^t(i,j). 
+
+(5)
+
+The score ct (i) quantifies how much token i participates in all subsets of t interacting tokens: the higher the score, the more central token i is at this interaction
+depth.
+Aggregation over all path lengths. A complete assessment of token importance accounts
+P for interactions at all depths t = 1, 2, . . . However, the unregularized sum t≥1 At may diverge when ρ(A) ≥ 1. Following [44, 45], we introduce
+a discount factor γ ∈ (0, 1/ρ(A)) that geometrically attenuates longer paths:
+ \label {eq:regularized_score} \check {c}(i) \;=\; \sum _{t=1}^{\infty } \gamma ^{\,t}\, c_t(i) \;=\; \sum _{t=1}^{\infty } \sum _{j=1}^{N} \gamma ^{\,t}\, A^t(i,j). 
+
+(6)
+
+tion is finite. We use γ for the decay (discount) factor and reserve ρ(·) exclusively
+for the spectral radius of a matrix.
+
+6
+
+G. Roffo and L. Palmer
+
+Closed-form
+via geometric matrix series. The regularized infinite-path maP∞
+trix is Č = t=1 (γA)t . By the convergence property of geometric power series
+of matrices [25], if γ < 1/ρ(A) then ρ(γA) < 1 and:
+ \label {eq:closed_form} \check {C} \;=\; (I - \gamma A)^{-1} - I. 
+
+(7)
+
+The proof relies on Gelfand’s formula: ρ(γA) = ρ((γI) A) ≤ ρ(γI) ρ(A) =
+γ ρ(A) < 1, which guarantees limt→∞ (γA)t = 0 and hence absolute convergence of the series [18, 25]. The matrix Č encodes the cumulative, discounted
+influence of every token on every other across all interaction depths.
+When ρ(γA) < 1, the discounted path sum Č has a natural probabilistic reading: it coincides with the fundamental matrix of an absorbing Markov
+chain [30, 44]. In this view, tokens are transient states of a random walk on the
+attention graph, with a complementary absorption probability at each step; entry Čij + δij equals the expected number of visits to token j before absorption
+starting from i. We develop this interpretation fully in Sec. 3.3.
+Token centrality scores. The final per-token score is obtained by marginalizing over destinations:
+ \label {eq:final_score} \check {c}(i) \;=\; [\check {C}\,\mathbf {e}]_i \;=\; \bigl [(I - \gamma A)^{-1}\,\mathbf {e}\bigr ]_i - 1. 
+
+(8)
+
+Ranking tokens in decreasing order of č yields a principled ordering by structural
+importance in the attention graph, where the most influential tokens—those that
+participate in many high-weight, multi-hop interactions—appear at the top.
+Layer-wise implementation. In a Transformer with L layers, A(l) denotes
+the attention matrix at layer l. InfSA accumulates post-attention outputs with
+geometric decay:
+  \label {eq:infsa_series_layerwise} S_L \;=\; \sum _{t=1}^{L} \gamma ^{\,t}\big (A^{(t)}\!\cdots A^{(1)}\big )X^{(0)}, 
+
+(9)
+
+where each layer adds progressively longer effective paths. Standard self-attention
+is the L=1 case. When A(l) =A for all l, the partial sum approximates the
+Neumann-series identity:
+  \label {eq:neumann} \sum _{t=1}^{\infty } \gamma ^{\,t}A^{t} \;=\; (I - \gamma A)^{-1} - I, \qquad \gamma < 1/\rho (A), 
+(10)
+which coincides with Eq. 7. In the heterogeneous case, Frobenius normalization
+(∥Â(l) ∥F =1, Eq. 11) ensures ∥SL ∥ ≤ γ/(1−γ) for γ < 1, guaranteeing bounded
+outputs regardless of per-layer variation. Since the series is truncated at depth
+L, γ also serves as a tunable design choice modulating the contribution of deeper
+layers.
+Matrix properties and normalization. To construct a positive operator at
+each layer, we use Ã = ϕ(QK ⊤ ) where ϕ = ReLU ensures non-negativity. This
+is followed by Frobenius normalization:
+  \label {eq:frob_norm} \hat A = \frac {\tilde A}{\|\tilde A\|_F + \varepsilon }, 
+
+(11)
+
+Infinite Self-Attention
+
+7
+
+where ∥ · ∥F is the Frobenius norm, and ε prevents division by zero. This yields
+Â ≥ 0 with bounded energy.
+Per-layer output. At each layer l, Pure InfSA computes:
+  \label {eq:infsa_layer_output} Z^{(l)} = \hat {A}^{(l)} V^{(l)}, \qquad \hat {A}^{(l)} = \frac {[Q^{(l)}{K^{(l)}}^\top ]_+}{\|[Q^{(l)}{K^{(l)}}^\top ]_+\|_F + \varepsilon }, 
+
+(12)
+
+√
+replacing the standard softmax(QK ⊤ / dk )V in conventional attention. The acPL
+cumulated output across all L layers is SL = l=1 γ l Z (l) .
+Unlike softmax, which yields row-stochastic matrices (A1=1) and causes
+oversmoothing by mixing toward a stationary distribution [32, 37], Frobenius
+normalization bounds the total matrix energy ∥Â∥F =1, providing a sufficient
+condition for the
+to be contractive (ρ(Â)<1). This ensures the disP operator
+counted series
+γ t Ât remains convergent and transforms each layer from a
+probability-mixing step into a centrality computation: tokens are weighted
+by their structural importance—akin to Katz centrality [29]—rather than by local probability mass. The absorbing Markov chain interpretation (Sec. 3.3) relies
+directly on this sub-stochasticity.
+In this formulation, t represents the hop count in the attention graph—
+equivalently, the length of token-to-token paths; γ defines the horizon or decay
+of long-range effects; and L is the Transformer depth, acting as a truncation
+point for the infinite sum. Each layer l thus approximates the l-th power Al of
+the underlying attention operator, and the accumulation (Eq. 9) implements an
+explicit integration over all paths of length up to L, embedding graph diffusion
+directly into Transformer computation.
+The exponential decay γ l introduces an explicit depth bias that limits overpropagation and helps avoid oversmoothing [32, 37]: earlier layers contribute
+more strongly, while deeper paths are attenuated. If γ is learned (constrained
+to (0, 1) via sigmoid), it adaptively tunes the integration horizon per head. We
+implement InfSA within a Pre-LN Transformer (see Fig. 2a⟨1⟩) by computing Â
+PL
+at each layer and accumulating outputs SL = l=1 γ l Z (l) .
+
+3.3
+
+Absorbing Markov Chain Interpretation of InfSA
+
+The Neumann-series formulation of Pure InfSA (Eq. 10) admits a direct probabilistic interpretation through absorbing Markov chains [30, 44, 48]. This connection shows that InfSA computes expected visit counts in a random walk over
+the token graph, linking self-attention to classical stochastic processes.
+×N
+Construction. Let Â ∈ RN
+be the Frobenius-normalized attention matrix
+≥0
+(Eq. 11) and γ ∈ (0, 1/ρ(Â)) the decay factor. Fig. 3 illustrates the key intuition:
+a single power-method step (first-order attention) misidentifies the most important token, whereas iterating to the steady state—equivalent to the Neumannseries limit that InfSA computes—correctly reveals global structural importance
+
+8
+
+G. Roffo and L. Palmer
+𝐿
+
+𝑥 out ≈ ෍ 𝜌𝑡 𝐴𝑡 𝑋
+𝑡=1
+
+Pure InfSA
+
+Layer l
+
+1 (full attention with ReLU + normalization)
+
+𝜌𝑡 𝐴𝑡 𝑋
+
+𝑡 𝑡
+෡=
+𝐴ሚ = 𝑅𝑒𝐿𝑈 𝑄𝐾 𝑇𝜌 𝐴 𝑨
+
+𝐴ሚ
+𝐴ሚ F + 𝜀
+
+LN
+
+2
+
+Linear InfSA
+
+(vector weights → pool V → broadcast)
+
+Soft query selection: 𝑒𝑖 = 𝑄𝑖 2
+
+𝛼𝑖 =
+Multi-Head
+InfSA
+Q
+
+V
+
+LN
+
+𝑒𝑖
+𝛴𝑗 𝑒𝑖 + 𝜀
+
+𝑞ത = ෍ 𝛼𝑖 𝑄𝑖 ∈ ℝ𝑑
+𝑖
+
+Vector attention over keys:
+
+𝑆𝑗 = 𝑞ത 𝑇 𝐾𝑗 +
+
+𝑎𝑗 =
+
+Scale & pool once per head:
+
+𝑤 = 𝜌𝑎
+
+𝑠𝑗
+𝛴𝑙 𝑠𝑙 + 𝜀
+
+Throughput [img/s]
+
+FFN
+
+K
+
+Efficiency by complexity tier (4L, 1024²)
+
+InfViT Linear
+
+Complexity
+(N 2d)
+(Nd)
+(Nd 2)
+(N)
+
+෡ 𝑉 𝜌 ∈ 0,1
+𝐻𝑒𝑎𝑑𝑂𝑢𝑡 = 𝜌𝑨
+
+200
+
+SOFT
+Agent
+Attn
+Linformer
+
+150
+100
+
+MLLA
+FLatten
+Performer
+
+50
+InfViT
+Std Pure
+ViT
+
+𝑁
+
+ℎ = ෍ 𝑤𝑡 𝑉𝑡 ∈ ℝ𝑑
+𝑡=1
+
+2
+
+4
+
+𝑋
+
+(a)
+
+6
+
+8
+
+Energy [J/img]
+
+10
+
+12
+
+(b)
+
+Fig. 2: (a) InfSA in a Pre-LN ViT block. Two InfSA variants within standard
+Transformer scaffolding: (1) Pure InfSA uses full attention with ReLU and Frobenius
+normalization, accumulating discounted outputs across layers; (2) Linear InfSA computes soft token scores, pools values per head, and broadcasts context with per-layer
+scaling. Both are drop-in compatible with Transformer blocks. (b) Efficiency by
+complexity tier (4L, 10242 ). Inference throughput vs. energy per image for nine
+attention mechanisms, colored by asymptotic complexity. InfViT Linear (O(N ), red
+star) achieves the highest throughput at the lowest energy cost.
+
+through multi-hop propagation. Define
+  \mathbf {M} = \gamma \, \hat {A}, \qquad R_i = 1 - \gamma \sum _{j=1}^{N} \hat {A}_{ij}, \label {eq:markov_Q} 
+
+(13)
+
+where Mij ≥ 0 represents the transition probability from token i to token j,
+and Ri ≥ 0 is the per-step absorption probability at token i. The matrix M is
+substochastic (M1 ≤ 1, with
+P strict inequality for at least one row) whenever
+γ maxi σi < 1, where σi = j Âij . Frobenius normalization constrains ∥Â∥F =
+1, which ensures ρ(M) = γ ρ(Â) < 1. We augment the N token states with a
+single absorbing state a, yielding the canonical form [30]:
+  P = \begin {pmatrix} \mathbf {M} & R \\ \mathbf {0}^\top & 1 \end {pmatrix} \in \mathbb {R}^{(N+1) \times (N+1)}, \label {eq:canonical_form} 
+
+(14)
+
+where R = (R1 , . . . , RN )⊤ and P is row-stochastic. Tokens are transient states;
+the absorbing state a represents termination of the diffusion process.
+The fundamental matrix of this chain is
+  N = (I - \mathbf {M})^{-1} = (I - \gamma \, \hat {A})^{-1} = \sum _{t=0}^{\infty } (\gamma \, \hat {A})^{\,t}, \label {eq:fundamental} 
+
+(15)
+
+which is precisely the Neumann kernel already underlying InfSA (Eq. 10). The
+entry Nij has a concrete probabilistic meaning [30, 48]: it equals the expected
+number of times the random walk visits token j before absorption, given that it
+
+Infinite Self-Attention
+Attention Matrix A
+
+Absorbing Markov Chain
+
+9
+
+Softmax (1 hop) vs InfSA (Neumann series)
+e 0.20 0.20 0.20 0.20 0.20 Input (1/N)
+
+M = A, = 0.7
+
+2 0.38 0.02 0.01 0.01 0.01
+
+0.43
+
+3 0.01 0.01 0.01 0.01 0.63
+
+0.67
+
+4 0.07 0.00 0.00 0.02 0.04
+
+0.14
+
+1 2 3 4
+A F = 1, rows 1
+
+1
+
+8
+
+0.2
+
+4
+0.44
+
+0.45
+
+0.27
+
+0.57
+
+1 0.40 0.01 0.02 0.00 0.01
+
+Softmax 0.30 0.10 0.10 0.24 0.26 1 hop (Std ViT)
+0.38
+
+0 0.00 0.01 0.00 0.54 0.02
+
+0
+
+×Asfx
+
+0
+
+2
+
+Absorption Ri
+
+3
+
+Transition Mij
+
+Standard ViT stops here
+
+×Q = A
+
+n = 1 0.38 0.02 0.02 0.26 0.32
+n = 2 0.09 0.02 0.01 0.47 0.40
+
+c in 0.23 0.14 0.14 0.23 0.25 Katz (InfSA)
+
+Fig. 3: Softmax attention (1-hop) vs. InfSA (Neumann series). Left:
+Frobenius-normalized Â (∥Â∥F =1); row sums vary, unlike softmax. Middle:
+AbsorbP
+ing Markov chain M=γ Â; dashed red arrows show absorption Ri =1− j Mij into a.
+Right: Starting from the all-ones input e (Eq. 8): softmax attention (row-stochastic,
+1-hop) ranks token 0 first via column sums, since many tokens directly attend to it.
+InfSA iterates M further; at n=2 the chain 0→3→4 redirects mass to token 4, and
+the Katz centrality cin correctly identifies token 4 as globally most important—the
+multi-hop outcome standard self-attention misses.
+
+starts at token i. The InfSA path-integral matrix S = N − I = (I − γ Â)−1 − I
+therefore counts expected visits excluding the starting state.
+Token centrality as expected walk persistence. Row sums and column
+sums of N yield two complementary centrality measures:
+P
+– Outgoing influence: cout
+= j Nij is the expected total number of toi
+ken visits before absorption when starting from token i. Tokens with high
+outgoing influence initiate long,
+Pinformation-rich walks.
+– Incoming centrality: cin
+=
+j
+i Nij is the total expected visits to token j
+across all starting points. Tokens with high incoming centrality are structurally important in the attention graph.
+These scores coincide with Katz centrality [29], confirming that InfSA ranks
+tokens by global structural role rather than by local query–key affinity.
+Why Frobenius normalization enables absorption. Softmax normalization
+gives row-stochastic matrices (Â1 = 1), corresponding to a closed Markov chain
+with no absorbing state—the source of oversmoothing [32]. Frobenius normalization breaks row-stochasticity (ρ(Â) < 1 in practice), introducing a positive
+absorption probability at every step and ensuring convergence. This absorbingchain view is structurally identical to the Markov interpretation of Roffo et
+al . [44,45], where features are transient states and the fundamental matrix ranks
+them by expected walk persistence. InfSA extends this principle from feature
+graphs to token graphs: a token receives high centrality when it participates in
+many long, likely walks before diffusion terminates.
+3.4
+
+Linear-InfSA: Efficient Centrality Approximation
+
+To reduce the cost of explicit multi-hop accumulation, Linear-InfSA approximates token centrality using the principal eigenvector of the implicit atten-
+
+10
+
+G. Roffo and L. Palmer
+
+tion operator, without forming the full matrix A. Concretely, it approximates
+the dominant eigenvector of the Neumann kernel Č = (I − γ Â)−1 − I computed by Pure InfSA (Eq. 7), replacing the O(N 2 ) matrix inversion with a
+single O(N ) power-iteration step. This yields a linear-time approximation of
+global influence, computed via simple vector operations and normalized iterations. Let X = [x1 , . . . , xN ] be the input tokens, and let WQ , WV be the query
+and value projections. We tie projections and define Q := XWQ , so that Q = K.
+Tying Q=K restricts the attention kernel to a symmetric similarity measure
+⊤
+(x⊤
+i W W xj ), forgoing asymmetric query–key interactions. This design choice
+is motivated by the eigenvector interpretation: the Perron eigenvector is a property of the symmetric operator A + A⊤ , so symmetry is structurally appropriate.
+Asymmetric token interactions are recovered through the multi-head ensemble
+and the subsequent feed-forward network.
+Soft query construction. We compute token-wise energies as the ℓ2 norms of
+the query vectors:
+  e_i = \|Q_i\|_2, 
+(16)
+providing a positive signal that reflects token prominence in embedding space [46].
+These energies are normalized without softmax:
+  \label {eq:att_weights} \alpha _i = \frac {e_i}{\sum _j e_j + \varepsilon }, \quad \text {with } \alpha \in \mathbb {R}^N_+, \quad \|\alpha \|_1 = 1, 
+
+(17)
+
+yielding a soft importance score that serves as a proxy for the dominant eigenvector of a positive operator [25, 29]. No softmax or Frobenius normalization is
+required; the ℓ1 constraint ensures numerical stability.
+Central query and attention over keys. The soft central query is obtained
+via weighted averaging:
+  \bar {q} = \sum _i \alpha _i Q_i \in \mathbb {R}^d. \label {eq:linfsa_qbar} 
+(18)
+We compute the scores over keys using a positive kernel:
+  S_j = [\bar {q}^\top K_j]_+, \label {eq:linfsa_scores} 
+
+(19)
+
+and normalize again using an L1 constraint (Q = K):
+  a_j = \frac {S_j}{\sum _l S_l + \varepsilon }. \label {eq:linfsa_iter} 
+
+(20)
+
+The Linear-InfSA weights implement a first-order Perron–Frobenius–style approximation of the dominant eigenvector of the implicit attention diffusion operator. Under nonnegativity (or strong positivity after a tiny floor), the iteration is
+an order-preserving, 1-homogeneous map whose normalized iterates converge to
+a unique eigenvector; in the strictly nonnegative case, it reduces exactly to the
+classical power method. The resulting O(N ) complexity yields a 13.4× speed-up
+over Standard ViT, absolute throughput of 231 img/s, and energy cost of only
+0.87 J/img at 10242 (see the efficiency dashboard in Fig. 4).
+
+Infinite Self-Attention
+
+1.0×
+
+5.4×
+
+5.5×
+
+1.0×
+
+200
+
+186
+
+178
+
+Energy [J/img]
+
+5.0×
+
+10.7×
+
+183
+
+150
+100
+50
+
+(c) Inference energy
+12 11.63
+
+231
+
+86
+
+17
+
+92
+
+95
+
+11.25
+
+10
+
+18
+
+8
+6
+4
+2
+
+2.33
+1.13
+
+2.17
+1.08
+
+1.09
+
+2.10
+0.87
+
+0
+
+0
+
+S
+Lin td Vi
+f T
+Pe orme
+rfo r
+rm
+e
+SO r
+FL FT
+Ag att
+en en
+tA
+tt
+Inf ML n
+Inf ViT LA
+ViT Pu
+Lin re
+ea
+r
+
+10.8×
+
+250
+
+S
+Lin td Vi
+f T
+Pe orme
+rfo r
+rm
+e
+SO r
+FL FT
+Ag att
+en en
+tA
+tt
+Inf ML n
+Inf ViT LA
+ViT Pu
+Lin re
+ea
+r
+
+10.3×
+
+Throughput [img/s]
+
+(b) Inference throughput
+13.4×
+
+S
+Lin td Vi
+f T
+Pe orme
+rfo r
+rm
+e
+SO r
+FL FT
+Ag att
+en en
+tA
+tt
+Inf ML n
+V
+Inf iT LA
+ViT Pu
+Lin re
+ea
+r
+
+Speed-up vs Std ViT
+
+(a) Speed-up
+14
+12
+10
+8
+6
+4
+2
+0
+
+11
+
+Fig. 4: Efficiency dashboard (4L-64H, inference at 10242 ). Speed-up over Standard ViT, absolute throughput, and energy per image. InfViT Linear (O(N )) achieves
+13.4× speed-up at 0.87 J/img.
+
+Final context pooling. The head output is computed as a weighted sum of
+values:
+  h = \sum _{t=1}^N w_t V_t, \quad \text {with } w = \gamma a, 
+
+(21)
+
+mirroring the same scaling mechanism used in Pure InfSA. The resulting context
+vector h is then broadcast to all token positions and merged across heads (see
+Fig. 2a⟨2⟩).
+Query-independent weighting by design. The weight vector a depends only
+on Keys (equivalently Queries, since Q=K) and is shared across all positions—
+a direct consequence of the eigenvector limit, where the operator is dominated
+by its principal eigenvector v, producing an effective rank-1 matrix vv ⊤ . We
+recover expressivity by using 64 heads (vs. 16 in standard ViT), so that each
+head captures a different centrality mode; on frozen checkpoints, a achieves 0.985
+mean cosine similarity with the true Perron eigenvector (Supplement Sec. 3).
+Each Linear-InfSA head produces a rank-1 output (shared context broadcast to
+all positions). With 64 heads and per-head dimension dh =12, the concatenated
+output spans a 64 × 12 = 768-dimensional subspace, matching standard ViT
+capacity.
+Linear-InfSA avoids constructing the full attention matrix, reducing complexity from O(N 2 ) to O(N ). The vector a is a linear-time surrogate for the dominant eigenvector [31, 48], obtained classically as v = limk→∞ Ak x0 /∥Ak x0 ∥1 ;
+this k→∞ characterization motivates the term “infinite” in Linear-InfSA. The
+ReLU in Eq. (19) suppresses anti-aligned tokens, and under nonnegativity the
+map defines a positively 1-homogeneous operator whose iterates converge to a
+unique direction by nonlinear Perron–Frobenius theory [4, 31] (see Supplement
+for the full convergence argument).
+Relation to global pooling. Although the per-head output is a broadcast
+context vector, Linear-InfSA is not reducible to generic global pooling [26] or
+additive-attention aggregation [60]: the weight vector a is the unique fixed point
+of a nonlinear Perron–Frobenius operator whose spectrum encodes the full intertoken similarity structure, not a learned or heuristic saliency score. This spectral
+grounding is verified empirically—a achieves 0.985 mean cosine similarity with
+
+12
+
+G. Roffo and L. Palmer
+
+Table 1: Scalability benchmark on A100 40 GB (batch = 1). Inference at
+10242 (4 096 tokens, patch 16); training at 5122 . Energy: E=P̄ · ∆t; P̄tr =300 W,
+P̄inf =200 W. Type: Q = quadratic, L = linear/sub-quadratic, I = InfSA. All non-InfViT
+models OOM above 10242 ; Max Res is the highest resolution completing without memory failure.
+Model
+
+Type Complexity Params
+
+Latency [ms] Throughput [img/s] Energy [J/img]
+Train
+
+Max Res
+
+Infer
+
+Train
+
+Infer
+
+Train
+
+Infer
+
+24-layer, 16-head configuration (dh =48) — fair depth comparison
+Standard ViT
+Q
+O(N 2 d)
+330.6M 60.18 113.13
+Linformer [57]
+L
+O(N d)
+331.5M 55.64
+38.95
+Performer [9]
+L
+O(N d2 )
+330.3M 58.14
+42.80
+SOFT [36]
+L
+O(N d)
+330.8M 56.10
+36.44
+FLatten [20]
+L
+O(N d2 )
+330.5M 57.82
+40.15
+Agent Attn [22]
+L
+O(N d)
+331.0M 56.55
+35.81
+2
+MLLA [21]
+L
+O(N d )
+330.4M 57.38
+39.52
+InfViT Pure
+I
+O(N 2 d)
+330.6M 60.25 110.20
+InfViT Linear
+I
+O(N )
+305.4M 55.52 25.28
+
+16.62
+17.97
+17.20
+17.83
+17.29
+17.68
+17.43
+16.59
+18.01
+
+8.84
+25.67
+23.36
+27.44
+24.91
+27.93
+25.30
+9.07
+39.56
+
+18.05
+16.69
+17.44
+16.83
+17.35
+16.97
+17.21
+18.08
+16.66
+
+22.63
+7.79
+8.56
+7.29
+8.03
+7.16
+7.90
+22.04
+5.06
+
+10242
+10242
+10242
+10242
+10242
+10242
+10242
+10242
+92162
+
+4-layer, 64-head configuration (dh =12) — proposed lightweight
+Standard ViT
+Q
+O(N 2 d)
+57.7M 19.26
+58.16
+Linformer [57]
+L
+O(N d)
+58.3M 12.49
+5.63
+Performer [9]
+L
+O(N d2 )
+57.5M 15.45
+11.63
+SOFT [36]
+L
+O(N d)
+57.9M 12.18
+5.38
+FLatten [20]
+L
+O(N d2 )
+57.6M 14.92
+10.85
+Agent Attn [22]
+L
+O(N d)
+58.1M 12.35
+5.45
+MLLA [21]
+L
+O(N d2 )
+57.5M 14.68
+10.52
+InfViT Pure
+I
+O(N 2 d)
+57.7M 19.55
+56.27
+†
+InfViT Linear
+I
+O(N )
+53.5M 9.41
+4.33
+
+51.93
+80.04
+64.72
+82.10
+67.02
+80.97
+68.12
+51.15
+106.27
+
+17.19
+177.62
+85.98
+185.87
+92.17
+183.49
+95.06
+17.77
+230.95
+
+5.78
+3.75
+4.64
+3.65
+4.48
+3.71
+4.40
+5.87
+2.82
+
+11.63
+1.13
+2.33
+1.08
+2.17
+1.09
+2.10
+11.25
+0.87
+
+10242
+10242
+10242
+10242
+10242
+10242
+10242
+10242
+92162
+
+3.12
+0.56
+
+59.77
+—
+
+64.05
+356.63
+
+92162
+92162
+
+Extreme-resolution stress test (Linear InfViT only — all others OOM)
+InfViT Linear (4L) I
+O(N )
+53.5M 199.22a 320.27b 5.02
+InfViT Linear (24L) I
+O(N )
+305.4M
+— 1783.17b —
+†
+
+Primary model.
+
+a
+
+Train at 4096 (65k tokens).
+2
+
+b
+
+Infer at 9216 (332k tokens). O(N ) = independent of head dim.
+2
+
+the true Perron eigenvector (Supplement Sec. 3)—and ensures that the aggregation captures global graph centrality rather than local token prominence.
+
+4
+
+Experiments
+
+We evaluate InfSA by integrating it into a 4-layer Vision Transformer (ViT)
+with patch size 16. Pure InfViT uses 16 full-attention heads, while Linear InfViT
+uses 64 lightweight heads. Both models have comparable compute and parameter
+counts (58M vs. 53M). Full training details are in the Supplement.
+4.1
+
+Scalability to Extreme Input Resolutions
+
+We benchmark nine attention mechanisms from 2242 to 92162 resolution on an
+A100 40 GB (batch = 1). At 92162 with patch size 16 the sequence length reaches
+N =331,776 tokens—6.6× the ∼50k ceiling of FlashAttention-assisted quadratic
+models [11]. FlashAttention removes the O(N 2 ) memory wall but retains O(N 2 )
+compute, making 330k tokens prohibitive. Linear InfViT scales near-linearly and
+is the only model that completes the full resolution range without OOM (see
+latency-vs-resolution plot in the Supplement, Fig. 11).
+Table 1 reports latency, throughput, and energy for nine mechanisms at
+10242 . Sub-quadratic methods form three tiers: (i) O(N d2 ) feature-map attention (Performer, FLatten, MLLA); (ii) O(N d) projection-based (Linformer,
+SOFT, Agent Attn); (iii) O(N ) InfViT Linear. In the 4L-64H configuration,
+
+Infinite Self-Attention
+
+ROC-AUC (%)
+
+60
+42.6
+
+40
+20
+0
+
+St
+
+iT
+dV
+
+ar
+and
+
+ure
+
+iT P
+InfV
+
+In
+
+60
+
+PR-AUC (%)
+
+53.8
+
+20
+0
+
+St
+
+ard
+and
+
+ViT
+
+80
+
+76.6
+
+40
+
+r
+
+inea
+
+L
+fViT
+
+77.3
+
+80
+
+PR-AUC (%)
+
+76.0
+
+74.8
+
+ROC-AUC (%)
+
+MoRF-AOC (%)
+
+MoRF-AOC (%)
+80
+
+r
+
+ure
+
+iT P
+InfV
+
+ea
+Lin
+fViT
+
+In
+
+13
+
+60
+
+75.5
+
+76.1
+
+ure
+
+r
+
+56.2
+
+40
+20
+0
+d
+dar
+
+n
+Sta
+
+ViT
+
+iT P
+InfV
+
+inea
+iT L
+InfV
+
+Fig. 5: Attention quality summary. MoRF-AOC, ROC-AUC, and PR-AUC (%).
+Both InfSA variants outperform Standard ViT by 20–34 pp. Full curves in the Supplement (Figs. 7, 8).
+
+InfViT Linear achieves 231 img/s at 0.87 J/img—13× faster and cheaper than
+Standard ViT (17.19 img/s, 11.63 J) and 1.2–2.7× faster than all sub-quadratic
+baselines (Fig. 4). At 92162 (332k tokens), InfViT Linear 4L sustains 3.12 img/s;
+all other models trigger OOM. As shown in Fig. 2b, InfViT Linear occupies
+the top-left corner of the throughput-vs-energy space, clearly separated from all
+O(N d) and O(N d2 ) baselines. A 4L vs. 24L depth comparison is provided in the
+Supplement (Fig. 9).
+4.2
+
+Attention Quality: Degradation and Localization
+
+We evaluate whether InfSA attention maps are semantically grounded on the
+ImageNet-1K validation set. Attention maps are extracted from 24-layer models
+with each respective attention mechanism (ViT-L/16 backbone, 14×14 tokens,
+304M params), following standard practice for interpretability evaluation.
+MoRF degradation [47] progressively removes high-attention patches and
+tracks confidence drop (Area Over the Curve, AOC ↑). Linear InfSA achieves
+the steepest MoRF drop (AOC = 76.0%), followed by Pure InfSA (71.7%); Standard ViT’s flat curve (AOC = 42.6%) reveals diffuse attention. For LeRF (Least
+Relevant First), Pure InfSA maintains the highest retention (AUC = 65.3%).
+Bounding-box localization treats attention as a patch-level detector against
+ImageNet ground-truth boxes (2 088 images). Pure InfSA leads in ROC-AUC
+(77.3%) and Linear InfSA in PR-AUC (76.1%), versus 53.8% and 56.2% for
+Standard ViT (+20–24 pp). Both evaluations confirm that InfSA produces spatially selective, semantically aligned attention (Fig. 5).
+4.3
+
+ImageNet Classification Results
+
+All models are trained on ImageNet-1K (1.28M images, 300 epochs, batch 64)
+with a DeiT-style recipe [53], without external data, distillation, or self-supervised
+pretraining. Our ViT baseline reaches 81.5%; the +3.2 pp gain of Linear InfViT
+4L (84.7%, 53.5M params, 59 GFLOPs) is purely architectural. Note that InfViT4L operates at 59 GFLOPs (2242 ) vs. 17.5 GFLOPs for ViT-B/16, owing to its
+64-head design. However, the O(N ) complexity of Linear-InfSA means this gap
+
+14
+
+G. Roffo and L. Palmer
+
+ImageNet-1K accuracy vs. params
+85
+
+InfViT-Pur 24L
+InfViT-Lin 24L
+
+InfViT-Pur 4L
+InfViT-Lin 4L
+
+84
+83
+82
+
+Softmax Attn
+Linear Attn
+SSM / Conv
+InfSA (ours)
+
+81
+
+ImageNet-V2 accuracy vs. params
+80
+
+50 100 150 200 250 300
+
+Parameters (M)
+
+IN-V2 Top-1 (%)
+
+IN-1K Top-1 (%)
+
+86
+
+InfViT-Pur 24L
+
+InfViT-Pur 4L
+
+78
+
+InfViT-Lin 24L
+
+InfViT-Lin 4L
+
+76
+74
+Softmax Attn
+Linear Attn
+SSM / Conv
+InfSA (ours)
+
+72
+70
+
+50
+
+100 150 200 250 300
+
+Parameters (M)
+
+Fig. 6: Accuracy vs. parameters. ImageNet-1K (left) and ImageNet-V2 (right) top1 accuracy against parameter count. InfViT variants (red stars) achieve competitive or
+superior accuracy at lower parameter count. On IN-V2, all four InfViT models exceed
+every baseline.
+
+narrows at higher resolutions and reverses beyond ∼5122 , where quadratic baselines’ FLOPs grow as N 2 while InfViT’s grow linearly. Fig. 6 plots ImageNet-1K
+and ImageNet-V2 [42] top-1 accuracy against parameter count. On IN-1K, InfViT Pure 24L reaches 85.4%, within 0.4 pp of RAVLT-L [14] (85.8%). The 4L
+variants (85.1% Pure, 84.7% Linear) surpass Agent Attn-B (84.1%) and FLatten (≤84.5%) at roughly half the parameters. On IN-V2, all four InfViT models
+exceed every baseline (up to 79.8% vs. 76.8% for RAVLT-L), indicating robust
+generalization. The 24L models improve by only 0.3–0.4 pp over 4L at 6× the
+parameter cost; the 4L-64H variants are the recommended configuration. The
+full per-method table is in the Supplement (Table 3).
+Ablation results (path-decay γ and activation function) are reported in the
+Supplement (Table 4). In brief: accuracy and MoRF-AOC peak at γ=0.7 with
+ReLU (84.7%, 76.0%); the Linear-InfSA weight vector achieves 0.985 cosine similarity with the Perron eigenvector of the full operator on small token sets (Supplement Sec. 3).
+
+5
+
+Conclusion
+
+We proposed Infinite Self-Attention (InfSA), a scalable, interpretable alternative to softmax attention, reformulating token interactions as graph diffusion.
+Pure InfSA uses Frobenius-normalized operators—ensuring contractive behavior
+for convergent Neumann-series integration—to capture multi-hop dependencies,
+while Linear InfSA approximates global influence in linear time via the principal
+eigenvector of the implicit attention operator, with an O(d) auxiliary attention
+state independent of the sequence length. Both variants preserve Pre-LN Transformer compatibility and offer convergence guarantees grounded in nonlinear
+Perron–Frobenius theory.
+Empirically, InfViT models show strong performance across classification, localization, and scalability tasks. Pure InfViT improves ImageNet accuracy and
+attention alignment, while Linear InfViT scales to 92162 resolution with 13×
+
+Infinite Self-Attention
+
+15
+
+better energy efficiency than standard ViT of equal depth. Compact 4-layer
+variants match or exceed larger baselines in accuracy at a fraction of the parameters, enabling practical deployment. The graph-theoretic principles underlying InfSA are modality-agnostic, suggesting natural extensions to NLP, multimodal models, video understanding, and dense prediction tasks; Code available
+at: github.com/giorgioroffo/infinite-self-attention.
+
+Acknowledgements
+This work builds in part on conceptual directions previously explored through
+the collaboration between MindVisionLabs (MVL), London, UK, and TRI Toyota Motor Europe. We also gratefully acknowledge Equixly API Security for
+its support of this work.
+
+References
+1. Abnar, S., Zuidema, W.: Quantifying attention flow in transformers. In: ACL
+(2020)
+2. Beltagy, I., Peters, M.E., Cohan, A.: Longformer: The long-document transformer.
+In: arXiv preprint arXiv:2004.05150 (2020)
+3. Bianchini, M., Gori, M., Scarselli, F.: Inside pagerank. ACM Transactions on Internet Technology (TOIT) 5(1), 92–128 (2005)
+4. Birkhoff, G.: Extensions of jentzsch’s theorem. Transactions of the American Mathematical Society 85, 219–227 (1957)
+5. Bonacich, P.: Centrality in social networks: Conceptual clarification. Social Networks 1(3), 191–235 (1972)
+6. Brown, T.B., Mann, B., Ryder, N., Subbiah, M., Kaplan, J., Dhariwal, P., Neelakantan, A., et al.: Language models are few-shot learners. Advances in Neural
+Information Processing Systems (NeurIPS) (2020)
+7. Buades, A., Coll, B., Morel, J.M.: A non-local algorithm for image denoising. In:
+2005 IEEE Computer Society Conference on Computer Vision and Pattern Recognition (CVPR’05). vol. 2, pp. 60–65. IEEE (2005)
+8. Chefer, H., Gur, S., Wolf, L.: Transformer interpretability beyond attention visualization. In: CVPR (2021)
+9. Choromanski, K., Likhosherstov, V., Dohan, D., Song, X., Gane, A., Sarlos, T.,
+Hawkins, P., Davis, J., Mohiuddin, A., Kaiser, L., Belanger, D., Colwell, L., Weller,
+A.: Rethinking attention with performers. In: International Conference on Learning
+Representations (ICLR) (2021)
+10. Dao, T.: Flashattention-2: Faster attention with better parallelism and work partitioning. arXiv preprint arXiv:2307.08691 (2023). https://doi.org/10.48550/
+arXiv.2307.08691
+11. Dao, T., Zhang, Z., Ramsundar, B., Re, C.: Flashattention-2: Faster attention with
+better parallelism and work partitioning. In: NeurIPS (2023)
+12. Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner,
+T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J., Houlsby,
+N.: An image is worth 16x16 words: Transformers for image recognition at scale.
+In: International Conference on Learning Representations (ICLR) (2021), https:
+//arxiv.org/abs/2010.11929
+
+16
+
+G. Roffo and L. Palmer
+
+13. Erel, Y., Dünkel, O., Dabral, R., Golyanik, V., Theobalt, C., Bermano, A.H.: Attention (as discrete-time markov) chains. In: Advances in Neural Information Processing Systems (2025)
+14. Fan, Q., Huang, H., Chen, M., Liu, H., He, R.: Breaking the low-rank dilemma of
+linear attention. arXiv preprint arXiv:2411.07635 (2024)
+15. Fan, Q., Huang, H., Chen, M., Liu, H., He, R.: Rmt: Retentive networks meet
+vision transformers. In: Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR) (2024), https://openaccess.thecvf.
+com / content / CVPR2024 / html / Fan _ RMT _ Retentive _ Networks _ Meet _ Vision _
+Transformers_CVPR_2024_paper.html
+16. Fan, Q., Huang, H., Zhou, X., He, R.: Lightweight vision transformer with bidirectional interaction. In: Advances in Neural Information Processing Systems
+(NeurIPS) (2023), https://proceedings.neurips.cc/paper_files/paper/2023/
+hash/3170de57bc1899315b97712043d8bb22-Abstract-Conference.html
+17. Fong, R.C., Vedaldi, A.: Interpretable explanations of black boxes by meaningful
+perturbation. In: ICCV (2017)
+18. Graham, R.L., Knuth, D.E., Patashnik, O.: Concrete Mathematics: A Foundation
+for Computer Science. Addison-Wesley (1994)
+19. Gu, A., Dao, T.: Mamba: Linear-time sequence modeling with selective state
+spaces. arXiv preprint arXiv:2312.00752 (2023). https://doi.org/10.48550/
+arXiv.2312.00752, v2: May 31, 2024
+20. Han, D., Pan, X., Han, Y., Song, S., Huang, G.: Flatten transformer: Vision transformer using focused linear attention. In: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV). pp. 5961–5971 (2023)
+21. Han, D., Wang, Z., Xia, Z., Han, Y., Pu, Y., Ge, C., Song, J., Song, S., Zheng,
+B., Huang, G.: Demystify mamba in vision: A linear attention perspective. In:
+Advances in Neural Information Processing Systems (NeurIPS) (2024)
+22. Han, D., Ye, T., Han, Y., Xia, Z., Pan, S., Wan, P., Song, S., Huang, G.: Agent
+attention: On the integration of softmax and linear attention. In: Proceedings of
+the European Conference on Computer Vision (ECCV) (2024)
+23. Hatamizadeh, A., et al.: Mambavision: A hybrid mamba-transformer vision backbone. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) (2025), https://openaccess.thecvf.com/content/
+CVPR2025/papers/Hatamizadeh_MambaVision_A_Hybrid_Mamba- Transformer_
+Vision_Backbone_CVPR_2025_paper.pdf
+24. Hatamizadeh, A., Yin, H., Heinrich, G., Kautz, J., Molchanov, P.: Global context
+vision transformers. In: Proceedings of the 40th International Conference on Machine Learning (ICML). Proceedings of Machine Learning Research, vol. 202, pp.
+12633–12646 (2023), https://proceedings.mlr.press/v202/hatamizadeh23a.
+html
+25. Horn, R.A., Johnson, C.R.: Matrix analysis. Cambridge university press (2012)
+26. Hu, J., Shen, L., Sun, G.: Squeeze-and-excitation networks. In: Proceedings of the
+IEEE conference on computer vision and pattern recognition. pp. 7132–7141 (2018)
+27. Huang, H., Zhou, X., Cao, J., He, R., Tan, T.: Vision transformer with super token
+sampling. In: Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR) (2023)
+28. International Energy Agency: Energy and ai (2025), https://www.iea.org/
+reports/energy-and-ai, sections: Energy demand from AI
+29. Katz, L.: A new status index derived from sociometric analysis. Psychometrika
+18(1), 39–43 (1953)
+
+Infinite Self-Attention
+
+17
+
+30. Kemeny, J.G., Snell, J.L.: Finite Markov Chains. Van Nostrand, Princeton, NJ
+(1960)
+31. Lemmens, B., Nussbaum, R.: Nonlinear Perron–Frobenius Theory. Springer Monographs in Mathematics, Springer, New York (2012)
+32. Li, Q., Han, Z., Wu, X.M.: Deeper insights into graph convolutional networks for
+semi-supervised learning. In: Proceedings of the AAAI Conference on Artificial
+Intelligence. vol. 32 (2018)
+33. Liao, B., Wang, X., Zhu, L., Zhang, Q., Huang, C.: Vig: Linear-complexity visual
+sequence learning with gated linear attention. arXiv preprint arXiv:2405.18425
+(2024)
+34. Lin, W., Wu, Z., Chen, J., Huang, J., Jin, L.: Scale-aware modulation meet
+transformer. In: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV). pp. 2724–2734 (2023), https://openaccess.thecvf.com/
+content / ICCV2023 / html / Lin _ Scale - Aware _ Modulation _ Meet _ Transformer _
+ICCV_2023_paper.html
+35. Liu, Z., Hu, H., Lin, Y., Yao, Z., Xie, Z., Wei, Y., Ning, J., Cao, Y., Zhang,
+Z., Dong, L., Wei, F., Guo, B.: Swin transformer v2: Scaling up capacity and
+resolution. Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR) (2022)
+36. Lu, J., Yao, J., Zhang, J., Zhu, X., Xu, H.: Soft: Softmax-free transformer
+with linear complexity. In: Advances in Neural Information Processing Systems (NeurIPS) (2021), https://proceedings.neurips.cc/paper/2021/hash/
+b1d10e7bafa4421218a51b1e1f1b0ba2-Abstract.html
+37. Oono, K., Suzuki, T.: Graph neural networks exponentially lose expressive power
+for node classification. In: International Conference on Learning Representations
+(ICLR) (2020), arXiv:1905.10947
+38. Ortega, A., Frossard, P., Kovacevic, J., Moura, J.M., Vandergheynst, P.: Graph
+signal processing: Overview, challenges, and applications. Proceedings of the IEEE
+106(5), 808–828 (2018)
+39. Page, L., Brin, S., Motwani, R., Winograd, T.: The pagerank citation ranking:
+Bringing order to the web. Technical Report (1999)
+40. Peng, B., Alcaide, E., Anthony, Q., Albalak, A., Arcadinho, S., Biderman, S., Cao,
+H., Cheng, X., Chung, M., Grella, M., et al.: RWKV: Reinventing RNNs for the
+transformer era. arXiv preprint arXiv:2305.13048 (2023). https://doi.org/10.
+48550/arXiv.2305.13048
+41. Rao, Y., Zhao, W., Tang, Y., Zhou, J., Lim, S.N., Lu, J.: Hornet: Efficient high-order spatial interactions with recursive gated convolutions. In: Advances in Neural Information Processing Systems (NeurIPS)
+(2022), https : / / proceedings . neurips . cc / paper _ files / paper / 2022 / hash /
+436d042b2dd81214d23ae43eb196b146-Abstract-Conference.html
+42. Recht, B., Roelofs, R., Schmidt, L., Shankar, V.: Do imagenet classifiers generalize
+to imagenet? In: International conference on machine learning. pp. 5389–5400.
+PMLR (2019)
+43. Ren, S., Yang, X., Liu, S., Wang, X.: Sg-former: Self-guided transformer with evolving token reallocation. In: Proceedings of the IEEE/CVF International Conference
+on Computer Vision (ICCV) (2023), https://openaccess.thecvf.com/content/
+ICCV2023 / html / Ren _ SG - Former _ Self - guided _ Transformer _ with _ Evolving _
+Token_Reallocation_ICCV_2023_paper.html
+44. Roffo, G., Melzi, S., Castellani, U., Vinciarelli, A., Cristani, M.: Infinite feature
+selection: A graph-based feature filtering approach. IEEE Transactions on Pattern
+
+18
+
+G. Roffo and L. Palmer
+
+Analysis and Machine Intelligence 43(12), 4396–4410 (2021). https://doi.org/
+10.1109/TPAMI.2020.3002843
+45. Roffo, G., Melzi, S., Cristani, M.: Infinite feature selection. In: 2015 IEEE International Conference on Computer Vision (ICCV). pp. 4202–4210 (2015). https:
+//doi.org/10.1109/ICCV.2015.478
+46. Romero, A., Bertinetto, L., Kirillov, A., Schmid, C., Carreira, J.: Geometric analysis of self-attention. In: International Conference on Learning Representations
+(ICLR) (2021)
+47. Samek, W., Binder, A., Montavon, G., Lapuschkin, S., Müller, K.R.: Evaluating
+the visualization of what a deep neural network has learned. IEEE Transactions
+on Neural Networks and Learning Systems 28(11), 2660–2673 (2016)
+48. Seneta, E.: Non-negative Matrices and Markov Chains. Springer, New York, 2nd
+edn. (2006)
+49. Spravil, J., Houben, S., Behnke, S.: Hyenapixel: Global image context with convolutions. arXiv preprint arXiv:2402.19305 (2024)
+50. Strubell, E., Ganesh, A., McCallum, A.: Energy and policy considerations for deep
+learning in NLP. In: Proceedings of ACL 2019 (2019), https://aclanthology.
+org/P19-1355/
+51. Teo, M., Nguyen, K.: Unveiling the hidden structure of self-attention via kernel
+principal component analysis. In: Advances in Neural Information Processing Systems (NeurIPS) (2024)
+52. Teo, T., Nguyen, H.: Unveiling the hidden structure of self-attention via kernel
+principal component analysis. arXiv preprint arXiv:2402.12345 (2024)
+53. Touvron, H., Cord, M., Douze, M., Massa, F., Sablayrolles, A., Jégou, H.: Training
+data-efficient image transformers & distillation through attention. In: International
+conference on machine learning. pp. 10347–10357. PMLR (2021)
+54. U.S. Department of Energy: Doe releases new report evaluating increase in electricity demand from data centers (2024), https://www.energy.gov/articles/
+doe-releases-new-report-evaluating-increase-electricity-demand-datacenters
+55. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser,
+Ł., Polosukhin, I.: Attention is all you need. In: Proceedings of the 31st International Conference on Neural Information Processing Systems. pp. 6000–6010 (2017)
+56. Wang, S., Li, B.Z., Khabsa, M., Fang, H., Ma, H.: Linformer: Self-attention
+with linear complexity. In: Advances in Neural Information Processing Systems
+(NeurIPS) (2020), https://arxiv.org/abs/2006.04768
+57. Wang, S., Li, B.Z., Khabsa, M., Fang, H., Ma, H.: Linformer: Self-attention with
+linear complexity. In: Proceedings of the 58th Annual Meeting of the Association
+for Computational Linguistics (ACL) (2020)
+58. Wang, W., Dai, J., Chen, Z., Huang, Z., Li, Z., Zhu, X., Hu, X., Lu, T.,
+Lu, L., Li, H., et al.: Internimage: Exploring large-scale vision foundation
+models with deformable convolutions. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 14408–
+14419 (2023), http : / / openaccess . thecvf . com / content / CVPR2023 / html /
+Wang_InternImage_Exploring_Large-Scale_Vision_Foundation_Models_With_
+Deformable_Convolutions_CVPR_2023_paper.html
+59. Wang, X., Girshick, R., Gupta, A., He, K.: Non-local neural networks. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR). pp. 7794–7803 (2018)
+60. Wu, C., Wu, F., Qi, T., Huang, Y., Xie, X.: Fastformer: Additive attention can be
+all you need. arXiv preprint arXiv:2108.09084 (2021)
+
+Infinite Self-Attention
+
+19
+
+61. Xiong, Y., Zeng, Z., Chakrabarti, A., Socher, R., Xiong, C.: Nyströmformer: A
+nyström-based algorithm for approximating self-attention. AAAI (2021)
+
+Infinite Self-Attention
+
+1
+
+Supplementary Material
+
+6
+
+Why Pure InfSA and Linear-InfSA Are “Infinite”
+
+Both Pure InfSA and Linear-InfSA derive their name from classical notions of
+infinite-path reasoning in spectral graph theory. Although neither mechanism
+performs an unbounded computation, they each approximate limiting quantities
+obtained from infinite sequences of matrix operations: one through a Neumannseries expansion (Pure InfSA) and the other through power-iteration asymptotics
+(Linear-InfSA).
+Pure InfSA: infinite-path kernels via Neumann series. Let A ∈ RN ×N denote a
+nonnegative affinity matrix encoding token-to-token interactions at a given layer.
+(1)
+In the homogeneous case where
+= · · · = A(t) = · · · = A and 0 < γ < 1/ρ(A),
+PA
+∞
+the discounted power series t=0 γ t A t is absolutely convergent, and classical
+linear algebra yields the Neumann identity
+  \sum _{t=0}^{\infty } \gamma ^{\,t} A^{\,t} \;=\; (I - \gamma A)^{-1}. 
+(22)
+The entry [(I − γA)−1 ]ij aggregates the contribution of all walks from i to j,
+discounting longer paths geometrically—coinciding with the structural kernels
+underlying Katz centrality and PageRank.
+Pure InfSA implements the truncated analogue of this expansion across
+Transformer layers. Writing A(l) for the affinity matrix at layer l and Z (l) for
+the corresponding post-attention representation, the output after L layers is
+  S_L \,=\, \sum _{t=1}^{L} \gamma ^{\,t} Z^{(t)}, 
+
+(23)
+
+PL
+which mirrors the partial sum t=0 γ t A t . Each added layer incorporates proPL
+gressively longer effective paths, and limL→∞ t=0 γ t A t = (I − γA)−1 formalizes the “infinite” object that the truncated stack approximates.
+Linear-InfSA: infinite-depth eigenvector iteration. Under the Perron–Frobenius
+assumptions (irreducibility and nonnegativity), A admits a unique positive eigenvector v > 0 with Av = λmax v. For any strictly positive initialization x0 , the
+classical power method yields
+  \hat {v}^{(k)} = \frac {A^k x_0}{\|A^k x_0\|_1} \;\xrightarrow [k\to \infty ]{}\; v. 
+
+(24)
+
+The Perron eigenvector encodes the limiting contribution of infinitely long diffusion steps. Linear-InfSA is designed as a nonlinear, positively 1-homogeneous
+
+2
+
+G. Roffo and L. Palmer
+
+surrogate for this limit, producing an eigenvector-like token weighting in O(N )
+time without explicitly forming A or computing Ak .
+In summary, Pure InfSA is “infinite” because its mathematical template is
+the Neumann-series kernel that aggregates all walk lengths; Linear-InfSA is
+“infinite” because it approximates the limiting eigenvector from the sequence
+Ak x0 /∥Ak x0 ∥1 as k → ∞.
+
+7
+
+Convergence of Linear-InfSA
+
+The Linear-InfSA weight vector a is produced by a composition of ℓ1 -normalized,
+ReLU-activated linear maps. We show that this composition converges to the
+Perron eigenvector of the implicit attention operator under mild conditions.
+N
+Setup. Let F : RN
++ → R+ denote the nonlinear map that takes a nonnegative
+vector x and returns the ℓ1 -normalized output of the ReLU-gated inner product
+with a positive operator. Concretely,
+
+  F(x) = \frac {[\bar {q}(x)^\top K]_+}{\|[\bar {q}(x)^\top K]_+\|_1 + \varepsilon }, 
+where q̄(x) =
+
+P
+
+P
+
+i αi (x) Qi with αi (x) = ∥Qi ∥2 /(
+
+j ∥Qj ∥2 + ε).
+
+Key properties.
+1. Nonnegativity preservation. Since [·]+ = max(·, 0) and αi ≥ 0, F maps
+N
+RN
++ → R+ .
+2. Positive 1-homogeneity. For λ > 0, F (λx) = F (x) (the ℓ1 normalization
+absorbs scaling).
+3. Order preservation. Under the tied-projection constraint Q = K and
+ReLU gating, F is monotone on the positive cone.
+By the nonlinear Perron–Frobenius theorem for positively 1-homogeneous, orderpreserving maps on the positive cone [4,31], the normalized iterates F k (x0 )/∥F k (x0 )∥1
+converge to a unique eigenvector direction. In the strictly nonnegative case (ensured by ε > 0), this reduces exactly to the classical power method, and the
+fixed point is the Perron eigenvector of the implicit positive operator. In all experiments we use ε = 10−6 . Our empirical validation (Sect. 8) confirms that the
+single-step Linear-InfSA weight vector a achieves 0.985 mean cosine similarity
+with this eigenvector.
+
+8
+
+Eigenvector Alignment Validation
+
+This section validates that the closed-form Linear-InfSA weight vector a faithfully recovers the principal eigenvector of the explicit affinity operator
+  \hat A \;=\; \phi (Q Q^\top ) \;=\; \frac {\mathrm {ReLU}(Q Q^\top )}{\|\mathrm {ReLU}(Q Q^\top )\|_F}, \label {eq:supp-A-hat} 
+constructed from the per-head queries Q ∈ RT ×dh (with K = Q).
+
+(25)
+
+Infinite Self-Attention
+
+3
+
+Table 2: Alignment between the Perron eigenvector v of Â = ϕ(QQ⊤ ) and the LinearInfSA weight vector a (Eq. 27), across 512 per-head samples on a frozen trained checkpoint.
+Metric
+
+Mean Std. dev.
+
+Cosine similarity
+0.985
+Spearman correlation 0.937
+
+0.036
+0.132
+
+Experimental setup. Starting from a frozen trained Linear-InfSA ViT checkpoint, we install lightweight forward hooks on a chosen attention block. For
+each forward pass, the hooks capture the scaled per-head queries and keys
+q, k ∈ R(B·H)×T ×dh . Each (Q, K) pair corresponds to a single head of a single sample.
+Ground-truth Perron eigenvector. For every (Q, K) pair we build Â (Eq. 25)
+and approximate its Perron eigenvector v ∈ RT via power iteration with ℓ1
+normalization (Tpow = 200 iterations):
+  v^{(t+1)} = \frac {\hat A\, v^{(t)}}{\|\hat A\, v^{(t)}\|_1}, \qquad v^{(0)} \propto \mathbf {1}. 
+
+(26)
+
+Reconstruction of Linear-InfSA weights. From the same tensors, we reconstruct
+the weight vector a using the closed-form equations from the main paper:
+  e_t &= \|q_t\|_2, & \alpha _t &= \frac {e_t}{\textstyle \sum _s e_s + \varepsilon }, \nonumber \\ \bar q &= \textstyle \sum _t \alpha _t q_t, & s_t &= [\langle k_t, \bar q \rangle ]_+, \nonumber \\ a_t &= \frac {s_t}{\textstyle \sum _s s_s + \varepsilon }. \label {eq:supp-linfsa-a}
+
+(27)
+Metrics. For each valid (v, a) pair we measure cosine similarity cos(v, a) =
+⟨v, a⟩/(∥v∥2 ∥a∥2 ) and Spearman rank correlation. We collected 512 valid perhead samples with no degenerate cases.
+Discussion. Table 2 shows that the Linear-InfSA weights are almost perfectly
+aligned with the Perron eigenvector: mean cosine 0.985 and mean Spearman
+0.937. This validates that Linear-InfSA faithfully preserves the dominant spectral
+structure of the full operator, justifying its use as a drop-in O(N ) replacement.
+
+9
+
+Additional Attention Quality Curves
+
+The main paper (Sect. 4.2, Fig. 5) presents a compact bar-chart summary of
+attention quality. Here we provide the full curve-level evaluations: MoRF degradation, ROC, LeRF retention, and Precision–Recall (PR), all evaluated under
+the same protocol.
+
+4
+
+G. Roffo and L. Palmer
+
+ROC curve (AUC )
+
+MoRF degradation (AOC )
+Relative confidence
+
+1.2
+
+Standard ViT (AOC=0.426)
+InfViT Pure (AOC=0.717)
+InfViT Linear (AOC=0.760)
+
+1.0
+0.8
+0.6
+0.4
+
+True Positive Rate
+
+1.0
+
+0.2
+0.0
+
+0.8
+0.6
+0.4
+
+0.0
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+1.0
+
+Frac.\ patches removed (most relevant first)
+
+Standard ViT (AUC=0.537)
+InfViT Pure (AUC=0.772)
+InfViT Linear (AUC=0.765)
+Random
+
+0.2
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+0.8
+
+False Positive Rate
+
+1.0
+
+Fig. 7: MoRF degradation and ROC curves. Left: MoRF degradation (1 000
+images, mean ±1σ); steeper drop = more focused attention. Right: patch-level ROC
+against ImageNet bounding boxes (2 088 images). InfSA variants consistently outperform Standard ViT.
+
+MoRF degradation (Fig. 7, left) progressively removes high-attention patches
+and tracks the confidence drop (Area Over the Curve, AOC ↑). Linear InfSA
+achieves the steepest drop (AOC = 76.0%), followed by Pure InfSA (71.7%);
+Standard ViT’s flat curve (AOC = 42.6%) reveals diffuse attention.
+ROC (Fig. 7, right) evaluates patch-level attention as a binary detector against
+bounding-box ground truth. Pure InfSA leads with ROC-AUC = 77.3%, followed
+by Linear InfSA (76.6%), versus 53.8% for Standard ViT (+23 pp).
+LeRF retention (Fig. 8, left) removes patches in order of increasing attention; a well-calibrated map should maintain high confidence when only irrelevant
+patches are removed. Pure InfSA retains AUC = 65.3%, the highest among all
+variants, indicating robust assignment of low attention to background regions.
+Precision–Recall (Fig. 8, right) evaluates patch-level attention as a binary
+detector of foreground (inside bounding box) versus background. Linear InfSA
+leads with PR-AUC = 76.1%, followed by Pure InfSA (75.5%), versus 56.2% for
+Standard ViT (+20 pp).
+Together with the summary in the main paper, these four curves confirm
+that InfSA produces spatially selective, semantically aligned attention across all
+evaluation protocols.
+
+10
+
+Full Classification Results
+
+Table 3 reports per-method Top-1 accuracy on ImageNet-1K and ImageNet-V2,
+grouped by attention family. These numbers underlie the accuracy-vs-parameters
+scatter plots in the main paper (Fig. 6).
+
+Infinite Self-Attention
+
+1.0
+
+Precision
+
+Relative confidence
+
+1.0
+0.8
+0.6
+
+0.6
+0.4
+0.2
+
+0.4
+Standard ViT (AUC=0.581)
+InfViT Pure (AUC=0.653)
+InfViT Linear (AUC=0.556)
+
+0.2
+0.0
+
+Precision Recall curve (AUC )
+
+0.8
+
+LeRF retention (AUC )
+
+1.2
+
+0.0
+
+0.2
+
+0.4
+
+0.0
+0.6
+
+0.8
+
+5
+
+1.0
+
+Frac.\ patches removed (least relevant first)
+
+Standard ViT (AUC=0.589)
+InfViT Pure (AUC=0.781)
+InfViT Linear (AUC=0.779)
+
+0.0
+
+0.2
+
+0.4
+
+0.6
+
+Recall
+
+0.8
+
+1.0
+
+Fig. 8: LeRF retention and Precision–Recall curves. Left: LeRF retention
+(Least Relevant First removal; AUC ↑; 1 000 images, mean ±1σ). Right: Precision–
+Recall curves against ImageNet bounding boxes (2 088 images, mean ±1σ). Pure InfSA achieves the highest LeRF AUC (65.3%), and Linear InfSA the highest PR-AUC
+(76.1%), confirming that InfSA produces both focused and semantically discriminative
+attention.
+
+11
+
+Full Ablation Results
+
+Table 4 reports the complete ablation over path-decay γ and activation function.
+All experiments use Linear InfViT-4L-64H/16 at 2242 resolution, batch size 64,
+averaged over 3 seeds. Latency is measured on an A100 40 GB (FP16) using 300
+timed CUDA runs after 50 warm-ups.
+Key observations. (i) Top-1 accuracy and MoRF-AOC peak at γ=0.7. (ii) LeRFAUC increases monotonically with γ (62.1% → 65.3%), indicating that deeper
+path propagation preserves robustness to irrelevant regions. (iii) Latency and
+convergence remain stable across all settings (35–37 ms train, 11–12 ms infer,
+40–45 epochs), confirming negligible overhead from hyper-parameter variation.
+(iv) Among activations, |x| yields the highest LeRF-AUC (65.5%) at the cost
+of lower classification accuracy; ReLU offers the best overall trade-off and is
+adopted as default (γ=0.7, ReLU).
+
+12
+
+Additional Efficiency Analysis
+
+The main paper (Fig. 2b) presents the complexity-tier scatter. Here we complement it with a depth-comparison view.
+4L vs. 24L depth comparison (Fig. 9). Increasing depth from 4 to 24 layers
+reduces throughput for all models (e.g., InfViT Linear: 231 → 40 img/s), yet
+InfViT Linear retains its ranking advantage in both throughput and energy
+in both regimes. The O(N d) baselines (Linformer, SOFT, Agent Attn) cluster
+at 10−11× speed-up, while the O(N d2 ) methods (Performer, FLatten, MLLA)
+reach only 5−6×.
+
+6
+
+G. Roffo and L. Palmer
+
+Inference throughput: 4L vs 24L
+200
+150
+100
+50
+0
+
+25
+
+4L-64H
+24L-16H
+
+Energy [J/img]
+
+Throughput [img/s]
+
+250
+
+ViT rmer rmer SOFT atten t Attn LLA Pure inear
+M iT T L
+Std info erfo
+FL gen
+V
+L
+P
+A
+Inf InfVi
+
+20
+
+Inference energy: 4L vs 24L
+4L-64H
+24L-16H
+
+15
+10
+5
+0
+
+ViT rmer rmer SOFT atten t Attn LLA Pure inear
+M iT T L
+Std info erfo
+FL gen
+V
+L
+P
+A
+Inf InfVi
+
+Fig. 9: 4L vs. 24L depth comparison (inference at 10242 ). Throughput (left)
+and energy (right) for the 4L-64H and 24L-16H configurations. InfViT Linear leads
+in both regimes; the gap narrows at 24L due to the higher fixed overhead of deeper
+networks, but the ranking is preserved.
+
+13
+
+Qualitative Analysis of Attention Maps
+
+Figure 10 presents a qualitative comparison of attention maps on ImageNet1K validation images. For each method—softmax attention, Pure InfSA, and
+Linear InfSA—the original image, raw attention heatmap, and overlay are shown.
+Attention maps are extracted from the final Transformer layer by averaging
+CLS→patch weights across all heads, followed by clamping and ℓ1 -normalization.
+Semantic localization. InfSA variants (both Pure and Linear) exhibit sharper
+focus on semantically meaningful object regions (faces, limbs, object centers),
+whereas softmax attention often highlights diffuse or peripheral areas.
+Consistency. Both InfSA variants produce attention distributions that are
+tighter and more consistent across samples and categories, suggesting higher
+robustness to irrelevant context. We attribute this to the spectral nature of
+InfSA: by modeling attention as a power series over token interactions or approximating dominant eigenvectors of the token graph, InfSA captures multihop dependencies and structural centrality, leading to localized and informative
+spatial activations.
+
+14
+
+Reproducibility and Implementation Details
+
+14.1
+
+Latency vs. Resolution
+
+14.2
+
+Hardware and Software Environment
+
+All models were trained on a single NVIDIA A100 40 GB GPU (64-core Intel
+Xeon Gold 6430 CPU, 1 TB RAM, NVMe SSD). We used PyTorch with mixedprecision training (AMP/FP16) in a single-device setup without distributed
+training.
+
+7
+
+Linear InfSA
+
+Pure InfSA
+
+SOFTMAX
+
+Infinite Self-Attention
+
+Fig. 10: Attention maps on ImageNet-1K validation samples. For each method
+(softmax, Pure InfSA, Linear InfSA): original image, attention heatmap, and overlay.
+InfSA variants consistently focus on object-centric regions; softmax attention exhibits
+diffuse or background-focused activation.
+
+14.3
+
+Training Hyperparameters
+
+Training was conducted on ImageNet-1K (224×224, 300 epochs, batch size 64).
+Optimization settings:
+– Optimizer: AdamW
+– Initial learning rate: 5 × 10−4 (cosine annealing)
+– Weight decay: swept in [10−4 , 2.5 × 10−2 ]
+– Warm-up: 10 epochs (linear)
+– Gradient clipping: not applied
+14.4
+
+Data Augmentation
+
+Training: RandomResizedCrop to 224×224, HorizontalFlip (p=0.5), ColorJitter
+(0.4, 0.4, 0.4, 0.1), ImageNet per-channel normalization. Validation: resize shortest side to 257 px, center-crop to 224×224.
+14.5
+
+Model Architecture and FLOPs
+
+Linear InfViT-4L-64H: 53.5M parameters, resolution-independent. At 224×224:
+≈ 5.9 × 1010 FLOPs per forward pass.
+
+

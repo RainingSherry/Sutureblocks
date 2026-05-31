@@ -1,0 +1,2126 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+1
+
+LEGNet: Lightweight Edge-Gaussian Driven Network for
+Low-Quality Remote Sensing Image Object Detection
+
+arXiv:2503.14012v1 [cs.CV] 18 Mar 2025
+
+Wei Lu, Si-Bao Chen∗ , Hui-Dong Li, Qing-Ling Shu, Chris H. Q. Ding, Jin Tang, and Bin Luo
+
+Abstract—Remote sensing object detection (RSOD) faces
+formidable challenges in complex visual environments. Aerial
+and satellite images inherently suffer from limitations such as
+low spatial resolution, sensor noise, blurred objects, low-light
+degradation, and partial occlusions. These degradation factors
+collectively compromise the feature discriminability in detection
+models, resulting in three key issues: (1) reduced contrast
+that hampers foreground-background separation, (2) structural
+discontinuities in edge representations, and (3) ambiguous feature
+responses caused by variations in illumination. These collectively
+weaken model robustness and deployment feasibility. To address
+these challenges, we propose LEGNet, a lightweight network that
+incorporates a novel edge-Gaussian aggregation (EGA) module
+specifically designed for low-quality remote sensing images. Our
+key innovation lies in the synergistic integration of Scharr
+operator-based edge priors with uncertainty-aware Gaussian
+modeling: (a) The orientation-aware Scharr filters preserve
+high-frequency edge details with rotational invariance; (b) The
+uncertainty-aware Gaussian layers probabilistically refine lowconfidence features through variance estimation. This design
+enables precision enhancement while maintaining architectural
+simplicity. Comprehensive evaluations across four RSOD benchmarks (DOTA-v1.0, v1.5, DIOR-R, FAIR1M-v1.0) and a UAVview dataset (VisDrone2019) demonstrate significant improvements. LEGNet achieves state-of-the-art performance across five
+benchmark datasets while ensuring computational efficiency,
+making it well-suited for deployment on resource-constrained
+edge devices in real-world remote sensing applications. The code
+is available at https://github.com/lwCVer/LEGNet.
+Index Terms—Object detection, remote sensing, UAV, lowquality images, feature extraction.
+
+I. I NTRODUCTION
+
+R
+
+EMOTE sensing object detection (RSOD) occupies a
+critical and challenging frontier in computer vision. In
+recent years, it has garnered increasing attention due to its
+unique complexities and broad range of applications. Unlike
+conventional object detection, which primarily focuses on
+ground-level images, RSOD deals with satellite or aerial
+imagery. These images are inherently affected by numerous factors that pose significant challenges. For instance,
+camera resolution variations can cause detail inconsistencies,
+where some regions appear sharp while others remain blurred.
+The altitude at which images are captured influences object
+Corresponding author (∗): Si-Bao Chen.
+Wei Lu, Si-Bao Chen, Hui-Dong Li, Qing-Ling Shu, Jin Tang, and
+Bin Luo are with the MOE Key Laboratory of ICSP, IMIS Laboratory
+of Anhui, Anhui Provincial Key Laboratory of Multimodal Cognitive
+Computation, Zenmorn-AHU AI Joint Laboratory, School of Computer
+Science and Technology, Anhui University, Hefei 230601, China (e-mail:
+2858191255@qq.com; sbchen@ahu.edu.cn; e23301341@stu.ahu.edu.cn;
+2563489133@qq.com; tangjin@ahu.edu.cn; luobin@ahu.edu.cn).
+Chris H. Q. Ding is with the School of Data Science (SDS), Chinese University of Hong Kong, Shenzhen 518172, China (e-mail: chrisding@cuhk.edu.cn).
+
+ResNet-50
+
+ARC-R50
+
+PKINet-S
+
+LEGNet-S
+
+Missing
+
+Missing
+
+Missing
+
+Correct
+
+Missing
+
+Missing
+
+Missing
+
+Correct
+
+Fig. 1: Visualization results on DOTA-v1.0 test set [1]. All
+models were built with Oriented R-CNN [2]. Our LEGNet
+demonstrates robust detection under occlusion and low-light
+conditions, such as targets obscured by trees and buildings,
+surpassing previous state-of-the-art in accuracy and robustness.
+scales, resulting in significant size variations for the same
+object across different images. Viewing angles play a crucial
+role—oblique perspectives can distort object shapes and sizes,
+complicating accurate recognition. Shadows cast by sunlight
+on buildings may reduce the contrast between the obscured
+objects and the background, lowering detection success rates.
+Occlusions from buildings or vegetation can obscure object
+features, increasing detection difficulty. These combined factors often lead to significant variations in object proportions
+and deterioration of image quality.
+These challenges render the direct application of conventional object detection techniques inefficient. Traditional
+methods are primarily designed for ground-level images and
+lack the capability to extract features tailored to the unique
+characteristics of remote sensing (RS) imagery. This limitation underscores the urgent need for specialized algorithms
+and architectures capable of efficiently capturing multi-scale
+features and extracting low-quality object characteristics.
+To address the persistent challenge of multi-scale detection
+in RSOD, numerous innovative approaches have been proposed. For instance, LSKNet [3] introduces large kernel convolutions to dynamically expand the receptive field, enabling
+the model to capture broader contextual information. This
+significantly enhances the model’s ability to perceive objects
+within diverse contexts. Additionally, PKINet [4] employs
+multi-scale convolutional kernels to extract features at varying
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+spatial scales, effectively improving detection capabilities on
+multi-scale objects. While these methods have led to notable
+advancements in multi-scale detection, they, along with many
+others in the field, struggle to effectively represent low-quality
+or blurred objects—a prevalent issue in RS imagery, where
+degraded object features remain a pressing challenge.
+RS images frequently suffer from inherent feature degradation. As features propagate through deep neural networks,
+they often become increasingly blurred or attenuated. This
+degradation profoundly impacts detection accuracy, making
+it difficult to reliably distinguish and identify objects, particularly in cases where features are indistinct or incomplete.
+For example, in shadowed or occluded regions with complex
+backgrounds, object features may be obscured or difficult to
+discern. Overcoming this limitation is crucial for achieving
+robust and precise RSOD.
+To address the challenge of extracting features from lowquality objects in RS imagery, we introduce the lightweight
+edge-Gaussian network (LEGNet), a compact yet effective
+backbone network specifically designed for RSOD tasks.
+LEGNet integrates a novel edge-Gaussian aggregation (EGA)
+module, which leverages edge information and Gaussian modeling to enhance the representation of low-quality features. As
+illustrated in Fig. 1, LEGNet demonstrates strong robustness
+in detecting low-quality objects even under challenging conditions such as occlusions and low-light environments. For
+instance, it can effectively identify objects obscured by trees
+and shadows, which is significantly better than the previous
+state-of-the-art (SOTA) methods.
+The LEG module is composed of two principal components:
+an edge-aware mechanism and a Gaussian-based feature representation module. The former employs boundary-sensitive
+feature extraction via Sobel operators to augment the precision
+of object boundary delineation, thereby offering substantial
+operational advantages in detecting targets within suboptimal
+imaging conditions characterized by low signal-to-noise ratios or motion-induced blur artifacts. Concurrently, the latter
+implements Gaussian-based uncertainty quantification through
+parameter-fixed convolution kernels, formally modeling the
+stochastic nature of feature representation while synergistically enhancing noise attenuation capabilities and foreground
+feature saliency. EGA module bridges the traditional image
+processing and modern deep learning paradigms. This dualpronged methodological innovation–synergistically coupling
+spatial boundary refinement with uncertainty management in
+feature space–establishes a theoretically grounded framework
+essential for achieving robust RSOD performance under challenging environments, particularly when processing degraded
+RS visual data with inherent ambiguities and information loss.
+To evaluate LEGNet’s performance, we conducted extensive
+experiments on four benchmark RSOD datasets as well as
+an additional UAV-view dataset. LEGNet outperforms existing methods with fewer parameters, achieving SOTA results.
+Specifically, it attains an mAP of 80.03% on DOTA-v1.0,
+72.89% on DOTA-v1.5, 48.35% on FAIR1M-v1.0, 68.40% on
+DIOR-R, and 55.0% mAP50 on VisDrone2019. These results
+strongly validate the effectiveness of LEGNet in addressing the
+unique challenges of RSOD, particularly low-quality objects.
+
+2
+
+The main contributions are summarized as follows:
+• We introduce a novel EGA module that theoretically
+bridges the traditional image processing and modern
+deep learning paradigms, significantly enhancing object
+boundary delineation and uncertainty management in
+RS imagery, and providing a novel approach to handle
+complex and low-quality features.
+• We propose LEGNet, a lightweight backbone network
+designed specifically for RSOD, improving the representation of low-quality features in RS images.
+• Comprehensive evaluations on multiple RSOD benchmark datasets demonstrate the superior performance of
+LEGNet, achieving SOTA results and providing a promising solution for low-quality feature extraction and representation in RSOD.
+The manuscript is organized as follows. Section I introduces
+the challenges associated with RSOD tasks and presents the
+novel solutions proposed by LEGNet. Section II provides a
+comprehensive review of prior RSOD approaches. Section III
+details the architecture of LEGNet, focusing on the innovative
+EGA module. Section IV evaluates LEGNet’s performance on
+both RS and UAV-view object detection datasets, including
+extensive ablation studies. Section V summarizes the key
+findings and discusses potential directions for future research.
+II. R ELATED W ORK
+In recent years, deep learning and advanced feature representation techniques have significantly improved object detection performance. However, RSOD faces unique challenges,
+including significant scale variability, high object density,
+arbitrary orientations, and degraded feature quality due to
+sensor limitations and environmental factors, which complicate
+accurate detection in aerial and satellite imagery.
+Traditional horizontal bounding box (HBB) methods, while
+effective for natural images, often struggle with remote sensing images due to their inability to accommodate arbitrarily
+oriented objects, leading to issues such as increased noise,
+overlapping detections, and reduced training efficiency. Consequently, oriented bounding box (OBB) approaches have
+emerged as the preferred solution for precise localization,
+addressing the limitations of HBBs in RS scenarios.
+Early works, such as those by Yang et al. [5] and Azimi
+et al. [6], proposed rotated anchors with diverse scales, aspect
+ratios, and angles to enhance object coverage. While effective,
+these methods were computationally intensive and generated
+numerous negative samples, slowing convergence. Subsequent
+advancements, such as RoI Transformer [7], focused on generating oriented proposals to better handle arbitrary orientations.
+S2 ANet [8] and R3 Det [9] employed feature alignment techniques to boost precision, though boundary-related challenges
+persisted. Gliding Vertex [10] refined HBB corners using a
+sliding vertex strategy for improved orientation estimation,
+but reliance on horizontal regions of interest (RoIs) sometimes caused misalignment. Oriented RepPoints [11] adopted
+adaptive points for flexible RSOD modeling, offering a novel
+representation approach.
+Optimizing loss functions for OBB regression has been
+crucial for enhancing model robustness. CSL [12] reframed
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+× N1
+
+LEG
+Blocks
+× N2
+
+Stage 3
+LEG
+Blocks
+
+× N3
+
+� �
+×
+× 8�
+32 32
+
+Downsampling
+
+LEG
+Blocks
+
+Stage 2
+
+� �
+×
+× 4�
+16 16
+
+Downsampling
+
+LoG-Stem
+
+Stage 1
+
+� �
+× × 2�
+8 8
+
+Downsampling
+
+� �
+× ×�
+4 4
+
+Input
+
+3
+
+Stage 4
+LEG
+Blocks
+
+× N4
+
+LEG
+Module
+
+Conv12D1
+AN
+
+Conv12D1
+LEG
+Block
+
+Fig. 2: Overview of LEGNet architecture. It encompasses four stages. H, W and C denote the feature height, width, and channel
+width, respectively. AN and Conv denote the norm layer with an activation function and convolutional layer, respectively.
+angle regression as a classification task to address angular
+periodicity, while SCRDet [13] used an IoU-smooth L1 loss
+to mitigate angle discontinuity. Methods like GWD [14] and
+KLD [15] approximated skewed IoU using Gaussian measures,
+and KFIoU [16] leveraged Gaussian distributions and Kalman
+filtering for improved efficiency, providing continuous and
+differentiable loss functions for optimization.
+Transformer-based methods have shown significant potential
+in RSOD. AO2-DETR [17] includes an oriented proposal generation mechanism, providing better position priors for pooling
+features modulated through the Transformer decoder’s crossattention. FPNformer [18] integrates feature pyramid network
+(FPN) for multi-scale feature extraction with the Transformer
+decoder for scale- and angle-aware feature fusion, enhancing
+detection accuracy by capturing long-range dependencies.
+The choice of backbone network is critical for effective
+feature representation in RSOD. ARC [19] applies adaptive
+rotation in convolutional kernels to enhance orientation recognition, while LSKNet [3] dynamically adjusts receptive fields
+to capture contextual information. PKINet [4] uses multi-scale
+convolutional kernels to improve local context capture for
+robust detection across varied object scales. DecoupleNet [20]
+incorporates a feature integration downsampling module to
+preserve small object features and a multi-branch feature decoupling module for multi-scale RS object extraction, achieving a balance between lightness and accuracy. LWGANet
+[21] utilizes multi-scale feature extraction, achieving excellent
+performance in multiple RS visual tasks.
+To address degraded feature quality in low-quality RS
+images, recent research has focused on super-resolution techniques [22], [23] to enhance image resolution, improving
+visibility of small or distant objects, and generative adversarial
+networks (GANs) [24], [25] to generate or refine images,
+reducing noise and enhancing specific features. Methods incorporating edge information and Gaussian models, such as
+[26], robustly handle noise and variability by representing
+objects with Gaussian distributions, capturing uncertainty and
+orientation effectively.
+These advancements underscore ongoing efforts to tackle
+RSOD challenges in low-quality images. Building on this,
+we propose LEGNet, a lightweight, edge-Gaussian-driven network designed to enhance feature extraction from low-quality
+RS images. LEGNet leverages edge information to capture
+
+fine details and boundaries, often obscured in low-quality
+images, and Gaussian-guided modeling to handle uncertainty
+and variability in object shapes and orientations, achieving
+SOTA performance with computational efficiency.
+III. M ETHOD
+This section presents the architecture and key components
+of the proposed LEGNet network, designed to tackle the
+challenges of RSOD in low-quality images by leveraging edge
+details and Gaussian modeling information.
+A. LEGNet Architecture Overview
+As shown in Figure 2, LEGNet is a multi-stage architecture that progressively extracts multi-scale features with
+downsampling ratios of 1/4, 1/8, 1/16, and 1/32 for Stages
+1-4, respectively. It consists of three main components: a
+LoG-stem layer, downsampling modules using the deep robust
+feature downsampling (DRFD) method, and lightweight edgeGaussian (LEG) blocks.
+The input image I ∈ RH×W ×3 is first passed through
+the LoG-stem layer, which uses a Laplacian of Gaussian
+(LoG) filter to perform initial downsampling and capture edge
+W
+H
+information. This produces a feature map Fstem ∈ R 4 × 4 ×C ,
+where C is 32 for LEGNet Tiny and 64 for LEGNet Small.
+Following the LoG-stem layer, stage 1 consists of N1
+LEG blocks that process Fstem to refine features at the 1/4
+downsampling rate. Each LEG block integrates edge detection
+and Gaussian modeling to enhance the network’s robustness
+to noise and variability in object shapes and orientations.
+For Stages 2-4, each stage begins with a DRFD module [27],
+which combines convolutional and max-pooling downsampling to retain essential small-scale features while reducing
+spatial dimensions. This is followed by N2 , N3 , and N4 LEG
+blocks, respectively, to further refine features at downsampling
+rates of 1/8, 1/16, and 1/32.
+LEG blocks in each stage leverage edge information or
+Gaussian modeling to enhance feature representation, making
+the network particularly suited for low-quality images.
+Finally, the outputs from all four stages are aggregated in
+the RSOD decoder to produce the detection results. Detailed
+configurations of LEGNet are provided in Table I.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+TABLE I: Architecture configurations of LEGNet.
+Stage
+
+Downs.
+Rate
+
+1
+
+W
+H
+4 × 4
+
+2
+
+W
+H
+8 × 8
+
+3
+
+H
+W
+16 × 16
+
+4
+
+H
+W
+32 × 32
+
+Layer
+Specification
+LoG-Stem Layer
+
+Input / Output channels (C)
+Tiny
+Small
+3/32
+3/64
+
+[LEG Block] ×N1
+
+32/32
+
+64/64
+
+DRFD Module
+
+32/64
+
+64/128
+
+[LEG Block] ×N2
+
+64/64
+
+128/128
+
+DRFD Module
+
+64/128
+
+128/256
+
+[LEG Block] ×N3
+
+128/128
+
+256/256
+
+DRFD Module
+
+128/256
+
+256/512
+
+[LEG Block] ×N4
+
+256/256
+
+512/512
+
+Number of Block
+
+[N1 , N2 , N3 , N4 ] = [1, 4, 4, 2]
+
+B. LoG-Stem Layer
+To address the inherent challenges posed by the low-quality
+of RS images, characterized by noise, variability, and degraded
+edge information, we introduce the Laplacian of Gaussian
+(LoG)-stem layer as a pioneering component in our network
+architecture. This layer is strategically designed to enhance
+edge features at the initial processing stage, leveraging the
+LoG filter’s dual capability of noise reduction and edge
+detection, which is particularly critical for RS images where
+traditional feature extraction methods often falter.
+The LoG filter, a fusion of Gaussian smoothing and Laplacian sharpening, is renowned for its robustness in detecting
+edges in noisy environments. The Gaussian component mitigates noise, while the Laplacian operator highlights regions
+of rapid intensity change, making it an ideal choice for RS
+images with varying noise levels. In our implementation, the
+input image I ∈ RH×W ×3 first undergoes a 7×7 convolutional
+transformation to extract initial features, followed by the
+application of the LoG filter with a kernel size of 7×7 and
+σ = 1.0. This sequence enables the network to learn feature
+representations and subsequently emphasize their edges, a
+novel integration of traditional image processing with deep
+learning paradigms.
+The 2D LoG filter at position x = (x, y) is defined as:
+
+
+x2 +y 2
+1
+x2 + y 2
+LoGk×k
+(x)
+=
+1
+−
+e− 2σ2 ,
+(1)
+σ
+4
+2
+πσ
+σ
+where the Gaussian filter Gk×k
+(x) is given by:
+σ
+1 − x2 +y2 2
+(2)
+e 2σ .
+2πσ 2
+Here, k × k denotes the kernel size, and σ is the standard
+deviation, set to 1.0 in our case for optimal edge detection.
+The processed features are enhanced through a residual
+connection in which the output of the LoG filter is first passed
+through an activation function and batch normalization (AN),
+and then combined with the original image I:
+
+FLoG = Norm I + AN LoG7×7
+Conv7×7
+.
+1.0
+2D (I)
+Gk×k
+(x) =
+σ
+
+The residual-like structure ensures smooth gradient flow and
+preserves original image details and edge information, which is
+crucial for maintaining robustness against noise and variability
+in low-quality images.
+
+4
+
+Subsequently, FLoG is processed through two convolutional
+layers: a standard 3×3 convolution followed by a 3×3 convolution with stride 2 for downsampling, producing F1 :
+
+3×3
+F1 = ConvD3×3
+2D Conv2D (FLoG ) .
+W
+This step reduces the spatial dimensions to H
+2 × 2 , facilitating
+efficient feature extraction.
+To further refine the feature map and integrate multi-scale
+uncertainty information, F1 is processed through two Gaussian
+filters of different sizes (9×9 and 5×5 with σ = 0.5), combined, normalized, and then downsampled using the DRFD
+module to achieve the final downsampling ratio of 1/4:
+
+Fstem = DRFD G5×5
+Norm(G9×9
+.
+0.5
+0.5 (F1 ) + F1 )
+
+The use of multiple Gaussian filters enables multi-scale uncertainty feature integration, enhancing the network’s capability
+to capture features at different resolutions, which is crucial for
+detecting objects of varying sizes in RS images.
+The innovative LoG-stem layer enhances edge features and
+integrates multi-scale uncertainty information, providing a
+robust and efficient foundation for subsequent stages.
+W
+H
+The output feature map Fstem ∈ R 4 × 4 ×C is then passed
+into the LEG blocks of Stage 1.
+C. LEG Block
+As depicted in Fig. 2, LEG block processes Fin through
+EGA module to enhance low-quality feature robustness. Initially, Fin is processed by LEG module to produce an enhanced feature map. This enhanced map is then passed through
+a 1×1 convolutional layer that doubles the number of channels
+from C to 2C, followed by an AN layer to generate Fo1 :
+Fo1 = AN(Conv1×1
+2D (LEG(Fin ))).
+Subsequently, Fo1 is convolved again with a 1×1 kernel to reduce the channels back to C. The output of this convolution is
+then normalized and dropout is applied. Finally, this processed
+feature map is added to the original input Fin to produce the
+output feature map Fo . This residual-like structure ensures that
+the network can effectively learn low-quality features while
+preserving the integrity of the input features:
+Fo = Fin + Norm(drop(Conv1×1
+2D (Fo1 ))),
+where drop represents dropout with a rate of 0.1.
+Given that low-quality RS images often suffer from issues
+such as noise and blur, LEG module is designed to enhance
+feature robustness by integrating edge extraction and Gaussian
+modeling mechanisms. This combination allows the network
+to capture precise edge details in early stages and focus on
+salient features in later stages, thereby improving the accuracy
+of object detection in challenging conditions.
+1) Edge Extraction: In Stage 1, where the feature resolution
+is reduced to a quarter of the input size, the features retain rich
+edge details and high-frequency information crucial for object
+localization. To extract robust edge features from low-quality
+objects, we employ the Scharr filter, which is a refined version
+of the Sobel operator, providing superior rotation invariance
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+and minimizing edge response errors. The Scharr filters are
+defined as:
+
+
+
+
+−3 0 3
+−3 −10 −3
+0
+0 .
+Sx = −10 0 10 , Sy =  0
+−3 0 3
+3
+10
+3
+These filters are assigned separately to the parameters of
+Sy
+x
+convolution layers, which process the
+ConvS2D
+and Conv2D
+input feature map Fin in the horizontal and vertical directions,
+respectively. The edge responses from both directions are
+combined using the Euclidean norm to yield the final edge
+attention Aedge :
+q
+Sy
+x
+(Fin ))2 + (Conv2D
+(Fin ))2 ,
+Aedge = (ConvS2D
+where Sx and Sy denote the parameters of the respective
+convolution filters. This edge attention effectively enhances
+edge information before further processing.
+2) Gaussian Modeling: In Stages 2-4, the ability to distinguish edge information diminishes as the feature dimension
+decreases. In contrast, the features of objects tend to follow
+a normal distribution centered around a particular point. To
+better capture these object features, Gaussian convolution
+kernels are employed, which help preserve the critical and
+uncertain features and prevent their degradation during the
+forward propagation of the network.
+To enhance salient features, a fixed Gaussian kernel is
+used. As described in Eqn. (2), the Gaussian filter assigns
+higher weights to pixels closer to the center of the kernel,
+emphasizing prominent features in the image while suppressing background noise. This property makes the Gaussian filter
+particularly effective for enhancing salient features in feature
+maps, enabling the network to focus on the most informative
+regions while minimizing artifacts from high-frequency noise.
+The Gaussian kernel is applied through depthwise convolution, which independently smooths the features in each
+channel. The Gaussian modeling Agauss is computed as:
+
+1
+
+Conv 3×3
+
+Conv
+Block
+
+Fega
+
+1
+
+Fa
+
+Gaussion
+Weights
+
+Fig. 3: Illustration of LEG module. GAP and k denote global
+average pooling and convolutional kernel size, respectively.
+
+Aega
+
+0
+
+Input
+Features
+
+Fega
+
+0
+
+Input Features
+
+Stage 1
+
+Sigmoid
+
+Stages 2-4
+
+Input
+Features
+
+GAP
+
+Input + Input • Fa
+Element-wise Addition
+
+Edge Weights
+
+Conv1kD
+
+Element-wise Multiplication
+
+Fega
+
+Edge Extraction
+
+1×1×C
+
+Element-wise Addition
+
+EGA
+
+5
+
+Gaussion Modeling
+
+Fig. 4: Illustration of EGA module.
+where Convk1D is an adaptive one-dimensional convolution
+with kernel size k proportional to the channel count C, and
+GAP is channel-wise global average pooling. This strategy
+selectively enhances essential channels while minimizing redundant features, thus improving feature semantics.
+4) EGA Module: As shown in Fig. 4, EGA module processes the input feature Fin through an selection mechanism,
+which applies either edge extraction or Gaussian modeling
+depending on the stage:
+(
+Aedge (Fin ), if Stage = 1,
+Aega =
+Agauss (Fin ), otherwise.
+The result Aega is added to Fin , and the sum is processed
+via a convolutional block (Conv Block) to enhance feature
+representation, producing Fa :
+Fa = Conv Block(Fin ⊕ Aega ),
+where ⊕ denotes element-wise addition, Conv Block is a
+sequential processing unit defined as follows:
+1. Apply a 1×1 convolution to adjust channel number.
+2. Apply Activation and Normalization (AN).
+3. Apply a 3×3 convolution to capture spatial relationships.
+4. Apply another AN.
+5. Apply a 1×1 convolution to adjust channels back.
+6. Apply normalization.
+Specifically, for an input X, Conv Block(X) is defined as:
+X1 = Conv1×1
+2D (X), X2 = AN(X1 ),
+X3 = Conv3×3
+2D (X2 ), X4 = AN(X3 ),
+X5 = Conv1×1
+2D (X4 ),
+
+Agauss = G5×5
+1.0 (Fin ).
+
+Conv Block(X) = Norm(X5 ).
+
+3) LEG Module: The LEG module, shown in Fig. 3,
+processes the input feature Fin through an edge-Gaussian
+aggregation (EGA) submodule, which yield the features Fega .
+To emphasize critical channels, we adopt an efficient channel
+attention (ECA) strategy [28]. The ECA is represented as:
+
+In our case, X = Fin ⊕ Aega , and the 1×1 convolutions
+handle channel resizing as needed.
+Further refinement involves combining Fin and Fa using
+element-wise multiplication and addition operations, followed
+by a 3×3 convolution to yield the features Fega :
+
+Fo1 = Sigmoid(Convk1D (GAP(Fega ))),
+
+Fega = Conv3×3
+2D ((Fin ⊗ Fa ) + Fin ),
+
+Fo = Norm((Fo1 ⊗ Fega ) + Fin ),
+
+where ⊗ indicates element-wise multiplication.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+5) Macro Design: Through rigorous fine-tuning experiments, we have determined that edge information is optimally
+utilized when incorporated into the shallow layers of our
+network. The introduction of such information in deeper layers
+not only fails to enhance performance but also impedes the network’s capacity to learn complex, higher-order features, often
+resulting in suboptimal convergence or training difficulties.
+To address this, for deep features, we employ a Gaussian
+modeling approach. By representing these features as Gaussian
+distributions, we effectively mitigate noise and capture the
+inherent uncertainty in their representations.
+To harmonize the contributions from both the original input
+images and their corresponding edge components, we integrate
+extensive residual connections within LEG module. These connections facilitate an adaptive and dynamic adjustment of the
+network, allowing it to balance and combine these components
+effectively, thus alleviating any potential imbalance in their
+influence on the final feature representations. Additionally,
+a select few standard convolutional layers are employed to
+further refine and process these combined features.
+To mitigate noise in RS images, we utilize the Gaussian
+component of the LoG operator in the shallow layers. This
+step is pivotal in suppressing noise interference, ensuring that
+the edge information extracted is of high quality and less
+corrupted by noise. In the deeper layers, the omission of
+explicit edge extraction mechanisms prevents the network from
+fixating on low-level features, thereby avoiding the issue of
+redundant edges and promoting the learning of more abstract,
+semantically meaningful representations.
+In conclusion, LEG module combines edge extraction and
+Gaussian modeling to enhance low-quality feature robustness,
+enabling accurate detection in low-quality RS images.
+IV. E XPERIMENTS
+This section presents a comprehensive evaluation of the
+proposed LEGNet network on the RSOD task. We conducted extensive experiments on four RSOD benchmark
+datasets: DOTA-v1.0 [1], DOTA-v1.5 [1], DIOR-R [29], and
+FAIR1M-v1.0 [30] and a UAV-view benchmark dataset: VisDrone2019 [31]. The experimental results on the DOTA-v1.0,
+DOTA-v1.5, and FAIR1M-v1.0 datasets were obtained through
+online testing, ensuring fairness and reproducibility of the
+results. These datasets provided a diverse set of challenges,
+including variations in scale, object feature quality, finegrained object detection, and the detection of small objects.
+The broad spectrum of complexities across these datasets
+offered an insightful evaluation of LEGNet’s robustness and
+performance in real-world RSOD scenarios.
+A. Datasets
+• DOTA-v1.0 [1] was a widely recognized dataset for
+RSOD, consisting of 2,806 high-resolution images with
+188,282 annotated instances. The dataset included 15 object
+categories, ranging from common objects like planes and
+bridges to rarer ones such as baseball diamonds, storage
+tanks, and helicopters. The images varied in terms of object
+sizes, orientations, and aspect ratios, making DOTA-v1.0 a
+
+6
+
+challenging benchmark for evaluating RSOD methods. It was
+divided into 1,411 training images, 458 validation images, and
+937 test images.
+• DOTA-v1.5 [1] extended DOTA-v1.0 by adding a new
+category, container cranes (CC), and increasing the number of
+small objects (objects with fewer than 10 pixels). The dataset
+now included 403,318 instances, providing a more challenging
+scenario for detecting small, densely packed objects, which
+was crucial for evaluating the fine-grained performance of
+RSOD models.
+• FAIR1M-v1.0 [30] was one of the largest and most recent
+dataset for RSOD, containing 15,266 high-resolution images
+with over 1 million annotated instances. The dataset included
+5 primary categories, subdivided into 37 sub-categories. This
+dataset was particularly valuable for testing models on finegrained classification and detection, as it captured significant
+object variation and complexity. Its large scale and diversity
+set a new benchmark for RSOD tasks, especially in terms of
+scale and object variation.
+• DIOR-R [29] was an extension of the DIOR dataset [32]
+that included OBB annotations for precise object localization.
+It contained 23,463 images with a resolution of 800×800 pixels and 192,518 annotated instances across various categories.
+• VisDrone2019 [31] is a large-scale benchmark for UAVbased vision tasks, comprising 2,580 images and video sequences captured by drone platforms across diverse scenarios
+and weather conditions, with manually annotated bounding
+boxes and attribute labels for multiple object categories (e.g.,
+pedestrians and vehicles). Characterized by dense target distributions and complex background interference, it provides
+standardized training, validation, and test subsets to facilitate
+the development and evaluation of algorithms for object detection and multi-object tracking tasks.
+B. Implementation Details
+To ensure a fair comparison with previous SOTA methods [3], [4], [19], we pre-trained our backbone on ImageNet1K [33] for 300 epochs, which helped improve the model’s
+robustness when applied to RSOD datasets. During pretraining, we employed the AdamW optimizer [34] with a
+momentum of 0.9 and weight decay of 0.05. We also adopted
+a cosine learning rate schedule [35] with a warm-up strategy
+to gradually adjust the learning rate.
+For training RSOD models, we followed the training and
+testing configurations used in prior work for consistency.
+Specifically, for the DOTA-v1.0, DOTA-v1.5, and DIORR dataset, we employed a single-scale training and testing
+strategy with a 3× scale factor. The images from these datasets
+were cropped into 1024×1024 patches with 200-pixel overlaps
+for DOTA-v1.0 and DOTA-v1.5, and the input size was set
+to 800×800 for DIOR-R. For the FAIR1M-v1.0 dataset, we
+used a multi-scale training and testing strategy with a 1× scale
+factor, following the settings of the previous method [3], where
+images were rescaled to three scales (0.5, 1.0, 1.5) before
+cropping into 1024×1024 sub-images with 500-pixel overlaps.
+For the VisDrone2019 dataset, we employed a single-scale
+training and testing strategy with a 1× scale factor. The input
+size was set to 1333×800.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+7
+
+TABLE II: Experimental results on DOTA-v1.0 test set [1] under single-scale training and testing setting. Other experimental
+results were referenced from [4], [20]. The red and blue indicated the best and second-best results for each column, respectively.
+HC
+
+mAP ↑
+
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+
+40.8M 87.99 79.46 45.74 66.64 78.90 73.90 73.30 90.40 80.55 85.89 55.19 63.62 51.83 70.15 60.04
+86.01 75.92 46.02 66.65 79.70 79.93 89.17 90.44 81.19 76.00 56.91 62.45 64.22 65.80 58.96
+41.6M 86.61 77.26 48.84 66.76 78.38 78.96 87.40 90.61 82.76 82.19 54.02 62.61 72.64 72.80 64.96
+
+70.91
+72.15
+73.79
+
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ARC-R50 [19]
+PKINet-S [4]
+LEGNet-S (Ours)
+
+41.9M 89.00 75.60 46.64 67.09 76.18 73.40 79.02 90.88 78.62 84.88 59.00 61.16 63.65 62.39 37.94
+36.6M 86.42 78.97 52.47 69.84 77.30 75.99 86.72 90.89 82.63 85.66 60.13 68.25 73.98 72.22 62.37
+36.6M 87.02 83.17 54.13 71.16 80.18 78.40 87.28 90.90 85.97 86.25 59.90 70.49 73.53 72.27 58.97
+41.9M 88.82 82.94 55.63 72.75 78.52 83.10 87.46 90.21 86.36 85.44 64.70 61.41 73.46 76.94 57.38
+41.9M 88.90 84.17 55.80 69.35 78.72 84.08 87.00 89.75 84.32 85.73 64.74 61.80 76.62 78.49 70.89
+38.5M 89.11 82.84 48.37 71.11 78.11 78.39 87.25 90.83 84.90 85.64 60.36 62.60 65.26 69.13 57.94
+71.8M 89.28 78.77 53.00 72.44 79.81 77.84 86.81 90.88 84.27 86.20 60.74 68.97 66.35 71.25 65.77
+24.8M 89.67 84.16 51.94 71.89 80.81 83.47 88.29 90.80 87.01 86.94 65.02 69.53 75.83 80.20 61.85
+23.9M 89.22 85.04 55.59 75.73 81.42 84.56 88.32 90.90 87.90 87.02 65.98 70.13 77.56 81.88 69.26
+
+69.70
+74.92
+75.97
+76.34
+77.36
+74.12
+75.49
+77.83
+79.37
+
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ResNet-50 [38]
+ARC-R50 [19]
+LSKNet-S [3]
+O-RCNN [2] DecoupleNet-D2 [20]
+PKINet-S [4]
+LEGNet-T (Ours)
+LEGNet-S (Ours)
+
+41.1M 89.02 80.56 49.41 61.98 77.99 74.19 83.74 89.44 78.01 83.52 47.64 65.93 63.68 67.07 61.59
+41.9M 89.98 80.65 52.09 68.36 68.36 60.32 72.41 90.85 87.94 86.86 65.02 66.68 66.25 68.24 65.21
+41.1M 89.40 81.81 47.28 67.44 73.96 73.12 85.03 90.90 85.15 84.90 56.60 64.77 64.70 70.28 62.22
+55.1M 89.01 77.48 51.64 72.07 74.43 77.55 87.76 90.81 79.71 85.27 58.36 64.11 76.50 71.99 54.06
+41.1M 89.64 85.00 52.26 77.34 73.01 73.14 86.82 90.74 79.02 86.81 59.55 70.91 72.94 70.86 57.32
+31.6M 88.79 82.64 53.97 74.00 78.13 84.06 88.04 90.89 87.78 85.75 61.76 60.39 75.96 68.07 63.59
+41.1M 89.46 82.12 54.78 70.86 78.93 83.00 88.20 90.90 87.50 84.68 63.97 67.69 74.94 68.84 52.28
+74.4M 89.40 82.48 55.33 73.88 79.37 84.05 88.06 90.90 86.44 84.83 63.63 70.32 74.29 71.91 65.43
+31.0M 89.66 85.52 57.72 75.70 74.95 78.69 88.24 90.88 86.79 86.38 66.92 63.77 77.77 74.47 64.82
+23.3M 89.37 83.25 54.29 75.51 79.83 84.82 88.49 90.89 87.19 86.23 66.07 65.53 77.23 72.34 69.62
+30.8M 89.72 84.20 55.81 77.63 80.25 84.45 88.12 90.88 87.57 86.07 66.86 70.23 77.47 73.62 62.94
+20.6M 89.45 86.49 55.76 76.38 80.59 85.40 88.42 90.90 88.72 86.42 65.24 67.81 77.93 73.49 71.39
+29.8M 89.87 86.32 56.36 78.67 81.34 85.29 88.53 90.89 87.31 86.46 70.38 68.48 78.34 82.00 70.25
+
+71.59
+72.61
+73.17
+74.05
+75.02
+76.25
+75.87
+77.35
+77.49
+78.04
+78.39
+78.96
+80.03
+
+Method
+DETR-based
+AO2-DETR [17]
+O2 -DETR [39]
+ARS-DETR [40]
+One-stage
+R3 Det [9]
+SASM [41]
+O-RepPoints [11]
+R3 Det-GWD [14]
+R3 Det-KLD [15]
+S2 ANet [8]
+
+Backbone
+
+Two-stage
+CenterMap [42]
+SCRDet [13]
+FR-O [43]
+Roi Trans. [7]
+G.V. [10]
+ReDet [44]
+
+#P ↓
+
+PL
+
+BD
+
+BR
+
+GTF
+
+The AdamW optimizer [34] was used with a weight decay
+of 0.05 and an initial learning rate of 0.0002. We performed
+random resizing and flipping of images during training, as
+done in previous works [3], [4], [19], [20]. At the testing stage,
+we maintained the same resolution used during training to
+ensure consistency.
+All experiments were conducted using the MMRotate
+framework [36] with PyTorch [37] on an Ubuntu 20.04 platform. We leveraged 4 NVIDIA RTX 3090 GPUs for both
+ImageNet-1K pre-training and RSOD training and testing.
+Unless specified otherwise, LEGNet was integrated within the
+O-RCNN framework [2].
+C. Quantitative Results
+1) Performance on DOTA-v1.0: The proposed LEGNet
+achieves SOTA performance on the DOTA-v1.0 benchmark
+under single-scale evaluation. As shown in Table II, when
+LEGNet-S was equipped with the two-stage decoder ORCNN [2], it achieved 80.03% mean average precision (mAP)
+with only 29.8M parameters, surpassing all existing onestage and two-stage methods while maintaining competitive
+model complexity. Meanwhile, when it employed a singlestage decoder S2 ANet [8], LEGNet-S consisted of 23.9M
+parameters and attained a mAP of 79.37%. Notably, LEGNet
+attains the best results in 12 out of 15 categories.
+Compared with other efficient models, LEGNet-T establishes a new efficiency-accuracy trade-off, reaching 78.96%
+
+SV
+
+LV
+
+SH
+
+TC
+
+BC
+
+ST
+
+SBF
+
+RA
+
+HA
+
+SP
+
+mAP with merely 20.6M parameters - the lightest configuration among all listed methods. This represents a
+0.92% mAP improvement over the previous efficient baseline
+(DecoupleNet-D2 [20]) while using 11.6% fewer parameters.
+Our method particularly excels in detecting challenging
+categories (low-quality): (1) For small vehicles (SV), LEGNetS achieves 81.42% AP, outperforming the previous best
+(PKINet-S [4]) by 0.61%; (2) In swimming pool (SP) detection, we obtain 82.00% AP, surpassing all competitors by
+at least 1.8%. (3) In helicopters (HC) detection, LEGNetT achieves 71.39% AP, outperforming the PKINet-S [4] by
+8.45% while using 33.1% fewer parameters. The results verify
+that LEGNet effectively balances parameter efficiency and
+detection accuracy across various oriented object categories,
+demonstrating superior generalization capability compared to
+existing Transformer-based and CNN-based approaches. To
+the best of our knowledge, these results represented the first
+instance of achieving a mAP exceeding 80% on the DOTAv1.0 test set with single-scale training and testing protocol,
+marking a significant breakthrough in RSOD tasks. These
+findings underscored the critical importance of enhancing and
+extracting features from low-quality objects, which provided
+new avenues for follow-up research.
+As presented in Table III, the effectiveness of LEGNet
+as a general-purpose backbone is further validated through
+comprehensive framework compatibility experiments. When
+integrated with various mainstream detection frameworks, our
+LEGNet-S consistently outperforms both ResNet-50 [38] and
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+TABLE III: Comparison of mAP with various decoders on
+DOTA-v1.0 test set under single-scale training and testing.
+Framework
+One
+Stage
+Two
+Stage
+
+R-FCOS [45]
+R3 Det [9]
+S2 ANet [8]
+FR-O [43]
+Roi Trans. [7]
+O-RCNN [2]
+
+ResNet-50 [38]
+72.45
+69.70
+74.12
+73.17
+74.05
+75.87
+
+mAP (%) ↑
+PKINet-S [4]
+74.86
+75.89
+77.83
+76.45
+77.17
+78.39
+
+LEGNet-S
+76.89
+77.62
+79.37
+77.19
+79.62
+80.03
+
+the recent PKINet-S [4] across all architectural paradigms.
+For single-stage detectors, LEGNet-S achieves significant
+improvements of +4.44% (R-FCOS [45]), +7.92% (R3 Det [9]),
+and +5.25% (S2 ANet [8]) in mAP over the original ResNet50 implementations. When combined with the S2 ANet framework, our backbone elevates the detection performance to
+79.37% mAP.
+In two-stage detectors, LEGNet-S demonstrates superior
+generalization capability with mAP gains of +5.57% for RoI
+Transformer [7] and +4.16% for O-RCNN [2] compared
+to their ResNet-50 counterparts. Particularly, the O-RCNN
+framework equipped with LEGNet-S reaches a new SOTA,
+outperforming its PKINet-S by 1.64% while maintaining comparable parameter efficiency.
+These comprehensive comparisons confirm that LEGNet
+significantly enhances feature representation across various
+detection paradigms, achieving the most substantial improvements in complex scenarios. The consistent performance gains
+verify our architecture’s superior compatibility and learning
+capacity compared to existing backbone networks.
+Table IV systematically evaluates the effectiveness of LEGNet as a backbone network when integrated with the ORCNN [2] detection framework. Our LEGNet-S achieves
+SOTA performance with 80.03% mAP, surpassing all compared backbones while maintaining moderate computational
+complexity (12.7M parameters and 65.4G FLOPs). Notably,
+this represents a 4.16% mAP improvement over the baseline
+ResNet-50 backbone with 45.5% fewer parameters and 24.0%
+lower FLOPs.
+The compact variant LEGNet-T demonstrates a superior
+efficiency-accuracy trade-off, attaining 78.96% mAP with only
+3.6M parameters - 41.9% fewer than the previous most
+efficient competitor (DecoupleNet-D2 [20]) while delivering
+0.92% higher mAP. Compared to recent advanced backbones,
+LEGNet-T outperforms PKINet-S by 0.57% mAP despite requiring 73.7% fewer parameters and 42.7% less computation.
+Our architecture achieves the largest performance leap
+among all backbone upgrades for O-RCNN, and establishes
+new efficiency benchmarks, reducing backbone parameters by
+84.5% compared to ResNet-50 while maintaining competitive
+detection accuracy. These findings confirm that LEGNet effectively addresses the critical challenge of balancing representation capacity and computational efficiency in RSOD tasks.
+Table V compared the FPS of LEGNet with SOTA backbones. LEGNet-S achieves the highest mAP (80.03%) on
+DOTA 1.0 with O-RCNN detector, while maintaining competitive FPS (20.9) that is 1.77× faster than ARC-R50 [19].
+This demonstrates its optimal trade-off between accuracy and
+
+8
+
+TABLE IV: Comparison of mAP with various backbones using
+O-RCNN [2] decoder on DOTA-v1.0 test set.
+Backbone
+ResNet-18 [38]
+ResNet-50 [38]
+ARC-R50 [19]
+LSKNet-S [3]
+DecoupleNet-D2 [20]
+PKINet-S [4]
+LEGNet-T
+LEGNet-S
+
+Pub.
+Year
+CVPR16
+CVPR16
+ICCV23
+ICCV23
+TGRS24
+CVPR24
+-
+
+Backbone only
+#P ↓
+FLOPs ↓
+11.2M
+38.1G
+23.3M
+86.1G
+14.4M
+54.4G
+6.2M
+23.1G
+13.7M
+70.2G
+3.6M
+30.2G
+12.7M
+65.4G
+
+mAP (%) ↑
+74.20
+75.87
+77.35
+77.49
+78.04
+78.39
+78.96
+80.03
+
+TABLE V: FPS comparison of various backbones using ORCNN detector on DOTA 1.0 test set. All experiments were
+conducted on a single RTX 3090 GPU.
+Methods
+FPS ↑
+mAP ↑
+
+ARC-R50 [19]
+11.8
+77.35
+
+LSKNet-S [3]
+22.5
+77.49
+
+PKINet-S [4]
+5.4
+78.39
+
+LEGNet-S
+20.9
+80.03
+
+efficiency, enabled by lightweight architecture and adaptive
+feature enhancement, which is critical for real-time aerial
+image analysis in resource-constrained scenarios.
+2) Performance on DOTA-v1.5: As shown in Table VI, the
+experimental results on the DOTA 1.5 test set demonstrate the
+superior performance of our proposed LEGNet-S compared
+to SOTA methods under single-scale training and testing protocols. LEGNet-S achieves the highest mAP of 72.89%, surpassing previous best-performing methods PKINet-S (71.47%)
+and SOOD [46] (70.39%) by 1.42% and 2.5%, respectively.
+Notably, our method attains 13 out of 16 category-wise highest
+and second highest AP values, including critical categories
+such as large vehicle (LV: 82.16% vs. 77.45%), ship(SH:
+89.11% vs. 88.38%), roundabout (RA: 74.16% vs. 73.72%),
+and container crane (CC: 43.75% vs. 42.19%). Significant improvements are observed in other categories, where LEGNet-S
+outperforms existing methods by 0.03–4.65% margins. The
+results highlight robust generalization across diverse object
+scales and orientations, evidenced by consistent advantages
+in both small and large object categories.
+3) Performance on FAIR1M-v1.0: The comparative evaluation on the FAIR1M-v1.0 benchmark further validates the
+effectiveness of LEGNet-S, as illustrated in Table VII. Our
+method achieves a SOTA mAP of 48.35%, outperforming existing approaches by 0.48% over the previous best-performing
+LSKNet-S (47.87%) and demonstrating 3.06% absolute improvement compared to the O-RCNN baseline (45.60%).
+Notably, LEGNet-S establishes consistent performance advantages across multiple architectural paradigms, including
+a 16.23% margin over anchor-free methods like Gliding
+Vertex [10] (29.92%) and 13.06% improvement relative to
+RoI Transformer [7] detectors (35.29%). These improvements
+substantiate the effectiveness of our architectural innovations
+in feature representation learning for RSOD tasks.
+4) Performance on DIOR-R: The experimental results
+on the DIOR-R test set demonstrate the superior efficiency
+and accuracy of LEGNet-S framework. As summarized in
+Table VIII, LEGNet-S achieves SOTA detection performance
+with 68.40% mAP while maintaining the lowest model com-
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+9
+
+TABLE VI: Experimental results on DOTA 1.5 test set [1] compared with SOTA methods with single-scale training and testing.
+LEGNet-S is built within O-RCNN [2] decoder. Other experimental results were referenced from PKINet [4] and SOOD [46].
+Method
+
+PL
+
+BD
+
+BR
+
+GTF
+
+SV
+
+LV
+
+SH
+
+TC
+
+BC
+
+ST
+
+SBF
+
+RA
+
+HA
+
+SP
+
+HC
+
+CC
+
+mAP ↑
+
+RetinaNet-O [47]
+FR-O [43]
+Mask R-CNN [48]
+HTC [49]
+ReDet [44]
+FSDet [50]
+LSKNet-S [3]
+SOOD [46]
+PKINet-S [4]
+
+71.43
+71.89
+76.84
+77.80
+79.20
+80.81
+72.05
+80.32
+80.31
+
+77.64
+74.47
+73.51
+73.67
+82.81
+81.22
+84.94
+84.41
+85.00
+
+42.12
+44.45
+49.90
+51.40
+51.92
+51.35
+55.41
+52.59
+55.61
+
+64.65
+59.87
+57.80
+63.99
+71.41
+72.89
+74.93
+74.77
+74.38
+
+44.53
+51.28
+51.31
+51.54
+52.38
+54.53
+52.42
+58.48
+52.41
+
+56.79
+68.98
+71.34
+73.31
+75.73
+74.12
+77.45
+76.90
+76.85
+
+73.31
+79.37
+79.75
+80.31
+80.92
+81.07
+81.17
+86.97
+88.38
+
+90.84
+90.78
+90.46
+90.48
+90.83
+90.81
+90.85
+90.87
+90.87
+
+76.02
+77.38
+74.21
+75.12
+75.81
+78.40
+79.44
+78.62
+79.04
+
+59.96
+67.50
+66.07
+67.34
+68.64
+76.85
+69.00
+76.56
+68.78
+
+46.95
+47.75
+46.21
+48.51
+49.29
+52.81
+62.10
+62.93
+67.47
+
+69.24
+69.72
+70.61
+70.63
+72.03
+70.42
+73.72
+71.16
+72.45
+
+59.65
+61.22
+63.07
+64.84
+73.36
+73.73
+77.49
+74.64
+76.24
+
+64.52
+65.28
+64.46
+64.48
+70.55
+71.89
+75.29
+76.04
+74.53
+
+48.06
+60.47
+57.81
+55.87
+63.33
+68.45
+55.81
+55.97
+64.07
+
+0.83
+1.54
+9.42
+5.15
+11.53
+14.67
+42.19
+25.09
+37.13
+
+59.16
+62.00
+62.67
+63.40
+66.86
+68.37
+70.26
+70.39
+71.47
+
+LEGNet-S (ours)
+
+80.48
+
+85.04
+
+55.64
+
+74.86
+
+52.64
+
+82.16
+
+89.11
+
+90.88
+
+84.55
+
+68.91
+
+66.21
+
+74.16
+
+77.44
+
+74.68
+
+65.76
+
+43.75
+
+72.89
+
+TABLE VII: Comparison with SOTA methods on FAIR1M-v1.0. Other experimental results were referenced from LSKNet [3].
+Method
+mAP(%) ↑
+
+G. V. [10]
+29.92
+
+RetinaNet [47]
+30.67
+
+C-RCNN [51]
+31.18
+
+FR-O [43]
+32.12
+
+TABLE VIII: Experimental results on DIOR-R test set [29].
+Complexities were tested by 800×800.
+Method
+RetinaNet-O [47]
+FR-O [43]
+G.V. [10]
+RoI Trans. [7]
+LSKNet-S [3]
+GGHL [52]
+Oriented Rep [11]
+DCFL [53]
+PKINet-S [4]
+LEGNet-S
+
+#P ↓
+31.9
+41.1
+41.1
+55.1
+31.0
+36.6
+36.1
+30.8
+29.9
+
+FLOPs ↓
+126.4
+134.4
+134.4
+148.4
+173.6
+118.8
+118.1
+118.1
+
+mAP (%) ↑
+57.55
+59.54
+60.06
+63.87
+65.90
+66.48
+66.71
+66.80
+67.03
+68.40
+
+plexity among compared methods, requiring only 29.9M parameters and 118.1G FLOPs. Our method delivers a 1.37%
+absolute mAP improvement over the previous best-performing
+PKINet-S (67.03%) while simultaneously reducing parameter
+counts by 0.9M (2.9% reduction). LEGNet-S achieves these
+advancements with equivalent computational costs to PKINetS (118.1G FLOPs), outperforming all efficiency-oriented approaches including Oriented Rep [11] (66.71% mAP/118.8G
+FLOPs) and LSKNet-S (65.90% mAP/173.6G FLOPs). These
+advancements highlight LEGNet-S’s capability to effectively
+reconcile the accuracy-efficiency dilemma in oriented object detection, particularly beneficial for resource-constrained
+aerial image analysis scenarios.
+5) Performance on VisDrone2019: The experimental results on the VisDrone2019 benchmark further substantiate
+the effectiveness of our proposed LEGNet-S framework, as
+detailed in Table IX. Integrated with the BAFNet [54] decoder, LEGNet-S establishes new SOTA performance across
+all evaluation metrics, achieving 32.2% AP - a 1.4% absolute
+improvement over the current best method BAFNet (30.8%
+AP). Our method exhibits particularly strong performance in
+small object detection (APs ), achieving an AP of 24.5%,
+outperforming BAFNet by 2.1% and showing 10.2% and
+10.7% relative improvements over GFL V1 [55] (14.3%) and
+DINO [58] (17.5%), respectively. LEGNet-S achieves 55.0%
+AP50 and 32.8% AP75 , surpassing BAFNet by 2.4% and 1.9%,
+respectively, indicating superior localization accuracy at multiple IoU thresholds. The framework maintains performance
+advantages across all object scales, particularly excelling in
+
+RoI Trans. [7]
+35.29
+
+O-RCNN [2]
+45.60
+
+LSKNet-S [3]
+47.87
+
+LEGNet-S
+48.35
+
+TABLE IX: Results of LEGNet compared with SOTA methods
+on VisDrone2019 dataset [31]. LEGNet-S is built within
+BAFNet [54] decoder, and other experimental results were
+referenced from BAFNet.
+Method
+GFL V1 [55]
+CMDNet [56]
+QueryDet [57]
+DINO [58]
+RT-DETR [59]
+BAFNet [54]
+LEGNet-S
+
+Pub. Year
+NeurIPS20
+ICCVW21
+CVPR22
+ICLR23
+CVPR24
+TGRS25
+-
+
+AP
+23.4
+29.2
+28.3
+26.8
+15.9
+30.8
+32.2
+
+AP50
+38.2
+49.5
+48.1
+44.2
+36.5
+52.6
+55.0
+
+AP75
+24.2
+29.8
+28.7
+28.9
+10.7
+30.9
+32.8
+
+APs
+14.3
+16.1
+17.5
+13.8
+22.4
+24.5
+
+APm
+34.7
+35.9
+37.3
+28.4
+41.0
+42.5
+
+APl
+40.1
+36.5
+41.3
+23.1
+43.2
+45.0
+
+small object detection while significantly improving large object recognition (45.0% APl vs. BAFNet’s 43.2%). Compared
+with methods spanning 2020-2025, LEGNet-S shows 3.0% AP
+improvement over the 2023 DINO baseline and 16.3% gain
+compared to 2024’s RT-DETR [59], highlighting consistent
+performance evolution.
+These results validate the enhanced feature representation
+capabilities of LEGNet-S when integrated with boundaryaware decoders, demonstrating particular effectiveness in handling drone-captured scenarios characterized by dense small
+objects and complex backgrounds.
+
+D. Qualitative Results
+The visual results on the DOTA-v1.0 test set were shown in
+Fig. 5. We conducted a visual analysis using SOTA backbones,
+including ARC-R50 [19] and PKINet [4], both of which
+were designed specifically for RSOD tasks. As depicted in
+Figure 5, LEGNet excelled at distinguishing blurry and lowquality objects, successfully detecting challenging low-quality
+objects such as ships, swimming pools, and small vehicles.
+In contrast, ResNet-50, ARC-R50, and PKINet demonstrated
+suboptimal performance when faced with the complexities of
+blurry or low-quality images in a single frame. Additionally,
+ResNet-50, ARC-R50, and PKINet exhibited false detections,
+mistaking clearly visible objects—such as a white object
+on the shore—for a ship, highlighting their limitations in
+boundary sensing.
+
+10
+
+ResNet-50
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+Correct
+
+Missing
+
+Wrong
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Correct
+
+Missing
+
+Wrong
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Wrong
+
+Missing
+
+Missing
+
+Missing
+
+Missing
+
+Correct
+
+Correct
+
+Correct
+
+Correct
+
+Correct
+
+Correct
+
+Correct
+
+Correct
+
+LEGNet-S
+
+PKINet-S
+
+ARC-R50
+
+Missing
+
+Fig. 5: Visualization of detection results on DOTA-v1.0 test set [1]. Input images resolution were 1024×1024.
+TABLE X: Ablation study of LEGNet on DOTA-v1.0 val set.
+Models was pre-train 100 epoch on Imagenet-1k.
+LoG-Stem
+
+EGA
+
+#P ↓
+
+FLOPs ↓
+
+mAP ↑
+
+✓
+LEGNet-T
+
+20.61
+20.65
+20.61
+20.65
+
+135.6
+148.5
+135.6
+148.5
+
+70.8
+71.2
+71.5
+72.2
+
+✓
+
+AP for each category (%) ↑
+SV
+LV
+SP
+HC
+59.7 84.0 55.3
+46.0
+61.5 84.8 61.3
+52.7
+59.7 84.5 57.2
+61.4
+63.2 85.0 59.6
+58.3
+
+E. Ablation Studies
+Table X presented an ablation study of the proposed LEGNet method on the DOTA-v1.0 validation set, where various
+configurations were evaluated. We adopted a backbone with
+a 100-epoch pre-training schedule on the ImageNet-1K [33]
+for experimental efficiency, similar to [3], [4]. Experiments
+compared LEGNet-T with and without the LoG-Stem and
+EGA modules, as well as the individual removal of each
+module, and the full LEGNet-T. In the version without EGA,
+fixed convolutional kernels for edge and Gaussian attention
+were replaced with learnable convolutional kernels. The variant without the LoG-Stem employed learnable convolutional
+kernels with a kernel size of 4 and a stride of 4. The results
+reported the mAP for categories prone to low-quality or
+blurred challenges, such as small vehicles (SV), large vehicles
+(LV), swimming pools (SP), and helicopters (HC).
+As shown in Table X, removing the EGA module slightly
+reduced the mAP to 71.2% compared to the full LEGNet-T
+(72.2%). The version without the LoG-Stem module showed
+a similar mAP (71.5%), but with a notable improvement in
+HC detection (61.4%) and a slight decline in other categories.
+LEGNet-T demonstrated the best overall performance, achieving the highest mAP of 72.2%, with significant improvements
+in SV detection (63.2%) and HC detection (58.3%). These
+results suggested that both the LoG-Stem and EGA modules
+
+contributed to enhancing detection performance, especially for
+challenging categories.
+F. Limitations and Future Works
+The optimal kernel size for Gaussian attention should be
+selected cautiously, as its effectiveness likely varies across
+datasets with different object characteristics. Furthermore, although LEGNet outperforms current SOTA methods in RSOD
+tasks with fewer parameters and lower FLOPs, and includes
+non-gradient back-propagation Gaussian kernels that may improve efficiency, its FPS remains suboptimal. This is likely due
+to the underdeveloped optimizations compared to traditional
+convolution, which requires further investigation.
+Future research may extend this framework to a broader
+range of downstream tasks such as semantic segmentation,
+instance segmentation, and object tracking. Leveraging the
+robust feature extraction and efficiency demonstrated in this
+work, these applications could significantly benefit from the
+integration of edge-Gaussian-driven modeling. Such an extension not only broadens the applicability of our approach but
+also opens up new avenues for achieving high performance
+in diverse computer vision challenges. We encourage future
+researchers to explore task-specific adaptations and to further
+optimize the framework in order to build versatile, scalable,
+and efficient systems that address real-world problems.
+V. C ONCLUSION
+In this paper, we proposed LEGNet—a lightweight network designed for robust RSOD under low-quality imaging
+conditions. By integrating Scharr operator-based edge priors
+with uncertainty-aware Gaussian modeling, LEGNet enhances
+feature representation and object boundary clarity, achieving
+SOTA performance on multiple benchmarks while maintaining
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+computational efficiency. Overall, LEGNet bridges traditional
+image processing and deep learning, offering a promising
+balance between accuracy and efficiency. Future works could
+extend this framework to additional downstream tasks, providing a versatile foundation for further research in aerial and
+satellite image analysis.
+ACKNOWLEDGMENTS
+This work was supported in part by NSFC Key Project
+of International (Regional) Cooperation and Exchanges (No.
+61860206004), NSFC Key Project of Joint Fund for Enterprise
+Innovation and Development (No. U20B2068, U24A20342)
+and National Natural Science Foundation of China (No.
+61976004).
+R EFERENCES
+[1] G.-S. Xia, X. Bai, J. Ding, Z. Zhu, S. Belongie, J. Luo, M. Datcu,
+M. Pelillo, and L. Zhang, “Dota: A large-scale dataset for object
+detection in aerial images,” in Proc. IEEE Conf. Comput. Vis. Pattern
+Recog., 2018, pp. 3974–3983.
+[2] X. Xie, G. Cheng, J. Wang, X. Yao, and J. Han, “Oriented r-cnn for
+object detection,” in Proc. IEEE Conf. Int. Conf. Comput. Vis., 2021,
+pp. 3520–3529.
+[3] Y. Li, Q. Hou, Z. Zheng, M.-M. Cheng, J. Yang, and X. Li, “Large
+selective kernel network for remote sensing object detection,” in Proc.
+IEEE Conf. Int. Conf. Comput. Vis., 2023, pp. 16 794–16 805.
+[4] X. Cai, Q. Lai, Y. Wang, W. Wang, Z. Sun, and Y. Yao, “Poly kernel
+inception network for remote sensing detection,” in Proc. IEEE Conf.
+Comput. Vis. Pattern Recog., 2024, pp. 27 706–27 716.
+[5] X. Yang, H. Sun, K. Fu, J. Yang, X. Sun, M. Yan, and Z. Guo,
+“Automatic ship detection in remote sensing images from google earth
+of complex scenes based on multiscale rotation dense feature pyramid
+networks,” Remote Sens., vol. 10, no. 1, p. 132, 2018.
+[6] S. M. Azimi, E. Vig, R. Bahmanyar, M. Körner, and P. Reinartz,
+“Towards multi-class object detection in unconstrained remote sensing
+imagery,” in Proc. Asian Conf. Comput. Vis., 2018, pp. 150–165.
+[7] J. Ding, N. Xue, Y. Long, G.-S. Xia, and Q. Lu, “Learning roi
+transformer for oriented object detection in aerial images,” in Proc. IEEE
+Conf. Comput. Vis. Pattern Recog., 2019, pp. 2849–2858.
+[8] J. Han, J. Ding, J. Li, and G.-S. Xia, “Align deep features for oriented
+object detection,” IEEE Trans. Geosci. Remote Sens., vol. 60, pp. 1–11,
+2021.
+[9] X. Yang, J. Yan, Z. Feng, and T. He, “R3det: Refined single-stage
+detector with feature refinement for rotating object,” in Proc. AAAI Conf.
+Artif. Intell., 2021, pp. 3163–3171.
+[10] Y. Xu, M. Fu, Q. Wang, Y. Wang, K. Chen, G.-S. Xia, and X. Bai,
+“Gliding vertex on the horizontal bounding box for multi-oriented object
+detection,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 43, no. 4, pp.
+1452–1459, 2020.
+[11] W. Li, Y. Chen, K. Hu, and J. Zhu, “Oriented reppoints for aerial object
+detection,” in Proc. IEEE Conf. Comput. Vis. Pattern Recog., 2022, pp.
+1829–1838.
+[12] X. Yang and J. Yan, “Arbitrary-oriented object detection with circular
+smooth label,” in Proc. Eur. Conf. Comput. Vis., 2020, pp. 677–694.
+[13] X. Yang, J. Yang, J. Yan, Y. Zhang, T. Zhang, Z. Guo, X. Sun, and
+K. Fu, “Scrdet: Towards more robust detection for small, cluttered and
+rotated objects,” in Proc. IEEE Conf. Int. Conf. Comput. Vis., 2019, pp.
+8232–8241.
+[14] X. Yang, J. Yan, Q. Ming, W. Wang, X. Zhang, and Q. Tian, “Rethinking
+rotated object detection with gaussian wasserstein distance loss,” in Proc.
+Int. Conf. Mach. Learn., 2021, pp. 11 830–11 841.
+[15] X. Yang, X. Yang, J. Yang, Q. Ming, W. Wang, Q. Tian, and J. Yan,
+“Learning high-precision bounding box for rotated object detection via
+kullback-leibler divergence,” in Proc. Adv. Neural Inform. Process. Syst.,
+vol. 34, 2021, pp. 18 381–18 394.
+[16] X. Yang, Y. Zhou, G. Zhang, J. Yang, W. Wang, J. Yan, X. Zhang, and
+Q. Tian, “The KFIoU loss for rotated object detection,” in Proc. Int.
+Conf. Learn. Represent., 2023.
+[17] L. Dai, H. Liu, H. Tang, Z. Wu, and P. Song, “Ao2-DETR: Arbitraryoriented object detection transformer,” IEEE Trans. Circuit Syst. Video
+Technol., vol. 33, no. 5, pp. 2342 – 2356, 2022.
+
+11
+
+[18] Y. Tian, M. Zhang, J. Li, Y. Li, H. Yang, and W. Li, “Fpnformer:
+Rethink the method of processing the rotation-invariance and rotationequivariance on arbitrary-oriented object detection,” IEEE Trans. Geosci.
+Remote Sens., vol. 62, pp. 1–10, 2024.
+[19] Y. Pu, Y. Wang, Z. Xia, Y. Han, Y. Wang, W. Gan, Z. Wang, S. Song, and
+G. Huang, “Adaptive rotated convolution for rotated object detection,”
+in Proc. IEEE Conf. Int. Conf. Comput. Vis., 2023, pp. 6589–6600.
+[20] W. Lu, S.-B. Chen, Q.-L. Shu, J. Tang, and B. Luo, “Decouplenet:
+A lightweight backbone network with efficient feature decoupling for
+remote sensing visual tasks,” IEEE Trans. Geosci. Remote Sens., vol. 62,
+pp. 1–13, 2024.
+[21] W. Lu, S. Chen, C. H. Q. Ding, J. Tang, and B. Luo, “Lwganet: A
+lightweight group attention backbone for remote sensing visual tasks,”
+arXiv.org, vol. abs/2501.10040, 2025.
+[22] Y. Zhao, H. Sun, and S. Wang, “Small object detection in medium-lowresolution remote sensing images based on degradation reconstruction.”
+Remote Sens., vol. 16, no. 14, p. 2645, 2024.
+[23] Y. Li, S. Mavromatis, F. Zhang, Z. Du, J. Sequeira, Z. Wang, X. Zhao,
+and R. Liu, “Single-image super-resolution for remote sensing images
+using a deep generative adversarial network with local and global
+attention mechanisms.” IEEE Trans. Geosci. Remote Sens., vol. 60, pp.
+1–24, 2022.
+[24] S. Jia, Z. Wang, Q. Li, X. Jia, and M. Xu, “Multiattention generative
+adversarial network for remote sensing image super-resolution.” IEEE
+Trans. Geosci. Remote Sens., vol. 60, pp. 1–15, 2022.
+[25] X. Feng, W. Zhang, X. Su, and Z. Xu, “Optical remote sensing image
+denoising and super-resolution reconstructing using optimized generative
+network in wavelet transform domain.” Remote Sens., vol. 13, no. 9, p.
+1858, 2021.
+[26] L. Hou, K. Lu, X. Yang, Y. Li, and J. Xue, “G-rep: Gaussian representation for arbitrary-oriented object detection detection.” Remote Sens.,
+vol. 15, no. 3, p. 757, 2023.
+[27] W. Lu, S. Chen, J. Tang, C. H. Q. Ding, and B. Luo, “A robust feature
+downsampling module for remote-sensing visual tasks.” IEEE Trans.
+Geosci. Remote Sens., vol. 61, pp. 1–12, 2023.
+[28] Q. Wang, B. Wu, P. Zhu, P. Li, W. Zuo, and Q. Hu, “Eca-Net: Efficient
+channel attention for deep convolutional neural networks.” in Proc. IEEE
+Conf. Comput. Vis. Pattern Recog., 2020, pp. 11 531–11 539.
+[29] G. Cheng, J. Wang, K. Li, X. Xie, C. Lang, Y. Yao, and J. Han,
+“Anchor-free oriented proposal generator for object detection,” IEEE
+Trans. Geosci. Remote Sens., vol. 60, pp. 1–11, 2022.
+[30] X. Sun, P. Wang, Z. Yan, F. Xu, R. Wang, W. Diao, J. Chen, J. Li,
+Y. Feng, T. Xu et al., “FAIR1M: A benchmark dataset for fine-grained
+object recognition in high-resolution remote sensing imagery,” ISPRS J.
+Photogramm. Remote Sens., vol. 184, pp. 116–130, 2022.
+[31] D. Du, P. Zhu, L. Wen, X. Bian, H. Lin, Q. Hu, T. Peng, J. Zheng,
+X. Wang, Y. Zhang et al., “Visdrone-det2019: The vision meets drone
+object detection in image challenge results,” in Proc. IEEE Conf. Int.
+Conf. Comput. Vis. Worksh., 2019.
+[32] K. Li, G. Wan, G. Cheng, L. Meng, and J. Han, “Object detection in
+optical remote sensing images: A survey and a new benchmark,” ISPRS
+J. Photogramm. Remote Sens., vol. 159, pp. 296–307, 2020.
+[33] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, “Imagenet:
+A large-scale hierarchical image database,” in Proc. IEEE Conf. Comput.
+Vis. Pattern Recog., 2009, pp. 248–255.
+[34] I. Loshchilov, “Decoupled weight decay regularization,” arXiv preprint
+arXiv:1711.05101, 2017.
+[35] I. Loshchilov and F. Hutter, “Sgdr: Stochastic gradient descent with
+warm restarts,” arXiv preprint arXiv:1608.03983, 2016.
+[36] Y. Zhou, X. Yang, G. Zhang, J. Wang, Y. Liu, L. Hou, X. Jiang, X. Liu,
+J. Yan, C. Lyu et al., “Mmrotate: A rotated object detection benchmark
+using pytorch,” in Proc. ACM Int. Conf. Multimedia, 2022, pp. 7331–
+7334.
+[37] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan,
+T. Killeen, Z. Lin, N. Gimelshein, L. Antiga et al., “Pytorch: An
+imperative style, high-performance deep learning library,” in Proc. Adv.
+Neural Inform. Process. Syst., vol. 32, 2019.
+[38] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proc. IEEE Conf. Comput. Vis. Pattern Recog., 2016,
+pp. 770–778.
+[39] T. Ma, M. Mao, H. Zheng, P. Gao, X. Wang, S. Han, E. Ding, B. Zhang,
+and D. S. Doermann, “Oriented object detection with transformer,”
+arXiv, vol. abs/2106.03146, 2021.
+[40] Y. Zeng, Y. Chen, X. Yang, Q. Li, and J. Yan, “ARS-DETR: Aspect
+ratio-sensitive detection transformer for aerial oriented object detection,”
+IEEE Trans. Geosci. Remote Sens., vol. 62, pp. 1–15, 2024.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+[41] L. Hou, K. Lu, J. Xue, and Y. Li, “Shape-adaptive selection and
+measurement for oriented object detection,” in Proc. AAAI Conf. Artif.
+Intell., 2022, pp. 923–932.
+[42] Y. Long, G.-S. Xia, S. Li, W. Yang, M. Y. Yang, X. X. Zhu, L. Zhang,
+and D. Li, “On creating benchmark dataset for aerial image interpretation: Reviews, guidances, and million-aid,” IEEE J. Sel. Topics Appl.
+Earth Observ. Remote Sens., vol. 14, pp. 4205–4230, 2021.
+[43] S. Ren, K. He, R. Girshick, and J. Sun, “Faster r-cnn: Towards real-time
+object detection with region proposal networks,” IEEE Trans. Pattern
+Anal. Mach. Intell., vol. 39, no. 6, pp. 1137–1149, 2016.
+[44] J. Han, J. Ding, N. Xue, and G.-S. Xia, “Redet: A rotation-equivariant
+detector for aerial object detection,” in Proc. IEEE Conf. Comput. Vis.
+Pattern Recog., 2021, pp. 2786–2795.
+[45] Z. Tian, C. Shen, H. Chen, and T. He, “Fcos: A simple and strong
+anchor-free object detector,” IEEE Trans. Pattern Anal. Mach. Intell.,
+vol. 44, no. 4, pp. 1922–1933, 2020.
+[46] Y. Xi, T. Lu, X. Kang, and S. Li, “Structure-adaptive oriented object
+detection network for remote sensing images,” IEEE Trans. Geosci.
+Remote Sens., 2024.
+[47] T.-Y. Lin, P. Goyal, R. Girshick, K. He, and P. Dollár, “Focal loss for
+dense object detection,” in Proc. IEEE Conf. Int. Conf. Comput. Vis.,
+2017, pp. 2980–2988.
+[48] K. He, G. Gkioxari, P. Dollár, and R. Girshick, “Mask R-CNN,” in Proc.
+IEEE Conf. Int. Conf. Comput. Vis., 2017, pp. 2961–2969.
+[49] K. Chen, J. Pang, J. Wang, Y. Xiong, X. Li, S. Sun, W. Feng,
+Z. Liu, J. Shi, W. Ouyang et al., “Hybrid task cascade for instance
+segmentation,” in Proc. IEEE Conf. Comput. Vis. Pattern Recog., 2019,
+pp. 4974–4983.
+[50] Y. Yu, X. Yang, J. Li, and X. Gao, “Object detection for aerial images
+with feature enhancement and soft label assignment,” IEEE Trans.
+Geosci. Remote Sens., vol. 60, pp. 1–16, 2022.
+[51] Z. Cai and N. Vasconcelos, “Cascade R-CNN: Delving into high quality
+object detection,” in Proc. IEEE Conf. Comput. Vis. Pattern Recog.,
+2018, pp. 6154–6162.
+[52] Z. Huang, W. Li, X.-G. Xia, and R. Tao, “A general gaussian heatmap
+label assignment for arbitrary-oriented object detection,” IEEE Trans.
+Image Process., vol. 31, pp. 1895–1910, 2022.
+[53] C. Xu, J. Ding, J. Wang, W. Yang, H. Yu, L. Yu, and G.-S. Xia,
+“Dynamic coarse-to-fine learning for oriented tiny object detection,” in
+Proc. IEEE Conf. Comput. Vis. Pattern Recog., 2023, pp. 7318–7328.
+[54] J. Song, M. Zhou, J. Luo, H. Pu, Y. Feng, X. Wei, and W. Jia, “Boundaryaware feature fusion with dual-stream attention for remote sensing small
+object detection,” IEEE Trans. Geosci. Remote Sens., vol. 63, pp. 1–13,
+2025.
+[55] X. Li, W. Wang, L. Wu, S. Chen, X. Hu, J. Li, J. Tang, and J. Yang,
+“Generalized focal loss: Learning qualified and distributed bounding
+boxes for dense object detection.” in Proc. Adv. Neural Inform. Process.
+Syst., vol. 33, 2020, pp. 21 002–21 012.
+[56] C. Duan, Z. Wei, C. Zhang, S. Qu, and H. Wang, “Coarse-grained density
+map guided object detection in aerial images,” Proc. IEEE Conf. Int.
+Conf. Comput. Vis. Worksh., pp. 2789–2798, 2021.
+[57] C. Yang, Z. Huang, and N. Wang, “Querydet: Cascaded sparse query
+for accelerating high-resolution small object detection.” in Proc. IEEE
+Conf. Comput. Vis. Pattern Recog., 2022, pp. 13 658–13 667.
+[58] H. Zhang, F. Li, S. Liu, L. Zhang, H. Su, J. Zhu, L. M. Ni, and H.-Y.
+Shum, “Dino: Detr with improved denoising anchor boxes for end-toend object detection.” in Proc. Int. Conf. Learn. Represent., 2023.
+[59] Y. Zhao, W. Lv, S. Xu, J. Wei, G. Wang, Q. Dang, Y. Liu, and J. Chen,
+“Detrs beat yolos on real-time object detection,” Proc. IEEE Conf.
+Comput. Vis. Pattern Recog., pp. 16 965–16 974, 2024.
+
+Wei Lu received the B.Eng. degree from Fuyang
+Normal University, China in 2020. He is currently
+pursuing a Ph.D. in computer science from Anhui
+University, Hefei, China. His current research interests include image processing, efficient AI, low-level
+visual tasks, and remote sensing. Many of his works
+have been accepted by top journals.
+
+12
+
+Si-Bao Chen received the B.S. and M.S. degrees
+in probability and statistics and the Ph.D. degree in
+computer science from Anhui University of China
+in 2000, 2003, and 2006, respectively. From 2006 to
+2008, he was a Postdoctoral Researcher at the University of Science and Technology of China. Since
+2008, he has been a teacher at Anhui University.
+From 2014 to 2015, he was a visiting scholar at
+the University of Texas in Arlington. His current
+research interests include image processing, pattern
+recognition, machine learning and computer vision.
+Hui-Dong Li received the B.S. degree from Anhui
+University of Technology, Ma’anshan, China, in
+2022. He is currently pursuing the M.S. degree in
+computer science and technology from Anhui University, Hefei, China. His research interests include
+object detection and remote sensing.
+
+Qing-Ling Shu received the B.S degree in computer
+science and technology from Anhui Normal University, Wuhu, China, in 2022. She is currently working
+toward the Ph.D. degree in computer technology
+from Anhui University of China. Her research interests include machine learning, pattern recognition,
+computer vision , and change detection in remote
+sensing.
+
+Chris H.Q. Ding obtained his Ph.D. from Columbia
+University in 1987. He has held positions at the
+California Institute of Technology, Jet Propulsion
+Laboratory, Lawrence Berkeley National Laboratory,
+University of California, and the University of Texas
+in Arlington. Since 2021, he has been affiliated with
+the Chinese University of Hong Kong, Shenzhen. Dr.
+Ding is an expert in machine learning, data mining,
+bioinformatics, information retrieval, web link analysis, and high-performance computing. His works
+were cited over 60,000 times (Google scholar).
+Jin Tang received the B.Eng. degree in automation
+and the Ph.D. degree in computer science from
+Anhui University, Hefei, China, in 1999 and 2007,
+respectively. He is currently a Professor with the
+School of Computer Science and Technology, Anhui
+University. His current research interests include
+computer vision, pattern recognition, machine learning, and deep learning. His works were cited nearly
+10,000 times (Google scholar).
+
+Bin Luo received the B.Eng. degree in electronics and the M.Eng. degree in computer science
+from Anhui University, Hefei, China, in 1984 and
+1991, respectively, and the Ph.D. degree in computer
+science from the University of York, York, U.K.,
+in 2002. From 2000 to 2004, he was a Research
+Associate with the University of York. He is currently a Professor with Anhui University. His current research interests include graph spectral analysis, image and graph matching, statistical pattern
+recognition, digital watermarking, and information
+security. His works were cited over 10,000 times (Google scholar).
+
+
